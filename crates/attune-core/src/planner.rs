@@ -229,11 +229,18 @@ impl TransitionPlanner {
         let punch_duration_ms = beat_ms * 2; // 2-beat pickup riff/fill
 
         let a_cut_point = exit_a
-            .and_then(|z| z.downbeats_ms.last().copied())
+            .and_then(|z| {
+                z.downbeats_ms
+                    .iter()
+                    .copied()
+                    .filter(|&db| db <= z.end_ms)
+                    .last()
+                    .or_else(|| z.downbeats_ms.last().copied())
+            })
             .unwrap_or(track_a.track_id.duration_ms.saturating_sub(punch_duration_ms));
 
         let b_entry_point = entry_b
-            .and_then(|z| z.beats_ms.first().copied())
+            .map(|z| z.start_ms)
             .unwrap_or(0);
 
         let keyframes = vec![
@@ -335,11 +342,25 @@ impl TransitionPlanner {
         let half_window_ms = swap_window_ms / 2;
 
         let a_start = exit_a
-            .and_then(|z| z.phrase_boundaries_ms.last().copied())
+            .and_then(|z| {
+                z.phrase_boundaries_ms
+                    .iter()
+                    .copied()
+                    .filter(|&pb| pb + swap_window_ms <= z.end_ms + 500)
+                    .last()
+                    .or_else(|| {
+                        z.downbeats_ms
+                            .iter()
+                            .copied()
+                            .filter(|&db| db + swap_window_ms <= z.end_ms + 500)
+                            .last()
+                    })
+                    .or_else(|| Some(z.end_ms.saturating_sub(swap_window_ms)))
+            })
             .unwrap_or(track_a.track_id.duration_ms.saturating_sub(swap_window_ms));
 
         let b_start = entry_b
-            .and_then(|z| z.phrase_boundaries_ms.first().copied())
+            .map(|z| z.start_ms)
             .unwrap_or(0);
 
         let tempo_ratio = bpm_a / bpm_b;
@@ -439,11 +460,25 @@ impl TransitionPlanner {
         let freeze_duration_ms = 3500u64; // 3.5s lush reverb decay
 
         let a_freeze_point = exit_a
-            .and_then(|z| z.downbeats_ms.last().copied())
+            .and_then(|z| {
+                z.downbeats_ms
+                    .iter()
+                    .copied()
+                    .filter(|&db| db + 300 <= z.end_ms)
+                    .last()
+                    .or_else(|| {
+                        z.beats_ms
+                            .iter()
+                            .copied()
+                            .filter(|&b| b + 300 <= z.end_ms)
+                            .last()
+                    })
+                    .or_else(|| z.downbeats_ms.last().copied())
+            })
             .unwrap_or(track_a.track_id.duration_ms.saturating_sub(freeze_duration_ms));
 
         let b_start = entry_b
-            .and_then(|z| z.beats_ms.first().copied())
+            .map(|z| z.start_ms)
             .unwrap_or(0);
 
         let keyframes = vec![
@@ -538,8 +573,15 @@ impl TransitionPlanner {
         entry_b: Option<&crate::schema::CueZone>,
     ) -> TransitionRecipe {
         let a_cut = exit_a
-            .map(|z| z.end_ms.saturating_sub(1000))
-            .unwrap_or(track_a.track_id.duration_ms.saturating_sub(1000));
+            .and_then(|z| {
+                z.downbeats_ms
+                    .iter()
+                    .copied()
+                    .filter(|&db| db <= z.end_ms)
+                    .last()
+                    .or_else(|| z.beats_ms.last().copied())
+            })
+            .unwrap_or_else(|| exit_a.map(|z| z.end_ms).unwrap_or(track_a.track_id.duration_ms.saturating_sub(100)));
 
         let b_start = entry_b.map(|z| z.start_ms).unwrap_or(0);
 

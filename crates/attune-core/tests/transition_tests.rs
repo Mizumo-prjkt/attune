@@ -85,3 +85,36 @@ fn test_renderer_wav_output() {
     assert!(out_wav.exists());
     let _ = std::fs::remove_file(out_wav);
 }
+
+#[test]
+fn test_audible_silence_detection() {
+    let sr = 44100;
+    // 500ms silence + 1000ms tone + 500ms silence = 2000ms total
+    let total_frames = (2.0 * sr as f32) as usize;
+    let mut ch0 = vec![0.0f32; total_frames];
+    let mut ch1 = vec![0.0f32; total_frames];
+
+    let start_idx = (0.5 * sr as f32) as usize;
+    let end_idx = (1.5 * sr as f32) as usize;
+    for i in start_idx..end_idx {
+        let t = i as f32 / sr as f32;
+        let s = (2.0 * PI * 440.0 * t).sin() * 0.7;
+        ch0[i] = s;
+        ch1[i] = s;
+    }
+
+    let buf = AudioBuffer {
+        channels: vec![ch0, ch1],
+        sample_rate: sr,
+    };
+
+    let start_ms = buf.find_audible_start_ms(-45.0);
+    let end_ms = buf.find_audible_end_ms(-45.0);
+
+    // Should detect start around 500ms and end around 1500ms within 20ms chunk tolerance
+    assert!((start_ms as i64 - 500).abs() <= 20, "start_ms was {}", start_ms);
+    assert!((end_ms as i64 - 1500).abs() <= 20, "end_ms was {}", end_ms);
+}
+
+
+

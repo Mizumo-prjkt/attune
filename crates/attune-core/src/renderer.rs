@@ -71,8 +71,14 @@ impl TransitionRenderer {
         let mut out_left = vec![0.0f32; total_frames];
         let mut out_right = vec![0.0f32; total_frames];
 
-        // Reverb freeze state for Archetype 4
-        let mut freeze_buf = vec![0.0f32; (sr as f32 * 0.25) as usize];
+        // Reverb freeze state for Archetype 4: capture the outgoing chord at a_start
+        let freeze_samples_len = (sr as f32 * 0.25) as usize;
+        let mut freeze_buf = vec![0.0f32; freeze_samples_len];
+        for i in 0..freeze_samples_len {
+            let l = slice_a_trans.channels.get(0).and_then(|c| c.get(i)).copied().unwrap_or(0.0);
+            let r = slice_a_trans.channels.get(1).and_then(|c| c.get(i)).copied().unwrap_or(l);
+            freeze_buf[i] = (l + r) * 0.5;
+        }
         let mut freeze_idx = 0;
 
         for frame_idx in 0..total_frames {
@@ -98,12 +104,9 @@ impl TransitionRenderer {
                 let mut processed_a_r = a_r * gain_a * db_to_linear(auto_a.eq_mid_db);
 
                 if auto_a.reverb_freeze_send > 0.01 {
-                    if trans_idx < freeze_buf.len() {
-                        freeze_buf[trans_idx] = (a_l + a_r) * 0.5;
-                    }
                     let freeze_sample = freeze_buf[freeze_idx % freeze_buf.len()];
                     freeze_idx += 1;
-                    let decay = (-3.0 * (trans_idx as f32 / trans_frames as f32)).exp();
+                    let decay = (-2.5 * (trans_idx as f32 / trans_frames as f32)).exp();
                     let wash = freeze_sample * auto_a.reverb_freeze_send * decay;
                     processed_a_l += wash;
                     processed_a_r += wash;

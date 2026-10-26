@@ -91,6 +91,77 @@ impl AudioBuffer {
         }
     }
 
+    /// Find the first timestamp (in ms) where audio energy exceeds threshold_db
+    pub fn find_audible_start_ms(&self, threshold_db: f32) -> u64 {
+        let num_frames = self.num_frames();
+        if num_frames == 0 || self.channels.is_empty() {
+            return 0;
+        }
+        let sr = self.sample_rate as usize;
+        let window = (sr / 50).max(1); // 20ms window
+        let thresh_linear = 10.0f32.powf(threshold_db / 20.0);
+        let max_scan_frames = (sr * 30).min(num_frames); // scan at most first 30s
+
+        let num_channels = self.channels.len();
+        let inv_ch = 1.0f32 / num_channels as f32;
+
+        for chunk_start in (0..max_scan_frames).step_by(window) {
+            let chunk_end = (chunk_start + window).min(num_frames);
+            let chunk_len = chunk_end - chunk_start;
+            let mut sum_sq = 0.0f32;
+            for ch in &self.channels {
+                for &s in &ch[chunk_start..chunk_end] {
+                    sum_sq += s * s;
+                }
+            }
+            let rms = (sum_sq * inv_ch / chunk_len as f32).sqrt();
+            if rms >= thresh_linear {
+                return ((chunk_start as f64 / self.sample_rate as f64) * 1000.0) as u64;
+            }
+        }
+        0
+    }
+
+    /// Find the last timestamp (in ms) where audio energy exceeds threshold_db
+    pub fn find_audible_end_ms(&self, threshold_db: f32) -> u64 {
+        let num_frames = self.num_frames();
+        if num_frames == 0 || self.channels.is_empty() {
+            return self.duration_ms();
+        }
+        let sr = self.sample_rate as usize;
+        let window = (sr / 50).max(1); // 20ms window
+        let thresh_linear = 10.0f32.powf(threshold_db / 20.0);
+        let min_scan_frame = num_frames.saturating_sub(sr * 45); // scan at most last 45s
+
+        let num_channels = self.channels.len();
+        let inv_ch = 1.0f32 / num_channels as f32;
+
+        let last_chunk_start = (num_frames / window) * window;
+        let mut chunk_start = last_chunk_start;
+
+        while chunk_start >= min_scan_frame {
+            let chunk_end = (chunk_start + window).min(num_frames);
+            let chunk_len = chunk_end - chunk_start;
+            if chunk_len > 0 {
+                let mut sum_sq = 0.0f32;
+                for ch in &self.channels {
+                    for &s in &ch[chunk_start..chunk_end] {
+                        sum_sq += s * s;
+                    }
+                }
+                let rms = (sum_sq * inv_ch / chunk_len as f32).sqrt();
+                if rms >= thresh_linear {
+                    return ((chunk_end as f64 / self.sample_rate as f64) * 1000.0) as u64;
+                }
+            }
+            if chunk_start < window {
+                break;
+            }
+            chunk_start -= window;
+        }
+        self.duration_ms()
+    }
+
     /// Compute a fast content-addressable acoustic hash
     pub fn compute_hash(&self) -> String {
         let mono = self.to_mono();

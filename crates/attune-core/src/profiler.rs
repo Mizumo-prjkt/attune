@@ -39,42 +39,39 @@ impl AudioProfiler {
             canonical_slug: canonical_slug.to_string(),
         };
 
-        // Define Cue Zones:
-        // Entry: [0, 45s]
-        // Exit: [dur - 45s, dur]
+        // Detect audible boundaries (-45 dBFS threshold) to completely eliminate dead air / pre-gap / post-gap
+        let audible_start = audio.find_audible_start_ms(-45.0);
+        let audible_end = audio.find_audible_end_ms(-45.0).max(audible_start + 1000);
+        let audible_dur = audible_end - audible_start;
+
+        // Define Cue Zones strictly within audible boundaries:
+        // Entry: [audible_start, min(audible_start + 45s, audible_end)]
+        // Exit: [max(audible_start, audible_end - 45s), audible_end]
         let mut cue_zones = Vec::new();
 
-        let entry_end_ms = 45_000.min(dur_ms);
+        let entry_end_ms = (audible_start + 45_000).min(audible_end);
         let entry_zone = self.extract_cue_zone(
             &mono,
             sr,
-            0,
+            audible_start,
             entry_end_ms,
             ZoneType::ENTRY,
         );
         cue_zones.push(entry_zone);
 
-        if dur_ms > 45_000 {
-            let exit_start_ms = dur_ms.saturating_sub(45_000);
-            let exit_zone = self.extract_cue_zone(
-                &mono,
-                sr,
-                exit_start_ms,
-                dur_ms,
-                ZoneType::EXIT,
-            );
-            cue_zones.push(exit_zone);
+        let exit_start_ms = if audible_dur > 45_000 {
+            audible_end.saturating_sub(45_000).max(audible_start)
         } else {
-            let exit_start_ms = dur_ms / 2;
-            let exit_zone = self.extract_cue_zone(
-                &mono,
-                sr,
-                exit_start_ms,
-                dur_ms,
-                ZoneType::EXIT,
-            );
-            cue_zones.push(exit_zone);
-        }
+            audible_start + audible_dur / 2
+        };
+        let exit_zone = self.extract_cue_zone(
+            &mono,
+            sr,
+            exit_start_ms,
+            audible_end,
+            ZoneType::EXIT,
+        );
+        cue_zones.push(exit_zone);
 
         // Global summary
         let global_summary = self.compute_global_summary(&cue_zones);

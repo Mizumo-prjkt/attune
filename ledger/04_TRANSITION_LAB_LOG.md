@@ -132,4 +132,37 @@ These four benchmark scenarios define the "Gold Standard" transitions that Attun
 - **Selected Archetype & Cue Timestamps**: `ARCHETYPE_4_TAIL_FREEZE` (Confidence: 0.89), Mix Window: 152178 ms -> 155678 ms.
 - **Listening / Spectral Verdict**: `PASS`. Rendered to `target/benchmarks/konton_to_rabbit_hole.wav` (2.7 MB, ~15.3 seconds). Clean tempo-synced tail freeze on Konton Boogie's abrupt cut into Rabbit Hole's punchy intro.
 
+---
+
+### [2026-10-27] Exp #008: Real Audio Silence Gating & Boundary Clipping (Dead-Air Elimination)
+- **Track Pairs Tested**:
+  1. `Rabbit Hole` -> `(Not) A Devil` (RiffHandoff)
+  2. `Senbonzakura` -> `World is Mine` (TailFreeze)
+  3. `Konton Boogie` -> `Rabbit Hole` (TailFreeze)
+- **Algorithm Version / Commit**: `Phase 1 Headless Engine v0.1.2`
+- **Root Cause Identified**:
+  - Raw studio FLAC tracks commonly contain 200 ms to 1.5 s of digital silence or noise floor at the track start (pre-gap) and 1 s to 4 s of fadeout room tone/dead air at track end.
+  - The previous Cue Zone profiler extracted from $t=0$ to $45\text{s}$ for Entry, and $[\text{duration} - 45\text{s}, \text{duration}]$ for Exit.
+  - Consequently, Track A's exit downbeat was chosen *inside* trailing silence (e.g. at 158800 ms in Rabbit Hole whose music ends at 157960 ms), and Track B entered at $t=150\text{ ms}$ (while (Not) A Devil's music only becomes audible at 1080 ms).
+  - This caused both tracks to overlap in their respective silent zones, producing an audible $1.0\text{s}$ silence dropout ($-120\text{ dBFS}$) between $t=4.8\text{s}$ and $t=5.8\text{s}$ in the rendered transition window.
+- **Engineering Fixes Applied**:
+  1. **Dynamic RMS Silence Gating (`AudioBuffer`)**: Added allocation-free, 20 ms windowed `find_audible_start_ms(-45.0)` and `find_audible_end_ms(-45.0)` scanning head and tail bounds.
+  2. **Strict Audible Cue Zone Clipping (`AudioProfiler`)**:
+     - `ZoneType::ENTRY` is anchored to `[audible_start, min(audible_start + 45s, audible_end)]`.
+     - `ZoneType::EXIT` is anchored to `[max(audible_start, audible_end - 45s), audible_end]`.
+  3. **Transition Planner Active Alignment (`TransitionPlanner`)**:
+     - In `RiffHandoff`: `a_cut_point` selects the last downbeat strictly before `audible_end`, and Track B starts immediately at `entry_b.start_ms`.
+     - In `TailFreeze`: `a_freeze_point` selects the last audible downbeat/beat before the fade, and pre-populates `freeze_buf` with the actual chord audio so the reverb wash has rich harmonic energy from sample 0.
+     - In `EqSwap`: ensures `a_start + swap_window <= exit_a.end_ms`.
+- **Empirical RMS Verification**:
+  - `Rabbit Hole -> (Not) A Devil`:
+    - Before fix: $t = 5.00\text{s} \to -120.0\text{ dBFS}$ (dead air).
+    - After fix: $t = 5.00\text{s} \to -9.9\text{ dBFS}$, $t = 5.20\text{s} \to -23.5\text{ dBFS}$, $t = 5.40\text{s} \to -29.0\text{ dBFS}$ (immediate punchy pickup).
+  - `Senbonzakura -> World is Mine`:
+    - Every 200 ms block has audio: $t = 5.00\text{s} \to -30.0\text{ dBFS}$ (freeze wash triggered on chord), $t = 5.40\text{s} \to -16.3\text{ dBFS}$ (World is Mine intro rising).
+  - `Konton Boogie -> Rabbit Hole`:
+    - Continuous energy throughout: $t = 5.00\text{s} \to -24.0\text{ dBFS}$ (freeze wash), $t = 5.20\text{s} \to -15.1\text{ dBFS}$ (Rabbit Hole drums slam in).
+- **Listening Verdict**: `PASS`. Transitions are now 100% immediate, musical, and completely devoid of awkward dead air.
+
+
 

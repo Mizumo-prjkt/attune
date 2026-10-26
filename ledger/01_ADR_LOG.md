@@ -87,3 +87,19 @@ This file records all major architectural decisions for **Attune**, including co
 - **Consequences**:
   - The entire DSP analysis and transition planning engine builds and tests headlessly with `cargo test` in seconds.
   - All 4 benchmark transitions are fully automated and reproducible without external runtime audio daemon dependencies.
+
+---
+
+## ADR-007: Dynamic Silence Boundary Detection & Pre-Gap/Post-Gap Clipping
+- **Date**: 2026-10-27
+- **Status**: `LOCKED`
+- **Context**: Studio lossless audio tracks (FLAC/WAV) frequently contain digital silence, dither noise, or room tone at the start (pre-gap: 200ms–1.5s) and end (post-gap/fade: 1s–4s). Naive extraction from $t=0$ and $t=\text{duration}-45\text{s}$ causes the outgoing track's cut/freeze anchor to land inside trailing dead air, while the incoming track starts during leading silence, producing an audible silence hole (drop to $-120\text{ dBFS}$) during transitions.
+- **Decision**:
+  - Add fast, allocation-free RMS silence boundary scanners (`find_audible_start_ms(-45.0)` and `find_audible_end_ms(-45.0)`) in `AudioBuffer` operating in 20 ms window chunks.
+  - `AudioProfiler::profile_track` strictly bounds `ZoneType::ENTRY` to start at `audible_start_ms` and `ZoneType::EXIT` to terminate at `audible_end_ms`.
+  - `TransitionPlanner` anchors transition cuts and freeze triggers to the last musical downbeat/beat within `[audible_start, audible_end]`, and starts Track B at `entry_b.start_ms` (first audible transient).
+  - In `TransitionRenderer`, pre-populate the freeze buffer (`freeze_buf`) with the chord hit at transition start so the reverb freeze wash has harmonic energy from sample 0.
+- **Consequences**:
+  - Eliminates all dead air / silence gaps between tracks.
+  - Transitions are punchy, continuous, and immediately musical across all archetypes.
+
