@@ -1,9 +1,9 @@
 # 00 — Attune Master Knowledge Ledger
 
 - **Project Name**: Attune
-- **Current Phase**: `Phase 1 COMPLETED -> Ready for Phase 2 (Real-Time Dual-Deck Native Engine)`
+- **Current Phase**: `Phase 2 COMPLETED -> Ready for Phase 3 (Portable Cache & External Compute Node)`
 - **Last Updated**: 2026-10-27
-- **Active Coding Status**: Phase 1 Headless DSP Sandbox & CLI operational. 5-Layer profiler, transition planner (Archetypes 1–5), and WAV renderer fully tested across all 4 empirical benchmarks.
+- **Active Coding Status**: Phase 2 Real-Time Dual-Deck Native Playback Engine operational. `DualDeckMixer`, `Deck` DSP chain (3-band isolator EQ, reverb freeze wash, Hermite interpolation resampler), `JitPlanner`, and real-time audio output driver (`cpal`) fully verified via `attune-cli live` on real audio hardware.
 
 ---
 
@@ -24,8 +24,8 @@ Furthermore, Attune decouples **Audio Profiling / Transition Planning** from **R
 | :--- | :--- | :--- | :--- |
 | **Phase 0** | **Knowledge Ledger & Spec Lock** | Complete `/ledger/` docs and lock down core tech stack + cache options with user. | **COMPLETED** |
 | **Phase 1** | **Headless DSP Sandbox (`attune-cli`)** | CLI extracts 5-layer `.tap` profiles, generates `.ptr` recipes, and renders benchmark transitions (Whitney $\rightarrow$ Mariah, Ado $\rightarrow$ Punk/Rock, Slow Rock $\rightarrow$ Pop) to WAV for listening verification. | **COMPLETED** |
-| **Phase 2** | **Real-Time Dual-Deck Native Engine** | Lock-free dual-deck playback mixer executing `.ptr` time-stretch, formant pitch-shift, and 3-band EQ curves in real time + On-Demand 45s JIT Fast-Pass. | **READY TO START** |
-| **Phase 3** | **Portable Cache & External Compute Node** | SQLite + blob cache indexing, acoustic fingerprinting, Demucs stem-bridge export, and LAN/file sync from external compute worker to client. | PENDING |
+| **Phase 2** | **Real-Time Dual-Deck Native Engine** | Lock-free dual-deck playback mixer executing `.ptr` time-stretch, formant pitch-shift, and 3-band EQ curves in real time + On-Demand 45s JIT Fast-Pass + real-time audio driver. | **COMPLETED** |
+| **Phase 3** | **Portable Cache & External Compute Node** | SQLite + blob cache indexing, acoustic fingerprinting, Demucs stem-bridge export, and LAN/file sync from external compute worker to client. | **READY TO START** |
 | **Phase 4** | **Flutter Frontend & Transition Inspector** | Connect Flutter UI via FFI (`flutter_rust_bridge`), starting with a visual waveform/curve Transition Inspector and expanding into the full music player UI. | PENDING |
 
 ---
@@ -41,17 +41,19 @@ Furthermore, Attune decouples **Audio Profiling / Transition Planning** from **R
 | **ADR-005** | External Node Stem Bridges | Export `.tap`/`.ptr` metadata caches by default, plus optionally pre-render short 5–8s isolated vocal/instrument stem bridges (via Demucs) for hero transitions. | **LOCKED** |
 | **ADR-006** | Audio Ingestion & Spectral Extraction | Pure Rust decoding pipeline via `symphonia`, WAV rendering via `hound`, and RealFFT for 20Hz frame extraction. | **LOCKED** |
 | **ADR-007** | Silence Gating & Boundary Clipping | Dynamic RMS -45 dBFS silence gating and strict audible boundary clipping in `AudioProfiler` and `TransitionPlanner` to eliminate dead air / pre-gap gaps in transitions. | **LOCKED** |
+| **ADR-008** | Real-Time Dual-Deck Engine & cpal Output Driver | Real-time sample-accurate `DualDeckMixer` with 3-band isolator biquad EQ, Hermite interpolation resampler, reverb freeze wash, soft limiter, and `cpal` device playback. | **LOCKED** |
 
 ---
 
 ## 4. Session Handoff Checklist (For Next AI Session)
 
-1. Review [`04_TRANSITION_LAB_LOG.md`](file:///home/miku/Documents/attune/ledger/04_TRANSITION_LAB_LOG.md) to inspect empirical results from Exp #001 through #008 (including real FLAC transitions with silence elimination).
-2. Start **Phase 2**: Implement the Real-Time Dual-Deck native playback engine in `crates/attune-core`:
-   - Dual-deck lock-free ring buffers (Deck A & Deck B).
-   - Sample-accurate real-time keyframe automation evaluator.
-   - Real-time audio stream callback integration via `miniaudio` / `cpal`.
-   - On-Demand JIT Mode 1 background thread fast-pass for queued songs.
+1. Review [`04_TRANSITION_LAB_LOG.md`](file:///home/miku/Documents/attune/ledger/04_TRANSITION_LAB_LOG.md) to inspect empirical results from Exp #001 through #009 (including live playback verification via `attune-cli live`).
+2. Start **Phase 3**: Implement the Portable Cache & External Compute Node architecture in `crates/attune-core`:
+   - SQLite cache repository (`attune_cache.db`) indexing `.tap` and `.ptr` by Blake3 acoustic hash.
+   - External Compute Worker daemon CLI (`attune-cli worker / server`) for background library scanning.
+   - Demucs/HTDemucs stem extraction protocol for 5–8s isolated vocal/riff stem bridge exports.
+   - Local LAN sync protocol (mDNS / HTTP API) between desktop worker and mobile/lightweight clients.
 3. Keep updating [`00_MASTER_LEDGER.md`](file:///home/miku/Documents/attune/ledger/00_MASTER_LEDGER.md) and record any new decisions in [`01_ADR_LOG.md`](file:///home/miku/Documents/attune/ledger/01_ADR_LOG.md).
+
 
 

@@ -1,12 +1,14 @@
 mod benchmarks;
 
 use attune_core::audio::AudioDecoder;
+use attune_core::engine::{AudioOutputDriver, DeckId, DualDeckMixer, JitPlanner};
 use attune_core::planner::TransitionPlanner;
 use attune_core::profiler::AudioProfiler;
 use attune_core::renderer::TransitionRenderer;
 use attune_core::schema::{AnalysisTier, TrackAnalysisProfile, TransitionRecipe};
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
+use std::sync::{Arc, Mutex};
 
 #[derive(Parser)]
 #[command(name = "attune-cli")]
@@ -71,6 +73,17 @@ enum Commands {
         /// Directory to store generated benchmark WAV files and outputs
         #[arg(short, long, default_value = "target/benchmarks")]
         dir: PathBuf,
+    },
+
+    /// Real-time live playback and dual-deck automated mixing through system audio
+    Live {
+        /// Outgoing Track A audio file
+        audio_a: PathBuf,
+        /// Incoming Track B audio file
+        audio_b: PathBuf,
+        /// Transition lead-in seek preview for Track A (in seconds before transition start, default: 8.0s)
+        #[arg(short, long, default_value_t = 8.0)]
+        lead_in_sec: f32,
     },
 }
 
@@ -266,6 +279,126 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
 
             println!("\n✅ All benchmark test cases executed successfully!");
+        }
+
+        Commands::Live {
+            audio_a,
+            audio_b,
+            lead_in_sec,
+        } => {
+            println!("🎧 Attune Real-Time Dual-Deck Native Playback Engine");
+            println!("   Loading Track A: {}", audio_a.display());
+            let buf_a = AudioDecoder::load_file(&audio_a)?;
+            println!("   Loading Track B: {}", audio_b.display());
+            let buf_b = AudioDecoder::load_file(&audio_b)?;
+
+            let slug_a = audio_a.file_stem().and_then(|s| s.to_str()).unwrap_or("track_a");
+            let slug_b = audio_b.file_stem().and_then(|s| s.to_str()).unwrap_or("track_b");
+
+            println!("⚡ Running On-Demand JIT Mode 1 Fast-Pass Planner (<150 ms)...");
+            let jit = JitPlanner::new();
+            let start_jit = std::time::Instant::now();
+            let recipe = jit.plan_jit(&buf_a, slug_a, &buf_b, slug_b);
+            let elapsed_jit = start_jit.elapsed();
+
+            println!(
+                "🎯 JIT Plan generated in {:.2}ms! Selected Archetype: {:?} (Confidence: {:.2})",
+                elapsed_jit.as_secs_f64() * 1000.0,
+                recipe.archetype,
+                recipe.confidence_score
+            );
+            println!(
+                "   Mix Window: Track A [{}ms - {}ms] -> Track B [{}ms - {}ms]",
+                recipe.timing.track_a_transition_start_ms,
+                recipe.timing.track_a_exit_end_ms,
+                recipe.timing.track_b_entry_start_ms,
+                recipe.timing.track_b_native_lock_ms
+            );
+
+            let sr = buf_a.sample_rate;
+            let mixer = Arc::new(Mutex::new(DualDeckMixer::new(sr)));
+
+            {
+                let mut m = mixer.lock().unwrap();
+                m.load_track_a(buf_a);
+                m.load_track_b(buf_b);
+
+                // Lead-in positioning for quick listening verification
+                let trans_start_ms = recipe.timing.track_a_transition_start_ms;
+                let lead_in_ms = (lead_in_sec * 1000.0) as u64;
+                let seek_pos = trans_start_ms.saturating_sub(lead_in_ms);
+                println!(
+                    "⏩ Cueing Track A to lead-in position: {:.1}s (transition starts at {:.1}s)",
+                    seek_pos as f64 / 1000.0,
+                    trans_start_ms as f64 / 1000.0
+                );
+                m.deck_a.seek_ms(seek_pos);
+                m.play();
+            }
+
+            println!("🔊 Initializing real-time cpal audio output device...");
+            let driver = match AudioOutputDriver::new(Arc::clone(&mixer)) {
+                Ok(d) => {
+                    println!(
+                        "   Device initialized: {} Hz, {} channels",
+                        d.sample_rate(),
+                        d.channels()
+                    );
+                    Some(d)
+                }
+                Err(e) => {
+                    println!("⚠️ Could not open audio device (headless environment): {}", e);
+                    println!("   Falling back to software audio loop simulation.");
+                    None
+                }
+            };
+
+            println!("\n▶️ Live playback started! Press Ctrl+C to stop.\n");
+
+            let trans_recipe = recipe.clone();
+            let mut post_transition_frames = 0;
+            let post_trans_limit = (sr as f32 * 8.0) as usize; // listen to 8 seconds of Track B
+
+            while post_transition_frames < post_trans_limit {
+                std::thread::sleep(std::time::Duration::from_millis(100));
+
+                let (pos_a, pos_b, active, is_trans) = {
+                    let mut m = mixer.lock().unwrap();
+                    // Auto-trigger transition when Deck A crosses transition start point
+                    m.check_auto_transition(&trans_recipe);
+
+                    if driver.is_none() {
+                        // Software simulation clock step if running without physical soundcard
+                        let mut dummy = vec![0.0f32; (sr / 10) as usize * 2];
+                        m.process_interleaved_block(&mut dummy);
+                    }
+
+                    (
+                        m.deck_a.current_position_ms(),
+                        m.deck_b.current_position_ms(),
+                        m.active_deck,
+                        m.is_transitioning(),
+                    )
+                };
+
+                let status_str = if is_trans {
+                    format!("🎚️ [TRANSITIONING AUTO-CROSSFADE] A: {:.1}s -> B: {:.1}s", pos_a as f64 / 1000.0, pos_b as f64 / 1000.0)
+                } else {
+                    match active {
+                        DeckId::DeckA => format!("Deck A (Outgoing Playing): {:.1}s", pos_a as f64 / 1000.0),
+                        DeckId::DeckB => {
+                            post_transition_frames += (sr / 10) as usize;
+                            format!("Deck B (Incoming Playing Clean): {:.1}s", pos_b as f64 / 1000.0)
+                        }
+                    }
+                };
+
+                print!("\r   Playback Status: {:<65}", status_str);
+                use std::io::Write;
+                let _ = std::io::stdout().flush();
+            }
+
+            println!("\n\n🎉 Live transition completed smoothly!");
         }
     }
 

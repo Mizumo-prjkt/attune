@@ -1,0 +1,93 @@
+//! Real-Time Audio Output Driver using cpal
+
+use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
+use cpal::{SampleFormat, Stream};
+use std::sync::{Arc, Mutex};
+use thiserror::Error;
+use super::mixer::DualDeckMixer;
+
+#[derive(Error, Debug)]
+pub enum DriverError {
+    #[error("No audio output device available")]
+    NoDevice,
+    #[error("CPAL audio error: {0}")]
+    Cpal(#[from] cpal::Error),
+}
+
+pub struct AudioOutputDriver {
+    #[allow(dead_code)]
+    stream: Stream,
+    sample_rate: u32,
+    channels: u16,
+    mixer: Arc<Mutex<DualDeckMixer>>,
+}
+
+impl AudioOutputDriver {
+    /// Initialize audio output stream connected to the DualDeckMixer
+    pub fn new(mixer: Arc<Mutex<DualDeckMixer>>) -> Result<Self, DriverError> {
+        let host = cpal::default_host();
+        let device = host.default_output_device().ok_or(DriverError::NoDevice)?;
+
+        let default_config = device.default_output_config()?;
+        let sample_rate = default_config.sample_rate();
+        let channels = default_config.channels();
+        let sample_format = default_config.sample_format();
+        let config = default_config.config();
+
+        let mixer_cb = Arc::clone(&mixer);
+        let err_fn = |err| log::error!("Audio output stream error: {}", err);
+
+        let stream = match sample_format {
+            SampleFormat::F32 => device.build_output_stream(
+                config,
+                move |data: &mut [f32], _: &cpal::OutputCallbackInfo| {
+                    if let Ok(mut mixer) = mixer_cb.try_lock() {
+                        mixer.process_interleaved_block(data);
+                    } else {
+                        data.fill(0.0);
+                    }
+                },
+                err_fn,
+                None,
+            )?,
+            SampleFormat::I16 => device.build_output_stream(
+                config,
+                move |data: &mut [i16], _: &cpal::OutputCallbackInfo| {
+                    if let Ok(mut mixer) = mixer_cb.try_lock() {
+                        let mut temp = vec![0.0f32; data.len()];
+                        mixer.process_interleaved_block(&mut temp);
+                        for (dest, &src) in data.iter_mut().zip(temp.iter()) {
+                            *dest = (src * 32767.0).clamp(-32768.0, 32767.0) as i16;
+                        }
+                    } else {
+                        data.fill(0);
+                    }
+                },
+                err_fn,
+                None,
+            )?,
+            _ => return Err(DriverError::NoDevice),
+        };
+
+        stream.play()?;
+
+        Ok(Self {
+            stream,
+            sample_rate,
+            channels,
+            mixer,
+        })
+    }
+
+    pub fn sample_rate(&self) -> u32 {
+        self.sample_rate
+    }
+
+    pub fn channels(&self) -> u16 {
+        self.channels
+    }
+
+    pub fn mixer(&self) -> &Arc<Mutex<DualDeckMixer>> {
+        &self.mixer
+    }
+}

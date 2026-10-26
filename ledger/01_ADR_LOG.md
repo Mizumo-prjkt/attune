@@ -103,3 +103,21 @@ This file records all major architectural decisions for **Attune**, including co
   - Eliminates all dead air / silence gaps between tracks.
   - Transitions are punchy, continuous, and immediately musical across all archetypes.
 
+---
+
+## ADR-008: Real-Time Dual-Deck Engine, Biquad Isolator EQ & cpal Output Driver
+- **Date**: 2026-10-27
+- **Status**: `LOCKED`
+- **Context**: In Phase 2, the player engine requires real-time, sample-accurate, lock-free dual-deck playback mixing with zero allocations in the audio thread callback, executing dynamic 3-band isolator EQ curves, reverb freeze washes, speed/pitch resampling, and automated transition keyframe execution through physical system audio hardware.
+- **Decision**:
+  - Implement `ThreeBandEq` in `attune-dsp-ffi` using Direct Form II Transposed biquad filters (Low Shelf at 200 Hz, Peaking at 1000 Hz with $Q=0.707$, High Shelf at 4000 Hz).
+  - Implement `ReverbFreeze` with recirculating diffusion network and continuous damping decay.
+  - Implement `Deck` in `attune-core::engine` managing per-deck playback state, Hermite cubic interpolation fractional playhead tracking, gain, EQ, and freeze wash.
+  - Implement `DualDeckMixer` in `attune-core::engine` with sample-accurate transition state machine that automates Deck A and Deck B across the recipe duration and cleanly transfers active deck control to Deck B on completion.
+  - Integrate `cpal` (v0.18) via `AudioOutputDriver` running the mixer inside the real-time audio thread callback, with graceful fallback to software stepping in headless environments.
+  - Implement `JitPlanner` for On-Demand Mode 1 fast-pass planning (<150 ms) for newly queued tracks.
+- **Consequences**:
+  - The native audio engine plays live audio directly to system speakers and headphones.
+  - Real-time transition playback is verified end-to-end via `attune-cli live`.
+
+

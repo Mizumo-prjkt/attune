@@ -129,6 +129,7 @@ impl AudioProfiler {
         let mut output_spectrum = r2c.make_output_vec();
 
         let mut prev_spec = vec![0.0f32; fft_len / 2 + 1];
+        let mut mag_spec = vec![0.0f32; fft_len / 2 + 1];
         let mut onset_strengths = Vec::with_capacity(num_frames);
         let mut prev_midi = 0.0f32;
 
@@ -143,7 +144,6 @@ impl AudioProfiler {
             // FFT
             r2c.process(&mut input_buf, &mut output_spectrum).ok();
 
-            let mut mag_spec = vec![0.0f32; fft_len / 2 + 1];
             for i in 0..mag_spec.len() {
                 mag_spec[i] = output_spectrum[i].norm();
             }
@@ -374,17 +374,35 @@ fn estimate_pitch_autocorr(frame: &[f32], sr: u32) -> (f32, f32) {
     let mut best_lag = 0;
     let mut best_corr = -1.0f32;
 
-    for lag in min_lag..=max_lag {
+    // Fast coarse search (step 2)
+    for lag in (min_lag..=max_lag).step_by(2) {
         let mut sum = 0.0f32;
         let mut n = 0;
-        for i in 0..(frame.len() - lag) {
+        for i in (0..(frame.len() - lag)).step_by(2) {
             sum += frame[i] * frame[i + lag];
             n += 1;
         }
-        let norm_corr = if n > 0 { sum / (energy + 1e-6) } else { 0.0 };
+        let norm_corr = if n > 0 { sum / (energy * 0.5 + 1e-6) } else { 0.0 };
         if norm_corr > best_corr {
             best_corr = norm_corr;
             best_lag = lag;
+        }
+    }
+
+    // Local fine search (+/- 1 lag)
+    if best_lag > min_lag && best_lag < max_lag {
+        for lag in [best_lag.saturating_sub(1), best_lag + 1] {
+            let mut sum = 0.0f32;
+            let mut n = 0;
+            for i in (0..(frame.len() - lag)).step_by(2) {
+                sum += frame[i] * frame[i + lag];
+                n += 1;
+            }
+            let norm_corr = if n > 0 { sum / (energy * 0.5 + 1e-6) } else { 0.0 };
+            if norm_corr > best_corr {
+                best_corr = norm_corr;
+                best_lag = lag;
+            }
         }
     }
 

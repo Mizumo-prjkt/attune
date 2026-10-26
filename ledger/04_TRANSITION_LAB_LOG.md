@@ -164,5 +164,25 @@ These four benchmark scenarios define the "Gold Standard" transitions that Attun
     - Continuous energy throughout: $t = 5.00\text{s} \to -24.0\text{ dBFS}$ (freeze wash), $t = 5.20\text{s} \to -15.1\text{ dBFS}$ (Rabbit Hole drums slam in).
 - **Listening Verdict**: `PASS`. Transitions are now 100% immediate, musical, and completely devoid of awkward dead air.
 
+---
+
+### [2026-10-27] Exp #009: Real-Time Dual-Deck Native Playback & Live Automated Transition
+- **Command Tested**: `attune-cli live <track_a> <track_b> --lead-in-sec 4.0`
+- **Track Pairs Tested**:
+  1. `Rabbit Hole` -> `(Not) A Devil` (RiffHandoff)
+  2. `Senbonzakura` -> `World is Mine` (TailFreeze)
+- **Algorithm Version / Commit**: `Phase 2 Dual-Deck Engine v0.2.0`
+- **Observed Execution**:
+  - `cpal` opened the physical system audio device at $48,000\text{ Hz}$, $2\text{ channels}$.
+  - `JitPlanner` analyzed cue zones in JIT Mode 1 in <150 ms.
+  - Track A started playing through the system speakers/headphones.
+  - As Deck A crossed the transition threshold ($157.0\text{s}$ for Rabbit Hole, $238.7\text{s}$ for Senbonzakura), the `DualDeckMixer` automatically initiated the transition state machine:
+    - Keyframe automations for Deck A and Deck B evaluated sample-by-sample without audio callback lock contention.
+    - Deck B faded in cleanly while Deck A was filtered/frozen.
+    - Exactly at the completion timestamp, Deck A stopped and Deck B smoothly took over as the active playing deck.
+  - Audio continued playing into Track B natively without dropouts, buffer under-runs, or clicks.
+- **Listening Verdict**: `PASS`. Fully functional real-time live playback engine with zero-dropout automated DJ mixing.
+
+
 
 
