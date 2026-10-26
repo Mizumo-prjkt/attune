@@ -1,9 +1,9 @@
 # 00 — Attune Master Knowledge Ledger
 
 - **Project Name**: Attune
-- **Current Phase**: `Phase 2 COMPLETED -> Ready for Phase 3 (Portable Cache & External Compute Node)`
+- **Current Phase**: `Phase 3 COMPLETED -> Ready for Phase 4 (Flutter Frontend & Transition Inspector)`
 - **Last Updated**: 2026-10-27
-- **Active Coding Status**: Phase 2 Real-Time Dual-Deck Native Playback Engine fully operational. `DualDeckMixer`, `Deck` DSP chain (3-band isolator EQ, reverb freeze wash, Hermite interpolation resampler), `JitPlanner`, hardware sample rate adaptation, vocal integrity protection (ADR-010), and real-time audio output driver (`cpal`) fully verified via `attune-cli live` on real audio hardware across Masarada and Neru tracks.
+- **Active Coding Status**: Phase 3 Portable Cache & External Compute Node fully implemented and verified. SQLite storage (`CacheDatabase`), portable exchange bundle (`CachePack`), background library scanner with pairwise precomputation (`LibraryScanner`), lightweight HTTP node server and sync client (`NodeServer` / `NodeClient`), and cache-integrated JIT engine (`JitPlanner::plan_cached_or_jit`) fully operational.
 
 ---
 
@@ -25,8 +25,8 @@ Furthermore, Attune decouples **Audio Profiling / Transition Planning** from **R
 | **Phase 0** | **Knowledge Ledger & Spec Lock** | Complete `/ledger/` docs and lock down core tech stack + cache options with user. | **COMPLETED** |
 | **Phase 1** | **Headless DSP Sandbox (`attune-cli`)** | CLI extracts 5-layer `.tap` profiles, generates `.ptr` recipes, and renders benchmark transitions (Whitney $\rightarrow$ Mariah, Ado $\rightarrow$ Punk/Rock, Slow Rock $\rightarrow$ Pop) to WAV for listening verification. | **COMPLETED** |
 | **Phase 2** | **Real-Time Dual-Deck Native Engine** | Lock-free dual-deck playback mixer executing `.ptr` time-stretch, formant pitch-shift, and 3-band EQ curves in real time + On-Demand 45s JIT Fast-Pass + real-time audio driver + hardware sample rate adaptation + vocal integrity protection. | **COMPLETED** |
-| **Phase 3** | **Portable Cache & External Compute Node** | SQLite + blob cache indexing, acoustic fingerprinting, Demucs stem-bridge export, and LAN/file sync from external compute worker to client. | **READY TO START** |
-| **Phase 4** | **Flutter Frontend & Transition Inspector** | Connect Flutter UI via FFI (`flutter_rust_bridge`), starting with a visual waveform/curve Transition Inspector and expanding into the full music player UI. | PENDING |
+| **Phase 3** | **Portable Cache & External Compute Node** | SQLite + blob cache indexing, acoustic fingerprinting, Demucs stem-bridge schema, portable CachePack export/import, and LAN HTTP REST sync between external compute worker and playback client. | **COMPLETED** |
+| **Phase 4** | **Flutter Frontend & Transition Inspector** | Connect Flutter UI via FFI (`flutter_rust_bridge`), starting with a visual waveform/curve Transition Inspector and expanding into the full music player UI. | **READY TO START** |
 
 ---
 
@@ -44,18 +44,22 @@ Furthermore, Attune decouples **Audio Profiling / Transition Planning** from **R
 | **ADR-008** | Real-Time Dual-Deck Engine & cpal Output Driver | Real-time sample-accurate `DualDeckMixer` with 3-band isolator biquad EQ, Hermite interpolation resampler, reverb freeze wash, soft limiter, and `cpal` device playback. | **LOCKED** |
 | **ADR-009** | Hardware Sample Rate Adaptation & 1-Bar Phrased Handoff | Fractional cubic Hermite playhead resampling ($\Delta \text{playhead} = \frac{F_{\text{track}}}{F_{\text{device}}} \times \text{stretch} \times \text{pitch}$) ensuring exact 1.000x speed and 100% native pitch across mismatched hardware DAC rates, plus 1-bar (4-beat) musical riff handoffs. | **LOCKED** |
 | **ADR-010** | Vocal Integrity & Reverb Spillover | Multi-layer vocal activity inspection in `CueZone`, anchor cuts at/after final vocal resolution, flat mid/high EQ during active singing, and post-transition reverb freeze decay. | **LOCKED** |
+| **ADR-011** | Portable Cache, CachePack & Node Sync Protocol | Bundled SQLite cache repository (`CacheDatabase`), portable `.pack.json` bundle (`CachePack`), background scanner (`LibraryScanner`), REST HTTP sync server (`tiny_http`), and sync client (`ureq`). | **LOCKED** |
 
 ---
 
 ## 4. Session Handoff Checklist (For Next AI Session)
 
-1. Review [`04_TRANSITION_LAB_LOG.md`](file:///home/miku/Documents/attune/ledger/04_TRANSITION_LAB_LOG.md) to inspect empirical results from Exp #001 through #012 (including live playback verification via `attune-cli live` and multi-genre rock/pop tests).
-2. Start **Phase 3**: Implement the Portable Cache & External Compute Node architecture in `crates/attune-core`:
-   - SQLite cache repository (`attune_cache.db`) indexing `.tap` and `.ptr` by Blake3 acoustic hash.
-   - External Compute Worker daemon CLI (`attune-cli worker / server`) for background library scanning.
-   - Demucs/HTDemucs stem extraction protocol for 5–8s isolated vocal/riff stem bridge exports.
-   - Local LAN sync protocol (mDNS / HTTP API) between desktop worker and mobile/lightweight clients.
+1. Review [`04_TRANSITION_LAB_LOG.md`](file:///home/miku/Documents/attune/ledger/04_TRANSITION_LAB_LOG.md) to inspect empirical results from Exp #001 through #013 (including live playback, rock/pop tests, and Phase 3 cache & node sync verification).
+2. Start **Phase 4**: Implement the Flutter Frontend & Transition Inspector:
+   - Scaffold the Flutter app inside `apps/attune_player` or project root.
+   - Set up `flutter_rust_bridge` (v2) FFI bindings bridging `attune-core` into Flutter/Dart.
+   - Build the interactive **Transition Inspector Widget** visualizing:
+     - Outgoing Deck A & Incoming Deck B waveform tracks and cue zones.
+     - 3-band isolator EQ automation curves and reverb freeze envelopes.
+     - Dual-deck playhead scrubbers and manual transition triggering.
 3. Keep updating [`00_MASTER_LEDGER.md`](file:///home/miku/Documents/attune/ledger/00_MASTER_LEDGER.md) and record any new decisions in [`01_ADR_LOG.md`](file:///home/miku/Documents/attune/ledger/01_ADR_LOG.md).
+
 
 
 

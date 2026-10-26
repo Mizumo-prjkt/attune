@@ -208,3 +208,6 @@ pub struct TransitionRecipe {
     pub optional_stem_bridge_uri: Option<String>,
     pub dsp_automation_keyframes: Vec<DspAutomationKeyframe>,
 }
+
+pub type PairwiseTransitionRecipe = TransitionRecipe;
+

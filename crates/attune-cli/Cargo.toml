@@ -16,3 +16,5 @@ log = { workspace = true }
 env_logger = { workspace = true }
 hound = { workspace = true }
 thiserror = { workspace = true }
+tiny_http = { workspace = true }
+ureq = { workspace = true }

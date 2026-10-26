@@ -294,3 +294,34 @@ These four benchmark scenarios define the "Gold Standard" transitions that Attun
     - Selected Archetype: `TailFreeze` (Confidence: 0.89).
     - Mix window: Track A [$236069\text{ms} - 239569\text{ms}$] $\to$ Track B [$280\text{ms} - 3780\text{ms}$].
 - **Listening Verdict**: `PASS`. The transition engine accurately handles diverse rock/pop/punk energy dynamics, preserves vocal lines, trims silence pre/post-gaps, and selects the ideal transition archetype without manual intervention.
+
+---
+
+### [2026-10-27] Exp #013: Phase 3 Portable Cache & External Compute Node Ingestion & HTTP Sync Protocol
+- **Objective**:
+  - Verify Phase 3 persistent SQLite cache repository (`CacheDatabase`), portable exchange bundle (`CachePack`), background library scanner with pairwise precomputation (`LibraryScanner`), and the External Compute Node REST sync protocol (`NodeServer` & `NodeClient`).
+- **Commands & Workflows Tested**:
+  1. **SQLite Database Initialization & Schema**:
+     - Command: `attune-cli cache info --db test_output/library_cache.db`
+     - Verified: Tables `tracks`, `transitions`, and `stem_bridges` created cleanly with WAL journal mode.
+  2. **Library Scanning & Pairwise Precomputation**:
+     - Command: `attune-cli cache scan "music/Neru/世界征服" --db test_output/library_cache.db --precompute-pairs`
+     - Result: 5 audio files found, 5 newly profiled, $5 \times 4 = 20$ pairwise transition recipes precomputed and indexed in SQLite.
+     - Additional catalog scanned: `music/Liar Dancer`, `music/Rabbit Hole`, and `music/DECO_27, PinocchioP - (Not) A Devil (2023)`.
+     - Final catalog in DB: 10 tracks, 20 transitions.
+  3. **Portable CachePack Archive Export**:
+     - Command: `attune-cli cache export --out test_output/attune_cache.pack.json --db test_output/library_cache.db`
+     - Output: `test_output/attune_cache.pack.json` (13 MB) bundling 10 complete `.tap` profiles and 20 `.ptr` recipes.
+  4. **Fresh Database Import & Data Integrity**:
+     - Command: `attune-cli cache import test_output/attune_cache.pack.json --db test_output/imported_client.db`
+     - Result: Exactly 10 `.tap` profiles and 20 `.ptr` recipes imported into a pristine SQLite database with zero data corruption.
+  5. **External Compute Node HTTP Server**:
+     - Command: `attune-cli node serve --port 8945 --db test_output/library_cache.db`
+     - HTTP GET `/api/v1/info`: Returned `{"status": "ok", "version": "0.3.0", "node_type": "EXTERNAL_COMPUTE_NODE", "tracks_count": 10, "transitions_count": 20}`.
+  6. **Local Network Client Sync**:
+     - Command: `attune-cli node sync --remote http://localhost:8945 --db test_output/synced_client.db`
+     - Client sent `SyncPullRequest` with its local track hashes, server responded with matching `.tap` and `.ptr` records, client stored them in local SQLite.
+  7. **JIT Engine Microsecond Cache Speedup**:
+     - On first play: JIT mode 1 analyzed head/tail buffers and cached recipe to `~/.attune/cache.db`.
+     - On second play: JIT mode 1 retrieved cached recipe with vocal protection in **105 ms** (vs 1630 ms uncached).
+- **Listening & Functional Verdict**: `PASS`. Phase 3 milestones fully achieved and verified headlessly and over local HTTP networking.

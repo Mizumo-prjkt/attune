@@ -1,6 +1,9 @@
 mod benchmarks;
+mod node_client;
+mod node_server;
 
 use attune_core::audio::AudioDecoder;
+use attune_core::cache::{CacheDatabase, CachePack, LibraryScanner};
 use attune_core::engine::{AudioOutputDriver, DeckId, DualDeckMixer, JitPlanner};
 use attune_core::planner::TransitionPlanner;
 use attune_core::profiler::AudioProfiler;
@@ -85,6 +88,93 @@ enum Commands {
         #[arg(short, long, default_value_t = 8.0)]
         lead_in_sec: f32,
     },
+
+    /// Manage local SQLite cache database and portable cache packs
+    Cache {
+        #[command(subcommand)]
+        action: CacheCommands,
+    },
+
+    /// External Compute Node server and sync operations
+    Node {
+        #[command(subcommand)]
+        action: NodeCommands,
+    },
+}
+
+#[derive(Subcommand)]
+enum CacheCommands {
+    /// Display cache database statistics
+    Info {
+        /// Optional custom path to SQLite cache database (defaults to ~/.attune/cache.db)
+        #[arg(short, long)]
+        db: Option<PathBuf>,
+    },
+
+    /// Recursively scan a music directory, profile tracks, and store in SQLite cache
+    Scan {
+        /// Audio directory to scan
+        dir: PathBuf,
+        /// Optional custom path to SQLite cache database
+        #[arg(short, long)]
+        db: Option<PathBuf>,
+        /// Precompute pairwise transition recipes between all discovered tracks
+        #[arg(short, long)]
+        precompute_pairs: bool,
+    },
+
+    /// Export cache database into a portable .pack.json file
+    Export {
+        /// Output file path for the .pack.json file
+        #[arg(short, long)]
+        out: PathBuf,
+        /// Optional custom path to SQLite cache database
+        #[arg(short, long)]
+        db: Option<PathBuf>,
+    },
+
+    /// Import a portable .pack.json file into SQLite cache database
+    Import {
+        /// Input .pack.json file path
+        pack: PathBuf,
+        /// Optional custom path to SQLite cache database
+        #[arg(short, long)]
+        db: Option<PathBuf>,
+    },
+}
+
+#[derive(Subcommand)]
+enum NodeCommands {
+    /// Launch the External Compute Node HTTP sync server
+    Serve {
+        /// Port to bind server on
+        #[arg(short, long, default_value_t = 8080)]
+        port: u16,
+        /// Optional custom path to SQLite cache database
+        #[arg(short, long)]
+        db: Option<PathBuf>,
+        /// Optional music directory to scan in the background
+        #[arg(short, long)]
+        scan: Option<PathBuf>,
+        /// Precompute pairwise transition recipes during library scan
+        #[arg(short, long)]
+        precompute_pairs: bool,
+    },
+
+    /// Sync local client database with a remote External Compute Node
+    Sync {
+        /// Remote node URL (e.g. http://localhost:8080 or http://192.168.1.100:8080)
+        #[arg(short, long)]
+        remote: String,
+        /// Optional custom path to local SQLite cache database
+        #[arg(short, long)]
+        db: Option<PathBuf>,
+    },
+}
+
+fn get_cache_db(custom_path: Option<PathBuf>) -> Result<CacheDatabase, Box<dyn std::error::Error>> {
+    let p = custom_path.unwrap_or_else(CacheDatabase::default_path);
+    Ok(CacheDatabase::open(p)?)
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -295,10 +385,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let slug_a = audio_a.file_stem().and_then(|s| s.to_str()).unwrap_or("track_a");
             let slug_b = audio_b.file_stem().and_then(|s| s.to_str()).unwrap_or("track_b");
 
-            println!("⚡ Running On-Demand JIT Mode 1 Fast-Pass Planner (<150 ms)...");
+            println!("⚡ Running On-Demand JIT Mode 1 Fast-Pass Planner (with SQLite cache integration)...");
+            let cache_db = get_cache_db(None).ok();
             let jit = JitPlanner::new();
             let start_jit = std::time::Instant::now();
-            let recipe = jit.plan_jit(&buf_a, slug_a, &buf_b, slug_b);
+            let recipe = jit.plan_cached_or_jit(&buf_a, slug_a, &buf_b, slug_b, cache_db.as_ref());
             let elapsed_jit = start_jit.elapsed();
 
             println!(
@@ -404,6 +495,62 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
             println!("\n\n🎉 Live transition completed smoothly!");
         }
+
+        Commands::Cache { action } => match action {
+            CacheCommands::Info { db } => {
+                let db = get_cache_db(db)?;
+                let stats = db.get_stats()?;
+                println!("📊 Attune SQLite Cache Database Status");
+                println!("   Location: {}", stats.database_path.unwrap_or_else(|| "in-memory".to_string()));
+                println!("   Track Profiles (.tap): {}", stats.tracks_count);
+                println!("   Pairwise Recipes (.ptr): {}", stats.transitions_count);
+                println!("   Stem Bridges: {}", stats.stem_bridges_count);
+            }
+            CacheCommands::Scan { dir, db, precompute_pairs } => {
+                let db = get_cache_db(db)?;
+                println!("🔍 Scanning music directory: {}...", dir.display());
+                let scanner = LibraryScanner::new(db);
+                let report = scanner.scan_library(&dir, precompute_pairs)?;
+                println!("✅ Library Scan Complete!");
+                println!("   Audio files found: {}", report.total_audio_files);
+                println!("   Newly analyzed tracks: {}", report.newly_profiled_tracks);
+                println!("   Precomputed transitions: {}", report.precomputed_transitions);
+                if !report.errors.is_empty() {
+                    println!("⚠️ {} warnings/errors encountered during scan:", report.errors.len());
+                    for err in report.errors.iter().take(5) {
+                        println!("   - {}", err);
+                    }
+                }
+            }
+            CacheCommands::Export { out, db } => {
+                let db = get_cache_db(db)?;
+                println!("📦 Exporting cache to pack file: {}...", out.display());
+                let pack = CachePack::from_db(&db)?;
+                pack.save_to_file(&out)?;
+                println!("✨ Pack saved successfully! Contained {} tracks, {} transitions.", pack.taps.len(), pack.ptrs.len());
+            }
+            CacheCommands::Import { pack, db } => {
+                let db = get_cache_db(db)?;
+                println!("📥 Importing pack from: {}...", pack.display());
+                let p = CachePack::load_from_file(&pack)?;
+                let stats = p.import_into_db(&db)?;
+                println!("🎉 Import complete!");
+                println!("   Imported {} .tap profiles", stats.taps_imported);
+                println!("   Imported {} .ptr transition recipes", stats.ptrs_imported);
+                println!("   Imported {} stem bridges", stats.stem_bridges_imported);
+            }
+        },
+
+        Commands::Node { action } => match action {
+            NodeCommands::Serve { port, db, scan, precompute_pairs } => {
+                let db = get_cache_db(db)?;
+                node_server::run_node_server(port, db, scan, precompute_pairs)?;
+            }
+            NodeCommands::Sync { remote, db } => {
+                let db = get_cache_db(db)?;
+                node_client::sync_with_remote_node(&remote, &db)?;
+            }
+        },
     }
 
     Ok(())

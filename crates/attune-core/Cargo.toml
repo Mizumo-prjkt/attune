@@ -18,3 +18,4 @@ rustfft = { workspace = true }
 realfft = { workspace = true }
 symphonia = { workspace = true }
 cpal = "0.18.2"
+rusqlite = { workspace = true }

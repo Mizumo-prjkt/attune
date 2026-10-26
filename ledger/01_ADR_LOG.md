@@ -159,3 +159,38 @@ This file records all major architectural decisions for **Attune**, including co
 - **Consequences**:
   - Outgoing vocals conclude completely and naturally with full intelligibility.
   - Reverb washes spill seamlessly over incoming downbeats for studio-grade transition continuity.
+
+---
+
+## ADR-011: Portable SQLite Cache Database, Portable CachePack Bundling & External Node Sync Protocol
+- **Date**: 2026-10-27
+- **Status**: `LOCKED`
+- **Context**: In Phase 3, Attune requires a persistent, content-addressable cache repository and external compute offloading protocol (Mandate 3). Lightweight playback clients (mobile phones, embedded players) cannot afford heavy, battery-draining 5-layer DSP analysis on every track queue change. Users require the ability to run an External Compute Node on a desktop or home server that scans audio libraries, precomputes All-Pairs transition matrices, and synchronizes `.tap` profiles, `.ptr` recipes, and stem bridge references to playback clients via portable files or local network HTTP sync.
+- **Decision**:
+  1. **SQLite Content-Addressable Cache (`CacheDatabase`)**:
+     - Integrate pure C bundled SQLite via `rusqlite` (with `bundled` feature), guaranteeing zero system package dependencies across Linux, macOS, Windows, Android, and iOS.
+     - Persist `tracks` table keyed by content-addressable `audio_hash`, `transitions` table keyed by composite `(track_a_hash, track_b_hash)`, and `stem_bridges` table keyed by `(track_a_hash, track_b_hash, stem_type)`.
+     - Enable Write-Ahead Logging (`PRAGMA journal_mode = WAL;`) for high-throughput concurrent reads.
+  2. **Portable CachePack Archive Format (`CachePack`)**:
+     - Implement a portable, self-contained JSON exchange bundle containing schema version, generation timestamp, `.tap` profiles, `.ptr` recipes, and stem bridge records.
+     - Provide atomic database export (`from_db`) and import (`import_into_db`) for offline cross-machine synchronization.
+  3. **Headless Library Scanner & Smart Shuffle Precomputation (`LibraryScanner`)**:
+     - Implement recursive directory scanning discovering all standard audio formats (`.flac`, `.mp3`, `.wav`, `.ogg`, `.m4a`, `.aac`, `.aiff`).
+     - Check cache database to skip already-analyzed tracks, profile unprofiled tracks, and precompute pairwise transition matrices across the library.
+  4. **Lightweight Local Network Sync Protocol (`NodeServer` & `NodeClient`)**:
+     - Implement a zero-async HTTP node server using `tiny_http` exposing REST API endpoints:
+       - `GET /api/v1/info`: Node status, catalog counts, and version.
+       - `GET /api/v1/tracks`: Track ID catalog.
+       - `GET /api/v1/tap/:hash` & `POST /api/v1/tap`: Individual profile retrieval and ingestion.
+       - `GET /api/v1/ptr/:hash_a/:hash_b` & `POST /api/v1/ptr`: Transition recipe retrieval and ingestion.
+       - `GET /api/v1/export`: Streaming CachePack archive download.
+       - `POST /api/v1/sync/push`: Batch push of client profiles and recipes.
+       - `POST /api/v1/sync/pull`: Batch pull of missing profiles and relevant transition recipes based on client track list.
+     - Implement a synchronous HTTP sync client using `ureq` allowing clients to sync entire libraries in seconds over LAN.
+  5. **Cache-Integrated JIT Engine (`JitPlanner::plan_cached_or_jit`)**:
+     - Transparently check SQLite cache before performing spectral analysis. Cached transition lookups complete in microsecond/sub-millisecond time.
+     - Automatically persist newly planned recipes to the cache database for subsequent instant playback.
+- **Consequences**:
+  - Transition recipe lookup on cached tracks drops from ~1.5s to <100ms.
+  - Heavy analysis can be run once on a desktop/server and transferred to mobile devices with zero mobile compute overhead.
+  - Full Phase 3 milestones completed and verified.

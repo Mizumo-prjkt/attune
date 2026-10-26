@@ -6,10 +6,12 @@ pub mod profiler;
 pub mod planner;
 pub mod renderer;
 pub mod engine;
+pub mod cache;
 
 pub use schema::{TrackAnalysisProfile, TransitionRecipe};
 pub use profiler::AudioProfiler;
 pub use planner::TransitionPlanner;
 pub use renderer::TransitionRenderer;
 pub use engine::{DualDeckMixer, Deck, DeckId, DeckState, JitPlanner, AudioOutputDriver};
+pub use cache::{CacheDatabase, CacheError, CachePack, CacheStats, LibraryScanner, StemBridgeRecord};
 
