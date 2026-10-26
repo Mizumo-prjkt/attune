@@ -68,6 +68,70 @@ pub struct CueZone {
     pub frames_20hz: Frames20Hz,
 }
 
+impl CueZone {
+    /// Returns true if vocal activity is detected at or around the specified timestamp
+    pub fn is_vocal_active_at_ms(&self, ms: u64) -> bool {
+        if ms < self.start_ms || ms > self.end_ms || self.hop_ms == 0 {
+            return false;
+        }
+        let frame_idx = ((ms.saturating_sub(self.start_ms)) / self.hop_ms as u64) as usize;
+        let min_idx = frame_idx.saturating_sub(2);
+        let max_idx = (frame_idx + 2).min(self.frames_20hz.instrument_activations.len().saturating_sub(1));
+        for i in min_idx..=max_idx {
+            if let Some(inst) = self.frames_20hz.instrument_activations.get(i) {
+                let clean = inst.get(4).copied().unwrap_or(0.0);
+                let grit = inst.get(5).copied().unwrap_or(0.0);
+                let f0 = self.frames_20hz.f0_midi_cents.get(i).copied().unwrap_or(0.0);
+                if clean > 0.30 || grit > 0.35 || (f0 > 0.0 && clean > 0.15) {
+                    return true;
+                }
+            }
+        }
+        false
+    }
+
+    /// Returns the timestamp (in ms) where vocal singing concludes in this zone
+    pub fn last_vocal_end_ms(&self) -> Option<u64> {
+        for (i, inst) in self.frames_20hz.instrument_activations.iter().enumerate().rev() {
+            let clean = inst.get(4).copied().unwrap_or(0.0);
+            let grit = inst.get(5).copied().unwrap_or(0.0);
+            let f0 = self.frames_20hz.f0_midi_cents.get(i).copied().unwrap_or(0.0);
+            if clean > 0.30 || grit > 0.35 || (f0 > 0.0 && clean > 0.15) {
+                let ms = self.start_ms + (i as u64 * self.hop_ms as u64) + self.hop_ms as u64;
+                return Some(ms.min(self.end_ms));
+            }
+        }
+        None
+    }
+
+    /// Returns true if any vocal activity is present in the specified interval [start_ms, end_ms]
+    pub fn has_vocal_between_ms(&self, start_ms: u64, end_ms: u64) -> bool {
+        if self.hop_ms == 0 || start_ms > end_ms {
+            return false;
+        }
+        let s = start_ms.max(self.start_ms);
+        let e = end_ms.min(self.end_ms);
+        if s > e {
+            return false;
+        }
+        let start_idx = ((s - self.start_ms) / self.hop_ms as u64) as usize;
+        let end_idx = (((e - self.start_ms) / self.hop_ms as u64) as usize)
+            .min(self.frames_20hz.instrument_activations.len().saturating_sub(1));
+
+        for i in start_idx..=end_idx {
+            if let Some(inst) = self.frames_20hz.instrument_activations.get(i) {
+                let clean = inst.get(4).copied().unwrap_or(0.0);
+                let grit = inst.get(5).copied().unwrap_or(0.0);
+                let f0 = self.frames_20hz.f0_midi_cents.get(i).copied().unwrap_or(0.0);
+                if clean > 0.30 || grit > 0.35 || (f0 > 0.0 && clean > 0.15) {
+                    return true;
+                }
+            }
+        }
+        false
+    }
+}
+
 /// Track Analysis Profile (.tap)
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct TrackAnalysisProfile {

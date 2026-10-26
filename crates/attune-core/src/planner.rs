@@ -234,14 +234,25 @@ impl TransitionPlanner {
         let beat_ms = (60_000.0 / bpm_a) as u64;
         let punch_duration_ms = beat_ms * 4; // 1-bar (4-beat) pickup riff/fill
 
+        let vocal_end = exit_a.and_then(|z| z.last_vocal_end_ms());
         let a_cut_point = exit_a
             .and_then(|z| {
-                z.downbeats_ms
-                    .iter()
-                    .copied()
-                    .filter(|&db| db <= z.end_ms)
-                    .next_back()
-                    .or_else(|| z.downbeats_ms.last().copied())
+                if let Some(v_end) = vocal_end {
+                    // Golden Rule: Never cut off an active vocal phrase before it concludes!
+                    // Look for a downbeat at or after vocal_end, or anchor strictly to z.end_ms
+                    z.downbeats_ms
+                        .iter()
+                        .copied()
+                        .find(|&db| db >= v_end && db <= z.end_ms)
+                        .or_else(|| Some(z.end_ms))
+                } else {
+                    z.downbeats_ms
+                        .iter()
+                        .copied()
+                        .filter(|&db| db <= z.end_ms)
+                        .next_back()
+                        .or_else(|| z.downbeats_ms.last().copied())
+                }
             })
             .unwrap_or(track_a.track_id.duration_ms.saturating_sub(punch_duration_ms));
 
@@ -249,118 +260,232 @@ impl TransitionPlanner {
             .map(|z| z.start_ms)
             .unwrap_or(0);
 
-        let keyframes = vec![
-            // Beat 1 start: Track A full; Track B enters unobtrusively
-            DspAutomationKeyframe {
-                offset_ms: 0,
-                deck_a: DeckAutomation {
-                    gain_db: 0.0,
-                    eq_sub_db: 0.0,
-                    eq_mid_db: 0.0,
-                    eq_high_db: 0.0,
-                    stretch_ratio: 1.0,
-                    pitch_cents: 0,
-                    reverb_freeze_send: 0.0,
+        let trans_start_ms = a_cut_point.saturating_sub(punch_duration_ms);
+        let has_vocals_in_handoff = exit_a
+            .map(|z| z.has_vocal_between_ms(trans_start_ms, a_cut_point))
+            .unwrap_or(false);
+
+        let keyframes = if has_vocals_in_handoff {
+            // Vocal-Preserving Handoff: Keep Deck A's vocal 100% full (0 dB mid/high), duck sub bass only
+            vec![
+                DspAutomationKeyframe {
+                    offset_ms: 0,
+                    deck_a: DeckAutomation {
+                        gain_db: 0.0,
+                        eq_sub_db: 0.0,
+                        eq_mid_db: 0.0,
+                        eq_high_db: 0.0,
+                        stretch_ratio: 1.0,
+                        pitch_cents: 0,
+                        reverb_freeze_send: 0.0,
+                    },
+                    deck_b: DeckAutomation {
+                        gain_db: -16.0,
+                        eq_sub_db: -24.0,
+                        eq_mid_db: -4.0,
+                        eq_high_db: -2.0,
+                        stretch_ratio: 1.0,
+                        pitch_cents: 0,
+                        reverb_freeze_send: 0.0,
+                    },
                 },
-                deck_b: DeckAutomation {
-                    gain_db: -18.0,
-                    eq_sub_db: -24.0,
-                    eq_mid_db: -6.0,
-                    eq_high_db: -3.0,
-                    stretch_ratio: 1.0,
-                    pitch_cents: 0,
-                    reverb_freeze_send: 0.0,
+                DspAutomationKeyframe {
+                    offset_ms: punch_duration_ms / 4,
+                    deck_a: DeckAutomation {
+                        gain_db: 0.0,
+                        eq_sub_db: -6.0,
+                        eq_mid_db: 0.0,
+                        eq_high_db: 0.0,
+                        stretch_ratio: 1.0,
+                        pitch_cents: 0,
+                        reverb_freeze_send: 0.0,
+                    },
+                    deck_b: DeckAutomation {
+                        gain_db: -8.0,
+                        eq_sub_db: -12.0,
+                        eq_mid_db: -2.0,
+                        eq_high_db: 0.0,
+                        stretch_ratio: 1.0,
+                        pitch_cents: 0,
+                        reverb_freeze_send: 0.0,
+                    },
                 },
-            },
-            // Beat 2: Deck A carves initial low-mid space; Deck B riff establishes
-            DspAutomationKeyframe {
-                offset_ms: punch_duration_ms / 4,
-                deck_a: DeckAutomation {
-                    gain_db: -1.5,
-                    eq_sub_db: -6.0,
-                    eq_mid_db: -3.0,
-                    eq_high_db: 0.0,
-                    stretch_ratio: 1.0,
-                    pitch_cents: 0,
-                    reverb_freeze_send: 0.0,
+                DspAutomationKeyframe {
+                    offset_ms: punch_duration_ms / 2,
+                    deck_a: DeckAutomation {
+                        gain_db: 0.0,
+                        eq_sub_db: -12.0,
+                        eq_mid_db: 0.0,
+                        eq_high_db: 0.0,
+                        stretch_ratio: 1.0,
+                        pitch_cents: 0,
+                        reverb_freeze_send: 0.0,
+                    },
+                    deck_b: DeckAutomation {
+                        gain_db: -4.0,
+                        eq_sub_db: -6.0,
+                        eq_mid_db: 0.0,
+                        eq_high_db: 0.0,
+                        stretch_ratio: 1.0,
+                        pitch_cents: 0,
+                        reverb_freeze_send: 0.0,
+                    },
                 },
-                deck_b: DeckAutomation {
-                    gain_db: -6.0,
-                    eq_sub_db: -12.0,
-                    eq_mid_db: -2.0,
-                    eq_high_db: 0.0,
-                    stretch_ratio: 1.0,
-                    pitch_cents: 0,
-                    reverb_freeze_send: 0.0,
+                DspAutomationKeyframe {
+                    offset_ms: (punch_duration_ms * 3) / 4,
+                    deck_a: DeckAutomation {
+                        gain_db: -0.5,
+                        eq_sub_db: -18.0,
+                        eq_mid_db: 0.0,
+                        eq_high_db: 0.0,
+                        stretch_ratio: 1.0,
+                        pitch_cents: 0,
+                        reverb_freeze_send: 0.0,
+                    },
+                    deck_b: DeckAutomation {
+                        gain_db: -1.5,
+                        eq_sub_db: -2.0,
+                        eq_mid_db: 0.0,
+                        eq_high_db: 0.0,
+                        stretch_ratio: 1.0,
+                        pitch_cents: 0,
+                        reverb_freeze_send: 0.0,
+                    },
                 },
-            },
-            // Beat 3: Crossover point: Deck B takes melodic lead
-            DspAutomationKeyframe {
-                offset_ms: punch_duration_ms / 2,
-                deck_a: DeckAutomation {
-                    gain_db: -3.5,
-                    eq_sub_db: -12.0,
-                    eq_mid_db: -6.0,
-                    eq_high_db: -3.0,
-                    stretch_ratio: 1.0,
-                    pitch_cents: 0,
-                    reverb_freeze_send: 0.0,
+                // Downbeat / Vocal Resolution: The singer finishes the final syllable completely!
+                // Reverb freeze splash catches the resolution to ring out smoothly over Deck B's drop
+                DspAutomationKeyframe {
+                    offset_ms: punch_duration_ms,
+                    deck_a: DeckAutomation {
+                        gain_db: -60.0,
+                        eq_sub_db: -60.0,
+                        eq_mid_db: -60.0,
+                        eq_high_db: -60.0,
+                        stretch_ratio: 1.0,
+                        pitch_cents: 0,
+                        reverb_freeze_send: 0.45, // Lush ring-out for the final vocal resolution
+                    },
+                    deck_b: DeckAutomation {
+                        gain_db: 0.0,
+                        eq_sub_db: 0.0,
+                        eq_mid_db: 0.0,
+                        eq_high_db: 0.0,
+                        stretch_ratio: 1.0,
+                        pitch_cents: 0,
+                        reverb_freeze_send: 0.0,
+                    },
                 },
-                deck_b: DeckAutomation {
-                    gain_db: -2.0,
-                    eq_sub_db: -3.0,
-                    eq_mid_db: 0.0,
-                    eq_high_db: 0.0,
-                    stretch_ratio: 1.0,
-                    pitch_cents: 0,
-                    reverb_freeze_send: 0.0,
+            ]
+        } else {
+            // Instrumental Handoff: Dynamic notch carving
+            vec![
+                DspAutomationKeyframe {
+                    offset_ms: 0,
+                    deck_a: DeckAutomation {
+                        gain_db: 0.0,
+                        eq_sub_db: 0.0,
+                        eq_mid_db: 0.0,
+                        eq_high_db: 0.0,
+                        stretch_ratio: 1.0,
+                        pitch_cents: 0,
+                        reverb_freeze_send: 0.0,
+                    },
+                    deck_b: DeckAutomation {
+                        gain_db: -18.0,
+                        eq_sub_db: -24.0,
+                        eq_mid_db: -6.0,
+                        eq_high_db: -3.0,
+                        stretch_ratio: 1.0,
+                        pitch_cents: 0,
+                        reverb_freeze_send: 0.0,
+                    },
                 },
-            },
-            // Beat 4: Pre-drop ducking: Deck A recedes deeply
-            DspAutomationKeyframe {
-                offset_ms: (punch_duration_ms * 3) / 4,
-                deck_a: DeckAutomation {
-                    gain_db: -8.0,
-                    eq_sub_db: -24.0,
-                    eq_mid_db: -12.0,
-                    eq_high_db: -6.0,
-                    stretch_ratio: 1.0,
-                    pitch_cents: 0,
-                    reverb_freeze_send: 0.0,
+                DspAutomationKeyframe {
+                    offset_ms: punch_duration_ms / 4,
+                    deck_a: DeckAutomation {
+                        gain_db: -1.5,
+                        eq_sub_db: -6.0,
+                        eq_mid_db: -3.0,
+                        eq_high_db: 0.0,
+                        stretch_ratio: 1.0,
+                        pitch_cents: 0,
+                        reverb_freeze_send: 0.0,
+                    },
+                    deck_b: DeckAutomation {
+                        gain_db: -6.0,
+                        eq_sub_db: -12.0,
+                        eq_mid_db: -2.0,
+                        eq_high_db: 0.0,
+                        stretch_ratio: 1.0,
+                        pitch_cents: 0,
+                        reverb_freeze_send: 0.0,
+                    },
                 },
-                deck_b: DeckAutomation {
-                    gain_db: 0.0,
-                    eq_sub_db: 0.0,
-                    eq_mid_db: 0.0,
-                    eq_high_db: 0.0,
-                    stretch_ratio: 1.0,
-                    pitch_cents: 0,
-                    reverb_freeze_send: 0.0,
+                DspAutomationKeyframe {
+                    offset_ms: punch_duration_ms / 2,
+                    deck_a: DeckAutomation {
+                        gain_db: -3.5,
+                        eq_sub_db: -12.0,
+                        eq_mid_db: -6.0,
+                        eq_high_db: -3.0,
+                        stretch_ratio: 1.0,
+                        pitch_cents: 0,
+                        reverb_freeze_send: 0.0,
+                    },
+                    deck_b: DeckAutomation {
+                        gain_db: -2.0,
+                        eq_sub_db: -3.0,
+                        eq_mid_db: 0.0,
+                        eq_high_db: 0.0,
+                        stretch_ratio: 1.0,
+                        pitch_cents: 0,
+                        reverb_freeze_send: 0.0,
+                    },
                 },
-            },
-            // Downbeat of Bar 2: Track A cuts with short reverb splash; Track B takes over full power
-            DspAutomationKeyframe {
-                offset_ms: punch_duration_ms,
-                deck_a: DeckAutomation {
-                    gain_db: -60.0,
-                    eq_sub_db: -60.0,
-                    eq_mid_db: -60.0,
-                    eq_high_db: -60.0,
-                    stretch_ratio: 1.0,
-                    pitch_cents: 0,
-                    reverb_freeze_send: 0.2, // 500ms short decay tail
+                DspAutomationKeyframe {
+                    offset_ms: (punch_duration_ms * 3) / 4,
+                    deck_a: DeckAutomation {
+                        gain_db: -8.0,
+                        eq_sub_db: -24.0,
+                        eq_mid_db: -12.0,
+                        eq_high_db: -6.0,
+                        stretch_ratio: 1.0,
+                        pitch_cents: 0,
+                        reverb_freeze_send: 0.0,
+                    },
+                    deck_b: DeckAutomation {
+                        gain_db: 0.0,
+                        eq_sub_db: 0.0,
+                        eq_mid_db: 0.0,
+                        eq_high_db: 0.0,
+                        stretch_ratio: 1.0,
+                        pitch_cents: 0,
+                        reverb_freeze_send: 0.0,
+                    },
                 },
-                deck_b: DeckAutomation {
-                    gain_db: 0.0,
-                    eq_sub_db: 0.0,
-                    eq_mid_db: 0.0,
-                    eq_high_db: 0.0,
-                    stretch_ratio: 1.0,
-                    pitch_cents: 0,
-                    reverb_freeze_send: 0.0,
+                DspAutomationKeyframe {
+                    offset_ms: punch_duration_ms,
+                    deck_a: DeckAutomation {
+                        gain_db: -60.0,
+                        eq_sub_db: -60.0,
+                        eq_mid_db: -60.0,
+                        eq_high_db: -60.0,
+                        stretch_ratio: 1.0,
+                        pitch_cents: 0,
+                        reverb_freeze_send: 0.20,
+                    },
+                    deck_b: DeckAutomation {
+                        gain_db: 0.0,
+                        eq_sub_db: 0.0,
+                        eq_mid_db: 0.0,
+                        eq_high_db: 0.0,
+                        stretch_ratio: 1.0,
+                        pitch_cents: 0,
+                        reverb_freeze_send: 0.0,
+                    },
                 },
-            },
-        ];
+            ]
+        };
 
         TransitionRecipe {
             schema_version: 1,
@@ -510,21 +635,30 @@ impl TransitionPlanner {
     ) -> TransitionRecipe {
         let freeze_duration_ms = 3500u64; // 3.5s lush reverb decay
 
+        let vocal_end = exit_a.and_then(|z| z.last_vocal_end_ms());
         let a_freeze_point = exit_a
             .and_then(|z| {
-                z.downbeats_ms
-                    .iter()
-                    .copied()
-                    .filter(|&db| db + 300 <= z.end_ms)
-                    .next_back()
-                    .or_else(|| {
-                        z.beats_ms
-                            .iter()
-                            .copied()
-                            .filter(|&b| b + 300 <= z.end_ms)
-                            .next_back()
-                    })
-                    .or_else(|| z.downbeats_ms.last().copied())
+                if let Some(v_end) = vocal_end {
+                    z.downbeats_ms
+                        .iter()
+                        .copied()
+                        .find(|&db| db >= v_end && db <= z.end_ms)
+                        .or_else(|| Some(z.end_ms))
+                } else {
+                    z.downbeats_ms
+                        .iter()
+                        .copied()
+                        .filter(|&db| db + 300 <= z.end_ms)
+                        .next_back()
+                        .or_else(|| {
+                            z.beats_ms
+                                .iter()
+                                .copied()
+                                .filter(|&b| b + 300 <= z.end_ms)
+                                .next_back()
+                        })
+                        .or_else(|| z.downbeats_ms.last().copied())
+                }
             })
             .unwrap_or(track_a.track_id.duration_ms.saturating_sub(freeze_duration_ms));
 

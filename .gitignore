@@ -9,6 +9,7 @@ Cargo.lock
 *.ptr
 *.tap
 scratch/
+test_output/
 music
 music/
 

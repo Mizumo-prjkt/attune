@@ -113,7 +113,7 @@ fn test_dual_deck_mixer_automated_transition() {
     assert!(!mixer.is_transitioning());
     assert_eq!(mixer.active_deck, DeckId::DeckB);
     assert_eq!(mixer.deck_b.state, DeckState::Playing);
-    assert_eq!(mixer.deck_a.state, DeckState::Stopped);
+    assert_eq!(mixer.deck_a.state, DeckState::Finished);
 
     // Verify output has valid energy (no NaNs or extreme clipping)
     for &s in &output {

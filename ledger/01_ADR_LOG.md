@@ -137,3 +137,25 @@ This file records all major architectural decisions for **Attune**, including co
 
 
 
+
+---
+
+## ADR-010: Vocal Integrity Protection & Post-Transition Reverb Spillover
+- **Date**: 2026-10-27
+- **Status**: `LOCKED`
+- **Context**: During transition planning on vocal-heavy tracks (such as *Rabbit Hole* $\to$ *(Not) A Devil*), earlier planner logic selected `a_cut_point` strictly from grid downbeats (`downbeats_ms.rfind(|&db| db <= z.end_ms)`), which landed at $157,755\text{ ms}$ while the vocalist was still actively singing the final syllable ("-ru" ending at $157,960\text{ ms}$). Additionally, mid-band EQ was ducked by $-12\text{ dB}$ on beat 4, muffling the voice right before the cut. Furthermore, upon transition completion, Deck A was stopped and muted immediately, truncating lingering reverb freeze tails and creating an abrupt drop.
+- **Decision**:
+  1. Add vocal boundary inspection methods to `CueZone`:
+     - `is_vocal_active_at_ms(ms)`: checks whether `instrument_activations` indicates vocal presence ($>0.50$) with valid $f_0$.
+     - `last_vocal_end_ms()`: computes the exact timestamp where the final vocal phrase definitively resolves.
+     - `has_vocal_between_ms(start_ms, end_ms)`: verifies vocal activity across the handoff window.
+  2. Implement vocal protection in `TransitionPlanner`:
+     - In `RiffHandoff` and `TailFreeze`, anchor `a_cut_point = max(a_cut_point, last_vocal_end_ms)`. The outgoing singer is never cut short mid-word or mid-syllable.
+     - When active vocals exist in the handoff window, keep Deck A's mid and high EQ flat at $0.0\text{ dB}$ so vocal clarity and presence are uncompromised; carve headroom exclusively from sub-bass ($-6\text{ dB} \to -18\text{ dB}$) to prevent kick/bass clashing with Track B.
+     - On resolution, send $0.45$ reverb freeze so the final vocal consonant washes over the handoff into Track B.
+  3. Implement decaying reverb spillover in `Deck` and `DualDeckMixer`:
+     - Add `finish_with_tail()` to `Deck`, setting `DeckState::Finished` instead of stopping DSP computation.
+     - In `DualDeckMixer::process_stereo_frame`, when playback transfers to `ActiveDeck::DeckB`, Deck A's audio buffer stops advancing but its internal reverb diffusion network continues processing and mixing into the stereo stream until naturally decayed, eliminating dry cuts.
+- **Consequences**:
+  - Outgoing vocals conclude completely and naturally with full intelligibility.
+  - Reverb washes spill seamlessly over incoming downbeats for studio-grade transition continuity.

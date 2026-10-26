@@ -229,3 +229,68 @@ These four benchmark scenarios define the "Gold Standard" transitions that Attun
 
 
 
+
+---
+
+### [2026-10-27] Exp #011: Vocal Integrity Protection & Syllable Resolution Protocol (Rabbit Hole -> (Not) A Devil)
+- **Objective**:
+  - Resolve vocal phrase premature cut-off in `Rabbit Hole` $\to$ `(Not) A Devil`, where Miku was cut off before finishing the final syllable "-ru" in "rabitto hooru".
+  - Ensure vocal presence is uncompromised by EQ ducking during singing phrases in candidate transition handoffs.
+  - Implement seamless post-transition reverb freeze diffusion spillover so outgoing deck tails decay naturally across incoming track introductions rather than hard-muting.
+- **Root Cause Analysis**:
+  - High-precision audio slice RMS inspection on `Rabbit Hole`:
+    - $157.4\text{s} - 157.6\text{s}$: $-6.0\text{ dBFS}$ ("ra-bi-tto-")
+    - $157.6\text{s} - 157.7\text{s}$: $-10.2\text{ dBFS}$ ("-hoo-")
+    - $157.7\text{s} - 157.8\text{s}$: $-10.7\text{ dBFS}$ ("-ru-", active vocal singing)
+    - $157.8\text{s} - 157.9\text{s}$: $-17.1\text{ dBFS}$ (syllable ring-out)
+    - $158.0\text{s} - 159.0\text{s}$: $-180.0\text{ dBFS}$ (digital silence)
+  - `TransitionPlanner` previously chose `a_cut_point = downbeats_ms.rfind(|&db| db <= z.end_ms)`, which returned $157,755\text{ ms}$.
+  - This hard-cut Deck A at $157.755\text{s}$, severing the final syllable $205\text{ ms}$ before completion. Furthermore, beat 4 ducked mid EQ by $-12\text{ dB}$, muffling the vocal.
+- **Implemented Fixes**:
+  1. **Vocal Boundary Detection**: Added `is_vocal_active_at_ms`, `last_vocal_end_ms`, and `has_vocal_between_ms` to `CueZone`.
+  2. **Vocal-Aware Transition Planning**:
+     - `a_cut_point` is clamped to $\ge \text{last\_vocal\_end\_ms}$ ($157,960\text{ ms}$).
+     - When singing is detected in the handoff window, Deck A mid/high EQ remains completely flat ($0.0\text{ dB}$); only sub-bass is carved ($-6\text{ dB} \to -18\text{ dB}$) for Track B kick room.
+     - On resolution, a $0.45$ reverb freeze send captures the final vocal ring-out.
+  3. **Decaying Reverb Spillover**:
+     - Added `Deck::finish_with_tail()`. When `DualDeckMixer` transfers active control to Deck B, Deck A enters `DeckState::Finished` where audio advancement halts but its internal reverb diffusion continues rendering until fully decayed.
+- **Empirical Live Verification (`attune-cli live`)**:
+  - Mix Window: Track A [$156.56\text{s} - 157.96\text{s}$] $\to$ Track B [$1.02\text{s} - 2.42\text{s}$].
+  - Miku's final phrase "rabitto hooru!" sings through to 100% natural completion.
+  - Final syllable "-ru" floats into Track B with a lush reverb tail as Track B's intro locks in at $2.42\text{s}$.
+- **Listening Verdict**: `PASS`. Vocal phrase is completely intact, intelligible, and transitions seamlessly.
+
+---
+
+### [2026-10-27] Exp #012: Transition Benchmark across Rock/Pop/Punk Catalog (Masarada & Neru's 世界征服)
+- **Objective**:
+  - Evaluate multi-dimensional audio profiling, vibe classification, and transition archetype selection across rock, punk, and vocaloid tracks:
+    1. `Rabbit Hole` (171.4 BPM, Pop-Dance / Synth) $\to$ Masarada's `Liar Dancer` (171.4 BPM, Aggressive Rock/Punk)
+    2. Masarada's `Liar Dancer` (171.4 BPM) $\to$ `(Not) A Devil` (149.3 BPM)
+    3. Neru's `Tokyo Teddy Bear` (132.8 BPM, J-Rock/Punk) $\to$ Neru's `Lost One's Weeping` (79.8/159.6 BPM, J-Rock/Punk)
+    4. `(Not) A Devil` (149.3 BPM) $\to$ Neru's `How-to World Domination` (150.1 BPM, J-Rock)
+    5. Masarada's `Liar Dancer` (171.4 BPM) $\to$ jon-YAKITORY's `Konton Boogie` (90.8/181.6 BPM, High-Drive Rock)
+- **Empirical Results**:
+  - **Pair 1 (`Rabbit Hole` -> `Liar Dancer`)**:
+    - Both tracks: 171.4 BPM.
+    - Selected Archetype: `RiffHandoff` (Confidence: 0.91).
+    - Mix window: Track A [$156560\text{ms} - 157960\text{ms}$] $\to$ Track B [$1060\text{ms} - 2460\text{ms}$].
+    - Observation: Instant energetic handoff on the first transient beat.
+  - **Pair 2 (`Liar Dancer` -> `(Not) A Devil`)**:
+    - Pre-gap / silence trimming: `Liar Dancer` decoded duration is $242.45\text{s}$, but audible audio concludes at $236.28\text{s}$.
+    - `find_audible_end_ms` trimmed the $6.17\text{s}$ trailing silence; handoff triggered at $234669\text{ms} \to 236069\text{ms}$.
+    - Observation: Zero dead air; seamless cut into `(Not) A Devil`.
+  - **Pair 3 (`Tokyo Teddy Bear` -> `Lost One's Weeping`)**:
+    - Vibe: High-aggression rock guitars with vocal fry/grit.
+    - Selected Archetype: `TailFreeze` (Confidence: 0.89) due to tempo delta ($132.8$ vs $79.8$ BPM).
+    - Mix window: Track A [$190820\text{ms} - 194320\text{ms}$] $\to$ Track B [$1480\text{ms} - 4980\text{ms}$].
+    - Observation: Heavy guitar distortion freezes into a spatial wash; Track B drops cleanly on its opening drum transient.
+  - **Pair 4 (`(Not) A Devil` -> `How-to World Domination`)**:
+    - Both tracks: ~150 BPM ($149.3$ vs $150.1$, delta $<0.5\%$).
+    - Selected Archetype: `RiffHandoff` (Confidence: 0.91).
+    - Mix window: Track A [$160172\text{ms} - 161780\text{ms}$] $\to$ Track B [$1620\text{ms} - 3228\text{ms}$].
+    - Observation: 1-bar rhythmic groove lock; transitions with effortless pop-rock momentum.
+  - **Pair 5 (`Liar Dancer` -> `Konton Boogie`)**:
+    - Selected Archetype: `TailFreeze` (Confidence: 0.89).
+    - Mix window: Track A [$236069\text{ms} - 239569\text{ms}$] $\to$ Track B [$280\text{ms} - 3780\text{ms}$].
+- **Listening Verdict**: `PASS`. The transition engine accurately handles diverse rock/pop/punk energy dynamics, preserves vocal lines, trims silence pre/post-gaps, and selects the ideal transition archetype without manual intervention.

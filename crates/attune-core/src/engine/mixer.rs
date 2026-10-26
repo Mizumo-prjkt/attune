@@ -149,8 +149,8 @@ impl DualDeckMixer {
             trans.elapsed_frames += 1;
 
             if trans.elapsed_frames >= trans.total_transition_frames {
-                // Transition finished: Deck A stops, Deck B takes over natively!
-                self.deck_a.stop();
+                // Transition finished: Deck A finishes cleanly with tail, Deck B takes over natively!
+                self.deck_a.finish_with_tail();
                 self.deck_b.state = DeckState::Playing;
                 self.deck_b.set_gain_db(0.0);
                 self.deck_b.set_eq_sub_db(0.0);
@@ -167,7 +167,11 @@ impl DualDeckMixer {
         } else {
             match self.active_deck {
                 DeckId::DeckA => self.deck_a.read_stereo_frame(),
-                DeckId::DeckB => self.deck_b.read_stereo_frame(),
+                DeckId::DeckB => {
+                    let (b_l, b_r) = self.deck_b.read_stereo_frame();
+                    let (a_l, a_r) = self.deck_a.read_stereo_frame();
+                    (b_l + a_l, b_r + a_r)
+                }
             }
         };
 

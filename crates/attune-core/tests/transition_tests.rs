@@ -116,5 +116,116 @@ fn test_audible_silence_detection() {
     assert!((end_ms as i64 - 1500).abs() <= 20, "end_ms was {}", end_ms);
 }
 
+#[test]
+fn test_vocal_protection_in_transition_planning() {
+    use attune_core::schema::{
+        AnalysisTier, CueZone, Frames20Hz, GlobalSummary, TrackAnalysisProfile, TrackId, ZoneType,
+    };
+
+    let hop_ms = 50u32;
+    let frames_count = 100; // 5000ms
+    let mut insts = vec![vec![0.0f32; 6]; frames_count];
+    let mut f0 = vec![0.0f32; frames_count];
+
+    // Simulate vocal singing across the last 20 frames (last 1000ms, from 157000ms to 158000ms)
+    for i in 80..100 {
+        insts[i][4] = 0.95; // clean vocal active
+        f0[i] = 6900.0;     // A4 active pitch
+    }
+
+    let exit_zone = CueZone {
+        zone_type: ZoneType::EXIT,
+        start_ms: 153000,
+        end_ms: 158000,
+        hop_ms,
+        beats_ms: vec![154000, 155000, 156000, 157000, 157500],
+        downbeats_ms: vec![154000, 156000, 157500], // Downbeat at 157500 is mid-vocal!
+        phrase_boundaries_ms: vec![154000],
+        sustained_pitch_regions: vec![],
+        frames_20hz: Frames20Hz {
+            f0_midi_cents: f0,
+            chroma_12: vec![[0.0; 12]; frames_count],
+            energy_4band_db: vec![[0.0; 4]; frames_count],
+            aggression_curve: vec![0.65; frames_count],
+            instrument_activations: insts,
+        },
+    };
+
+    let track_a = TrackAnalysisProfile {
+        schema_version: 1,
+        track_id: TrackId {
+            audio_hash: "track_a".to_string(),
+            duration_ms: 158000,
+            canonical_slug: "track_a".to_string(),
+        },
+        analysis_tier: AnalysisTier::FastHeadTail,
+        global_summary: GlobalSummary {
+            nominal_bpm: 171.4,
+            bpm_stability: 0.9,
+            primary_key: "C Major".to_string(),
+            mean_aggression_index: 0.67,
+            macro_vibe_family: "AGGRESSIVE_ROCK_PUNK_JROCK".to_string(),
+            dominant_instruments: vec!["inst_synth_electronic".to_string(), "vocal_clean_melodic".to_string(), "vocal_grit_fry_growl".to_string()],
+        },
+        cue_zones: vec![exit_zone],
+    };
+
+    let track_b = TrackAnalysisProfile {
+        schema_version: 1,
+        track_id: TrackId {
+            audio_hash: "track_b".to_string(),
+            duration_ms: 160000,
+            canonical_slug: "track_b".to_string(),
+        },
+        analysis_tier: AnalysisTier::FastHeadTail,
+        global_summary: GlobalSummary {
+            nominal_bpm: 171.4,
+            bpm_stability: 0.9,
+            primary_key: "C Major".to_string(),
+            mean_aggression_index: 0.65,
+            macro_vibe_family: "AGGRESSIVE_ROCK_PUNK_JROCK".to_string(),
+            dominant_instruments: vec!["inst_synth_electronic".to_string(), "vocal_clean_melodic".to_string()],
+        },
+        cue_zones: vec![CueZone {
+            zone_type: ZoneType::ENTRY,
+            start_ms: 1000,
+            end_ms: 45000,
+            hop_ms: 50,
+            beats_ms: vec![1000, 1350, 1700, 2050],
+            downbeats_ms: vec![1000, 2400],
+            phrase_boundaries_ms: vec![1000],
+            sustained_pitch_regions: vec![],
+            frames_20hz: Frames20Hz {
+                f0_midi_cents: vec![0.0; 100],
+                chroma_12: vec![[0.0; 12]; 100],
+                energy_4band_db: vec![[0.0; 4]; 100],
+                aggression_curve: vec![0.6; 100],
+                instrument_activations: vec![vec![0.0; 6]; 100],
+            },
+        }],
+    };
+
+    let planner = TransitionPlanner::new();
+    let recipe = planner.plan_transition(&track_a, &track_b);
+
+    // Track A exit end must NOT cut off at 157500ms; it must extend to at least 158000ms!
+    assert!(
+        recipe.timing.track_a_exit_end_ms >= 158000,
+        "Expected exit_end_ms >= 158000 (after vocal resolution), but was {}",
+        recipe.timing.track_a_exit_end_ms
+    );
+
+    // Verify keyframes preserve vocal clarity (mid EQ is 0 dB, not heavily ducked)
+    for kf in &recipe.dsp_automation_keyframes {
+        if kf.offset_ms < recipe.timing.track_a_exit_end_ms.saturating_sub(recipe.timing.track_a_transition_start_ms) {
+            assert!(
+                kf.deck_a.eq_mid_db >= -0.5,
+                "Vocal mid EQ was ducked to {} dB while singing!",
+                kf.deck_a.eq_mid_db
+            );
+        }
+    }
+}
+
 
 

@@ -96,6 +96,11 @@ impl Deck {
         self.reverb_freeze.reset();
     }
 
+    /// Mark track finished at the end of transition, allowing lingering reverb tail to ring out
+    pub fn finish_with_tail(&mut self) {
+        self.state = DeckState::Finished;
+    }
+
     pub fn seek_ms(&mut self, ms: u64) {
         if let Some(ref audio) = self.audio {
             let frame = (ms as f64 / 1000.0) * audio.sample_rate as f64;
