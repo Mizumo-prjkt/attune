@@ -23,6 +23,14 @@ pub struct AudioOutputDriver {
 }
 
 impl AudioOutputDriver {
+    /// Query the default hardware output sample rate
+    pub fn default_sample_rate() -> Result<u32, DriverError> {
+        let host = cpal::default_host();
+        let device = host.default_output_device().ok_or(DriverError::NoDevice)?;
+        let default_config = device.default_output_config()?;
+        Ok(default_config.sample_rate())
+    }
+
     /// Initialize audio output stream connected to the DualDeckMixer
     pub fn new(mixer: Arc<Mutex<DualDeckMixer>>) -> Result<Self, DriverError> {
         let host = cpal::default_host();
@@ -33,6 +41,11 @@ impl AudioOutputDriver {
         let channels = default_config.channels();
         let sample_format = default_config.sample_format();
         let config = default_config.config();
+
+        // Synchronize mixer's output sample rate with the hardware device
+        if let Ok(mut m) = mixer.lock() {
+            m.set_output_sample_rate(sample_rate);
+        }
 
         let mixer_cb = Arc::clone(&mixer);
         let err_fn = |err| log::error!("Audio output stream error: {}", err);

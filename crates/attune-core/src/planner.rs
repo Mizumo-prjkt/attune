@@ -5,6 +5,12 @@ use crate::schema::{
 
 pub struct TransitionPlanner;
 
+impl Default for TransitionPlanner {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl TransitionPlanner {
     pub fn new() -> Self {
         Self
@@ -226,7 +232,7 @@ impl TransitionPlanner {
         bpm_a: f32,
     ) -> TransitionRecipe {
         let beat_ms = (60_000.0 / bpm_a) as u64;
-        let punch_duration_ms = beat_ms * 2; // 2-beat pickup riff/fill
+        let punch_duration_ms = beat_ms * 4; // 1-bar (4-beat) pickup riff/fill
 
         let a_cut_point = exit_a
             .and_then(|z| {
@@ -234,7 +240,7 @@ impl TransitionPlanner {
                     .iter()
                     .copied()
                     .filter(|&db| db <= z.end_ms)
-                    .last()
+                    .next_back()
                     .or_else(|| z.downbeats_ms.last().copied())
             })
             .unwrap_or(track_a.track_id.duration_ms.saturating_sub(punch_duration_ms));
@@ -244,6 +250,7 @@ impl TransitionPlanner {
             .unwrap_or(0);
 
         let keyframes = vec![
+            // Beat 1 start: Track A full; Track B enters unobtrusively
             DspAutomationKeyframe {
                 offset_ms: 0,
                 deck_a: DeckAutomation {
@@ -256,30 +263,52 @@ impl TransitionPlanner {
                     reverb_freeze_send: 0.0,
                 },
                 deck_b: DeckAutomation {
-                    gain_db: -60.0,
+                    gain_db: -18.0,
                     eq_sub_db: -24.0,
-                    eq_mid_db: 0.0,
+                    eq_mid_db: -6.0,
+                    eq_high_db: -3.0,
+                    stretch_ratio: 1.0,
+                    pitch_cents: 0,
+                    reverb_freeze_send: 0.0,
+                },
+            },
+            // Beat 2: Deck A carves initial low-mid space; Deck B riff establishes
+            DspAutomationKeyframe {
+                offset_ms: punch_duration_ms / 4,
+                deck_a: DeckAutomation {
+                    gain_db: -1.5,
+                    eq_sub_db: -6.0,
+                    eq_mid_db: -3.0,
+                    eq_high_db: 0.0,
+                    stretch_ratio: 1.0,
+                    pitch_cents: 0,
+                    reverb_freeze_send: 0.0,
+                },
+                deck_b: DeckAutomation {
+                    gain_db: -6.0,
+                    eq_sub_db: -12.0,
+                    eq_mid_db: -2.0,
                     eq_high_db: 0.0,
                     stretch_ratio: 1.0,
                     pitch_cents: 0,
                     reverb_freeze_send: 0.0,
                 },
             },
-            // Pickup punch: Deck B riff cuts in, Deck A dips midrange by 6 dB to avoid mud
+            // Beat 3: Crossover point: Deck B takes melodic lead
             DspAutomationKeyframe {
                 offset_ms: punch_duration_ms / 2,
                 deck_a: DeckAutomation {
-                    gain_db: -2.0,
-                    eq_sub_db: -6.0,
-                    eq_mid_db: -6.0, // Dynamic notch to prevent distortion clash
+                    gain_db: -3.5,
+                    eq_sub_db: -12.0,
+                    eq_mid_db: -6.0,
                     eq_high_db: -3.0,
                     stretch_ratio: 1.0,
                     pitch_cents: 0,
                     reverb_freeze_send: 0.0,
                 },
                 deck_b: DeckAutomation {
-                    gain_db: 0.0,
-                    eq_sub_db: -6.0,
+                    gain_db: -2.0,
+                    eq_sub_db: -3.0,
                     eq_mid_db: 0.0,
                     eq_high_db: 0.0,
                     stretch_ratio: 1.0,
@@ -287,7 +316,29 @@ impl TransitionPlanner {
                     reverb_freeze_send: 0.0,
                 },
             },
-            // Slam Downbeat: Track A hard cuts, Track B takes over full power
+            // Beat 4: Pre-drop ducking: Deck A recedes deeply
+            DspAutomationKeyframe {
+                offset_ms: (punch_duration_ms * 3) / 4,
+                deck_a: DeckAutomation {
+                    gain_db: -8.0,
+                    eq_sub_db: -24.0,
+                    eq_mid_db: -12.0,
+                    eq_high_db: -6.0,
+                    stretch_ratio: 1.0,
+                    pitch_cents: 0,
+                    reverb_freeze_send: 0.0,
+                },
+                deck_b: DeckAutomation {
+                    gain_db: 0.0,
+                    eq_sub_db: 0.0,
+                    eq_mid_db: 0.0,
+                    eq_high_db: 0.0,
+                    stretch_ratio: 1.0,
+                    pitch_cents: 0,
+                    reverb_freeze_send: 0.0,
+                },
+            },
+            // Downbeat of Bar 2: Track A cuts with short reverb splash; Track B takes over full power
             DspAutomationKeyframe {
                 offset_ms: punch_duration_ms,
                 deck_a: DeckAutomation {
@@ -347,13 +398,13 @@ impl TransitionPlanner {
                     .iter()
                     .copied()
                     .filter(|&pb| pb + swap_window_ms <= z.end_ms + 500)
-                    .last()
+                    .next_back()
                     .or_else(|| {
                         z.downbeats_ms
                             .iter()
                             .copied()
                             .filter(|&db| db + swap_window_ms <= z.end_ms + 500)
-                            .last()
+                            .next_back()
                     })
                     .or_else(|| Some(z.end_ms.saturating_sub(swap_window_ms)))
             })
@@ -465,13 +516,13 @@ impl TransitionPlanner {
                     .iter()
                     .copied()
                     .filter(|&db| db + 300 <= z.end_ms)
-                    .last()
+                    .next_back()
                     .or_else(|| {
                         z.beats_ms
                             .iter()
                             .copied()
                             .filter(|&b| b + 300 <= z.end_ms)
-                            .last()
+                            .next_back()
                     })
                     .or_else(|| z.downbeats_ms.last().copied())
             })
@@ -503,9 +554,9 @@ impl TransitionPlanner {
                     reverb_freeze_send: 0.0,
                 },
             },
-            // Immediate dry mute + Reverb Freeze Wash triggered on Deck A
+            // Fast cut on Deck A + Reverb Freeze Wash triggered; Deck B enters cleanly
             DspAutomationKeyframe {
-                offset_ms: 200,
+                offset_ms: 100,
                 deck_a: DeckAutomation {
                     gain_db: -60.0,
                     eq_sub_db: -60.0,
@@ -516,7 +567,49 @@ impl TransitionPlanner {
                     reverb_freeze_send: 1.0, // Full freeze wash
                 },
                 deck_b: DeckAutomation {
-                    gain_db: -6.0,
+                    gain_db: -9.0, // Clean smooth entry curve
+                    eq_sub_db: 0.0,
+                    eq_mid_db: 0.0,
+                    eq_high_db: 0.0,
+                    stretch_ratio: 1.0,
+                    pitch_cents: 0,
+                    reverb_freeze_send: 0.0,
+                },
+            },
+            DspAutomationKeyframe {
+                offset_ms: 500,
+                deck_a: DeckAutomation {
+                    gain_db: -60.0,
+                    eq_sub_db: -60.0,
+                    eq_mid_db: -12.0,
+                    eq_high_db: 0.0,
+                    stretch_ratio: 1.0,
+                    pitch_cents: 0,
+                    reverb_freeze_send: 0.8,
+                },
+                deck_b: DeckAutomation {
+                    gain_db: -2.0,
+                    eq_sub_db: 0.0,
+                    eq_mid_db: 0.0,
+                    eq_high_db: 0.0,
+                    stretch_ratio: 1.0,
+                    pitch_cents: 0,
+                    reverb_freeze_send: 0.0,
+                },
+            },
+            DspAutomationKeyframe {
+                offset_ms: 1500,
+                deck_a: DeckAutomation {
+                    gain_db: -60.0,
+                    eq_sub_db: -60.0,
+                    eq_mid_db: -24.0,
+                    eq_high_db: -6.0,
+                    stretch_ratio: 1.0,
+                    pitch_cents: 0,
+                    reverb_freeze_send: 0.4,
+                },
+                deck_b: DeckAutomation {
+                    gain_db: 0.0,
                     eq_sub_db: 0.0,
                     eq_mid_db: 0.0,
                     eq_high_db: 0.0,
@@ -578,7 +671,7 @@ impl TransitionPlanner {
                     .iter()
                     .copied()
                     .filter(|&db| db <= z.end_ms)
-                    .last()
+                    .next_back()
                     .or_else(|| z.beats_ms.last().copied())
             })
             .unwrap_or_else(|| exit_a.map(|z| z.end_ms).unwrap_or(track_a.track_id.duration_ms.saturating_sub(100)));

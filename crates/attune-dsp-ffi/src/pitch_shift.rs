@@ -31,6 +31,12 @@ pub struct Resampler {
     fractional_pos: f64,
 }
 
+impl Default for Resampler {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Resampler {
     pub fn new() -> Self {
         Self {

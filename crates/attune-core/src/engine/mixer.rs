@@ -23,13 +23,22 @@ pub struct DualDeckMixer {
 
 impl DualDeckMixer {
     pub fn new(sample_rate: u32) -> Self {
+        let sr = if sample_rate > 0 { sample_rate } else { 44100 };
         Self {
-            sample_rate,
-            deck_a: Deck::new(DeckId::DeckA, sample_rate),
-            deck_b: Deck::new(DeckId::DeckB, sample_rate),
+            sample_rate: sr,
+            deck_a: Deck::new(DeckId::DeckA, sr),
+            deck_b: Deck::new(DeckId::DeckB, sr),
             active_deck: DeckId::DeckA,
             transition: None,
             master_gain_linear: 1.0,
+        }
+    }
+
+    pub fn set_output_sample_rate(&mut self, sample_rate: u32) {
+        if sample_rate > 0 && sample_rate != self.sample_rate {
+            self.sample_rate = sample_rate;
+            self.deck_a.set_output_sample_rate(sample_rate);
+            self.deck_b.set_output_sample_rate(sample_rate);
         }
     }
 

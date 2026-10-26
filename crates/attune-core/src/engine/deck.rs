@@ -25,7 +25,7 @@ pub enum DeckState {
 pub struct Deck {
     pub deck_id: DeckId,
     pub state: DeckState,
-    sample_rate: u32,
+    pub output_sample_rate: u32,
     audio: Option<AudioBuffer>,
     playhead_frame: f64,
     // DSP State
@@ -39,11 +39,12 @@ pub struct Deck {
 }
 
 impl Deck {
-    pub fn new(deck_id: DeckId, sample_rate: u32) -> Self {
+    pub fn new(deck_id: DeckId, output_sample_rate: u32) -> Self {
+        let sr = if output_sample_rate > 0 { output_sample_rate } else { 44100 };
         Self {
             deck_id,
             state: DeckState::Stopped,
-            sample_rate,
+            output_sample_rate: sr,
             audio: None,
             playhead_frame: 0.0,
             gain_db: 0.0,
@@ -51,8 +52,20 @@ impl Deck {
             stretch_ratio: 1.0,
             pitch_cents: 0,
             reverb_freeze_send: 0.0,
-            eq: ThreeBandEq::new(sample_rate as f32),
-            reverb_freeze: ReverbFreeze::new(sample_rate as f32),
+            eq: ThreeBandEq::new(sr as f32),
+            reverb_freeze: ReverbFreeze::new(sr as f32),
+        }
+    }
+
+    pub fn output_sample_rate(&self) -> u32 {
+        self.output_sample_rate
+    }
+
+    pub fn set_output_sample_rate(&mut self, sample_rate: u32) {
+        if sample_rate > 0 && sample_rate != self.output_sample_rate {
+            self.output_sample_rate = sample_rate;
+            self.eq = ThreeBandEq::new(sample_rate as f32);
+            self.reverb_freeze = ReverbFreeze::new(sample_rate as f32);
         }
     }
 
@@ -84,13 +97,22 @@ impl Deck {
     }
 
     pub fn seek_ms(&mut self, ms: u64) {
-        let frame = (ms as f64 / 1000.0) * self.sample_rate as f64;
-        let total = self.num_frames() as f64;
-        self.playhead_frame = frame.clamp(0.0, total);
+        if let Some(ref audio) = self.audio {
+            let frame = (ms as f64 / 1000.0) * audio.sample_rate as f64;
+            let total = audio.num_frames() as f64;
+            self.playhead_frame = frame.clamp(0.0, total);
+        } else {
+            self.playhead_frame = 0.0;
+        }
     }
 
     pub fn current_position_ms(&self) -> u64 {
-        ((self.playhead_frame / self.sample_rate as f64) * 1000.0) as u64
+        if let Some(ref audio) = self.audio {
+            if audio.sample_rate > 0 {
+                return ((self.playhead_frame / audio.sample_rate as f64) * 1000.0) as u64;
+            }
+        }
+        0
     }
 
     pub fn duration_ms(&self) -> u64 {
@@ -195,8 +217,20 @@ impl Deck {
             interpolate_hermite(y0, y1, y2, y3, frac)
         };
 
-        // Advance playhead by stretch_ratio
-        self.playhead_frame += self.stretch_ratio as f64;
+        // Advance playhead by rate_ratio * stretch_ratio * pitch_ratio
+        let track_sr = audio.sample_rate as f64;
+        let out_sr = if self.output_sample_rate > 0 {
+            self.output_sample_rate as f64
+        } else {
+            44100.0
+        };
+        let rate_ratio = track_sr / out_sr;
+        let pitch_ratio = if self.pitch_cents != 0 {
+            attune_dsp_ffi::pitch_shift::cents_to_ratio(self.pitch_cents) as f64
+        } else {
+            1.0
+        };
+        self.playhead_frame += rate_ratio * self.stretch_ratio as f64 * pitch_ratio;
 
         // Apply 3-band Isolator EQ
         let (eq_l, eq_r) = self.eq.process_stereo(raw_l, raw_r);

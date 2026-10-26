@@ -183,6 +183,49 @@ These four benchmark scenarios define the "Gold Standard" transitions that Attun
   - Audio continued playing into Track B natively without dropouts, buffer under-runs, or clicks.
 - **Listening Verdict**: `PASS`. Fully functional real-time live playback engine with zero-dropout automated DJ mixing.
 
+---
+
+### [2026-10-27] Exp #010: Hardware Sample Rate Resampling Adaptation & 1-Bar (4-Beat) Phrased Transition Automation
+- **Objective**:
+  1. Eliminate the pitch shift (+1.5 semitones sharp) and speed acceleration (+8.84% fast) observed during live hardware playback when playing standard 44.1 kHz FLAC files on 48.0 kHz ALSA/PipeWire/PulseAudio output devices.
+  2. Elevate transition musicality from an abrupt 2-beat ($700\text{ ms}$) blip to a cohesive, professional 1-bar (4-beat, $1400\text{ ms}$) DJ riff pickup handoff with multi-point EQ and gain automation.
+- **Root Cause Analysis (Speed & Pitch Discrepancy)**:
+  - Source tracks (`Rabbit Hole`, `(Not) A Devil`) are standard Red Book CD quality at $44,100\text{ Hz}$.
+  - System soundcard DAC runs at $48,000\text{ Hz}$ natively.
+  - Previous `Deck::read_stereo_frame()` stepped `self.playhead_frame += self.stretch_ratio as f64` (1.0 frames per output callback sample).
+  - This forced 48,000 frames from the 44.1 kHz audio buffer to play every second:
+    $$\text{Speed Ratio} = \frac{48,000}{44,100} = 1.0884\dots \quad (+8.84\%)$$
+    $$\text{Pitch Shift} = 1200 \times \log_2\left(\frac{48,000}{44,100}\right) = +146.7\text{ cents} \quad (\approx +1.47\text{ semitones sharp})$$
+- **Implementation & Fix**:
+  1. **Dynamic Fractional Hermite Resampling in `Deck`**:
+     - `Deck` tracks `output_sample_rate` ($F_{\text{device}}$), synchronized to `AudioOutputDriver::default_sample_rate()`.
+     - Playhead increments on each output sample by:
+       $$\Delta \text{playhead} = \frac{F_{\text{track}}}{F_{\text{device}}} \times \text{stretch\_ratio} \times \text{pitch\_ratio}$$
+     - Fractional frames are resampled on-the-fly via 4-point cubic Hermite interpolation (`interpolate_hermite`).
+  2. **Accurate Track-Native Seeking and Position Calculations**:
+     - `seek_ms` and `current_position_ms` compute frames strictly relative to `audio.sample_rate`, resolving position offsets.
+  3. **1-Bar (4-Beat) Riff Handoff Phrasing (`build_archetype_2_riff_handoff_recipe`)**:
+     - Expanded `punch_duration_ms` from `beat_ms * 2` to `beat_ms * 4` ($1400\text{ ms}$ at 171.6 BPM).
+     - Sculpted 5 distinct automation points across the measure:
+       - **Beat 1 ($0\text{ ms}$)**: Deck A full power ($0\text{ dB}$, flat); Deck B enters subtly ($-18\text{ dB}$, sub muted at $-24\text{ dB}$).
+       - **Beat 2 ($350\text{ ms}$)**: Deck A carves low-mid room ($-1.5\text{ dB}$, sub $-6\text{ dB}$, mid $-3\text{ dB}$); Deck B riff establishes ($-6\text{ dB}$).
+       - **Beat 3 ($700\text{ ms}$)**: Melodic crossover: Deck B takes lead ($-2\text{ dB}$, sub $-3\text{ dB}$); Deck A ducks ($-3.5\text{ dB}$, mid $-6\text{ dB}$, sub $-12\text{ dB}$).
+       - **Beat 4 ($1050\text{ ms}$)**: Pre-drop duck: Deck A recedes deeply ($-8\text{ dB}$, sub $-24\text{ dB}$, mid $-12\text{ dB}$); Deck B at unity ($0\text{ dB}$).
+       - **Downbeat Bar 2 ($1400\text{ ms}$)**: Deck A hard cuts ($-60\text{ dB}$) with a $0.20$ reverb freeze splash; Deck B locks in at full power natively.
+  4. **Equal-Power Tail Freeze Wash Smoothing (`build_archetype_4_tail_freeze_recipe`)**:
+     - Smoothed Deck B entry curve ($-60\text{ dB} \to -9\text{ dB} \to -2\text{ dB} \to 0\text{ dB}$) over a 4-point reverb decay envelope ($100\text{ms} \to 500\text{ms} \to 1500\text{ms} \to 3500\text{ms}$).
+- **Unit Test Verification (`test_sample_rate_resampling_accuracy`)**:
+  - $440.0\text{ Hz}$ sine tone generated in a $44,100\text{ Hz}$ buffer played through a $48,000\text{ Hz}$ mixer.
+  - Advance check: 1.0 second on 48 kHz hardware advanced the position by exactly $1000\text{ ms}$ ($500\text{ ms} \to 1500\text{ ms}$).
+  - Output wavelength: Measured average period between positive zero-crossings in the 48 kHz output stream was **$109.07\text{ samples}$** (theoretical expected: $\frac{48,000}{440} = 109.09\text{ samples}$). Pitch error: $<0.02\%$.
+- **Empirical Hardware Playback (`attune-cli live`)**:
+  - Command: `attune-cli live "music/Rabbit Hole/01 Rabbit Hole.flac" "music/DECO_27, PinocchioP - (Not) A Devil (2023)/16bit_1. DECO_27, PinocchioP - (Not) A Devil.flac" --lead-in-sec 4.0`
+  - Output Device: $48,000\text{ Hz}$, $2\text{ channels}$.
+  - Transition timing: Mix window Track A [$156.4\text{s} - 157.8\text{s}$] $\to$ Track B [$1.0\text{s} - 2.4\text{s}$] ($1.4\text{s}$ exact 1-bar handoff).
+  - Deck B cleanly took over at $2.5\text{s}$ and played for 8 seconds clean.
+- **Listening Verdict**: `PASS`. Music plays in its 100% natural, intended native key and tempo ($A_4 = 440\text{ Hz}$, 1.000x speed), and the 1-bar handoff sounds organic, cohesive, and DJ-grade.
+
+
 
 
 

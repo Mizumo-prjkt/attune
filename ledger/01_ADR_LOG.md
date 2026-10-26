@@ -116,8 +116,24 @@ This file records all major architectural decisions for **Attune**, including co
   - Implement `DualDeckMixer` in `attune-core::engine` with sample-accurate transition state machine that automates Deck A and Deck B across the recipe duration and cleanly transfers active deck control to Deck B on completion.
   - Integrate `cpal` (v0.18) via `AudioOutputDriver` running the mixer inside the real-time audio thread callback, with graceful fallback to software stepping in headless environments.
   - Implement `JitPlanner` for On-Demand Mode 1 fast-pass planning (<150 ms) for newly queued tracks.
+---
+
+## ADR-009: Hardware Sample Rate Resampling Adaptation & 1-Bar Phrased Transition Automation
+- **Date**: 2026-10-27
+- **Status**: `LOCKED`
+- **Context**: Lossless audio libraries predominantly consist of standard Red Book CD tracks encoded at $44,100\text{ Hz}$, whereas modern Linux (ALSA / PipeWire / PulseAudio), macOS (CoreAudio), and Windows (WASAPI) hardware audio drivers default to $48,000\text{ Hz}$ or $96,000\text{ Hz}$. Naive 1.0-frame stepping per output callback sample caused tracks to play $8.84\%$ fast ($\frac{48,000}{44,100} = 1.0884$) and shifted pitch upward by $+146.7\text{ cents}$ ($\approx +1.5\text{ semitones sharp}$). In addition, a 2-beat ($700\text{ ms}$) riff handoff cut was too brief for incoming intro phrases to establish musical groove, sounding abrupt and rushed.
+- **Decision**:
+  - Store `output_sample_rate` ($F_{\text{device}}$) in `Deck` and query hardware native rate via `AudioOutputDriver::default_sample_rate()`.
+  - Step the playhead continuously per output frame by the fractional rate ratio:
+    $$\Delta \text{playhead} = \frac{F_{\text{track}}}{F_{\text{device}}} \times \text{stretch\_ratio} \times \text{pitch\_ratio}$$
+  - Interpolate fractional playhead positions via 4-point cubic Hermite resampling (`interpolate_hermite`), yielding zero pitch drift and exact $1.0000\times$ speed across any device sample rate.
+  - Compute `seek_ms` and `current_position_ms` strictly against the loaded audio buffer's native sample rate (`audio.sample_rate`).
+  - Synchronize `DualDeckMixer::set_output_sample_rate` dynamically when the audio driver initializes.
+  - Expand `punch_duration_ms` in `build_archetype_2_riff_handoff_recipe` to 4 beats ($1\text{ full 4/4 bar} = 1400\text{ ms}$ at 171.6 BPM), using 5 intentional keyframe automation points across the measure (Beat 1 entry at $-18\text{ dB}$, Beat 2 notch carving at $-6\text{ dB}$, Beat 3 melodic handoff, Beat 4 pre-drop duck at $-8\text{ dB}$, and Bar 2 Downbeat slam cut with a smooth $0.20$ reverb splash).
+  - Smooth `build_archetype_4_tail_freeze_recipe` with an equal-power entry curve and 4-point decay envelope.
 - **Consequences**:
-  - The native audio engine plays live audio directly to system speakers and headphones.
-  - Real-time transition playback is verified end-to-end via `attune-cli live`.
+  - Tracks play back at 100% native pitch ($A_4 = 440.0\text{ Hz}$) and sample-accurate speed regardless of hardware DAC configuration.
+  - Transition handoffs have full measure musical phrasing, breathing room, and professional DJ groove.
+
 
 

@@ -69,7 +69,7 @@ fn write_sine_tone(path: &Path, sr: u32, dur_sec: f32, freq: f32, is_outro: bool
         bits_per_sample: 16,
         sample_format: hound::SampleFormat::Int,
     };
-    let mut writer = WavWriter::create(path, spec).map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+    let mut writer = WavWriter::create(path, spec).map_err(|e| std::io::Error::other(e))?;
     let total_samples = (dur_sec * sr as f32) as usize;
 
     for i in 0..total_samples {
@@ -106,7 +106,7 @@ fn write_aggressive_riff(path: &Path, sr: u32, dur_sec: f32, bpm: f32) -> std::i
         bits_per_sample: 16,
         sample_format: hound::SampleFormat::Int,
     };
-    let mut writer = WavWriter::create(path, spec).map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+    let mut writer = WavWriter::create(path, spec).map_err(|e| std::io::Error::other(e))?;
     let total_samples = (dur_sec * sr as f32) as usize;
     let beat_samples = (60.0 / bpm * sr as f32) as usize;
 
@@ -143,7 +143,7 @@ fn write_clean_groove(path: &Path, sr: u32, dur_sec: f32, bpm: f32, aggression_t
         bits_per_sample: 16,
         sample_format: hound::SampleFormat::Int,
     };
-    let mut writer = WavWriter::create(path, spec).map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+    let mut writer = WavWriter::create(path, spec).map_err(|e| std::io::Error::other(e))?;
     let total_samples = (dur_sec * sr as f32) as usize;
     let beat_samples = (60.0 / bpm * sr as f32) as usize;
 

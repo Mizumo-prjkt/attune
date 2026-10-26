@@ -294,7 +294,7 @@ impl AudioProfiler {
                     .beats_ms
                     .windows(2)
                     .map(|w| (w[1] - w[0]) as f32)
-                    .filter(|&dt| dt >= 250.0 && dt <= 1500.0)
+                    .filter(|&dt| (250.0..=1500.0).contains(&dt))
                     .collect();
                 if !intervals.is_empty() {
                     let avg_dt = intervals.iter().sum::<f32>() / intervals.len() as f32;
@@ -422,7 +422,7 @@ fn compute_chroma(mag_spec: &[f32], sr: u32, fft_len: usize) -> [f32; 12] {
     // Map bins to 12 chroma semitones across 6 octaves (C1: ~32.7 Hz to B6: ~1975 Hz)
     for bin in 2..num_bins {
         let freq = (bin as f32 / fft_len as f32) * sr as f32;
-        if freq < 30.0 || freq > 2500.0 {
+        if !(30.0..=2500.0).contains(&freq) {
             continue;
         }
         let midi = 69.0 + 12.0 * (freq / 440.0).log2();
@@ -454,13 +454,13 @@ fn compute_4band_energy(mag_spec: &[f32], sr: u32, fft_len: usize) -> ([f32; 4],
         let freq = (bin as f32 / fft_len as f32) * sr as f32;
         let p = mag_spec[bin] * mag_spec[bin];
 
-        if freq >= 20.0 && freq < 150.0 {
+        if (20.0..150.0).contains(&freq) {
             power[0] += p;
-        } else if freq >= 150.0 && freq < 600.0 {
+        } else if (150.0..600.0).contains(&freq) {
             power[1] += p;
-        } else if freq >= 600.0 && freq < 4000.0 {
+        } else if (600.0..4000.0).contains(&freq) {
             power[2] += p;
-        } else if freq >= 4000.0 && freq <= 20000.0 {
+        } else if (4000.0..=20000.0).contains(&freq) {
             power[3] += p;
         }
     }
@@ -480,7 +480,7 @@ fn compute_spectral_roughness(mag_spec: &[f32], sr: u32, fft_len: usize) -> f32 
 
     for bin in 1..mag_spec.len() {
         let freq = (bin as f32 / fft_len as f32) * sr as f32;
-        if freq >= 800.0 && freq <= 3500.0 {
+        if (800.0..=3500.0).contains(&freq) {
             let val = mag_spec[bin] + 1e-6;
             sum += val;
             geom_log += val.ln();

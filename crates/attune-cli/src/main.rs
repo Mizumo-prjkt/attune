@@ -315,8 +315,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 recipe.timing.track_b_native_lock_ms
             );
 
-            let sr = buf_a.sample_rate;
-            let mixer = Arc::new(Mutex::new(DualDeckMixer::new(sr)));
+            let device_sr = AudioOutputDriver::default_sample_rate().unwrap_or(48000);
+            println!(
+                "🎛️ Audio Hardware Device Rate: {} Hz (Track A: {} Hz, Track B: {} Hz)",
+                device_sr, buf_a.sample_rate, buf_b.sample_rate
+            );
+            let mixer = Arc::new(Mutex::new(DualDeckMixer::new(device_sr)));
 
             {
                 let mut m = mixer.lock().unwrap();
@@ -357,7 +361,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
             let trans_recipe = recipe.clone();
             let mut post_transition_frames = 0;
-            let post_trans_limit = (sr as f32 * 8.0) as usize; // listen to 8 seconds of Track B
+            let post_trans_limit = (device_sr as f32 * 8.0) as usize; // listen to 8 seconds of Track B
 
             while post_transition_frames < post_trans_limit {
                 std::thread::sleep(std::time::Duration::from_millis(100));
@@ -369,7 +373,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
                     if driver.is_none() {
                         // Software simulation clock step if running without physical soundcard
-                        let mut dummy = vec![0.0f32; (sr / 10) as usize * 2];
+                        let mut dummy = vec![0.0f32; (device_sr / 10) as usize * 2];
                         m.process_interleaved_block(&mut dummy);
                     }
 
@@ -387,7 +391,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     match active {
                         DeckId::DeckA => format!("Deck A (Outgoing Playing): {:.1}s", pos_a as f64 / 1000.0),
                         DeckId::DeckB => {
-                            post_transition_frames += (sr / 10) as usize;
+                            post_transition_frames += (device_sr / 10) as usize;
                             format!("Deck B (Incoming Playing Clean): {:.1}s", pos_b as f64 / 1000.0)
                         }
                     }

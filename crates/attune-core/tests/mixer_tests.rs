@@ -144,3 +144,52 @@ fn test_jit_planner_execution_speed() {
         max_allowed_ms
     );
 }
+
+#[test]
+fn test_sample_rate_resampling_accuracy() {
+    let track_sr = 44100;
+    let device_sr = 48000;
+
+    // 440 Hz reference tone in a 44.1 kHz audio buffer
+    let buf = generate_test_tone(track_sr, 3.0, 440.0);
+    let mut mixer = DualDeckMixer::new(device_sr);
+
+    mixer.load_track_a(buf);
+    mixer.deck_a.seek_ms(500);
+    assert_eq!(mixer.deck_a.current_position_ms(), 500);
+
+    mixer.play();
+
+    // Process exactly 1.0 second on 48 kHz hardware (48,000 frames)
+    let mut output = vec![0.0f32; device_sr as usize * 2];
+    mixer.process_interleaved_block(&mut output);
+
+    // Speed check: position should have advanced by exactly 1000 ms (landing at 1500 ms)
+    let pos = mixer.deck_a.current_position_ms();
+    assert!(
+        (pos as i64 - 1500).abs() <= 10,
+        "Expected position ~1500ms, got {}ms (speed error!)",
+        pos
+    );
+
+    // Pitch check: measure wavelength in the 48 kHz output stream.
+    // 440 Hz tone in 48 kHz output has period = 48000 / 440 = 109.09 samples.
+    // (If played without resampling, period would be 44100 / 440 = 100.2 samples -> 1.5 semitones sharp!)
+    let mut zero_crossings = Vec::new();
+    let left_samples: Vec<f32> = output.chunks_exact(2).map(|c| c[0]).collect();
+    for i in 1..left_samples.len().min(4800) {
+        if left_samples[i - 1] <= 0.0 && left_samples[i] > 0.0 {
+            zero_crossings.push(i);
+        }
+    }
+    assert!(zero_crossings.len() >= 10);
+    let periods: Vec<f64> = zero_crossings.windows(2).map(|w| (w[1] - w[0]) as f64).collect();
+    let avg_period: f64 = periods.iter().sum::<f64>() / periods.len() as f64;
+
+    println!("Detected 48 kHz output period: {:.2} samples (expected 109.09)", avg_period);
+    assert!(
+        (avg_period - 109.09).abs() <= 1.0,
+        "Expected period ~109.09 samples (440 Hz), got {:.2} samples (pitch error!)",
+        avg_period
+    );
+}

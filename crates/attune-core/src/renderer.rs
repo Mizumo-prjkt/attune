@@ -14,6 +14,12 @@ pub enum RenderError {
 
 pub struct TransitionRenderer;
 
+impl Default for TransitionRenderer {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl TransitionRenderer {
     pub fn new() -> Self {
         Self
@@ -75,7 +81,7 @@ impl TransitionRenderer {
         let freeze_samples_len = (sr as f32 * 0.25) as usize;
         let mut freeze_buf = vec![0.0f32; freeze_samples_len];
         for i in 0..freeze_samples_len {
-            let l = slice_a_trans.channels.get(0).and_then(|c| c.get(i)).copied().unwrap_or(0.0);
+            let l = slice_a_trans.channels.first().and_then(|c| c.get(i)).copied().unwrap_or(0.0);
             let r = slice_a_trans.channels.get(1).and_then(|c| c.get(i)).copied().unwrap_or(l);
             freeze_buf[i] = (l + r) * 0.5;
         }
@@ -84,7 +90,7 @@ impl TransitionRenderer {
         for frame_idx in 0..total_frames {
             let (l, r) = if frame_idx < pre_frames {
                 // Pre-roll: Track A playing cleanly
-                let l = slice_a_pre.channels.get(0).and_then(|c| c.get(frame_idx)).copied().unwrap_or(0.0);
+                let l = slice_a_pre.channels.first().and_then(|c| c.get(frame_idx)).copied().unwrap_or(0.0);
                 let r = slice_a_pre.channels.get(1).and_then(|c| c.get(frame_idx)).copied().unwrap_or(l);
                 (l, r)
             } else if frame_idx < pre_frames + trans_frames {
@@ -93,11 +99,16 @@ impl TransitionRenderer {
                 let offset_ms = ((trans_idx as f64 / sr as f64) * 1000.0) as u64;
                 let (auto_a, auto_b) = interpolate_keyframes(&recipe.dsp_automation_keyframes, offset_ms);
 
-                let a_l = slice_a_trans.channels.get(0).and_then(|c| c.get(trans_idx)).copied().unwrap_or(0.0);
+                let a_l = slice_a_trans.channels.first().and_then(|c| c.get(trans_idx)).copied().unwrap_or(0.0);
                 let a_r = slice_a_trans.channels.get(1).and_then(|c| c.get(trans_idx)).copied().unwrap_or(a_l);
 
-                let b_l = slice_b_trans.channels.get(0).and_then(|c| c.get(trans_idx)).copied().unwrap_or(0.0);
-                let b_r = slice_b_trans.channels.get(1).and_then(|c| c.get(trans_idx)).copied().unwrap_or(b_l);
+                let b_trans_idx = if track_b.sample_rate == sr {
+                    trans_idx
+                } else {
+                    ((trans_idx as f64 / sr as f64) * track_b.sample_rate as f64) as usize
+                };
+                let b_l = slice_b_trans.channels.first().and_then(|c| c.get(b_trans_idx)).copied().unwrap_or(0.0);
+                let b_r = slice_b_trans.channels.get(1).and_then(|c| c.get(b_trans_idx)).copied().unwrap_or(b_l);
 
                 let gain_a = db_to_linear(auto_a.gain_db);
                 let mut processed_a_l = a_l * gain_a * db_to_linear(auto_a.eq_mid_db);
@@ -120,8 +131,13 @@ impl TransitionRenderer {
             } else {
                 // Post-roll: Track B playing cleanly
                 let post_idx = frame_idx - (pre_frames + trans_frames);
-                let l = slice_b_post.channels.get(0).and_then(|c| c.get(post_idx)).copied().unwrap_or(0.0);
-                let r = slice_b_post.channels.get(1).and_then(|c| c.get(post_idx)).copied().unwrap_or(l);
+                let b_post_idx = if track_b.sample_rate == sr {
+                    post_idx
+                } else {
+                    ((post_idx as f64 / sr as f64) * track_b.sample_rate as f64) as usize
+                };
+                let l = slice_b_post.channels.first().and_then(|c| c.get(b_post_idx)).copied().unwrap_or(0.0);
+                let r = slice_b_post.channels.get(1).and_then(|c| c.get(b_post_idx)).copied().unwrap_or(l);
                 (l, r)
             };
 

@@ -13,6 +13,12 @@ pub struct JitPlanner {
     planner: TransitionPlanner,
 }
 
+impl Default for JitPlanner {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl JitPlanner {
     pub fn new() -> Self {
         Self {
