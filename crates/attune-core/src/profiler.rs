@@ -133,6 +133,7 @@ impl AudioProfiler {
 
         let mut prev_spec = vec![0.0f32; fft_len / 2 + 1];
         let mut onset_strengths = Vec::with_capacity(num_frames);
+        let mut prev_midi = 0.0f32;
 
         for frame_idx in 0..num_frames {
             let offset = frame_idx * hop_size;
@@ -159,6 +160,15 @@ impl AudioProfiler {
             };
             f0_midi_cents.push(midi_cents);
             voicing_confs.push(voicing);
+
+            let pitch_jitter = if midi_cents > 1000.0 && prev_midi > 1000.0 {
+                (midi_cents - prev_midi).abs()
+            } else {
+                0.0
+            };
+            if midi_cents > 1000.0 {
+                prev_midi = midi_cents;
+            }
 
             // Layer 2: 12-Bin Chroma
             let chroma = compute_chroma(&mag_spec, sr, fft_len);
@@ -193,7 +203,16 @@ impl AudioProfiler {
 
             // Instrument activations:
             // [distorted_guitar, clean_acoustic_piano, brass_horns, synth, clean_vocal, grit_vocal]
-            let inst = detect_instrument_signatures(&mag_spec, sr, fft_len, voicing, midi_cents, roughness);
+            let inst = detect_instrument_signatures(
+                &mag_spec,
+                sr,
+                fft_len,
+                voicing,
+                midi_cents,
+                pitch_jitter,
+                e4_power,
+                roughness,
+            );
             instrument_activations.push(inst);
         }
 
@@ -476,6 +495,8 @@ fn detect_instrument_signatures(
     _fft_len: usize,
     voicing: f32,
     midi_cents: f32,
+    pitch_jitter: f32,
+    e4_power: [f32; 4],
     roughness: f32,
 ) -> Vec<f32> {
     // 0: distorted_guitar
@@ -485,16 +506,47 @@ fn detect_instrument_signatures(
     // 4: vocal_clean_melodic
     // 5: vocal_grit_fry_growl
 
-    let dist_guitar = if roughness > 0.40 { roughness } else { 0.05 };
-    let clean_piano = if roughness < 0.20 && voicing < 0.6 { 0.7 } else { 0.1 };
-    let brass = if roughness > 0.25 && roughness < 0.45 { 0.4 } else { 0.05 };
-    let synth = if roughness < 0.15 { 0.4 } else { 0.05 };
-    let clean_vocal = if voicing > 0.50 && roughness < 0.30 && midi_cents > 4000.0 {
+    let total_power = e4_power[0] + e4_power[1] + e4_power[2] + e4_power[3] + 1e-9;
+    let air_to_vocal = e4_power[3] / (e4_power[2] + 1e-9);
+    let lowmid_presence = e4_power[1] / total_power;
+
+    // Distorted guitar: heavy distortion roughness, heavy low-mid, but cabinet roll-off in air band (< 0.22)
+    let dist_guitar = if roughness > 0.45 && air_to_vocal < 0.22 && lowmid_presence > 0.25 {
+        roughness
+    } else {
+        0.05
+    };
+
+    // Synth electronic: high air presence (sparkle), periodic saw/pulse combs, low cabinet roll-off
+    let synth = if air_to_vocal >= 0.20 || (roughness < 0.35 && e4_power[0] / total_power > 0.20) {
+        0.75
+    } else {
+        0.10
+    };
+
+    // Clean acoustic / piano: low roughness, decaying harmonics, sharp attacks
+    let clean_piano = if roughness < 0.20 && voicing < 0.55 && lowmid_presence > 0.30 {
+        0.70
+    } else {
+        0.10
+    };
+
+    // Brass: strong formant peak around 1-2.5 kHz
+    let brass = if roughness > 0.25 && roughness < 0.45 && e4_power[2] / total_power > 0.45 {
+        0.45
+    } else {
+        0.05
+    };
+
+    // Clean vocal: strong voicing, audible pitch, smooth pitch contour (jitter <= 45 cents)
+    let clean_vocal = if voicing >= 0.50 && midi_cents > 1000.0 && pitch_jitter <= 45.0 {
         voicing
     } else {
-        0.1
+        0.10
     };
-    let grit_vocal = if voicing > 0.50 && roughness >= 0.40 && midi_cents > 4000.0 {
+
+    // Vocal grit / growl / fry: high pitch jitter (> 60 cents), raspy roughness, vocal frequency range
+    let grit_vocal = if voicing >= 0.45 && midi_cents > 1000.0 && pitch_jitter > 60.0 && roughness >= 0.40 {
         0.85
     } else {
         0.05
@@ -575,44 +627,102 @@ fn estimate_beats_and_phrases(
     let mut downbeats = Vec::new();
     let mut phrases = Vec::new();
 
-    if onset_strengths.is_empty() {
+    if onset_strengths.len() < 20 {
         return (beats, downbeats, phrases);
     }
 
-    // Peak picking for onsets: find local maxima above median
-    let mut sorted = onset_strengths.to_vec();
-    sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
-    let median = sorted[sorted.len() / 2];
-    let threshold = median * 1.5;
+    let hop_sec = hop_ms as f64 / 1000.0;
+    let min_bpm = 70.0f64;
+    let max_bpm = 185.0f64;
 
-    let min_dist_frames = (250 / hop_ms) as usize; // Max ~240 BPM
-    let mut last_beat_frame = 0;
+    let min_lag = (60.0 / (max_bpm * hop_sec)).floor() as usize;
+    let max_lag = (60.0 / (min_bpm * hop_sec)).ceil() as usize;
 
-    for i in 1..onset_strengths.len().saturating_sub(1) {
-        if onset_strengths[i] > threshold
-            && onset_strengths[i] > onset_strengths[i - 1]
-            && onset_strengths[i] > onset_strengths[i + 1]
-            && (beats.is_empty() || i - last_beat_frame >= min_dist_frames)
-        {
-            let beat_time = start_ms + (i as u64 * hop_ms as u64);
-            beats.push(beat_time);
-            last_beat_frame = i;
+    // Mean-center onset envelope
+    let mean = onset_strengths.iter().sum::<f32>() / onset_strengths.len() as f32;
+    let env: Vec<f64> = onset_strengths
+        .iter()
+        .map(|&x| (x - mean).max(0.0) as f64)
+        .collect();
+
+    let mut corr_vals = vec![0.0f64; max_lag + 2];
+
+    for lag in min_lag..=max_lag {
+        let mut sum = 0.0f64;
+        let mut count = 0;
+        for i in 0..(env.len() - lag) {
+            sum += env[i] * env[i + lag];
+            count += 1;
+        }
+        let r = if count > 0 { sum / count as f64 } else { 0.0 };
+        let bpm = 60.0 / (lag as f64 * hop_sec);
+        let prior = (-0.5 * ((bpm - 130.0) / 45.0).powi(2)).exp();
+        corr_vals[lag] = r * (1.0 + 0.25 * prior);
+    }
+
+    let mut best_lag_f = 10.0f64;
+    let mut max_corr = -1.0f64;
+
+    for lag in (min_lag + 1)..max_lag {
+        let r = corr_vals[lag];
+        if r > max_corr && r > corr_vals[lag - 1] && r > corr_vals[lag + 1] {
+            max_corr = r;
+            let y0 = corr_vals[lag - 1];
+            let y1 = corr_vals[lag];
+            let y2 = corr_vals[lag + 1];
+            let denom = 2.0 * (2.0 * y1 - y0 - y2);
+            let delta = if denom.abs() > 1e-6 {
+                (y0 - y2) / denom
+            } else {
+                0.0
+            };
+            best_lag_f = lag as f64 + delta;
         }
     }
 
-    // Fallback: If no beats detected, generate steady 120 BPM grid
-    if beats.len() < 4 {
-        beats.clear();
-        let beat_dt = 500u64; // 120 BPM
-        let total_ms = onset_strengths.len() as u64 * hop_ms as u64;
-        let mut t = start_ms;
-        while t < start_ms + total_ms {
-            beats.push(t);
-            t += beat_dt;
+    if max_corr <= 0.0 {
+        let mut best_idx = min_lag;
+        let mut best_val = -1.0;
+        for (i, &val) in corr_vals.iter().enumerate().skip(min_lag).take(max_lag - min_lag + 1) {
+            if val > best_val {
+                best_val = val;
+                best_idx = i;
+            }
+        }
+        best_lag_f = best_idx as f64;
+    }
+
+    let beat_period_ms = (best_lag_f * hop_ms as f64).clamp(300.0, 1000.0);
+
+    // Phase locking: find best phase alignment offset
+    let num_phase_bins = 16;
+    let mut best_phase_ms = 0.0f64;
+    let mut best_phase_score = -1.0f64;
+
+    for p in 0..num_phase_bins {
+        let phase_offset_ms = (p as f64 / num_phase_bins as f64) * beat_period_ms;
+        let mut score = 0.0f64;
+        let mut t = phase_offset_ms;
+        while t < (onset_strengths.len() as f64 * hop_ms as f64) {
+            let frame = (t / hop_ms as f64).round() as usize;
+            if frame < onset_strengths.len() {
+                score += onset_strengths[frame] as f64;
+            }
+            t += beat_period_ms;
+        }
+        if score > best_phase_score {
+            best_phase_score = score;
+            best_phase_ms = phase_offset_ms;
         }
     }
 
-    // Downbeats every 4 beats
+    let total_ms = onset_strengths.len() as f64 * hop_ms as f64;
+    let mut t = best_phase_ms;
+    while t < total_ms {
+        beats.push(start_ms + t.round() as u64);
+        t += beat_period_ms;
+    }
+
     for (idx, &beat) in beats.iter().enumerate() {
         if idx % 4 == 0 {
             downbeats.push(beat);

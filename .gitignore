@@ -2,13 +2,15 @@
 /target
 Cargo.lock
 
-# Audio output / scratch test files
+# Audio output / scratch test files and symlinked dir
 *.wav
 *.mp3
 *.flac
 *.ptr
 *.tap
 scratch/
+music
+music/
 
 # IDE / OS
 .DS_Store

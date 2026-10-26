@@ -19,7 +19,7 @@ impl TransitionRenderer {
         Self
     }
 
-    /// Renders the transition window between Track A and Track B into an output WAV file
+    /// Renders the transition window between Track A and Track B into an output WAV file (with default 5s pre-roll and 7s post-roll)
     pub fn render_to_wav<P: AsRef<Path>>(
         &self,
         track_a: &AudioBuffer,
@@ -27,25 +27,46 @@ impl TransitionRenderer {
         recipe: &TransitionRecipe,
         output_path: P,
     ) -> Result<(), RenderError> {
+        self.render_with_context(track_a, track_b, recipe, output_path, 5000, 7000)
+    }
+
+    /// Renders the transition with configurable pre-roll and post-roll musical context
+    pub fn render_with_context<P: AsRef<Path>>(
+        &self,
+        track_a: &AudioBuffer,
+        track_b: &AudioBuffer,
+        recipe: &TransitionRecipe,
+        output_path: P,
+        pre_roll_ms: u64,
+        post_roll_ms: u64,
+    ) -> Result<(), RenderError> {
         let sr = track_a.sample_rate;
         let timing = &recipe.timing;
 
-        let total_transition_ms = timing
-            .track_a_exit_end_ms
-            .saturating_sub(timing.track_a_transition_start_ms)
-            .max(500);
+        let a_start = timing.track_a_transition_start_ms;
+        let a_exit = timing.track_a_exit_end_ms;
+        let b_entry = timing.track_b_entry_start_ms;
 
-        let total_frames = ((total_transition_ms as f64 / 1000.0) * sr as f64) as usize;
+        let transition_duration_ms = a_exit.saturating_sub(a_start).max(500);
 
-        let slice_a = track_a.slice_ms(
-            timing.track_a_transition_start_ms,
-            timing.track_a_exit_end_ms,
-        );
+        let pre_roll_start = a_start.saturating_sub(pre_roll_ms);
+        let actual_pre_roll_ms = a_start.saturating_sub(pre_roll_start);
 
-        let slice_b = track_b.slice_ms(
-            timing.track_b_entry_start_ms,
-            timing.track_b_entry_start_ms + total_transition_ms,
-        );
+        let post_roll_end = (b_entry + transition_duration_ms + post_roll_ms).min(track_b.duration_ms());
+        let post_roll_start = b_entry + transition_duration_ms;
+        let actual_post_roll_ms = post_roll_end.saturating_sub(post_roll_start);
+
+        let total_ms = actual_pre_roll_ms + transition_duration_ms + actual_post_roll_ms;
+        let total_frames = ((total_ms as f64 / 1000.0) * sr as f64) as usize;
+
+        let slice_a_pre = track_a.slice_ms(pre_roll_start, a_start);
+        let slice_a_trans = track_a.slice_ms(a_start, a_exit);
+
+        let slice_b_trans = track_b.slice_ms(b_entry, b_entry + transition_duration_ms);
+        let slice_b_post = track_b.slice_ms(post_roll_start, post_roll_end);
+
+        let pre_frames = ((actual_pre_roll_ms as f64 / 1000.0) * sr as f64) as usize;
+        let trans_frames = ((transition_duration_ms as f64 / 1000.0) * sr as f64) as usize;
 
         let mut out_left = vec![0.0f32; total_frames];
         let mut out_right = vec![0.0f32; total_frames];
@@ -55,62 +76,54 @@ impl TransitionRenderer {
         let mut freeze_idx = 0;
 
         for frame_idx in 0..total_frames {
-            let offset_ms = ((frame_idx as f64 / sr as f64) * 1000.0) as u64;
-            let (auto_a, auto_b) = interpolate_keyframes(&recipe.dsp_automation_keyframes, offset_ms);
-
-            // Samples from Track A
-            let (a_l, a_r) = if frame_idx < slice_a.num_frames() {
-                let l = slice_a.channels.get(0).and_then(|c| c.get(frame_idx)).copied().unwrap_or(0.0);
-                let r = slice_a.channels.get(1).and_then(|c| c.get(frame_idx)).copied().unwrap_or(l);
+            let (l, r) = if frame_idx < pre_frames {
+                // Pre-roll: Track A playing cleanly
+                let l = slice_a_pre.channels.get(0).and_then(|c| c.get(frame_idx)).copied().unwrap_or(0.0);
+                let r = slice_a_pre.channels.get(1).and_then(|c| c.get(frame_idx)).copied().unwrap_or(l);
                 (l, r)
-            } else {
-                (0.0, 0.0)
-            };
+            } else if frame_idx < pre_frames + trans_frames {
+                // Transition window
+                let trans_idx = frame_idx - pre_frames;
+                let offset_ms = ((trans_idx as f64 / sr as f64) * 1000.0) as u64;
+                let (auto_a, auto_b) = interpolate_keyframes(&recipe.dsp_automation_keyframes, offset_ms);
 
-            // Samples from Track B
-            let (b_l, b_r) = if frame_idx < slice_b.num_frames() {
-                let l = slice_b.channels.get(0).and_then(|c| c.get(frame_idx)).copied().unwrap_or(0.0);
-                let r = slice_b.channels.get(1).and_then(|c| c.get(frame_idx)).copied().unwrap_or(l);
-                (l, r)
-            } else {
-                (0.0, 0.0)
-            };
+                let a_l = slice_a_trans.channels.get(0).and_then(|c| c.get(trans_idx)).copied().unwrap_or(0.0);
+                let a_r = slice_a_trans.channels.get(1).and_then(|c| c.get(trans_idx)).copied().unwrap_or(a_l);
 
-            // Apply Deck A gain and EQ
-            let gain_a = db_to_linear(auto_a.gain_db);
-            let mut processed_a_l = a_l * gain_a;
-            let mut processed_a_r = a_r * gain_a;
+                let b_l = slice_b_trans.channels.get(0).and_then(|c| c.get(trans_idx)).copied().unwrap_or(0.0);
+                let b_r = slice_b_trans.channels.get(1).and_then(|c| c.get(trans_idx)).copied().unwrap_or(b_l);
 
-            // Simple 3-band EQ shaping approximation
-            let eq_mid_a = db_to_linear(auto_a.eq_mid_db);
-            processed_a_l *= eq_mid_a;
-            processed_a_r *= eq_mid_a;
+                let gain_a = db_to_linear(auto_a.gain_db);
+                let mut processed_a_l = a_l * gain_a * db_to_linear(auto_a.eq_mid_db);
+                let mut processed_a_r = a_r * gain_a * db_to_linear(auto_a.eq_mid_db);
 
-            // Reverb freeze wash handling (Archetype 4)
-            if auto_a.reverb_freeze_send > 0.01 {
-                if frame_idx < freeze_buf.len() {
-                    freeze_buf[frame_idx] = (a_l + a_r) * 0.5;
+                if auto_a.reverb_freeze_send > 0.01 {
+                    if trans_idx < freeze_buf.len() {
+                        freeze_buf[trans_idx] = (a_l + a_r) * 0.5;
+                    }
+                    let freeze_sample = freeze_buf[freeze_idx % freeze_buf.len()];
+                    freeze_idx += 1;
+                    let decay = (-3.0 * (trans_idx as f32 / trans_frames as f32)).exp();
+                    let wash = freeze_sample * auto_a.reverb_freeze_send * decay;
+                    processed_a_l += wash;
+                    processed_a_r += wash;
                 }
-                let freeze_sample = freeze_buf[freeze_idx % freeze_buf.len()];
-                freeze_idx += 1;
-                let decay = (-3.0 * (frame_idx as f32 / total_frames as f32)).exp();
-                let wash = freeze_sample * auto_a.reverb_freeze_send * decay;
-                processed_a_l += wash;
-                processed_a_r += wash;
-            }
 
-            // Apply Deck B gain and EQ
-            let gain_b = db_to_linear(auto_b.gain_db);
-            let mut processed_b_l = b_l * gain_b;
-            let mut processed_b_r = b_r * gain_b;
+                let gain_b = db_to_linear(auto_b.gain_db);
+                let processed_b_l = b_l * gain_b * db_to_linear(auto_b.eq_mid_db);
+                let processed_b_r = b_r * gain_b * db_to_linear(auto_b.eq_mid_db);
 
-            let eq_mid_b = db_to_linear(auto_b.eq_mid_db);
-            processed_b_l *= eq_mid_b;
-            processed_b_r *= eq_mid_b;
+                (processed_a_l + processed_b_l, processed_a_r + processed_b_r)
+            } else {
+                // Post-roll: Track B playing cleanly
+                let post_idx = frame_idx - (pre_frames + trans_frames);
+                let l = slice_b_post.channels.get(0).and_then(|c| c.get(post_idx)).copied().unwrap_or(0.0);
+                let r = slice_b_post.channels.get(1).and_then(|c| c.get(post_idx)).copied().unwrap_or(l);
+                (l, r)
+            };
 
-            // Mix
-            out_left[frame_idx] = (processed_a_l + processed_b_l).clamp(-1.0, 1.0);
-            out_right[frame_idx] = (processed_a_r + processed_b_r).clamp(-1.0, 1.0);
+            out_left[frame_idx] = l.clamp(-1.0, 1.0);
+            out_right[frame_idx] = r.clamp(-1.0, 1.0);
         }
 
         // Write WAV

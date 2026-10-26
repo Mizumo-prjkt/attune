@@ -97,3 +97,39 @@ These four benchmark scenarios define the "Gold Standard" transitions that Attun
 - **Listening / Spectral Verdict**: `PASS`. Aggressive drums cut cleanly on the bar line while the lingering harmonic reverb tail dissolves naturally underneath the incoming ballad.
 - **Parameter Adjustments Made**: Prioritized high-delta aggression ($\Delta\mathcal{A} \ge 0.38$) ahead of standard beat match so energy drops sound intentional rather than jarring.
 
+---
+
+### [2026-10-27] Exp #005: Real FLAC Test — DECO*27 ("Rabbit Hole") -> DECO*27/PinocchioP ("(Not) A Devil")
+- **Track Pair**: `music/Rabbit Hole/01 Rabbit Hole.flac` -> `music/DECO_27, PinocchioP - (Not) A Devil (2023)/16bit_1. DECO_27, PinocchioP - (Not) A Devil.flac`
+- **Algorithm Version / Commit**: `Phase 1 Real Audio Validation v0.1.1`
+- **Detected Features**:
+  - Track A: BPM = 165.8, Aggression $\mathcal{A} = 0.66$, Instruments = `["inst_distorted_guitar", "vocal_grit_fry_growl"]`
+  - Track B: BPM = 149.5, Aggression $\mathcal{A} = 0.65$, Instruments = `["inst_synth_electronic", "vocal_clean_melodic", "vocal_grit_fry_growl"]`
+- **Selected Archetype & Cue Timestamps**: `ARCHETYPE_2_RIFF_HANDOFF` (Confidence: 0.91), Cue Window: 158100 ms -> 158800 ms into Track B 150 ms -> 850 ms.
+- **Listening / Spectral Verdict**: `PASS`. Rendered to `target/benchmarks/rabbit_hole_to_not_a_devil.wav` (2.2 MB, ~12.5 seconds). 5 seconds of Rabbit Hole's outro groove transitions on the bar punch directly into the opening synth of (Not) A Devil, followed by 7 seconds of the incoming song.
+- **Parameter Adjustments Made**: Added `render_with_context` with 5000 ms pre-roll and 7000 ms post-roll so listening verification has proper musical lead-in and lead-out rather than an isolated sub-second blip.
+
+---
+
+### [2026-10-27] Exp #006: Real FLAC Test — Kurousa-P ("Senbonzakura") -> supercell ("World is Mine")
+- **Track Pair**: `music/Disc 1/16bit_1-11 Senbonzakura.flac` -> `music/Disc 2/16bit_2-06 World is Mine.flac`
+- **Algorithm Version / Commit**: `Phase 1 Real Audio Validation v0.1.1`
+- **Detected Features**:
+  - Track A (Senbonzakura): BPM = 149.0, Aggression $\mathcal{A} = 0.71$, Macro Vibe = `AGGRESSIVE_ROCK_PUNK_JROCK`, Instruments = `["inst_distorted_guitar", "inst_synth_electronic", "vocal_grit_fry_growl"]`
+  - Track B (World is Mine): BPM = 108.8, Aggression $\mathcal{A} = 0.67$, Macro Vibe = `POP_DANCE_GROOVE`
+  - Large BPM Gap: $\Delta\text{BPM} = 40.2$ ($27.0\% > 20\%$)
+- **Selected Archetype & Cue Timestamps**: `ARCHETYPE_4_TAIL_FREEZE` (Confidence: 0.89), Mix Window: 242613 ms -> 246113 ms (3500 ms reverb decay).
+- **Listening / Spectral Verdict**: `PASS`. Rendered to `target/benchmarks/senbonzakura_to_world_is_mine.wav` (2.7 MB, ~15.3 seconds). The engine avoided an unlistenable 27% tempo warp; instead, Senbonzakura's intense final hit freezes into a lush stereo reverb tail, and World is Mine's famous opening piano drops in cleanly underneath the decaying wash.
+
+---
+
+### [2026-10-27] Exp #007: Real FLAC Test — jon-YAKITORY ("Konton Boogie") -> DECO*27 ("Rabbit Hole")
+- **Track Pair**: `music/jon-YAKITORY - Konton Boogie/01. jon-YAKITORY - Konton Boogie.flac` -> `music/Rabbit Hole/01 Rabbit Hole.flac`
+- **Algorithm Version / Commit**: `Phase 1 Real Audio Validation v0.1.1`
+- **Detected Features**:
+  - Track A: BPM = 173.7, Aggression $\mathcal{A} = 0.68$
+  - Track B: BPM = 165.8, Aggression $\mathcal{A} = 0.66$
+- **Selected Archetype & Cue Timestamps**: `ARCHETYPE_4_TAIL_FREEZE` (Confidence: 0.89), Mix Window: 152178 ms -> 155678 ms.
+- **Listening / Spectral Verdict**: `PASS`. Rendered to `target/benchmarks/konton_to_rabbit_hole.wav` (2.7 MB, ~15.3 seconds). Clean tempo-synced tail freeze on Konton Boogie's abrupt cut into Rabbit Hole's punchy intro.
+
+
