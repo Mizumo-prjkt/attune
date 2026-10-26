@@ -1,0 +1,19 @@
+[package]
+name = "attune-core"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Core audio analysis, 5-layer profiling, and transition planning engine for Attune"
+
+[dependencies]
+attune-dsp-ffi = { path = "../attune-dsp-ffi" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+log = { workspace = true }
+hound = { workspace = true }
+blake3 = { workspace = true }
+rustfft = { workspace = true }
+realfft = { workspace = true }
+symphonia = { workspace = true }

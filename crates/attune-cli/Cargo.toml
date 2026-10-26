@@ -1,0 +1,18 @@
+[package]
+name = "attune-cli"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Headless CLI for Attune audio profiling, transition planning, and WAV rendering"
+
+[dependencies]
+attune-core = { path = "../attune-core" }
+attune-dsp-ffi = { path = "../attune-dsp-ffi" }
+clap = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+log = { workspace = true }
+env_logger = { workspace = true }
+hound = { workspace = true }
+thiserror = { workspace = true }

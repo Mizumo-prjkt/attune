@@ -1,0 +1,14 @@
+[package]
+name = "attune-dsp-ffi"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "DSP primitives, crossover filters, EQ, and time/pitch shifting for Attune"
+
+[dependencies]
+serde = { workspace = true }
+thiserror = { workspace = true }
+log = { workspace = true }
+rustfft = { workspace = true }
+realfft = { workspace = true }
