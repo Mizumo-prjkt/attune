@@ -77,6 +77,19 @@ impl Deck {
         self.reverb_freeze.reset();
     }
 
+    pub fn clear(&mut self) {
+        self.audio = None;
+        self.playhead_frame = 0.0;
+        self.state = DeckState::Stopped;
+        self.eq.reset_state();
+        self.reverb_freeze.reset();
+        self.gain_db = 0.0;
+        self.gain_linear = 1.0;
+        self.stretch_ratio = 1.0;
+        self.pitch_cents = 0;
+        self.reverb_freeze_send = 0.0;
+    }
+
     pub fn play(&mut self) {
         if self.audio.is_some() {
             self.state = DeckState::Playing;

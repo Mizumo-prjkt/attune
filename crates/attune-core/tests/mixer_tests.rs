@@ -109,11 +109,11 @@ fn test_dual_deck_mixer_automated_transition() {
     let mut output = vec![0.0f32; frames * 2];
     mixer.process_interleaved_block(&mut output);
 
-    // Transition should have completed, handing off control to Deck B!
+    // Transition should have completed, handing off control seamlessly to the playing deck!
     assert!(!mixer.is_transitioning());
-    assert_eq!(mixer.active_deck, DeckId::DeckB);
-    assert_eq!(mixer.deck_b.state, DeckState::Playing);
-    assert_eq!(mixer.deck_a.state, DeckState::Finished);
+    assert_eq!(mixer.active_deck, DeckId::DeckA);
+    assert_eq!(mixer.deck_a.state, DeckState::Playing);
+    assert_eq!(mixer.deck_b.state, DeckState::Stopped);
 
     // Verify output has valid energy (no NaNs or extreme clipping)
     for &s in &output {

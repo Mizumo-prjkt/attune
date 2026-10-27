@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:isolate';
 import 'package:flutter/material.dart';
 import '../models/track_item.dart';
 
@@ -358,21 +359,64 @@ class AudioStorageService {
       }
     }
 
-    // 2. Slow Path: Discover audio files on disk
-    final files = await discoverAudioFiles(additionalRoots: additionalRoots);
-    final tracks = files.map((f) => parseTrackMetadata(f)).toList();
-
-    // Sort with prominent tested benchmark tracks first, then alphabetically
-    tracks.sort((a, b) {
-      final aScore = _trackPriorityScore(a);
-      final bScore = _trackPriorityScore(b);
-      if (aScore != bScore) return bScore.compareTo(aScore);
-      return a.title.compareTo(b.title);
-    });
+    // 2. Slow Path: Multi-core background Isolate offload
+    final candidateRoots = getCandidateRoots(additionalRoots: additionalRoots);
+    final tracks = Platform.environment.containsKey('FLUTTER_TEST')
+        ? _scanLibraryInWorker(candidateRoots)
+        : await Isolate.run(() => _scanLibraryInWorker(candidateRoots));
 
     if (tracks.isNotEmpty) {
       saveCachedTracks(tracks);
     }
+
+    return tracks;
+  }
+
+  static List<TrackItem> _scanLibraryInWorker(List<String> candidateRoots) {
+    final audioFiles = <File>[];
+    final seenCanonicalPaths = <String>{};
+
+    for (final rootPath in candidateRoots) {
+      final dir = Directory(rootPath);
+      if (!dir.existsSync()) continue;
+
+      try {
+        final entities = dir.listSync(recursive: true, followLinks: true);
+        for (final entity in entities) {
+          if (entity is! File) continue;
+
+          final lower = entity.path.toLowerCase();
+          final isAudio = supportedAudioExtensions.any((ext) => lower.endsWith(ext));
+          if (!isAudio) continue;
+
+          try {
+            final canonical = entity.resolveSymbolicLinksSync();
+            if (seenCanonicalPaths.add(canonical)) {
+              audioFiles.add(entity);
+            }
+          } catch (_) {
+            if (seenCanonicalPaths.add(entity.path)) {
+              audioFiles.add(entity);
+            }
+          }
+        }
+      } catch (e) {
+        debugPrint('[AudioStorageService] Notice reading $rootPath: $e');
+      }
+
+      if (audioFiles.length > 50) {
+        break;
+      }
+    }
+
+    final tracks = audioFiles.map((f) => instance.parseTrackMetadata(f)).toList();
+
+    tracks.sort((a, b) {
+      final aScore = instance._trackPriorityScore(a);
+      final bScore = instance._trackPriorityScore(b);
+      if (aScore != bScore) return bScore.compareTo(aScore);
+      return a.title.compareTo(b.title);
+    });
 
     return tracks;
   }

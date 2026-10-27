@@ -1,4 +1,6 @@
 import 'dart:io';
+import 'dart:math' as math;
+import 'dart:ui';
 import 'package:flutter/material.dart';
 import '../services/audio_storage_service.dart';
 import '../services/playback_controller.dart';
@@ -19,7 +21,7 @@ import '../widgets/floating_mini_player.dart';
 /// - Startup Setup Page check on first launch
 /// - Main stages: Home (0), Queue (1), Albums (2), Profile (3)
 /// - Floating Mini-Player toolbar with neon-like lighting box adjacent to artwork
-/// - Full NowPlaying overlay on demand
+/// - Full NowPlaying overlay with mid-animation Liquid Frosted Glass morph
 /// - Responsive adaptation: Mobile (< 720px) and Tablet/Desktop (>= 720px)
 class ResponsiveGlassScaffold extends StatefulWidget {
   const ResponsiveGlassScaffold({super.key});
@@ -28,21 +30,49 @@ class ResponsiveGlassScaffold extends StatefulWidget {
   State<ResponsiveGlassScaffold> createState() => _ResponsiveGlassScaffoldState();
 }
 
-class _ResponsiveGlassScaffoldState extends State<ResponsiveGlassScaffold> {
+class _ResponsiveGlassScaffoldState extends State<ResponsiveGlassScaffold>
+    with SingleTickerProviderStateMixin {
   int _activeNavIndex = 0; // 0: Home, 1: Queue, 2: Albums, 3: Profile
   int _dockedContextualTabIndex = 0; // 0: Queue, 1: Lyrics (for tablet/desktop)
-  bool _showNowPlayingModal = false;
   late bool _isSetupDone;
+
+  late final AnimationController _nowPlayingController;
+  late final Animation<double> _nowPlayingAnimation;
 
   @override
   void initState() {
     super.initState();
+    _nowPlayingController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 440),
+      reverseDuration: const Duration(milliseconds: 360),
+    );
+    _nowPlayingAnimation = CurvedAnimation(
+      parent: _nowPlayingController,
+      curve: Curves.easeOutCubic,
+      reverseCurve: Curves.easeInCubic,
+    );
+
     // In automated tests, skip startup setup to preserve smoke tests
     if (Platform.environment.containsKey('FLUTTER_TEST')) {
       _isSetupDone = true;
     } else {
       _isSetupDone = AudioStorageService.instance.isSetupCompleted();
     }
+  }
+
+  @override
+  void dispose() {
+    _nowPlayingController.dispose();
+    super.dispose();
+  }
+
+  void _openNowPlaying() {
+    _nowPlayingController.forward();
+  }
+
+  void _closeNowPlaying() {
+    _nowPlayingController.reverse();
   }
 
   @override
@@ -82,15 +112,24 @@ class _ResponsiveGlassScaffoldState extends State<ResponsiveGlassScaffold> {
         }
 
         // 2. Primary Shell
-        return Scaffold(
-          backgroundColor: Colors.transparent,
-          body: AmbientMeshBackground(
-            colorScheme: colorScheme,
-            isPlaying: controller.isPlaying,
-            child: SafeArea(
-              child: isWide
-                  ? _buildTabletDesktopLayout(width, colorScheme, controller)
-                  : _buildMobileLayout(colorScheme, controller),
+        return PopScope(
+          canPop: _nowPlayingController.value == 0.0,
+          onPopInvokedWithResult: (didPop, result) {
+            if (didPop) return;
+            if (_nowPlayingController.value > 0.0) {
+              _closeNowPlaying();
+            }
+          },
+          child: Scaffold(
+            backgroundColor: Colors.transparent,
+            body: AmbientMeshBackground(
+              colorScheme: colorScheme,
+              isPlaying: controller.isPlaying,
+              child: SafeArea(
+                child: isWide
+                    ? _buildTabletDesktopLayout(width, colorScheme, controller)
+                    : _buildMobileLayout(colorScheme, controller),
+              ),
             ),
           ),
         );
@@ -100,22 +139,16 @@ class _ResponsiveGlassScaffoldState extends State<ResponsiveGlassScaffold> {
 
   // Mobile Layout (< 720px)
   Widget _buildMobileLayout(ColorScheme colorScheme, PlaybackController controller) {
-    if (_showNowPlayingModal) {
-      return NowPlayingStage(
-        onDismiss: () => setState(() => _showNowPlayingModal = false),
-      );
-    }
-
     Widget activeStage;
     switch (_activeNavIndex) {
       case 0:
-        activeStage = HomeStage(onOpenNowPlaying: () => setState(() => _showNowPlayingModal = true));
+        activeStage = HomeStage(onOpenNowPlaying: _openNowPlaying);
         break;
       case 1:
         activeStage = const PlaylistQueueStage();
         break;
       case 2:
-        activeStage = AlbumsStage(onOpenNowPlaying: () => setState(() => _showNowPlayingModal = true));
+        activeStage = AlbumsStage(onOpenNowPlaying: _openNowPlaying);
         break;
       case 3:
         activeStage = ProfileAndStatsStage(onRerunSetup: () => setState(() => _isSetupDone = false));
@@ -127,6 +160,7 @@ class _ResponsiveGlassScaffoldState extends State<ResponsiveGlassScaffold> {
     final hasTrack = controller.currentTrack != null;
 
     return Stack(
+      fit: StackFit.expand,
       children: [
         // Active Stage Body
         Positioned.fill(
@@ -141,7 +175,7 @@ class _ResponsiveGlassScaffoldState extends State<ResponsiveGlassScaffold> {
             right: 16,
             bottom: 84,
             child: FloatingMiniPlayer(
-              onTap: () => setState(() => _showNowPlayingModal = true),
+              onTap: _openNowPlaying,
             ),
           ),
 
@@ -166,17 +200,24 @@ class _ResponsiveGlassScaffoldState extends State<ResponsiveGlassScaffold> {
             ),
           ),
         ),
+
+        // Mid-Animation Liquid Glass NowPlaying Morph Overlay
+        _buildLiquidGlassNowPlayingOverlay(colorScheme),
       ],
     );
   }
 
   Widget _buildMobileNavButton(int index, IconData icon, String label, ColorScheme colorScheme) {
-    final selected = _activeNavIndex == index;
+    final selected = _activeNavIndex == index && _nowPlayingController.value == 0.0;
     return GestureDetector(
-      onTap: () => setState(() {
-        _activeNavIndex = index;
-        _showNowPlayingModal = false;
-      }),
+      onTap: () {
+        if (_nowPlayingController.value > 0.0) {
+          _closeNowPlaying();
+        }
+        setState(() {
+          _activeNavIndex = index;
+        });
+      },
       behavior: HitTestBehavior.opaque,
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 200),
@@ -209,27 +250,21 @@ class _ResponsiveGlassScaffoldState extends State<ResponsiveGlassScaffold> {
   // Tablet & Desktop Shared Layout (>= 720px)
   Widget _buildTabletDesktopLayout(double width, ColorScheme colorScheme, PlaybackController controller) {
     Widget centerStage;
-    if (_showNowPlayingModal) {
-      centerStage = NowPlayingStage(
-        onDismiss: () => setState(() => _showNowPlayingModal = false),
-      );
-    } else {
-      switch (_activeNavIndex) {
-        case 0:
-          centerStage = HomeStage(onOpenNowPlaying: () => setState(() => _showNowPlayingModal = true));
-          break;
-        case 1:
-          centerStage = const PlaylistQueueStage();
-          break;
-        case 2:
-          centerStage = AlbumsStage(onOpenNowPlaying: () => setState(() => _showNowPlayingModal = true));
-          break;
-        case 3:
-          centerStage = ProfileAndStatsStage(onRerunSetup: () => setState(() => _isSetupDone = false));
-          break;
-        default:
-          centerStage = const SizedBox();
-      }
+    switch (_activeNavIndex) {
+      case 0:
+        centerStage = HomeStage(onOpenNowPlaying: _openNowPlaying);
+        break;
+      case 1:
+        centerStage = const PlaylistQueueStage();
+        break;
+      case 2:
+        centerStage = AlbumsStage(onOpenNowPlaying: _openNowPlaying);
+        break;
+      case 3:
+        centerStage = ProfileAndStatsStage(onRerunSetup: () => setState(() => _isSetupDone = false));
+        break;
+      default:
+        centerStage = const SizedBox();
     }
 
     final hasTrack = controller.currentTrack != null;
@@ -281,24 +316,26 @@ class _ResponsiveGlassScaffoldState extends State<ResponsiveGlassScaffold> {
           ),
         ),
 
-        // 2. Center-Left Primary Stage with Stacked Mini Player if not in full player
+        // 2. Center-Left Primary Stage with Stacked Mini Player & Liquid Glass Overlay
         Expanded(
           flex: 5,
           child: Stack(
+            fit: StackFit.expand,
             children: [
               Positioned.fill(
-                bottom: hasTrack && !_showNowPlayingModal ? 80 : 0,
+                bottom: hasTrack ? 80 : 0,
                 child: centerStage,
               ),
-              if (hasTrack && !_showNowPlayingModal)
+              if (hasTrack)
                 Positioned(
                   left: 16,
                   right: 16,
                   bottom: 12,
                   child: FloatingMiniPlayer(
-                    onTap: () => setState(() => _showNowPlayingModal = true),
+                    onTap: _openNowPlaying,
                   ),
                 ),
+              _buildLiquidGlassNowPlayingOverlay(colorScheme),
             ],
           ),
         ),
@@ -349,12 +386,16 @@ class _ResponsiveGlassScaffoldState extends State<ResponsiveGlassScaffold> {
   }
 
   Widget _buildRailButton(int index, IconData icon, String label, ColorScheme colorScheme) {
-    final selected = _activeNavIndex == index && !_showNowPlayingModal;
+    final selected = _activeNavIndex == index && _nowPlayingController.value == 0.0;
     return GestureDetector(
-      onTap: () => setState(() {
-        _activeNavIndex = index;
-        _showNowPlayingModal = false;
-      }),
+      onTap: () {
+        if (_nowPlayingController.value > 0.0) {
+          _closeNowPlaying();
+        }
+        setState(() {
+          _activeNavIndex = index;
+        });
+      },
       behavior: HitTestBehavior.opaque,
       child: Tooltip(
         message: label,
@@ -393,6 +434,98 @@ class _ResponsiveGlassScaffoldState extends State<ResponsiveGlassScaffold> {
             ),
           ),
         ),
+      ),
+    );
+  }
+
+  /// Mid-Animation Liquid Glass Morphing Transition Overlay for NowPlayingStage
+  Widget _buildLiquidGlassNowPlayingOverlay(ColorScheme colorScheme) {
+    return Positioned.fill(
+      child: AnimatedBuilder(
+        animation: _nowPlayingAnimation,
+        builder: (context, _) {
+          final t = _nowPlayingAnimation.value;
+          if (t <= 0.001) {
+            return const SizedBox.shrink();
+          }
+
+          // Sinusoidal mid-animation intensity curve: peaks symmetrically at t = 0.5
+          final midPeak = math.sin(t * math.pi);
+
+          // Dynamic liquid glass parameters:
+          // Blur peaks aggressively mid-animation up to 48px, simulating viscous liquid refraction
+          final blurSigma = (4.0 + 44.0 * midPeak).clamp(0.0, 50.0);
+          final specularAlpha = 0.40 * midPeak;
+          final scale = 0.90 + (0.10 * t);
+          final translateY = (1.0 - t) * 60.0;
+          final opacity = t.clamp(0.0, 1.0);
+
+          return Stack(
+            fit: StackFit.expand,
+            children: [
+              // Mid-animation liquid glass frosted backdrop
+              if (blurSigma > 1.0)
+                Positioned.fill(
+                  child: BackdropFilter(
+                    filter: ImageFilter.blur(sigmaX: blurSigma, sigmaY: blurSigma),
+                    child: Container(
+                      decoration: BoxDecoration(
+                        color: Colors.black.withValues(alpha: 0.35 * t),
+                        gradient: midPeak > 0.05
+                            ? LinearGradient(
+                                begin: Alignment.topLeft,
+                                end: Alignment.bottomRight,
+                                colors: [
+                                  Colors.white.withValues(alpha: specularAlpha * 0.35),
+                                  colorScheme.primary.withValues(alpha: specularAlpha * 0.20),
+                                  Colors.transparent,
+                                ],
+                              )
+                            : null,
+                      ),
+                    ),
+                  ),
+                ),
+
+              // Animated NowPlaying Content with liquid refraction border and spring-like slide
+              Positioned.fill(
+                child: Transform.translate(
+                  offset: Offset(0, translateY),
+                  child: Transform.scale(
+                    scale: scale,
+                    child: Opacity(
+                      opacity: opacity,
+                      child: Container(
+                        decoration: midPeak > 0.05
+                            ? BoxDecoration(
+                                borderRadius: BorderRadius.circular(32 * (1.0 - t)),
+                                border: Border.all(
+                                  color: Colors.white.withValues(alpha: specularAlpha),
+                                  width: 1.5,
+                                ),
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: colorScheme.primary.withValues(alpha: 0.35 * midPeak),
+                                    blurRadius: 40 * midPeak,
+                                    spreadRadius: 2 * midPeak,
+                                  ),
+                                ],
+                              )
+                            : null,
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(32 * (1.0 - t)),
+                          child: NowPlayingStage(
+                            onDismiss: _closeNowPlaying,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          );
+        },
       ),
     );
   }

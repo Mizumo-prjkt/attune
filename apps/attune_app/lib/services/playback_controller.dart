@@ -226,10 +226,18 @@ class PlaybackController extends ChangeNotifier {
         _activeArchetype = trans['archetype'] as String? ?? 'Riff Handoff';
       } else {
         if (_isTransitioning) {
-          // Transition just finished
+          // Transition just finished: advance queue and update active deck
           _isTransitioning = false;
           _transitionProgress = 0.0;
           _advanceQueue();
+        } else if (_isPlaying && _durationSec > 5.0) {
+          final deckState = (activeDeck == 'DeckA' ? deckA : deckB)?['state'] as String?;
+          if (_shuffleMode == ShuffleMode.smart && _positionSec >= _durationSec - 6.0) {
+            triggerTransitionNow();
+          } else if (_shuffleMode != ShuffleMode.smart &&
+              (_positionSec >= _durationSec - 0.5 || deckState == 'Finished')) {
+            skipNext();
+          }
         }
       }
       notifyListeners();
@@ -294,7 +302,7 @@ class PlaybackController extends ChangeNotifier {
     _positionSec = 0.0;
     _transitionProgress = 0.0;
     _isTransitioning = false;
-    _loadCurrentTrackToEngine();
+    _loadCurrentTrackToEngine(force: true);
     if (_isPlaying) {
       _bridge.playerPlay();
     }
@@ -350,7 +358,9 @@ class PlaybackController extends ChangeNotifier {
     } else if (_currentQueueIndex > 0) {
       _currentQueueIndex--;
       _positionSec = 0.0;
-      _loadCurrentTrackToEngine();
+      _isTransitioning = false;
+      _transitionProgress = 0.0;
+      _loadCurrentTrackToEngine(force: true);
       if (_isPlaying) {
         _bridge.playerPlay();
       }
@@ -366,14 +376,20 @@ class PlaybackController extends ChangeNotifier {
       _queue.insert(_currentQueueIndex + 1, track);
       _currentQueueIndex++;
     }
-    _loadCurrentTrackToEngine();
+    _positionSec = 0.0;
+    _isTransitioning = false;
+    _transitionProgress = 0.0;
+    _loadCurrentTrackToEngine(force: true);
     play();
   }
 
   Future<void> triggerTransitionNow() async {
+    if (_isTransitioning) return;
     final current = currentTrack;
     final next = upNextTrack;
     if (next == null || current == null) return;
+    _isTransitioning = true;
+    _activeArchetype = 'Riff Handoff';
 
     Map<String, dynamic>? recipe;
 
@@ -456,22 +472,37 @@ class PlaybackController extends ChangeNotifier {
     notifyListeners();
   }
 
+  String? _loadedDeckAPath;
+
   void _advanceQueue() {
     if (_currentQueueIndex + 1 < _queue.length) {
       _currentQueueIndex++;
       final current = _queue[_currentQueueIndex];
+      _loadedDeckAPath = current.filePath;
       _durationSec = current.duration.inSeconds.toDouble();
       _positionSec = 0.0;
+      // Asynchronously preload upcoming track into Deck B (deck 1)
+      final next = upNextTrack;
+      if (next != null) {
+        _bridge.playerLoadTrack(1, next.filePath);
+      }
+    } else {
+      _currentQueueIndex = 0;
+      _loadedDeckAPath = null;
+      _loadCurrentTrackToEngine(force: true);
     }
     notifyListeners();
   }
 
-  void _loadCurrentTrackToEngine() {
+  void _loadCurrentTrackToEngine({bool force = false}) {
     final track = currentTrack;
     if (track != null) {
       _durationSec = track.duration.inSeconds.toDouble();
-      _positionSec = 0.0;
-      _bridge.playerLoadTrack(0, track.filePath);
+      if (force || _loadedDeckAPath != track.filePath) {
+        _positionSec = 0.0;
+        _loadedDeckAPath = track.filePath;
+        _bridge.playerLoadTrack(0, track.filePath);
+      }
     }
     final next = upNextTrack;
     if (next != null) {

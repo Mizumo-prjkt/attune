@@ -40,7 +40,13 @@ impl AudioOutputDriver {
         let sample_rate = default_config.sample_rate();
         let channels = default_config.channels();
         let sample_format = default_config.sample_format();
-        let config = default_config.config();
+        let mut config = default_config.config().clone();
+
+        // Ensure a stable hardware buffer size (e.g. 2048 frames ~45ms) to prevent ALSA XRUN buffer underruns
+        if let cpal::SupportedBufferSize::Range { min, max } = default_config.buffer_size() {
+            let desired = 2048.min(*max).max(*min);
+            config.buffer_size = cpal::BufferSize::Fixed(desired);
+        }
 
         // Synchronize mixer's output sample rate with the hardware device
         if let Ok(mut m) = mixer.lock() {
@@ -48,7 +54,7 @@ impl AudioOutputDriver {
         }
 
         let mixer_cb = Arc::clone(&mixer);
-        let err_fn = |err| log::error!("Audio output stream error: {}", err);
+        let err_fn = |err| log::warn!("Audio output stream notice: {}", err);
 
         let stream = match sample_format {
             SampleFormat::F32 => device.build_output_stream(

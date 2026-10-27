@@ -17,6 +17,7 @@ pub struct DualDeckMixer {
     pub deck_a: Deck,
     pub deck_b: Deck,
     pub active_deck: DeckId,
+    pub should_be_playing: bool,
     pub transition: Option<ActiveTransition>,
     master_gain_linear: f32,
 }
@@ -29,6 +30,7 @@ impl DualDeckMixer {
             deck_a: Deck::new(DeckId::DeckA, sr),
             deck_b: Deck::new(DeckId::DeckB, sr),
             active_deck: DeckId::DeckA,
+            should_be_playing: false,
             transition: None,
             master_gain_linear: 1.0,
         }
@@ -43,7 +45,12 @@ impl DualDeckMixer {
     }
 
     pub fn load_track_a(&mut self, audio: AudioBuffer) {
+        self.transition = None;
+        self.active_deck = DeckId::DeckA;
         self.deck_a.load_audio(audio);
+        if self.should_be_playing {
+            self.deck_a.play();
+        }
     }
 
     pub fn load_track_b(&mut self, audio: AudioBuffer) {
@@ -51,6 +58,7 @@ impl DualDeckMixer {
     }
 
     pub fn play(&mut self) {
+        self.should_be_playing = true;
         match self.active_deck {
             DeckId::DeckA => self.deck_a.play(),
             DeckId::DeckB => self.deck_b.play(),
@@ -58,6 +66,7 @@ impl DualDeckMixer {
     }
 
     pub fn pause(&mut self) {
+        self.should_be_playing = false;
         self.deck_a.pause();
         self.deck_b.pause();
     }
@@ -149,17 +158,23 @@ impl DualDeckMixer {
             trans.elapsed_frames += 1;
 
             if trans.elapsed_frames >= trans.total_transition_frames {
-                // Transition finished: Deck A finishes cleanly with tail, Deck B takes over natively!
-                self.deck_a.finish_with_tail();
-                self.deck_b.state = DeckState::Playing;
-                self.deck_b.set_gain_db(0.0);
-                self.deck_b.set_eq_sub_db(0.0);
-                self.deck_b.set_eq_mid_db(0.0);
-                self.deck_b.set_eq_high_db(0.0);
-                self.deck_b.set_stretch_ratio(1.0);
-                self.deck_b.set_pitch_cents(0);
-                self.deck_b.set_reverb_freeze_send(0.0);
-                self.active_deck = DeckId::DeckB;
+                // Transition finished: Deck B is now our playing track!
+                // Swap Deck B into Deck A so Deck A is consistently the active deck!
+                std::mem::swap(&mut self.deck_a, &mut self.deck_b);
+                self.deck_a.deck_id = DeckId::DeckA;
+                self.deck_b.deck_id = DeckId::DeckB;
+                self.deck_a.state = DeckState::Playing;
+                self.deck_a.set_gain_db(0.0);
+                self.deck_a.set_eq_sub_db(0.0);
+                self.deck_a.set_eq_mid_db(0.0);
+                self.deck_a.set_eq_high_db(0.0);
+                self.deck_a.set_stretch_ratio(1.0);
+                self.deck_a.set_pitch_cents(0);
+                self.deck_a.set_reverb_freeze_send(0.0);
+
+                // Deck B is cleared and primed for the next upcoming transition
+                self.deck_b.clear();
+                self.active_deck = DeckId::DeckA;
                 self.transition = None;
             }
 

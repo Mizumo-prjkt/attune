@@ -50,27 +50,19 @@ impl AudioProfiler {
         let mut cue_zones = Vec::new();
 
         let entry_end_ms = (audible_start + 45_000).min(audible_end);
-        let entry_zone = self.extract_cue_zone(
-            &mono,
-            sr,
-            audible_start,
-            entry_end_ms,
-            ZoneType::ENTRY,
-        );
-        cue_zones.push(entry_zone);
-
         let exit_start_ms = if audible_dur > 45_000 {
             audible_end.saturating_sub(45_000).max(audible_start)
         } else {
             audible_start + audible_dur / 2
         };
-        let exit_zone = self.extract_cue_zone(
-            &mono,
-            sr,
-            exit_start_ms,
-            audible_end,
-            ZoneType::EXIT,
+
+        // Multi-core parallel extraction of Entry and Exit cue zones via Rayon
+        let (entry_zone, exit_zone) = rayon::join(
+            || self.extract_cue_zone(&mono, sr, audible_start, entry_end_ms, ZoneType::ENTRY),
+            || self.extract_cue_zone(&mono, sr, exit_start_ms, audible_end, ZoneType::EXIT),
         );
+
+        cue_zones.push(entry_zone);
         cue_zones.push(exit_zone);
 
         // Global summary

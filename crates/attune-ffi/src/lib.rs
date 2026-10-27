@@ -225,31 +225,25 @@ pub extern "C" fn attune_player_load_track(deck_id: i32, path_ptr: *const c_char
         Err(_) => return -1,
     };
 
-    let audio = match AudioDecoder::load_file(path_str) {
-        Ok(a) => a,
-        Err(_) => return -2,
-    };
-
-    let session_guard = match PLAYBACK_SESSION.lock() {
-        Ok(g) => g,
-        Err(_) => return -3,
-    };
-
-    let session = match session_guard.as_ref() {
-        Some(s) => s,
-        None => return -4,
-    };
-
-    let mut mixer = match session.mixer.lock() {
-        Ok(m) => m,
-        Err(_) => return -5,
-    };
-
-    if deck_id == 1 {
-        mixer.load_track_b(audio);
-    } else {
-        mixer.load_track_a(audio);
-    }
+    let path = path_str.to_string();
+    // Multi-core worker offloading: Decodes audio without blocking caller UI thread
+    std::thread::spawn(move || {
+        if let Ok(audio) = AudioDecoder::load_file(&path) {
+            if let Ok(session_guard) = PLAYBACK_SESSION.lock() {
+                if let Some(session) = session_guard.as_ref() {
+                    if let Ok(mut mixer) = session.mixer.lock() {
+                        if deck_id == 1 {
+                            mixer.load_track_b(audio);
+                        } else {
+                            mixer.load_track_a(audio);
+                        }
+                    }
+                }
+            }
+        } else {
+            log::warn!("AudioDecoder failed to load file for deck {}: {}", deck_id, path);
+        }
+    });
 
     0
 }

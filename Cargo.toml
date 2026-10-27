@@ -28,3 +28,4 @@ clap = { version = "4.5", features = ["derive"] }
 rusqlite = { version = "0.32", features = ["bundled"] }
 tiny_http = "0.12"
 ureq = { version = "2.10", default-features = false }
+rayon = "1.10"
