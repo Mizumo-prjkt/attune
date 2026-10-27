@@ -254,16 +254,18 @@ class _AmbientMeshBackgroundState extends State<AmbientMeshBackground> with Tick
                 // Deep base surface
                 Container(color: scheme.surface),
 
-                // Fluid Lavalamp Liquid Light Globs
-                CustomPaint(
-                  painter: _LavalampGlobsPainter(
-                    t: t,
-                    beatPulse: beatPulse,
-                    primary: scheme.primary,
-                    secondary: scheme.secondary,
-                    tertiary: scheme.tertiary,
+                // Fluid Lavalamp Liquid Light Globs (RepaintBoundary isolates background GPU raster pass)
+                RepaintBoundary(
+                  child: CustomPaint(
+                    painter: _LavalampGlobsPainter(
+                      t: t,
+                      beatPulse: beatPulse,
+                      primary: scheme.primary,
+                      secondary: scheme.secondary,
+                      tertiary: scheme.tertiary,
+                    ),
+                    size: Size.infinite,
                   ),
-                  size: Size.infinite,
                 ),
 
                 // Child content on top if provided

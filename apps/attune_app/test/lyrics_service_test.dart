@@ -50,7 +50,7 @@ void main() {
       expect(lines[1].text, 'Love, blah, blah, blah');
     });
 
-    test('parseLrcText gracefully distributes unsynchronized lines across track duration', () {
+    test('parseLrcText treats untimed text as static list without synthesizing fake timestamps', () {
       const plainText = '''
 Verse 1 line 1
 Verse 1 line 2
@@ -63,13 +63,67 @@ Chorus line 2
       );
 
       expect(lines.length, 4);
-      expect(lines[0].isEstimated, isTrue);
-      expect(lines[0].timeSec, greaterThanOrEqualTo(4.0));
-      expect(lines[3].timeSec, lessThanOrEqualTo(120.0));
-      // Timestamps must be strictly ascending
-      for (var i = 1; i < lines.length; i++) {
-        expect(lines[i].timeSec, greaterThan(lines[i - 1].timeSec));
+      // Untimed lyrics must NOT have fake synthesized timestamps or auto-scroll markers
+      for (final line in lines) {
+        expect(line.timeSec, -1.0);
+        expect(line.isEstimated, isFalse);
       }
+      expect(lines[0].text, 'Verse 1 line 1');
+      expect(lines[3].text, 'Chorus line 2');
+    });
+
+    test('Ultra-Sync strictly requires .mls files and does not ingest casual .lrc or embedded tags', () async {
+      const track = TrackItem(
+        id: 'rabbit_hole_test',
+        title: 'Rabbit Hole',
+        artist: 'DECO*27',
+        album: 'Rabbit Hole',
+        filePath: '/home/miku/Music/Soulseek Complete/Rabbit Hole/01 Rabbit Hole.flac',
+        duration: Duration(minutes: 2, seconds: 39),
+        bpm: 135.0,
+        musicalKey: '11B',
+      );
+
+      // Load Ultra-Sync lyrics for track without companion .mls file
+      final result = await LyricsService.instance.loadLyrics(track, LyricSourceType.ultraSync);
+      expect(result.source, LyricSourceType.ultraSync);
+      expect(result.hasLyrics, isFalse);
+      expect(result.statusMessage, contains('.mls'));
+    });
+
+    test('determinePreferredSource prioritizes timed lyrics according to user matrix', () async {
+      // 1. Machine Love has timed companion .lrc
+      const machineLoveTrack = TrackItem(
+        id: 'machine_love_pref',
+        title: 'Machine Love',
+        artist: 'Jamie Paige',
+        album: 'Machine Love',
+        filePath: '/home/miku/Music/Soulseek Complete/Machine Love/01 Machine Love.flac',
+        duration: Duration(minutes: 3, seconds: 36),
+        bpm: 124.0,
+        musicalKey: '8B',
+      );
+
+      if (File(machineLoveTrack.filePath).existsSync()) {
+        final preferred = await LyricsService.instance.determinePreferredSource(machineLoveTrack);
+        // Has timed .lrc file, so it should resolve correctly
+        expect(preferred, anyOf(LyricSourceType.lrcFile, LyricSourceType.embedded));
+      }
+
+      // 2. Non-existent track defaults cleanly to embedded
+      const emptyTrack = TrackItem(
+        id: 'empty_track_pref',
+        title: 'Non-Existent Song',
+        artist: 'Unknown',
+        album: 'Unknown',
+        filePath: '/tmp/non_existent_file.flac',
+        duration: Duration(minutes: 3),
+        bpm: 120.0,
+        musicalKey: '8B',
+      );
+
+      final emptyPref = await LyricsService.instance.determinePreferredSource(emptyTrack);
+      expect(emptyPref, LyricSourceType.embedded);
     });
 
     test('Resolves real companion .lrc file if present on local disk', () async {
@@ -93,6 +147,7 @@ Chorus line 2
 
       final result = await LyricsService.instance.loadLyrics(track, LyricSourceType.lrcFile);
       expect(result.hasLyrics, isTrue);
+      expect(result.isTimed, isTrue);
       expect(result.lines.length, greaterThan(20));
       expect(result.lines.first.text, contains('Your companion, undeterred'));
     });

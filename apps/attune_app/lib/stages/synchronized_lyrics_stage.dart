@@ -55,9 +55,20 @@ class _SynchronizedLyricsStageState extends State<SynchronizedLyricsStage> {
     }
   }
 
-  void _checkAndLoadLyrics() {
+  void _checkAndLoadLyrics() async {
     final track = PlaybackController.instance.currentTrack;
     if (track == null) return;
+
+    if (_loadedTrackId != track.id) {
+      // Smart priority: auto-select preferred source based on real presence and timing
+      final preferred = await LyricsService.instance.determinePreferredSource(track);
+      if (!mounted) return;
+      setState(() {
+        _selectedSourceIndex = preferred.index;
+      });
+      _loadLyricsForTrack(track, preferred);
+      return;
+    }
 
     final source = _currentSource;
     if (_loadedTrackId == track.id && _loadedSource == source && _lyricResult != null) {
@@ -89,11 +100,12 @@ class _SynchronizedLyricsStageState extends State<SynchronizedLyricsStage> {
 
   int _computeActiveIndex(List<LyricLine> lines, double currentPosSec) {
     if (lines.isEmpty) return 0;
+    if (lines.every((l) => l.timeSec < 0)) return -1;
     int active = 0;
     for (int i = 0; i < lines.length; i++) {
-      if (currentPosSec >= lines[i].timeSec) {
+      if (lines[i].timeSec >= 0 && currentPosSec >= lines[i].timeSec) {
         active = i;
-      } else {
+      } else if (lines[i].timeSec > currentPosSec) {
         break;
       }
     }
@@ -101,6 +113,7 @@ class _SynchronizedLyricsStageState extends State<SynchronizedLyricsStage> {
   }
 
   void _scrollToActive(int index, {bool force = false}) {
+    if (index < 0) return; // Untimed lyrics: skip auto-scroll
     if (!_isLockedToActive && !force) return;
     if (!_scrollController.hasClients) return;
     if (index == _lastActiveIndex && !force) return;
@@ -210,9 +223,10 @@ class _SynchronizedLyricsStageState extends State<SynchronizedLyricsStage> {
 
         final lines = _lyricResult?.lines ?? const [];
         final hasLyrics = _lyricResult?.hasLyrics ?? false;
-        final activeIndex = _computeActiveIndex(lines, controller.positionSec);
+        final isTimed = _lyricResult?.isTimed ?? false;
+        final activeIndex = isTimed ? _computeActiveIndex(lines, controller.positionSec) : -1;
 
-        if (lines.isNotEmpty) {
+        if (lines.isNotEmpty && isTimed) {
           WidgetsBinding.instance.addPostFrameCallback((_) {
             _scrollToActive(activeIndex);
           });
@@ -225,6 +239,7 @@ class _SynchronizedLyricsStageState extends State<SynchronizedLyricsStage> {
             track,
             lines,
             hasLyrics,
+            isTimed,
             activeIndex,
             colorScheme,
           );
@@ -235,6 +250,7 @@ class _SynchronizedLyricsStageState extends State<SynchronizedLyricsStage> {
             track,
             lines,
             hasLyrics,
+            isTimed,
             activeIndex,
             colorScheme,
           );
@@ -252,6 +268,7 @@ class _SynchronizedLyricsStageState extends State<SynchronizedLyricsStage> {
     TrackItem? track,
     List<LyricLine> lines,
     bool hasLyrics,
+    bool isTimed,
     int activeIndex,
     ColorScheme colorScheme,
   ) {
@@ -263,74 +280,68 @@ class _SynchronizedLyricsStageState extends State<SynchronizedLyricsStage> {
     final totalSec = (durSec % 60).floor();
 
     return SafeArea(
-      child: Stack(
-        fit: StackFit.expand,
+      child: Column(
         children: [
-          // Background living frosted glass refraction
-          const AmbientMeshBackground(),
-
-          Column(
-            children: [
-              // 1. Top Header: Back/Dismiss button + Track Title + Quality Badge
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 20.0, vertical: 10.0),
-                child: Row(
-                  children: [
-                    IconButton(
-                      icon: const Icon(Icons.keyboard_arrow_down_rounded, size: 30),
-                      color: colorScheme.onSurface,
-                      tooltip: 'Back to player',
-                      onPressed: widget.onBackToArtwork,
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Text(
-                            track?.title ?? 'Now Playing',
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: AttuneTypography.soraHeading(
-                              fontSize: 18,
-                              fontWeight: FontWeight.bold,
-                              color: colorScheme.onSurface,
-                            ),
-                          ),
-                          Text(
-                            track?.artist ?? 'Attune Engine',
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: AttuneTypography.jakartaBodySmall(
-                              color: colorScheme.onSurface.withValues(alpha: 0.65),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    if (track != null)
-                      AudioQualityBadge(
-                        format: track.format,
-                        sampleRate: track.sampleRate,
-                        bitDepth: track.bitDepth,
-                        isProprietary: track.isProprietary,
-                      ),
-                  ],
+          // 1. Top Header: Back/Dismiss button + Track Title + Quality Badge
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 20.0, vertical: 10.0),
+            child: Row(
+              children: [
+                IconButton(
+                  icon: const Icon(Icons.keyboard_arrow_down_rounded, size: 30),
+                  color: colorScheme.onSurface,
+                  tooltip: 'Back to player',
+                  onPressed: widget.onBackToArtwork,
                 ),
-              ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        track?.title ?? 'Now Playing',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: AttuneTypography.soraHeading(
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                          color: colorScheme.onSurface,
+                        ),
+                      ),
+                      Text(
+                        track?.artist ?? 'Attune Engine',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: AttuneTypography.jakartaBodySmall(
+                          color: colorScheme.onSurface.withValues(alpha: 0.65),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 8),
+                if (track != null)
+                  AudioQualityBadge(
+                    format: track.format,
+                    sampleRate: track.sampleRate,
+                    bitDepth: track.bitDepth,
+                    isProprietary: track.isProprietary,
+                  ),
+              ],
+            ),
+          ),
 
-              const Divider(color: Colors.white10, height: 1),
+          const Divider(color: Colors.white10, height: 1),
 
-              // 2. Center: Large Scrolling Lyrics with Ambient Refraction OR Empty State
-              Expanded(
-                child: _isLoading
-                    ? _buildLoadingState(colorScheme)
-                    : hasLyrics
-                        ? _buildLyricsList(lines, activeIndex, controller, colorScheme)
-                        : _buildEmptyState(track, colorScheme),
-              ),
+          // 2. Center: Large Scrolling Lyrics with Ambient Refraction OR Empty State
+          Expanded(
+            child: _isLoading
+                ? _buildLoadingState(colorScheme)
+                : hasLyrics
+                    ? _buildLyricsList(lines, isTimed, activeIndex, controller, colorScheme)
+                    : _buildEmptyState(track, colorScheme),
+          ),
 
               // 3. Bottom: Source Switcher Segment + Playback Transport Controls
               LiquidGlassContainer(
@@ -442,13 +453,12 @@ class _SynchronizedLyricsStageState extends State<SynchronizedLyricsStage> {
               ),
             ],
           ),
-        ],
-      ),
-    );
-  }
+        );
+      }
 
   Widget _buildLyricsList(
     List<LyricLine> lines,
+    bool isTimed,
     int activeIndex,
     PlaybackController controller,
     ColorScheme colorScheme,
@@ -457,10 +467,12 @@ class _SynchronizedLyricsStageState extends State<SynchronizedLyricsStage> {
       children: [
         NotificationListener<ScrollNotification>(
           onNotification: (notification) {
-            if (notification is UserScrollNotification && notification.direction != ScrollDirection.idle) {
-              _handleUserScroll();
-            } else if (notification is ScrollStartNotification && notification.dragDetails != null) {
-              _handleUserScroll();
+            if (isTimed) {
+              if (notification is UserScrollNotification && notification.direction != ScrollDirection.idle) {
+                _handleUserScroll();
+              } else if (notification is ScrollStartNotification && notification.dragDetails != null) {
+                _handleUserScroll();
+              }
             }
             return false;
           },
@@ -472,7 +484,7 @@ class _SynchronizedLyricsStageState extends State<SynchronizedLyricsStage> {
             itemCount: lines.length,
             itemBuilder: (context, index) {
               final line = lines[index];
-              final isActive = index == activeIndex;
+              final isActive = isTimed && index == activeIndex;
               final key = _lineKeys.putIfAbsent(index, () => GlobalKey(debugLabel: 'full_lyric_$index'));
 
               if (line.isInstrumental) {
@@ -503,16 +515,20 @@ class _SynchronizedLyricsStageState extends State<SynchronizedLyricsStage> {
                 );
               }
 
+              final isSeekable = isTimed && line.timeSec >= 0.0;
+
               return GestureDetector(
                 key: key,
-                onTap: () {
-                  controller.seek(line.timeSec);
-                  setState(() => _isLockedToActive = true);
-                  _scrollToActive(index, force: true);
-                },
+                onTap: isSeekable
+                    ? () {
+                        controller.seek(line.timeSec);
+                        setState(() => _isLockedToActive = true);
+                        _scrollToActive(index, force: true);
+                      }
+                    : null,
                 behavior: HitTestBehavior.opaque,
                 child: Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 14.0),
+                  padding: EdgeInsets.symmetric(vertical: isTimed ? 14.0 : 8.0),
                   child: isActive
                       ? LiquidGlassContainer(
                           padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 16),
@@ -532,9 +548,13 @@ class _SynchronizedLyricsStageState extends State<SynchronizedLyricsStage> {
                           padding: const EdgeInsets.symmetric(horizontal: 14.0),
                           child: Text(
                             line.text,
-                            style: AttuneTypography.jakartaLyricsInactive(
-                              color: colorScheme.onSurface.withValues(alpha: 0.40),
-                            ).copyWith(fontSize: 18),
+                            style: isTimed
+                                ? AttuneTypography.jakartaLyricsInactive(
+                                    color: colorScheme.onSurface.withValues(alpha: 0.40),
+                                  ).copyWith(fontSize: 18)
+                                : AttuneTypography.jakartaLyricsActive(
+                                    color: colorScheme.onSurface.withValues(alpha: 0.85),
+                                  ).copyWith(fontSize: 18, height: 1.5),
                           ),
                         ),
                 ),
@@ -543,8 +563,8 @@ class _SynchronizedLyricsStageState extends State<SynchronizedLyricsStage> {
           ),
         ),
 
-        // Floating Liquid Glass Sync-to-Current-Line button when user is in free-scroll mode
-        if (!_isLockedToActive && lines.isNotEmpty)
+        // Floating Liquid Glass Sync-to-Current-Line button when user is in free-scroll mode (only for timed lyrics)
+        if (isTimed && !_isLockedToActive && lines.isNotEmpty)
           Positioned(
             bottom: 16,
             left: 0,
@@ -564,6 +584,7 @@ class _SynchronizedLyricsStageState extends State<SynchronizedLyricsStage> {
     TrackItem? track,
     List<LyricLine> lines,
     bool hasLyrics,
+    bool isTimed,
     int activeIndex,
     ColorScheme colorScheme,
   ) {
@@ -584,10 +605,12 @@ class _SynchronizedLyricsStageState extends State<SynchronizedLyricsStage> {
                       children: [
                         NotificationListener<ScrollNotification>(
                           onNotification: (notification) {
-                            if (notification is UserScrollNotification && notification.direction != ScrollDirection.idle) {
-                              _handleUserScroll();
-                            } else if (notification is ScrollStartNotification && notification.dragDetails != null) {
-                              _handleUserScroll();
+                            if (isTimed) {
+                              if (notification is UserScrollNotification && notification.direction != ScrollDirection.idle) {
+                                _handleUserScroll();
+                              } else if (notification is ScrollStartNotification && notification.dragDetails != null) {
+                                _handleUserScroll();
+                              }
                             }
                             return false;
                           },
@@ -599,7 +622,7 @@ class _SynchronizedLyricsStageState extends State<SynchronizedLyricsStage> {
                             itemCount: lines.length,
                             itemBuilder: (context, index) {
                               final line = lines[index];
-                              final isActive = index == activeIndex;
+                              final isActive = isTimed && index == activeIndex;
                               final key = _lineKeys.putIfAbsent(index, () => GlobalKey(debugLabel: 'dock_lyric_$index'));
 
                               if (line.isInstrumental) {
@@ -627,16 +650,20 @@ class _SynchronizedLyricsStageState extends State<SynchronizedLyricsStage> {
                                 );
                               }
 
+                              final isSeekable = isTimed && line.timeSec >= 0.0;
+
                               return GestureDetector(
                                 key: key,
-                                onTap: () {
-                                  controller.seek(line.timeSec);
-                                  setState(() => _isLockedToActive = true);
-                                  _scrollToActive(index, force: true);
-                                },
+                                onTap: isSeekable
+                                    ? () {
+                                        controller.seek(line.timeSec);
+                                        setState(() => _isLockedToActive = true);
+                                        _scrollToActive(index, force: true);
+                                      }
+                                    : null,
                                 behavior: HitTestBehavior.opaque,
                                 child: Padding(
-                                  padding: const EdgeInsets.symmetric(vertical: 10.0),
+                                  padding: EdgeInsets.symmetric(vertical: isTimed ? 10.0 : 6.0),
                                   child: isActive
                                       ? LiquidGlassContainer(
                                           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
@@ -652,9 +679,13 @@ class _SynchronizedLyricsStageState extends State<SynchronizedLyricsStage> {
                                           padding: const EdgeInsets.symmetric(horizontal: 10.0),
                                           child: Text(
                                             line.text,
-                                            style: AttuneTypography.jakartaLyricsInactive(
-                                              color: colorScheme.onSurface.withValues(alpha: 0.40),
-                                            ).copyWith(fontSize: 14),
+                                            style: isTimed
+                                                ? AttuneTypography.jakartaLyricsInactive(
+                                                    color: colorScheme.onSurface.withValues(alpha: 0.40),
+                                                  ).copyWith(fontSize: 14)
+                                                : AttuneTypography.jakartaLyricsActive(
+                                                    color: colorScheme.onSurface.withValues(alpha: 0.85),
+                                                  ).copyWith(fontSize: 14, height: 1.4),
                                           ),
                                         ),
                                 ),
@@ -664,7 +695,7 @@ class _SynchronizedLyricsStageState extends State<SynchronizedLyricsStage> {
                         ),
 
                         // Floating Liquid Glass Sync-to-Current-Line button when user is in free-scroll mode
-                        if (!_isLockedToActive && lines.isNotEmpty)
+                        if (isTimed && !_isLockedToActive && lines.isNotEmpty)
                           Positioned(
                             bottom: 12,
                             left: 0,
@@ -721,8 +752,9 @@ class _SynchronizedLyricsStageState extends State<SynchronizedLyricsStage> {
         detailHint = 'No matching .lrc file found alongside "${track?.title ?? 'this track'}".';
         break;
       case LyricSourceType.ultraSync:
-        sourceName = 'Ultra-Sync Neural Voice';
-        detailHint = 'Multi-stem phoneme-aligned lyrics engine in active development.';
+        sourceName = 'Ultra-Sync (.MLS)';
+        detailHint = 'Ultra-Sync requires dedicated .mls (Musical Lyric Sync) companion files containing real-time word-by-word vocal synchronization. '
+            'No matching .mls file found for "${track?.title ?? 'this track'}".';
         break;
     }
 
@@ -819,7 +851,7 @@ class _SynchronizedLyricsStageState extends State<SynchronizedLyricsStage> {
             child: _buildSourceItem(1, '.LRC File', Icons.text_snippet_outlined, colorScheme),
           ),
           Expanded(
-            child: _buildSourceItem(2, 'Ultra-Sync (Soon)', Icons.auto_awesome_rounded, colorScheme),
+            child: _buildSourceItem(2, 'Ultra-Sync (.MLS)', Icons.auto_awesome_rounded, colorScheme),
           ),
         ],
       ),

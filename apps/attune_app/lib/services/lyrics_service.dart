@@ -36,6 +36,7 @@ class LyricLoadResult {
   final String? sourcePath;
   final String? rawText;
   final bool hasLyrics;
+  final bool isTimed;
   final String? statusMessage;
 
   const LyricLoadResult({
@@ -44,6 +45,7 @@ class LyricLoadResult {
     this.sourcePath,
     this.rawText,
     required this.hasLyrics,
+    this.isTimed = false,
     this.statusMessage,
   });
 
@@ -52,6 +54,7 @@ class LyricLoadResult {
       source: source,
       lines: const [],
       hasLyrics: false,
+      isTimed: false,
       statusMessage: statusMessage ?? 'No lyrics found for this source.',
     );
   }
@@ -136,13 +139,17 @@ class LyricsService {
     }
 
     final lines = parseLrcText(rawLyrics, duration: track.duration);
+    final isTimed = lines.isNotEmpty && lines.any((l) => l.timeSec >= 0.0);
     return LyricLoadResult(
       source: LyricSourceType.embedded,
       lines: lines,
       sourcePath: track.filePath,
       rawText: rawLyrics,
       hasLyrics: lines.isNotEmpty,
-      statusMessage: 'Loaded ${lines.length} lines from embedded audio tags.',
+      isTimed: isTimed,
+      statusMessage: isTimed
+          ? 'Loaded ${lines.length} synchronized lines from embedded audio tags.'
+          : 'Loaded ${lines.length} static lyric lines from embedded audio tags.',
     );
   }
 
@@ -380,6 +387,7 @@ class LyricsService {
     try {
       final content = await lrcFile.readAsString();
       final lines = parseLrcText(content, duration: track.duration);
+      final isTimed = lines.isNotEmpty && lines.any((l) => l.timeSec >= 0.0);
 
       return LyricLoadResult(
         source: LyricSourceType.lrcFile,
@@ -387,7 +395,10 @@ class LyricsService {
         sourcePath: lrcFile.path,
         rawText: content,
         hasLyrics: lines.isNotEmpty,
-        statusMessage: 'Loaded ${lines.length} lines from ${lrcFile.path.split(Platform.pathSeparator).last}.',
+        isTimed: isTimed,
+        statusMessage: isTimed
+            ? 'Loaded ${lines.length} synchronized lines from ${lrcFile.path.split(Platform.pathSeparator).last}.'
+            : 'Loaded ${lines.length} static lyric lines from ${lrcFile.path.split(Platform.pathSeparator).last}.',
       );
     } catch (e) {
       return LyricLoadResult.empty(
@@ -467,44 +478,156 @@ class LyricsService {
   }
 
   // ---------------------------------------------------------------------------
-  // 3. ULTRA-SYNC / AI VOCAL ALIGNER
+  // 3. ULTRA-SYNC / MUSICAL LYRIC SYNC (.MLS)
   // ---------------------------------------------------------------------------
+  /// Ultra-Sync strictly requires dedicated .mls (Musical Lyric Sync) companion files
+  /// containing real-time word-by-word vocal synchronization.
+  /// Never casually falls back to standard .lrc or embedded tags.
   Future<LyricLoadResult> _loadUltraSyncLyrics(TrackItem track) async {
-    // If an LRC file or embedded lyrics exist, use them as ground truth for Ultra-Sync
-    final lrcResult = await _loadLrcFileLyrics(track);
-    if (lrcResult.hasLyrics) {
-      return LyricLoadResult(
-        source: LyricSourceType.ultraSync,
-        lines: lrcResult.lines,
-        sourcePath: lrcResult.sourcePath,
-        rawText: lrcResult.rawText,
-        hasLyrics: true,
-        statusMessage: 'Ultra-Sync Neural Voice Aligned (${lrcResult.lines.length} lines)',
+    final mlsFile = await _resolveCompanionMlsFile(track);
+    if (mlsFile == null || !mlsFile.existsSync()) {
+      return LyricLoadResult.empty(
+        LyricSourceType.ultraSync,
+        statusMessage: 'No .mls (Musical Lyric Sync) file found for "${track.title}". '
+            'Ultra-Sync strictly requires dedicated word-level .mls timing data.',
       );
     }
 
-    final embeddedResult = await _loadEmbeddedLyrics(track);
-    if (embeddedResult.hasLyrics) {
+    try {
+      final content = await mlsFile.readAsString();
+      final lines = parseMlsText(content);
+      final isTimed = lines.isNotEmpty && lines.any((l) => l.timeSec >= 0.0);
+
       return LyricLoadResult(
         source: LyricSourceType.ultraSync,
-        lines: embeddedResult.lines,
-        sourcePath: embeddedResult.sourcePath,
-        rawText: embeddedResult.rawText,
-        hasLyrics: true,
-        statusMessage: 'Ultra-Sync Embedded Aligned (${embeddedResult.lines.length} lines)',
+        lines: lines,
+        sourcePath: mlsFile.path,
+        rawText: content,
+        hasLyrics: lines.isNotEmpty,
+        isTimed: isTimed,
+        statusMessage: 'Loaded ${lines.length} Ultra-Sync lines from ${mlsFile.path.split(Platform.pathSeparator).last}.',
+      );
+    } catch (e) {
+      return LyricLoadResult.empty(
+        LyricSourceType.ultraSync,
+        statusMessage: 'Failed to read .mls file: $e',
       );
     }
+  }
 
-    return LyricLoadResult.empty(
-      LyricSourceType.ultraSync,
-      statusMessage: 'Ultra-Sync Neural Aligner: No local lyrics source available to align.',
-    );
+  /// Locates companion .mls file next to audio file or in candidate music directories
+  Future<File?> _resolveCompanionMlsFile(TrackItem track) async {
+    final audioFile = File(track.filePath);
+    final audioDir = audioFile.parent;
+
+    if (audioFile.existsSync() && audioDir.existsSync()) {
+      // 1. Direct path with .mls extension: song.flac -> song.mls
+      final dotIndex = audioFile.path.lastIndexOf('.');
+      if (dotIndex != -1) {
+        final directMls = File('${audioFile.path.substring(0, dotIndex)}.mls');
+        if (directMls.existsSync()) return directMls;
+      }
+
+      // 2. Scan same directory for any .mls files matching track title tokens
+      try {
+        final entries = audioDir.listSync(followLinks: true);
+        final titleTokens = _tokenize(track.title);
+
+        for (final entity in entries) {
+          if (entity is! File) continue;
+          final lower = entity.path.toLowerCase();
+          if (!lower.endsWith('.mls')) continue;
+
+          final filename = entity.path.split(Platform.pathSeparator).last.toLowerCase();
+          if (titleTokens.any((t) => t.length >= 3 && filename.contains(t))) {
+            return entity;
+          }
+        }
+      } catch (_) {}
+    }
+
+    // 3. Fallback: Scan known candidate roots
+    final candidateRoots = AudioStorageService.instance.getCandidateRoots();
+    final titleClean = track.title.toLowerCase().replaceAll(RegExp(r'[^a-z0-9ぁ-んァ-ヶ一-龥]'), '');
+
+    for (final root in candidateRoots) {
+      final dir = Directory(root);
+      if (!dir.existsSync()) continue;
+
+      try {
+        final entities = dir.listSync(recursive: true, followLinks: true);
+        for (final entity in entities) {
+          if (entity is! File) continue;
+          final lower = entity.path.toLowerCase();
+          if (!lower.endsWith('.mls')) continue;
+
+          final filename = entity.path.split(Platform.pathSeparator).last.toLowerCase();
+          final candidateClean = filename.replaceAll(RegExp(r'[^a-z0-9ぁ-んァ-ヶ一-龥]'), '');
+          if (titleClean.isNotEmpty && candidateClean.contains(titleClean)) {
+            return entity;
+          }
+        }
+      } catch (_) {}
+    }
+
+    return null;
+  }
+
+  /// Parses .mls content with optional word-by-word markers `<mm:ss.xx>word`
+  List<LyricLine> parseMlsText(String rawText) {
+    if (rawText.trim().isEmpty) return const [];
+    // Leverages standard timestamp parsing while preserving word-level syntax
+    return parseLrcText(rawText);
   }
 
   // ---------------------------------------------------------------------------
-  // 4. PARSER FOR LRC AND PLAIN TEXT
+  // 4. SMART SOURCE PRIORITY RESOLVER
+  // ---------------------------------------------------------------------------
+  /// Determines the preferred default [LyricSourceType] for [track] following exact user rules:
+  /// - If no embedded lyrics but has .lrc -> .lrcFile
+  /// - If only embedded and no .lrc -> .embedded
+  /// - If both are present:
+  ///   * If .lrc is timed and embedded is NOT timed -> .lrcFile
+  ///   * If embedded is timed and .lrc is NOT timed -> .embedded
+  ///   * If both are timed -> .embedded
+  ///   * If neither is timed -> .embedded
+  /// - If neither exists -> .embedded (clean default empty view)
+  Future<LyricSourceType> determinePreferredSource(TrackItem track) async {
+    final embeddedResult = await loadLyrics(track, LyricSourceType.embedded);
+    final lrcResult = await loadLyrics(track, LyricSourceType.lrcFile);
+
+    final hasEmbedded = embeddedResult.hasLyrics;
+    final hasLrc = lrcResult.hasLyrics;
+
+    if (hasLrc && !hasEmbedded) {
+      return LyricSourceType.lrcFile;
+    }
+    if (hasEmbedded && !hasLrc) {
+      return LyricSourceType.embedded;
+    }
+    if (hasEmbedded && hasLrc) {
+      final embeddedTimed = embeddedResult.isTimed;
+      final lrcTimed = lrcResult.isTimed;
+
+      if (lrcTimed && !embeddedTimed) {
+        return LyricSourceType.lrcFile;
+      }
+      if (embeddedTimed && !lrcTimed) {
+        return LyricSourceType.embedded;
+      }
+      // If both are timed or neither is timed -> embedded is default priority
+      return LyricSourceType.embedded;
+    }
+
+    return LyricSourceType.embedded;
+  }
+
+  // ---------------------------------------------------------------------------
+  // 5. PARSER FOR LRC AND PLAIN TEXT
   // ---------------------------------------------------------------------------
   /// Parses raw LRC or text into a list of [LyricLine] sorted by timestamp.
+  /// If no timestamps are present, lines are treated as static untimed text (timeSec: -1.0)
+  /// with zero artificial pacing or fake auto-scrolling animations.
   List<LyricLine> parseLrcText(String rawText, {Duration? duration}) {
     if (rawText.trim().isEmpty) return const [];
 
@@ -567,21 +690,16 @@ class LyricsService {
       return parsed;
     }
 
-    // If file only had unsynchronized text (like 01 Rabbit Hole.lrc)
+    // If file only had unsynchronized plain text (e.g. 01 Rabbit Hole.lrc)
+    // Keep exact lines without generating synthetic timestamps (timeSec = -1.0)
+    // so the UI treats it strictly as a static readable text list without scrolling jitter.
     if (unformattedLines.isNotEmpty) {
-      final totalSec = (duration?.inSeconds ?? 180).toDouble();
-      final leadIn = 4.0;
-      final leadOut = 8.0;
-      final activeWindow = (totalSec - leadIn - leadOut).clamp(10.0, 600.0);
-      final step = activeWindow / unformattedLines.length;
-
-      for (var i = 0; i < unformattedLines.length; i++) {
-        final lineTime = leadIn + (i * step);
+      for (final line in unformattedLines) {
         parsed.add(LyricLine(
-          timeSec: lineTime,
-          text: unformattedLines[i],
+          timeSec: -1.0,
+          text: line,
           isInstrumental: false,
-          isEstimated: true,
+          isEstimated: false,
         ));
       }
     }

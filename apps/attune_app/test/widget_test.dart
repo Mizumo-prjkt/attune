@@ -134,7 +134,7 @@ void main() {
 
       expect(find.text('Embedded'), findsOneWidget);
       expect(find.text('.LRC File'), findsOneWidget);
-      expect(find.text('Ultra-Sync (Soon)'), findsOneWidget);
+      expect(find.text('Ultra-Sync (.MLS)'), findsOneWidget);
 
       // Tap .LRC File tab
       await tester.tap(find.text('.LRC File'));
