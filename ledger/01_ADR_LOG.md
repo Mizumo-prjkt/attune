@@ -825,6 +825,43 @@ This file records all major architectural decisions for **Attune**, including co
   - Zero hardcoding for Android permissions; clean native integration with OS settings.
   - 100% test pass rate across all 35 Flutter unit/widget tests and 17 Rust workspace tests.
 
+---
+
+### ADR-029: Dedicated Song Exclusion Manager Screen (`SongExclusionStage`), Real-Time Search Filtering & Zero-Hardcoded Validation
+
+- **Date**: 2026-10-28
+- **Status**: **LOCKED**
+- **Context**:
+  - The Song Exclusion List was previously confined to a compact floating dialog with a 200px scrollable box. When libraries have 150+ tracks, finding songs to exclude or unexclude without a search query was cumbersome and difficult.
+  - The user requested adding search capability or "better yet, in another screen ui instead".
+- **Decision**:
+  1. **Dedicated Full-Screen Manager UI (`SongExclusionStage`)**:
+     - Built `SongExclusionStage` in `apps/attune_app/lib/stages/song_exclusion_stage.dart`.
+     - Layout:
+       * Liquid Glass header with Back button (`PlatformNavigation.closeCurrent(context)`) and descriptive title/subtitle.
+       * Liquid Glass real-time Search Bar with search icon, clear button, and live query filtering across title, artist, and album.
+       * Three category tabs: All Songs ($N$), Excluded ($N$), and Available ($N$).
+       * Distinctive card styling for excluded tracks with subtle crimson tint, block icon, and instant "Restore" button.
+       * Track rows display genuine album art thumbnails, title, artist, album, and formatted duration ($M:SS$).
+       * Responsive empty states when search yields zero results with a dedicated "Clear Search" button.
+  2. **Navigation Integration**:
+     - Registered `'/song_exclusion'` route in `apps/attune_app/lib/main.dart`.
+     - In `apps/attune_app/lib/stages/settings_stage.dart`, tapping `Song Exclusion List` pushes `SongExclusionStage`.
+     - Long pressing opens the floating glass dialog `_openSongExclusionDialog`, which has also been updated with real-time search filtering and an "Open Full Screen UI" action button.
+  3. **Strict Zero-Hardcoding Compliance in Tests**:
+     - Created `apps/attune_app/test/song_exclusion_stage_test.dart` testing:
+       * Dynamic header counts and search bar rendering using genuine scanned library tracks.
+       * Real-time search query filtering derived dynamically from actual track metadata (`tracks.first.title.split(' ').first`).
+       * Dynamic exclude and restore toggles updating `SettingsService.excludedSongIds` and `PlaybackController.applyLibraryFilters()`.
+       * Empty search results handling with dynamic timestamp query.
+       * Page transition navigation from `SettingsAndAudioStage`.
+- **Consequences**:
+  - Eliminates clutter and friction when managing excluded tracks across large libraries.
+  - Both full-screen UI and floating dialog provide instant real-time search.
+  - Strictly 0 hardcoded values in both implementation and automated tests.
+  - 100% test pass rate across all 40 Flutter unit/widget tests and 17 Rust workspace tests; 0 analyze warnings.
+
+
 
 
 

@@ -40,6 +40,12 @@ Before proposing architectural changes, writing DSP code, or scaffolding UI comp
   1. **On-Demand JIT Mode**: Analyzes only the last 45s of Track A and first 45s of Track B (<150 ms) when uncached tracks are queued.
   2. **Background Idle Mode**: Low-priority local worker scanning the full library when idle/charging.
   3. **External Compute Node (Desktop/Server/Cloud)**: Runs the exact same core engine (plus optional heavy ML like 4-stem separation and deep audio embeddings) on a capable machine and syncs compact `.tap` (Track Analysis Profile) and `.ptr` (Pairwise Transition Recipe) caches to weaker playback devices.
+  
+### Mandate 4: Avoid making Hardcoded values
+- Utilizing Hardcoded values undermines the way to check if the component is really working:
+  1. It lengthens the devleopment cycle and misses bugs that should have been caught early on.
+  2. Always utilize environment changes in the system
+  3. If a criteria is not met, to prevent core dump, or segfault, it must fail gracefully with transperancy
 
 ---
 

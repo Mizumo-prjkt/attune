@@ -9,6 +9,7 @@ import '../services/permission_service.dart';
 import '../services/playback_controller.dart';
 import '../services/platform_navigation.dart';
 import '../services/settings_service.dart';
+import 'song_exclusion_stage.dart';
 import '../theme/liquid_glass.dart';
 import '../theme/typography.dart';
 
@@ -420,7 +421,14 @@ class _SettingsAndAudioStageState extends State<SettingsAndAudioStage> with Widg
                                 title: 'Song Exclusion List',
                                 subtitle: '${_settings.excludedSongIds.length} tracks excluded from playback & library',
                                 trailing: const Icon(Icons.chevron_right_rounded, color: Colors.white38, size: 20),
-                                onTap: () => _openSongExclusionDialog(context),
+                                onTap: () {
+                                  Navigator.of(context).push(
+                                    MaterialPageRoute(
+                                      builder: (_) => const SongExclusionStage(),
+                                    ),
+                                  );
+                                },
+                                onLongPress: () => _openSongExclusionDialog(context),
                               ),
                               const Divider(height: 1, color: Colors.white10),
                               _buildSettingTile(
@@ -493,9 +501,11 @@ class _SettingsAndAudioStageState extends State<SettingsAndAudioStage> with Widg
     String? subtitle,
     Widget? trailing,
     VoidCallback? onTap,
+    VoidCallback? onLongPress,
   }) {
     return InkWell(
       onTap: onTap,
+      onLongPress: onLongPress,
       borderRadius: BorderRadius.circular(16),
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 14.0),
@@ -1152,6 +1162,8 @@ class _SettingsAndAudioStageState extends State<SettingsAndAudioStage> with Widg
     final allTracks = _playback.rawScannedTracks.isNotEmpty
         ? _playback.rawScannedTracks
         : _playback.libraryTracks;
+    final searchController = TextEditingController();
+    String searchQuery = '';
 
     _showGlassDialog(
       context: context,
@@ -1160,6 +1172,14 @@ class _SettingsAndAudioStageState extends State<SettingsAndAudioStage> with Widg
         builder: (ctx, setDialogState) {
           final excludedIds = _settings.excludedSongIds;
           final excludedTracks = allTracks.where((t) => excludedIds.contains(t.id) || excludedIds.contains(t.filePath)).toList();
+
+          final filteredTracks = allTracks.where((t) {
+            if (searchQuery.isEmpty) return true;
+            final q = searchQuery.toLowerCase();
+            return t.title.toLowerCase().contains(q) ||
+                t.artist.toLowerCase().contains(q) ||
+                t.album.toLowerCase().contains(q);
+          }).toList();
 
           return Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -1227,44 +1247,116 @@ class _SettingsAndAudioStageState extends State<SettingsAndAudioStage> with Widg
               const Divider(height: 1, color: Colors.white12),
               const SizedBox(height: 12),
 
-              Text('Exclude Tracks From Library', style: AttuneTypography.soraTitleSmall(color: Colors.white)),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text('Exclude Tracks From Library', style: AttuneTypography.soraTitleSmall(color: Colors.white)),
+                  Text(
+                    '${filteredTracks.length} tracks',
+                    style: AttuneTypography.jakartaBodySmall(color: Colors.white54, fontSize: 11),
+                  ),
+                ],
+              ),
               const SizedBox(height: 8),
+
+              // Search Bar inside Dialog
+              Container(
+                decoration: BoxDecoration(
+                  color: Colors.white.withValues(alpha: 0.06),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: Colors.white12),
+                ),
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 2),
+                child: Row(
+                  children: [
+                    const Icon(Icons.search_rounded, color: Colors.white54, size: 18),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: TextField(
+                        controller: searchController,
+                        style: const TextStyle(color: Colors.white, fontSize: 13),
+                        decoration: const InputDecoration(
+                          hintText: 'Search songs or artists...',
+                          hintStyle: TextStyle(color: Colors.white38, fontSize: 12),
+                          border: InputBorder.none,
+                          isDense: true,
+                        ),
+                        onChanged: (val) {
+                          setDialogState(() {
+                            searchQuery = val.trim();
+                          });
+                        },
+                      ),
+                    ),
+                    if (searchQuery.isNotEmpty)
+                      IconButton(
+                        icon: const Icon(Icons.clear_rounded, size: 16, color: Colors.white70),
+                        splashRadius: 16,
+                        onPressed: () {
+                          searchController.clear();
+                          setDialogState(() {
+                            searchQuery = '';
+                          });
+                        },
+                      ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 10),
 
               SizedBox(
                 height: 200,
-                child: ListView.builder(
-                  shrinkWrap: true,
-                  physics: const BouncingScrollPhysics(),
-                  itemCount: allTracks.length,
-                  itemBuilder: (c, idx) {
-                    final track = allTracks[idx];
-                    final isExcluded = excludedIds.contains(track.id) || excludedIds.contains(track.filePath);
-                    return ListTile(
-                      dense: true,
-                      contentPadding: EdgeInsets.zero,
-                      title: Text(track.title, style: const TextStyle(color: Colors.white, fontSize: 13)),
-                      subtitle: Text(track.artist, style: const TextStyle(color: Colors.white54, fontSize: 11)),
-                      trailing: TextButton(
-                        style: TextButton.styleFrom(
-                          foregroundColor: isExcluded ? Colors.redAccent : Colors.white70,
+                child: filteredTracks.isEmpty
+                    ? Center(
+                        child: Text(
+                          'No songs found matching "$searchQuery"',
+                          style: AttuneTypography.jakartaBodySmall(color: Colors.white38),
                         ),
-                        onPressed: () {
-                          setDialogState(() {
-                            _settings.toggleSongExcluded(track.id);
-                            _playback.applyLibraryFilters();
-                          });
+                      )
+                    : ListView.builder(
+                        shrinkWrap: true,
+                        physics: const BouncingScrollPhysics(),
+                        itemCount: filteredTracks.length,
+                        itemBuilder: (c, idx) {
+                          final track = filteredTracks[idx];
+                          final isExcluded = excludedIds.contains(track.id) || excludedIds.contains(track.filePath);
+                          return ListTile(
+                            dense: true,
+                            contentPadding: EdgeInsets.zero,
+                            title: Text(track.title, style: const TextStyle(color: Colors.white, fontSize: 13)),
+                            subtitle: Text(track.artist, style: const TextStyle(color: Colors.white54, fontSize: 11)),
+                            trailing: TextButton(
+                              style: TextButton.styleFrom(
+                                foregroundColor: isExcluded ? Colors.redAccent : Colors.white70,
+                              ),
+                              onPressed: () {
+                                setDialogState(() {
+                                  _settings.toggleSongExcluded(track.id);
+                                  _playback.applyLibraryFilters();
+                                });
+                              },
+                              child: Text(isExcluded ? 'Unexclude' : 'Exclude'),
+                            ),
+                          );
                         },
-                        child: Text(isExcluded ? 'Unexclude' : 'Exclude'),
                       ),
-                    );
-                  },
-                ),
               ),
             ],
           );
         },
       ),
       actions: [
+        TextButton(
+          onPressed: () {
+            Navigator.of(context).pop();
+            Navigator.of(context).push(
+              MaterialPageRoute(
+                builder: (_) => const SongExclusionStage(),
+              ),
+            );
+          },
+          child: const Text('Open Full Screen UI', style: TextStyle(color: Colors.white70)),
+        ),
         TextButton(
           onPressed: () => Navigator.of(context).pop(),
           child: const Text('Done', style: TextStyle(color: Colors.white)),
