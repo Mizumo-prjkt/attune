@@ -194,3 +194,35 @@ This file records all major architectural decisions for **Attune**, including co
   - Transition recipe lookup on cached tracks drops from ~1.5s to <100ms.
   - Heavy analysis can be run once on a desktop/server and transferred to mobile devices with zero mobile compute overhead.
   - Full Phase 3 milestones completed and verified.
+
+---
+
+## ADR-012: "Liquid Material Glass" Design System, Subtle Transition Indicators, Human-Friendly Audio Quality Badges & Shared Tablet/Desktop Shell
+- **Date**: 2026-10-27
+- **Status**: `LOCKED`
+- **Context**:
+  - Reference UI mockups (`ledger/assets/mockup_screens_reference.png` and `ledger/assets/mockup_typography_reference.png`) established a strong typographic identity (`Sora` + `Plus Jakarta Sans`) and a 5-stage functional layout (`Now Playing`, `Playlist & Queue`, `Synchronized Lyrics`, `Music Library`, `Settings & Audio`).
+  - However, the mockups failed in four areas:
+    1. They used hardcoded neon borders on flat opaque dark grey boxes (`#14161F`) instead of genuine **Material You Dynamic Color** and **Apple-grade Liquid Glass translucency**.
+    2. They included a bulky, distracting `"Smart Transition AI"` box at the bottom of the Queue screen.
+    3. They cluttered the interface with marketing/proprietary hype badges (`"Dolby Atmos"`, `"DOLBY ATMOS SYNC"`, `"HI-RES MQA"`, `"Spatial 3D"`).
+    4. Tablet and Desktop require a unified multi-pane layout sharing the exact same UI elements rather than separate divergent widget trees.
+- **Decision**:
+  1. **Typography Lock**: Use `Sora` (Headlines, Titles, Pill Labels, Tabular-Figure Timestamps) and `Plus Jakarta Sans` (Body, Artist Subtitles, Queue items, Lyrics) across all platforms so Linux/Desktop never falls back to `DejaVu Sans`.
+  2. **4-Layer Liquid Material Glass Stack**:
+     - Extract perceptual HCT seed palettes (`Primary`, `Secondary`, `Tertiary`) dynamically from album cover art via `material_color_utilities` (`SchemeVibrant` / `SchemeTonalSpot`), smoothly interpolating between Track A and Track B palettes during active DJ transitions, with a manual fallback palette (`#2DD4BF`, `#A855F7`, `#FB7185`) when cover art is absent.
+     - Render an animated, softly diffused **Ambient Artwork Mesh** behind the scaffold so `BackdropFilter` Gaussian glass cards ($\sigma = 16\text{–}64\text{ px}$) with `1px` diagonal specular rim borders genuinely refract album-art color.
+  3. **Subtle Inline Transition Indicator**:
+     - Eliminate the large `"Smart Transition AI"` box from the Queue screen.
+     - Replace it with a subtle, compact inline translucent glass connector pill between *Now Playing* and *Up Next* (e.g., `Riff Handoff • 1.4s`), which expands into the detailed **Dual-Deck Transition Inspector** drawer only when tapped.
+  4. **Honest, Human-Friendly Audio Quality Badges (Zero "Dolby Atmos" Mention)**:
+     - Strip all mentions of `"Dolby Atmos"`, `"MQA"`, and `"Spatial 3D"`.
+     - Inspect the actual decoded audio stream and display:
+       - **`Very Good Quality Audio`**: Lossless (`FLAC`, `WAV`, `ALAC`, `AIFF`) at high sample rate ($\ge 44.1\text{ kHz}$).
+       - **`Good Quality Audio`**: Lossless (`FLAC`, `WAV`) at mid/lower sample rate ($\le 32\text{ kHz}$, e.g., $16\text{ kHz}$) or standard clean lossy formats (`MP3`, `AAC`, `OGG`, `Opus`).
+       - **`Proprietary Audio Codec`**: Any file encoded in Dolby formats (`AC-3`, `E-AC-3`, `AC-4`, `Dolby Atmos`), `MQA`, or other unnatural/proprietary codecs.
+  5. **Unified Tablet & Desktop Adaptive Shell (`>= 720px`)**:
+     - Share 100% of stage widgets across Mobile (`< 720px` single-column + floating glass bottom pill bar) and Tablet/Desktop (`>= 720px` left floating glass navigation rail + multi-pane stage).
+- **Consequences**:
+  - Full UI specification locked in [`ledger/05_UI_DESIGN_SPEC.md`](file:///home/miku/Documents/attune/ledger/05_UI_DESIGN_SPEC.md) for deterministic execution by the Phase 4 coder agent.
+

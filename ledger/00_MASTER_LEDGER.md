@@ -45,21 +45,24 @@ Furthermore, Attune decouples **Audio Profiling / Transition Planning** from **R
 | **ADR-009** | Hardware Sample Rate Adaptation & 1-Bar Phrased Handoff | Fractional cubic Hermite playhead resampling ($\Delta \text{playhead} = \frac{F_{\text{track}}}{F_{\text{device}}} \times \text{stretch} \times \text{pitch}$) ensuring exact 1.000x speed and 100% native pitch across mismatched hardware DAC rates, plus 1-bar (4-beat) musical riff handoffs. | **LOCKED** |
 | **ADR-010** | Vocal Integrity & Reverb Spillover | Multi-layer vocal activity inspection in `CueZone`, anchor cuts at/after final vocal resolution, flat mid/high EQ during active singing, and post-transition reverb freeze decay. | **LOCKED** |
 | **ADR-011** | Portable Cache, CachePack & Node Sync Protocol | Bundled SQLite cache repository (`CacheDatabase`), portable `.pack.json` bundle (`CachePack`), background scanner (`LibraryScanner`), REST HTTP sync server (`tiny_http`), and sync client (`ureq`). | **LOCKED** |
+| **ADR-012** | Liquid Material Glass UI, Subtle Transition Pills, Honest Audio Quality Badges & Shared Tablet/Desktop Shell | `Sora` + `Plus Jakarta Sans` typography, Material You HCT dynamic cover color + Apple `BackdropFilter` Liquid Glass (`ledger/05_UI_DESIGN_SPEC.md`), subtle inline transition connector (no bulky AI card), human-friendly audio quality pills (`Very Good Quality Audio`, `Good Quality Audio`, `Proprietary Audio Codec`—zero Dolby Atmos hype), and shared Tablet/Desktop multi-pane layout (`>= 720px`). | **LOCKED** |
 
 ---
 
-## 4. Session Handoff Checklist (For Next AI Session)
+## 4. Session Handoff Checklist (For Next AI Session — Phase 4 Coder Agent)
 
-1. Review [`04_TRANSITION_LAB_LOG.md`](file:///home/miku/Documents/attune/ledger/04_TRANSITION_LAB_LOG.md) to inspect empirical results from Exp #001 through #013 (including live playback, rock/pop tests, and Phase 3 cache & node sync verification).
-2. Start **Phase 4**: Implement the Flutter Frontend & Transition Inspector:
-   - Scaffold the Flutter app inside `apps/attune_player` or project root.
-   - Set up `flutter_rust_bridge` (v2) FFI bindings bridging `attune-core` into Flutter/Dart.
-   - Build the interactive **Transition Inspector Widget** visualizing:
-     - Outgoing Deck A & Incoming Deck B waveform tracks and cue zones.
-     - 3-band isolator EQ automation curves and reverb freeze envelopes.
-     - Dual-deck playhead scrubbers and manual transition triggering.
+1. **MANDATORY FIRST READ**: Read [`ledger/05_UI_DESIGN_SPEC.md`](file:///home/miku/Documents/attune/ledger/05_UI_DESIGN_SPEC.md) and inspect the reference images in [`ledger/assets/mockup_screens_reference.png`](file:///home/miku/Documents/attune/ledger/assets/mockup_screens_reference.png) and [`ledger/assets/mockup_typography_reference.png`](file:///home/miku/Documents/attune/ledger/assets/mockup_typography_reference.png).
+2. **Execute Phase 4 (Flutter Frontend & "Liquid Material Glass" UI)**:
+   - Scaffold the Flutter application (e.g., `apps/attune_app` or root Flutter module) connected to `attune-core` via FFI (`flutter_rust_bridge` or native C FFI shim).
+   - **Typography**: Configure `Sora` (Headlines, Titles, Pill Badges, Tabular Timestamps) and `Plus Jakarta Sans` (Body, Subtitles, Queue, Lyrics) so Linux/Desktop/Mobile never fall back to `DejaVu Sans`.
+   - **Theme & Glass Materiality**: Implement the **4-Layer Liquid Material Glass Stack** (`AmbientArtworkMesh` background + `BackdropFilter` Gaussian blur + Material You HCT dynamic `ColorScheme` extracted from album art with transition-synced palette morphing + `1px` diagonal specular rim border).
+   - **Audio Quality Badge Rules (Strictly No "Dolby Atmos" / "MQA" Mentions)**:
+     - High-quality lossless (`FLAC`/`WAV`/`ALAC` $\ge 44.1\text{ kHz}$): display **`Very Good Quality Audio`**.
+     - Mid/low sample rate `FLAC` ($\le 32\text{ kHz}$, e.g. $16\text{ kHz}$) or standard lossy (`MP3`/`AAC`/`OGG`/`Opus`): display **`Good Quality Audio`**.
+     - Dolby (`AC-3`/`E-AC-3`/`AC-4`/`Atmos`), `MQA`, or unnatural codecs: display **`Proprietary Audio Codec`**.
+   - **Subtle Transition Indicator**: Do **not** build the large bottom `"Smart Transition AI"` box from the screenshot; instead render a subtle, compact inline glass pill between *Now Playing* and *Up Next* (e.g., `Riff Handoff • 1.4s`) that opens the expandable **Dual-Deck Transition Inspector** drawer when tapped.
+   - **Shared Tablet & Desktop Shell (`>= 720px`)**: Use a single unified set of glass stage widgets shared across Mobile (`< 720px` bottom glass pill bar) and Tablet/Desktop (`>= 720px` left glass navigation rail + multi-pane stage).
 3. Keep updating [`00_MASTER_LEDGER.md`](file:///home/miku/Documents/attune/ledger/00_MASTER_LEDGER.md) and record any new decisions in [`01_ADR_LOG.md`](file:///home/miku/Documents/attune/ledger/01_ADR_LOG.md).
-
 
 
 

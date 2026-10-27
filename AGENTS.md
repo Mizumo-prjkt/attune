@@ -16,6 +16,7 @@ Before proposing architectural changes, writing DSP code, or scaffolding UI comp
    - **Audio Analysis, Vibe/Genre Profiling & Mixing Math**: [`ledger/02_DSP_ALGORITHM_SPEC.md`](file:///home/miku/Documents/attune/ledger/02_DSP_ALGORITHM_SPEC.md)
    - **Cache Formats (`.tap`, `.ptr`) & Offloading/External Compute Protocol**: [`ledger/03_SCHEMA_AND_PROTOCOL.md`](file:///home/miku/Documents/attune/ledger/03_SCHEMA_AND_PROTOCOL.md)
    - **Transition Benchmark Cases & Empirical Listening Logs**: [`ledger/04_TRANSITION_LAB_LOG.md`](file:///home/miku/Documents/attune/ledger/04_TRANSITION_LAB_LOG.md)
+   - **Flutter UI, "Liquid Material Glass" Theme, Typography & Shared Responsive Shell**: [`ledger/05_UI_DESIGN_SPEC.md`](file:///home/miku/Documents/attune/ledger/05_UI_DESIGN_SPEC.md)
 
 ---
 
