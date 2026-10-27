@@ -45,14 +45,17 @@ enum AudioFocusLevel {
 /// Audio decoding engine modes
 enum AudioDecoderMode {
   attuneRust,
-  androidDefault;
+  systemDefault;
+
+  // Backwards compatibility alias
+  static AudioDecoderMode get androidDefault => systemDefault;
 
   String get displayName {
     switch (this) {
       case AudioDecoderMode.attuneRust:
         return "Attune's Rust Codec (Recommended)";
-      case AudioDecoderMode.androidDefault:
-        return 'Android Default';
+      case AudioDecoderMode.systemDefault:
+        return Platform.isAndroid ? 'Android Default' : 'System Default';
     }
   }
 
@@ -60,8 +63,10 @@ enum AudioDecoderMode {
     switch (this) {
       case AudioDecoderMode.attuneRust:
         return 'Bit-perfect native Rust audio engine with 4-point Hermite resampling, 5-layer profiling, and smart shuffle transitions.';
-      case AudioDecoderMode.androidDefault:
-        return 'Standard OS MediaCodec. You will lose smart shuffle transitions and unsupported formats may not play well.';
+      case AudioDecoderMode.systemDefault:
+        return Platform.isAndroid
+            ? 'Standard OS MediaCodec. You will lose smart shuffle transitions and unsupported formats may not play well.'
+            : 'Standard OS audio decoder. You will lose smart shuffle transitions and unsupported formats may not play well.';
     }
   }
 }

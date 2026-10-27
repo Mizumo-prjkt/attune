@@ -33,7 +33,10 @@ void main() {
       final service = SettingsService.instance;
 
       expect(AudioDecoderMode.attuneRust.displayName, contains("Attune's Rust Codec"));
-      expect(AudioDecoderMode.androidDefault.displayName, 'Android Default');
+      expect(
+        AudioDecoderMode.androidDefault.displayName,
+        Platform.isAndroid ? 'Android Default' : 'System Default',
+      );
 
       service.setDecoderMode(AudioDecoderMode.androidDefault);
       expect(service.decoderMode, AudioDecoderMode.androidDefault);
@@ -222,5 +225,42 @@ void main() {
       await tester.pump(const Duration(milliseconds: 100));
       expect(find.text('Output Audio DAC Pipeline'), findsNothing);
     });
+
+    testWidgets('General section disables wakelock and notifications on desktop targets with clear subtitles', (WidgetTester tester) async {
+      tester.view.physicalSize = const Size(1080, 2400);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(() {
+        tester.view.resetPhysicalSize();
+        tester.view.resetDevicePixelRatio();
+      });
+
+      await tester.pumpWidget(
+        const MaterialApp(
+          home: SettingsAndAudioStage(),
+        ),
+      );
+      await tester.pump(const Duration(milliseconds: 100));
+
+      expect(find.text('Allow Wakelock Held when Playing'), findsOneWidget);
+      expect(find.text('Allow Notifications'), findsOneWidget);
+
+      if (Platform.isLinux || Platform.isMacOS || Platform.isWindows) {
+        expect(
+          find.text('Disabled on desktop build (managed by desktop OS power manager)'),
+          findsOneWidget,
+        );
+        expect(
+          find.text('Disabled on desktop build (native desktop notifications in progress)'),
+          findsOneWidget,
+        );
+
+        // Switches must be disabled (onChanged == null)
+        final switches = tester.widgetList<Switch>(find.byType(Switch)).toList();
+        // The first two switches in General must have onChanged == null
+        expect(switches[0].onChanged, isNull);
+        expect(switches[1].onChanged, isNull);
+      }
+    });
   });
 }
+

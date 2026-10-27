@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'shell/responsive_glass_scaffold.dart';
@@ -5,20 +6,43 @@ import 'stages/settings_stage.dart';
 import 'stages/transition_inspector_stage.dart';
 import 'theme/color_engine.dart';
 
+/// Recovers the process working directory if launched from a stale/unlinked inode
+void _ensureValidCurrentDirectory() {
+  try {
+    Directory.current;
+  } catch (_) {
+    try {
+      final home = Platform.environment['HOME'] ?? Platform.environment['USERPROFILE'];
+      if (home != null && Directory(home).existsSync()) {
+        Directory.current = home;
+      } else {
+        final exe = Platform.resolvedExecutable;
+        final dir = File(exe).parent;
+        if (dir.existsSync()) {
+          Directory.current = dir.path;
+        }
+      }
+    } catch (_) {}
+  }
+}
+
 /// Standard Main Entrypoint (Player & Library Shell)
 void main() {
+  _ensureValidCurrentDirectory();
   runApp(const AttuneApp(initialRoute: '/'));
 }
 
 /// Standalone Entrypoint for Android SettingsActivity
 @pragma('vm:entry-point')
 void settingsMain() {
+  _ensureValidCurrentDirectory();
   runApp(const AttuneApp(initialRoute: '/settings'));
 }
 
 /// Standalone Entrypoint for Android TransitionInspectorActivity
 @pragma('vm:entry-point')
 void transitionInspectorMain() {
+  _ensureValidCurrentDirectory();
   runApp(const AttuneApp(initialRoute: '/transition_inspector'));
 }
 

@@ -26,22 +26,54 @@ class AudioStorageService {
     '.aiff',
   };
 
+  /// Safely ensures the working directory is valid
+  static void _ensureValidDirectory() {
+    try {
+      Directory.current;
+    } catch (_) {
+      try {
+        final home = Platform.environment['HOME'] ?? Platform.environment['USERPROFILE'];
+        if (home != null && Directory(home).existsSync()) {
+          Directory.current = home;
+        } else {
+          final exe = Platform.resolvedExecutable;
+          final dir = File(exe).parent;
+          if (dir.existsSync()) {
+            Directory.current = dir.path;
+          }
+        }
+      } catch (_) {}
+    }
+  }
+
   /// Returns candidate directory paths based on the current operating system.
   List<String> getCandidateRoots({List<String>? additionalRoots}) {
+    _ensureValidDirectory();
     final roots = <String>[];
 
     if (additionalRoots != null) {
       roots.addAll(additionalRoots);
     }
 
-    // 1. Workspace relative dev paths (for live pair-programming and CLI verification)
-    roots.addAll([
-      'music',
-      '../music',
-      '../../music',
-      '../../../music',
-      '/home/miku/Documents/attune/music',
-    ]);
+    // 1. Workspace absolute dev paths (for pair-programming and live desktop builds)
+    const primaryDevMusic = '/home/miku/Documents/attune/music';
+    roots.add(primaryDevMusic);
+
+    try {
+      final cwd = Directory.current.path;
+      for (final rel in ['music', '../music', '../../music', '../../../music']) {
+        final abs = Directory('$cwd/$rel').path;
+        if (!roots.contains(abs)) roots.add(abs);
+      }
+    } catch (_) {}
+
+    try {
+      final exe = File(Platform.resolvedExecutable).parent.path;
+      for (final rel in ['music', '../music', '../../music', '../../../music', '../../../../music']) {
+        final abs = Directory('$exe/$rel').path;
+        if (!roots.contains(abs)) roots.add(abs);
+      }
+    } catch (_) {}
 
     // 2. Platform-specific root paths
     if (Platform.isAndroid) {
@@ -352,6 +384,8 @@ class AudioStorageService {
   /// Scans library and returns sorted track items.
   /// If [forceRefresh] is false and cache exists, returns cached tracks immediately!
   Future<List<TrackItem>> scanLibrary({bool forceRefresh = false, List<String>? additionalRoots}) async {
+    _ensureValidDirectory();
+
     // 1. Fast Path: Read from local disk cache immediately
     if (!forceRefresh && additionalRoots == null) {
       final cached = loadCachedTracks();
@@ -361,28 +395,41 @@ class AudioStorageService {
       }
     }
 
-    // 2. Slow Path: Multi-core background Isolate offload
-    final candidateRoots = getCandidateRoots(additionalRoots: additionalRoots);
-    final tracks = Platform.environment.containsKey('FLUTTER_TEST')
-        ? _scanLibraryInWorker(candidateRoots)
-        : await Isolate.run(() => _scanLibraryInWorker(candidateRoots));
+    // 2. Multi-core background Isolate offload with robust fallback
+    try {
+      final candidateRoots = getCandidateRoots(additionalRoots: additionalRoots);
+      final tracks = Platform.environment.containsKey('FLUTTER_TEST')
+          ? _scanLibraryInWorker(candidateRoots)
+          : await Isolate.run(() => _scanLibraryInWorker(candidateRoots));
 
-    if (tracks.isNotEmpty) {
-      saveCachedTracks(tracks);
+      if (tracks.isNotEmpty) {
+        saveCachedTracks(tracks);
+        return tracks;
+      }
+    } catch (e) {
+      debugPrint('[AudioStorageService] Background scan notice: $e. Falling back to local cache.');
     }
 
-    return tracks;
+    // Fallback: If scan encountered an issue, recover using cached tracks
+    final cached = loadCachedTracks();
+    if (cached.isNotEmpty) {
+      debugPrint('[AudioStorageService] Recovered ${cached.length} tracks from disk cache.');
+      return cached;
+    }
+
+    return [];
   }
 
   static List<TrackItem> _scanLibraryInWorker(List<String> candidateRoots) {
+    _ensureValidDirectory();
     final audioFiles = <File>[];
     final seenCanonicalPaths = <String>{};
 
     for (final rootPath in candidateRoots) {
-      final dir = Directory(rootPath);
-      if (!dir.existsSync()) continue;
-
       try {
+        final dir = Directory(rootPath);
+        if (!dir.existsSync()) continue;
+
         final entities = dir.listSync(recursive: true, followLinks: true);
         for (final entity in entities) {
           if (entity is! File) continue;

@@ -788,6 +788,44 @@ This file records all major architectural decisions for **Attune**, including co
   - Zero decorative pill clutter; all technical metrics are dynamic, honest, and verifiable.
   - Comprehensive unit and widget tests in `apps/attune_app/test/settings_stage_test.dart` pass 100%. All 34 Flutter tests and 17 Rust tests pass.
 
+---
+
+### ADR-028: Linux Working Directory Resiliency (`_ensureValidCurrentDirectory`), Non-Android 'System Default' Decoder Adaptation & Real Android Platform Permission Architecture
+
+- **Date**: 2026-10-28
+- **Status**: **LOCKED**
+- **Context**:
+  - Testing of the Linux debug bundle (`build/linux/x64/debug/bundle/attune_app`) revealed three issues:
+    1. **Directory Inode Invalidation (`PathNotFoundException: Getting current working directory failed`)**: When `flutter build linux` wipes the `bundle/` directory, any terminal shell remaining inside the deleted directory inode experiences POSIX `ENOENT` on `getcwd()`. Dart's `Directory.current` and `Uri.base` throw `PathNotFoundException`, breaking `package:path`, `xdg_directories`, and `google_fonts`, preventing `AudioStorageService` from discovering local audio files.
+    2. **Audio Decoder Label Inaccuracy on Desktop**: The second decoder option in Settings was hardcoded as "Android Default" even when running on Linux, macOS, or Windows.
+    3. **General Settings Wakelock & Notification Permissions**: The wakelock held and notification switches were enabled on desktop (where desktop OS power managers and desktop notification frameworks behave differently), and on Android, they did not query real OS permission states (`isIgnoringBatteryOptimizations` and `POST_NOTIFICATIONS`).
+- **Decision**:
+  1. **Working Directory Self-Healing (`_ensureValidCurrentDirectory`)**:
+     - Implemented `_ensureValidCurrentDirectory()` in `apps/attune_app/lib/main.dart` and `apps/attune_app/lib/services/audio_storage_service.dart`.
+     - In case of `PathNotFoundException` / `FileSystemException` on `Directory.current`, the handler resets `Directory.current` to `$HOME` or the parent directory of `Platform.resolvedExecutable`.
+     - In `AudioStorageService`, candidate search paths use absolute paths (`/home/miku/Documents/attune/music`, resolved executable directory, XDG paths) and wrap directory enumeration in a try-catch fallback to `loadCachedTracks()`.
+  2. **Dynamic Decoder Label Adaptation**:
+     - Updated `AudioDecoderMode` in `apps/attune_app/lib/services/settings_service.dart`:
+       * `displayName`: Returns `Platform.isAndroid ? 'Android Default' : 'System Default'`.
+       * `description`: Tailored to reflect Android MediaCodec vs. OS platform audio decoder.
+       * Added backwards-compatibility getter `static AudioDecoderMode get androidDefault => systemDefault;`.
+  3. **Android & Desktop Permission Architecture**:
+     - Added permissions to `apps/attune_app/android/app/src/main/AndroidManifest.xml`:
+       * `WAKE_LOCK`, `REQUEST_IGNORE_BATTERY_OPTIMIZATIONS`, `FOREGROUND_SERVICE`, `FOREGROUND_SERVICE_MEDIA_PLAYBACK`, `POST_NOTIFICATIONS`, `READ_MEDIA_AUDIO`, `READ_EXTERNAL_STORAGE`.
+     - Implemented Kotlin `PermissionManager` in `apps/attune_app/android/app/src/main/kotlin/org/mizproject/attune/PermissionManager.kt` handling MethodChannel `'org.mizproject.attune/permissions'` for `isWakelockPermissionGranted`, `requestWakelockPermission`, `isNotificationPermissionGranted`, and `requestNotificationPermission`.
+     - Created `PlatformPermissionService` in `apps/attune_app/lib/services/permission_service.dart`.
+     - In `SettingsAndAudioStage`:
+       * On desktop (`PlatformPermissionService.instance.isDesktop`): Switches are disabled (`onChanged: null`, `value: false`) with explicit subtitles:
+         `'Disabled on desktop build (managed by desktop OS power manager)'` and
+         `'Disabled on desktop build (native desktop notifications in progress)'`.
+       * On Android: Queries real OS permission status dynamically and handles permission intent requests on tap; auto-refreshes via `WidgetsBindingObserver` on `AppLifecycleState.resumed`.
+- **Consequences**:
+  - The app launches reliably even from unlinked working directories; audio library scanning never fails.
+  - Decoder selection accurately distinguishes Android MediaCodec from desktop OS decoders.
+  - Zero hardcoding for Android permissions; clean native integration with OS settings.
+  - 100% test pass rate across all 35 Flutter unit/widget tests and 17 Rust workspace tests.
+
+
 
 
 

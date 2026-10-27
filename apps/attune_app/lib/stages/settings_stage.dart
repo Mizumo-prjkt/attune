@@ -5,6 +5,7 @@ import '../models/track_item.dart';
 import '../services/audio_storage_service.dart';
 import '../services/engine_bridge.dart';
 import '../services/lyrics_service.dart';
+import '../services/permission_service.dart';
 import '../services/playback_controller.dart';
 import '../services/platform_navigation.dart';
 import '../services/settings_service.dart';
@@ -30,9 +31,46 @@ class SettingsAndAudioStage extends StatefulWidget {
   State<SettingsAndAudioStage> createState() => _SettingsAndAudioStageState();
 }
 
-class _SettingsAndAudioStageState extends State<SettingsAndAudioStage> {
+class _SettingsAndAudioStageState extends State<SettingsAndAudioStage> with WidgetsBindingObserver {
   final SettingsService _settings = SettingsService.instance;
   final PlaybackController _playback = PlaybackController.instance;
+  final PlatformPermissionService _permissionService = PlatformPermissionService.instance;
+
+  bool _androidWakelockGranted = false;
+  bool _androidNotificationGranted = false;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _refreshPermissions();
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _refreshPermissions();
+    }
+  }
+
+  Future<void> _refreshPermissions() async {
+    if (_permissionService.isAndroid) {
+      final wl = await _permissionService.isWakelockGranted();
+      final notif = await _permissionService.isNotificationGranted();
+      if (mounted) {
+        setState(() {
+          _androidWakelockGranted = wl;
+          _androidNotificationGranted = notif;
+        });
+      }
+    }
+  }
 
   // Floating Glass Dialog Helper
   Future<void> _showGlassDialog({
@@ -169,23 +207,73 @@ class _SettingsAndAudioStageState extends State<SettingsAndAudioStage> {
                               _buildSettingTile(
                                 icon: Icons.battery_charging_full_rounded,
                                 title: 'Allow Wakelock Held when Playing',
-                                subtitle: 'Keep audio engine active in background (DISABLE_BATTERY_OPTIMIZATION)',
+                                subtitle: _permissionService.isDesktop
+                                    ? 'Disabled on desktop build (managed by desktop OS power manager)'
+                                    : _permissionService.isAndroid
+                                        ? (_androidWakelockGranted
+                                            ? 'Battery optimization ignored • Audio engine active in background'
+                                            : 'Audio engine may be paused when backgrounded • Tap to ignore battery optimizations')
+                                        : 'Keep audio engine active in background (DISABLE_BATTERY_OPTIMIZATION)',
                                 trailing: Switch(
-                                  value: _settings.wakelockHeld,
+                                  value: _permissionService.isDesktop
+                                      ? false
+                                      : _permissionService.isAndroid
+                                          ? _androidWakelockGranted
+                                          : _settings.wakelockHeld,
                                   activeThumbColor: colorScheme.primary,
-                                  onChanged: (v) => _settings.setWakelockHeld(v),
+                                  onChanged: _permissionService.isDesktop
+                                      ? null
+                                      : (v) async {
+                                          if (_permissionService.isAndroid) {
+                                            await _permissionService.requestWakelock();
+                                            await _refreshPermissions();
+                                          } else {
+                                            _settings.setWakelockHeld(v);
+                                          }
+                                        },
                                 ),
+                                onTap: _permissionService.isAndroid
+                                    ? () async {
+                                        await _permissionService.requestWakelock();
+                                        await _refreshPermissions();
+                                      }
+                                    : null,
                               ),
                               const Divider(height: 1, color: Colors.white10),
                               _buildSettingTile(
                                 icon: Icons.notifications_active_rounded,
                                 title: 'Allow Notifications',
-                                subtitle: 'Show playback controls & transition alerts in system status bar',
+                                subtitle: _permissionService.isDesktop
+                                    ? 'Disabled on desktop build (native desktop notifications in progress)'
+                                    : _permissionService.isAndroid
+                                        ? (_androidNotificationGranted
+                                            ? 'System status bar controls & transition alerts active'
+                                            : 'Notifications disabled • Tap to configure in Android system settings')
+                                        : 'Show playback controls & transition alerts in system status bar',
                                 trailing: Switch(
-                                  value: _settings.notificationsAllowed,
+                                  value: _permissionService.isDesktop
+                                      ? false
+                                      : _permissionService.isAndroid
+                                          ? _androidNotificationGranted
+                                          : _settings.notificationsAllowed,
                                   activeThumbColor: colorScheme.primary,
-                                  onChanged: (v) => _settings.setNotificationsAllowed(v),
+                                  onChanged: _permissionService.isDesktop
+                                      ? null
+                                      : (v) async {
+                                          if (_permissionService.isAndroid) {
+                                            await _permissionService.requestNotification();
+                                            await _refreshPermissions();
+                                          } else {
+                                            _settings.setNotificationsAllowed(v);
+                                          }
+                                        },
                                 ),
+                                onTap: _permissionService.isAndroid
+                                    ? () async {
+                                        await _permissionService.requestNotification();
+                                        await _refreshPermissions();
+                                      }
+                                    : null,
                               ),
                             ],
                           ),

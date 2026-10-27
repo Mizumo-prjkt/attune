@@ -260,6 +260,16 @@ class PlaybackController extends ChangeNotifier {
       debugPrint('[PlaybackController] Ingested ${_libraryTracks.length} genuine tracks (${_rawScannedTracks.length} raw) via AudioStorageService.');
     } catch (e) {
       debugPrint('[PlaybackController] Error scanning audio files: $e');
+      final fallbackTracks = AudioStorageService.instance.loadCachedTracks();
+      if (fallbackTracks.isNotEmpty && _libraryTracks.isEmpty) {
+        _rawScannedTracks.clear();
+        _rawScannedTracks.addAll(fallbackTracks);
+        applyLibraryFilters();
+        if (_queue.isNotEmpty) {
+          _loadCurrentTrackToEngine();
+        }
+        debugPrint('[PlaybackController] Fallback loaded ${fallbackTracks.length} tracks from cache.');
+      }
     } finally {
       _isScanning = false;
       notifyListeners();
