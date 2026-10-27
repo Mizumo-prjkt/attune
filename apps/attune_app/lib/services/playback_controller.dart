@@ -25,6 +25,7 @@ class PlaybackController extends ChangeNotifier {
   final List<TrackItem> _libraryTracks = [];
   final List<TrackItem> _queue = [];
   int _currentQueueIndex = 0;
+  int _upNextQueueIndex = 0;
   bool _isScanning = false;
   ShuffleMode _shuffleMode = ShuffleMode.off;
 
@@ -33,8 +34,10 @@ class PlaybackController extends ChangeNotifier {
   double _durationSec = 159.0;
   bool _isPlaying = false;
   bool _isTransitioning = false;
+  bool _isTransitionPlanning = false;
   double _transitionProgress = 0.0;
   String _activeArchetype = 'Riff Handoff';
+  Map<String, dynamic>? _pendingRecipe;
 
   // Live DSP Metrics for Transition Inspector
   double _deckAEqLow = 0.0;
@@ -56,14 +59,16 @@ class PlaybackController extends ChangeNotifier {
   List<TrackItem> get libraryTracks => List.unmodifiable(_libraryTracks);
   List<TrackItem> get queue => List.unmodifiable(_queue);
   int get currentQueueIndex => _currentQueueIndex;
+  int get upNextQueueIndex => _upNextQueueIndex;
   bool get isScanning => _isScanning;
   ShuffleMode get shuffleMode => _shuffleMode;
+  Map<String, dynamic>? get pendingRecipe => _pendingRecipe;
 
   TrackItem? get currentTrack =>
       _queue.isNotEmpty && _currentQueueIndex < _queue.length ? _queue[_currentQueueIndex] : null;
 
   TrackItem? get upNextTrack =>
-      _queue.isNotEmpty && _currentQueueIndex + 1 < _queue.length ? _queue[_currentQueueIndex + 1] : null;
+      _queue.isNotEmpty && _upNextQueueIndex < _queue.length ? _queue[_upNextQueueIndex] : null;
 
   double get positionSec => _positionSec;
   double get durationSec => _durationSec;
@@ -92,6 +97,12 @@ class PlaybackController extends ChangeNotifier {
         _shuffleMode = ShuffleMode.off;
         break;
     }
+    _upNextQueueIndex = _pickNextQueueIndex();
+    final next = upNextTrack;
+    if (next != null) {
+      _bridge.playerLoadTrack(1, next.filePath);
+    }
+    _preparePendingRecipe();
     notifyListeners();
   }
 
@@ -121,6 +132,7 @@ class PlaybackController extends ChangeNotifier {
       _queue.clear();
       _queue.addAll(scannedTracks);
       _currentQueueIndex = 0;
+      _upNextQueueIndex = _pickNextQueueIndex();
 
       if (_queue.isNotEmpty) {
         _durationSec = _queue.first.duration.inSeconds.toDouble();
@@ -165,6 +177,9 @@ class PlaybackController extends ChangeNotifier {
           _queue[queueIdx] = updated;
           if (queueIdx == _currentQueueIndex) {
             _durationSec = actualDuration.inSeconds.toDouble();
+          }
+          if (queueIdx == _currentQueueIndex || queueIdx == _upNextQueueIndex) {
+            _preparePendingRecipe();
           }
         }
         notifyListeners();
@@ -223,20 +238,33 @@ class PlaybackController extends ChangeNotifier {
       if (trans != null && trans['in_progress'] == true) {
         _isTransitioning = true;
         _transitionProgress = (trans['progress'] as num? ?? 0.0).toDouble();
-        _activeArchetype = trans['archetype'] as String? ?? 'Riff Handoff';
+        _activeArchetype =
+            (trans['archetype'] as String? ?? 'Riff Handoff').replaceAll('ARCHETYPE_', '').replaceAll('_', ' ');
       } else {
         if (_isTransitioning) {
-          // Transition just finished: advance queue and update active deck
+          // Transition finished in native mixer: advance queue and update active deck
           _isTransitioning = false;
           _transitionProgress = 0.0;
+          _pendingRecipe = null;
           _advanceQueue();
         } else if (_isPlaying && _durationSec > 5.0) {
           final deckState = (activeDeck == 'DeckA' ? deckA : deckB)?['state'] as String?;
-          if (_shuffleMode == ShuffleMode.smart && _positionSec >= _durationSec - 6.0) {
-            triggerTransitionNow();
-          } else if (_shuffleMode != ShuffleMode.smart &&
-              (_positionSec >= _durationSec - 0.5 || deckState == 'Finished')) {
-            skipNext();
+          if (_shuffleMode == ShuffleMode.smart) {
+            // Smart Algorithmic Transition: trigger ONLY at genuine recipe start time
+            if (_pendingRecipe != null && !_isTransitionPlanning) {
+              final timing = _pendingRecipe!['timing'] as Map<String, dynamic>?;
+              final startMs = (timing?['track_a_transition_start_ms'] as num?)?.toDouble();
+              if (startMs != null && _positionSec * 1000 >= startMs) {
+                _executeAutoTransition(_pendingRecipe!);
+              }
+            } else if (deckState == 'Finished' || _positionSec >= _durationSec - 0.3) {
+              skipNext();
+            }
+          } else {
+            // Normal (Off) or Standard Random Shuffle: never cut early; play until conclusion
+            if (deckState == 'Finished' || _positionSec >= _durationSec - 0.3) {
+              skipNext();
+            }
           }
         }
       }
@@ -249,6 +277,15 @@ class PlaybackController extends ChangeNotifier {
       }
       notifyListeners();
     }
+  }
+
+  void _executeAutoTransition(Map<String, dynamic> recipe) {
+    if (_isTransitioning) return;
+    _isTransitioning = true;
+    _activeArchetype =
+        (recipe['archetype'] as String? ?? 'Riff Handoff').replaceAll('ARCHETYPE_', '').replaceAll('_', ' ');
+    _bridge.playerTriggerTransition(recipe);
+    notifyListeners();
   }
 
   void togglePlay() {
@@ -277,31 +314,32 @@ class PlaybackController extends ChangeNotifier {
     notifyListeners();
   }
 
+  int _pickNextQueueIndex() {
+    if (_queue.isEmpty || _queue.length == 1) return 0;
+    if (_shuffleMode == ShuffleMode.smart) {
+      return _findBestSmartMatchIndex();
+    } else if (_shuffleMode == ShuffleMode.standard) {
+      final rand = Random();
+      int nextIdx = _currentQueueIndex;
+      while (nextIdx == _currentQueueIndex) {
+        nextIdx = rand.nextInt(_queue.length);
+      }
+      return nextIdx;
+    } else {
+      return (_currentQueueIndex + 1) % _queue.length;
+    }
+  }
+
   void skipNext() {
     if (_queue.isEmpty) return;
 
-    if (_shuffleMode == ShuffleMode.off) {
-      if (_currentQueueIndex + 1 < _queue.length) {
-        _currentQueueIndex++;
-      } else {
-        _currentQueueIndex = 0;
-      }
-    } else if (_shuffleMode == ShuffleMode.standard) {
-      if (_queue.length > 1) {
-        final rand = Random();
-        int nextIdx = _currentQueueIndex;
-        while (nextIdx == _currentQueueIndex) {
-          nextIdx = rand.nextInt(_queue.length);
-        }
-        _currentQueueIndex = nextIdx;
-      }
-    } else if (_shuffleMode == ShuffleMode.smart) {
-      _currentQueueIndex = _findBestSmartMatchIndex();
-    }
+    _currentQueueIndex = _upNextQueueIndex;
+    _upNextQueueIndex = _pickNextQueueIndex();
 
     _positionSec = 0.0;
     _transitionProgress = 0.0;
     _isTransitioning = false;
+    _pendingRecipe = null;
     _loadCurrentTrackToEngine(force: true);
     if (_isPlaying) {
       _bridge.playerPlay();
@@ -357,9 +395,11 @@ class PlaybackController extends ChangeNotifier {
       seek(0.0);
     } else if (_currentQueueIndex > 0) {
       _currentQueueIndex--;
+      _upNextQueueIndex = _pickNextQueueIndex();
       _positionSec = 0.0;
       _isTransitioning = false;
       _transitionProgress = 0.0;
+      _pendingRecipe = null;
       _loadCurrentTrackToEngine(force: true);
       if (_isPlaying) {
         _bridge.playerPlay();
@@ -376,29 +416,58 @@ class PlaybackController extends ChangeNotifier {
       _queue.insert(_currentQueueIndex + 1, track);
       _currentQueueIndex++;
     }
+    _upNextQueueIndex = _pickNextQueueIndex();
     _positionSec = 0.0;
     _isTransitioning = false;
     _transitionProgress = 0.0;
+    _pendingRecipe = null;
     _loadCurrentTrackToEngine(force: true);
     play();
   }
 
   Future<void> triggerTransitionNow() async {
-    if (_isTransitioning) return;
+    if (_isTransitioning || _isTransitionPlanning) return;
     final current = currentTrack;
     final next = upNextTrack;
     if (next == null || current == null) return;
-    _isTransitioning = true;
-    _activeArchetype = 'Riff Handoff';
 
-    Map<String, dynamic>? recipe;
+    _isTransitionPlanning = true;
+    try {
+      Map<String, dynamic>? recipe = _pendingRecipe;
 
-    if (current.tapProfile != null && next.tapProfile != null) {
-      recipe = await _bridge.planTransition(current.tapProfile!, next.tapProfile!);
+      if (recipe == null && current.tapProfile != null && next.tapProfile != null) {
+        recipe = await _bridge.planTransition(current.tapProfile!, next.tapProfile!);
+      }
+
+      // For manual transition trigger, anchor start to current position
+      if (recipe != null) {
+        final timing = recipe['timing'] as Map<String, dynamic>?;
+        if (timing != null) {
+          final transLenMs = ((timing['track_a_exit_end_ms'] as num? ?? 1400) -
+                  (timing['track_a_transition_start_ms'] as num? ?? 0))
+              .abs()
+              .toInt()
+              .clamp(500, 5000);
+          final currentMs = (_positionSec * 1000).toInt();
+          timing['track_a_transition_start_ms'] = currentMs;
+          timing['track_a_exit_end_ms'] = currentMs + transLenMs;
+        }
+      }
+
+      recipe ??= _buildFallbackRecipe(current, next);
+
+      _isTransitioning = true;
+      _activeArchetype =
+          (recipe['archetype'] as String? ?? 'Riff Handoff').replaceAll('ARCHETYPE_', '').replaceAll('_', ' ');
+      _bridge.playerTriggerTransition(recipe);
+      notifyListeners();
+    } finally {
+      _isTransitionPlanning = false;
     }
+  }
 
-    // Robust fallback recipe conforming strictly to Rust TransitionRecipe schema
-    recipe ??= {
+  Map<String, dynamic> _buildFallbackRecipe(TrackItem current, TrackItem next) {
+    return {
       'schema_version': 1,
       'track_a_hash': current.id,
       'track_b_hash': next.id,
@@ -456,11 +525,6 @@ class PlaybackController extends ChangeNotifier {
         },
       ],
     };
-
-    _bridge.playerTriggerTransition(recipe);
-    _isTransitioning = true;
-    _activeArchetype = 'Riff Handoff';
-    notifyListeners();
   }
 
   void reorderQueue(int oldIndex, int newIndex) {
@@ -469,28 +533,33 @@ class PlaybackController extends ChangeNotifier {
     }
     final item = _queue.removeAt(oldIndex);
     _queue.insert(newIndex, item);
+    _upNextQueueIndex = _pickNextQueueIndex();
+    final next = upNextTrack;
+    if (next != null) {
+      _bridge.playerLoadTrack(1, next.filePath);
+    }
+    _preparePendingRecipe();
     notifyListeners();
   }
 
   String? _loadedDeckAPath;
 
   void _advanceQueue() {
-    if (_currentQueueIndex + 1 < _queue.length) {
-      _currentQueueIndex++;
-      final current = _queue[_currentQueueIndex];
+    if (_queue.isEmpty) return;
+    _currentQueueIndex = _upNextQueueIndex;
+    _upNextQueueIndex = _pickNextQueueIndex();
+    final current = currentTrack;
+    if (current != null) {
       _loadedDeckAPath = current.filePath;
       _durationSec = current.duration.inSeconds.toDouble();
       _positionSec = 0.0;
-      // Asynchronously preload upcoming track into Deck B (deck 1)
-      final next = upNextTrack;
-      if (next != null) {
-        _bridge.playerLoadTrack(1, next.filePath);
-      }
-    } else {
-      _currentQueueIndex = 0;
-      _loadedDeckAPath = null;
-      _loadCurrentTrackToEngine(force: true);
     }
+    // Asynchronously preload upcoming track into Deck B (deck 1)
+    final next = upNextTrack;
+    if (next != null) {
+      _bridge.playerLoadTrack(1, next.filePath);
+    }
+    _preparePendingRecipe();
     notifyListeners();
   }
 
@@ -507,6 +576,29 @@ class PlaybackController extends ChangeNotifier {
     final next = upNextTrack;
     if (next != null) {
       _bridge.playerLoadTrack(1, next.filePath);
+    }
+    _preparePendingRecipe();
+  }
+
+  Future<void> _preparePendingRecipe() async {
+    final current = currentTrack;
+    final next = upNextTrack;
+    if (_shuffleMode != ShuffleMode.smart || current == null || next == null) {
+      _pendingRecipe = null;
+      return;
+    }
+    if (current.tapProfile != null && next.tapProfile != null) {
+      try {
+        final recipe = await _bridge.planTransition(current.tapProfile!, next.tapProfile!);
+        if (recipe != null) {
+          _pendingRecipe = recipe;
+          final archetype = recipe['archetype'] as String? ?? 'ARCHETYPE_2_RIFF_HANDOFF';
+          _activeArchetype = archetype.replaceAll('ARCHETYPE_', '').replaceAll('_', ' ');
+          notifyListeners();
+        }
+      } catch (e) {
+        debugPrint('[PlaybackController] Error preparing transition recipe: $e');
+      }
     }
   }
 

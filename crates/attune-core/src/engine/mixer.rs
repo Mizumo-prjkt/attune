@@ -48,6 +48,13 @@ impl DualDeckMixer {
         self.transition = None;
         self.active_deck = DeckId::DeckA;
         self.deck_a.load_audio(audio);
+        self.deck_a.set_gain_db(0.0);
+        self.deck_a.set_eq_sub_db(0.0);
+        self.deck_a.set_eq_mid_db(0.0);
+        self.deck_a.set_eq_high_db(0.0);
+        self.deck_a.set_stretch_ratio(1.0);
+        self.deck_a.set_pitch_cents(0);
+        self.deck_a.set_reverb_freeze_send(0.0);
         if self.should_be_playing {
             self.deck_a.play();
         }
@@ -55,6 +62,13 @@ impl DualDeckMixer {
 
     pub fn load_track_b(&mut self, audio: AudioBuffer) {
         self.deck_b.load_audio(audio);
+        self.deck_b.set_gain_db(0.0);
+        self.deck_b.set_eq_sub_db(0.0);
+        self.deck_b.set_eq_mid_db(0.0);
+        self.deck_b.set_eq_high_db(0.0);
+        self.deck_b.set_stretch_ratio(1.0);
+        self.deck_b.set_pitch_cents(0);
+        self.deck_b.set_reverb_freeze_send(0.0);
     }
 
     pub fn play(&mut self) {

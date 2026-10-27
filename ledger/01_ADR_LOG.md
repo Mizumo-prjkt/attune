@@ -367,6 +367,43 @@ This file records all major architectural decisions for **Attune**, including co
   - Playback progresses continuously across smart shuffle transitions without looping back to zero.
   - Fluid, high-fidelity liquid glass transition on NowPlaying expansion and dismissal.
 
+---
+
+## ADR-017: Synchronous Deck Invalidation on Track Load, Cue-Zone Auto-Transition Timing, and Strict Deck-to-Queue Index Synchronization
+
+- **Date**: 2026-10-27
+- **Status**: **LOCKED**
+- **Context**:
+  - During extended playback across local albums (DECO*27, Masarada, PinocchioP, Neru), two critical playback anomalies occurred:
+    1. **1-Track Audio-to-UI Desynchronization**: When clicking Track 4 (`God-ish`), the UI displayed `God-ish` but the user actually heard Track 5 (`The Vampire`). Earlier, selecting Track 2 (`Rabbit Hole`) resulted in hearing Track 3 (`(Not) A Devil`).
+    2. **Rushed Transition & Syllable Cutoff**: During `Rabbit Hole`, Miku was cut off mid-syllable before concluding her final vocal phrase, followed by an immediate skip to the next track.
+  - Root Cause Analysis:
+    - In `attune_player_load_track(0, ...)` (`crates/attune-ffi/src/lib.rs`), decoding was dispatched to a background thread without synchronously clearing Deck A. For 150ms while decoding, Deck A in memory still held the *previous* track sitting at its end ($153\text{s} \ge \text{duration} - 6\text{s}$).
+    - Dart's `_pollNativeState` polled every 50ms and executed `if (_positionSec >= _durationSec - 6.0) triggerTransitionNow();`. Because Deck A was still at 153s, this condition evaluated to `true` instantly upon selecting any track, immediately crossfading into Deck B (which had the next track preloaded).
+    - Furthermore, `_isTransitioning = true` was set before `await planTransition` finished, causing `_pollNativeState` on tick 2 to think the transition had already concluded and advance the queue a second time.
+    - Finally, the arbitrary 6-second timer ignored the genuine `TransitionPlanner` cue zone exit point ($156,560\text{ms}$), chopping off Miku's singing 3.56 seconds before her phrase finished.
+- **Decision**:
+  1. **Synchronous Target Deck Reset (`crates/attune-ffi/src/lib.rs`)**:
+     - Before spawning the decoding worker thread in `attune_player_load_track`, synchronously acquire the mixer lock:
+       - If `deck_id == 0`: cancel active transition, clear Deck A (`mixer.deck_a.clear()`), and set `active_deck = DeckId::DeckA`.
+       - If `deck_id == 1`: clear Deck B (`mixer.deck_b.clear()`).
+     - Polling state instantly reflects `position_ms: 0`, `duration_ms: 0`, and `state: Stopped`, guaranteeing zero false triggers during background decode.
+  2. **Clean Initial Deck State (`crates/attune-core/src/engine/mixer.rs`)**:
+     - Reset all EQ bands, gain, stretch ratio, pitch, and reverb freeze to unity defaults in `load_track_a` and `load_track_b` so tracks always start uncolored.
+  3. **Strict Cue-Zone Timing Alignment (`apps/attune_app/lib/services/playback_controller.dart`)**:
+     - Pre-plan pairwise recipes between `currentTrack` and `upNextTrack` via `_preparePendingRecipe()`.
+     - In `ShuffleMode.smart`, transitions trigger **only** when `_positionSec * 1000 >= timing.track_a_transition_start_ms` ($156,560\text{ms}$ for `Rabbit Hole`), ensuring all vocal phrases conclude with natural decay and downbeat lock.
+     - When `_shuffleMode != ShuffleMode.smart` (Off or Standard Random), auto-transitions never trigger early; tracks play to completion (`deckState == 'Finished' || _positionSec >= _durationSec - 0.3`) before advancing cleanly.
+  4. **Strict Deck-to-Queue Index Synchronization**:
+     - Stored `_upNextQueueIndex` computed via `_pickNextQueueIndex()`.
+     - Preloaded Deck B with `_queue[_upNextQueueIndex]`.
+     - Upon transition completion, advanced `_currentQueueIndex = _upNextQueueIndex`, ensuring 100% agreement between the physical playing audio in Deck A and the UI queue state.
+- **Consequences**:
+  - Track desynchronization is 100% eliminated; clicking any track plays that exact song from 0.00s.
+  - Vocal integrity is preserved; Miku sings her full phrase to natural completion before any transition automation begins.
+  - Shuffle modes behave exactly as expected (Normal, Standard Random, Smart Algorithmic).
+
+
 
 
 

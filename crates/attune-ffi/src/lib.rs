@@ -226,6 +226,23 @@ pub extern "C" fn attune_player_load_track(deck_id: i32, path_ptr: *const c_char
     };
 
     let path = path_str.to_string();
+
+    // Synchronously reset target deck under lock so polling state immediately sees
+    // position 0 and stopped state while the background worker decodes the audio.
+    if let Ok(session_guard) = PLAYBACK_SESSION.lock() {
+        if let Some(session) = session_guard.as_ref() {
+            if let Ok(mut mixer) = session.mixer.lock() {
+                if deck_id == 1 {
+                    mixer.deck_b.clear();
+                } else {
+                    mixer.transition = None;
+                    mixer.deck_a.clear();
+                    mixer.active_deck = DeckId::DeckA;
+                }
+            }
+        }
+    }
+
     // Multi-core worker offloading: Decodes audio without blocking caller UI thread
     std::thread::spawn(move || {
         if let Ok(audio) = AudioDecoder::load_file(&path) {
