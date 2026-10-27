@@ -543,25 +543,30 @@ class _NowPlayingStageState extends State<NowPlayingStage> {
                         const SizedBox(height: 18),
 
                         // Footer Actions
-                        Wrap(
-                          alignment: WrapAlignment.spaceBetween,
-                          crossAxisAlignment: WrapCrossAlignment.center,
-                          runSpacing: 8,
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
-                            TextButton.icon(
-                              icon: const Icon(Icons.analytics_outlined, size: 16),
-                              label: const Text('Open DSP Diagnostics'),
-                              style: TextButton.styleFrom(
-                                foregroundColor: colorScheme.onSurface.withValues(alpha: 0.7),
-                                textStyle: AttuneTypography.soraBadge(fontSize: 11),
+                            Flexible(
+                              child: TextButton.icon(
+                                icon: const Icon(Icons.analytics_outlined, size: 16),
+                                label: const Text(
+                                  'Open DSP Diagnostics',
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                                style: TextButton.styleFrom(
+                                  foregroundColor: colorScheme.onSurface.withValues(alpha: 0.7),
+                                  textStyle: AttuneTypography.soraBadge(fontSize: 11),
+                                ),
+                                onPressed: () {
+                                  Navigator.of(context).pop();
+                                  PlatformNavigation.openTransitionInspector(context);
+                                },
                               ),
-                              onPressed: () {
-                                Navigator.of(context).pop();
-                                PlatformNavigation.openTransitionInspector(context);
-                              },
                             ),
+                            const SizedBox(width: 12),
                             LiquidGlassContainer(
-                              padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 8),
+                              padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 8),
                               borderRadius: 14,
                               surfaceAlpha: 0.26,
                               tintOverride: colorScheme.primary.withValues(alpha: 0.28),
