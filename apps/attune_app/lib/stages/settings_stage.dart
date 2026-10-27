@@ -9,6 +9,7 @@ import '../services/permission_service.dart';
 import '../services/playback_controller.dart';
 import '../services/platform_navigation.dart';
 import '../services/settings_service.dart';
+import 'equalizer_stage.dart';
 import 'song_exclusion_stage.dart';
 import '../theme/liquid_glass.dart';
 import '../theme/typography.dart';
@@ -322,9 +323,16 @@ class _SettingsAndAudioStageState extends State<SettingsAndAudioStage> with Widg
                               _buildSettingTile(
                                 icon: Icons.tune_rounded,
                                 title: 'View Equalizer',
-                                subtitle: 'Low: ${_settings.eqLowDb >= 0 ? '+${_settings.eqLowDb.toStringAsFixed(1)}' : _settings.eqLowDb.toStringAsFixed(1)} dB  •  Mid: ${_settings.eqMidDb >= 0 ? '+${_settings.eqMidDb.toStringAsFixed(1)}' : _settings.eqMidDb.toStringAsFixed(1)} dB  •  High: ${_settings.eqHighDb >= 0 ? '+${_settings.eqHighDb.toStringAsFixed(1)}' : _settings.eqHighDb.toStringAsFixed(1)} dB',
+                                subtitle: 'Studio-Grade 10-Band EQ & ViPER DSP Rack • Tap to open stage (long-press for quick dialog)',
                                 trailing: const Icon(Icons.chevron_right_rounded, color: Colors.white38, size: 20),
-                                onTap: () => _openViewEqualizerDialog(context),
+                                onTap: () {
+                                  Navigator.of(context).push(
+                                    MaterialPageRoute(
+                                      builder: (_) => const EqualizerStage(),
+                                    ),
+                                  );
+                                },
+                                onLongPress: () => _openViewEqualizerDialog(context),
                               ),
                             ],
                           ),

@@ -174,8 +174,9 @@ pub extern "C" fn attune_cache_stats(db_path_ptr: *const c_char) -> *mut c_char 
 }
 
 use std::sync::{Arc, Mutex};
-use attune_core::engine::{AudioOutputDriver, DeckId, DualDeckMixer};
+use attune_core::engine::{AudioOutputDriver, DeckId, DualDeckMixer, probe_external_dsp};
 use attune_core::schema::TransitionRecipe;
+use attune_dsp_ffi::master_fx::{MasterFxParams, EQ_BANDS_COUNT};
 
 struct PlaybackSession {
     mixer: Arc<Mutex<DualDeckMixer>>,
@@ -184,6 +185,33 @@ struct PlaybackSession {
 }
 
 static PLAYBACK_SESSION: Mutex<Option<PlaybackSession>> = Mutex::new(None);
+static MASTER_FX_PARAMS: Mutex<Option<MasterFxParams>> = Mutex::new(None);
+
+fn get_master_fx_params() -> MasterFxParams {
+    if let Ok(guard) = MASTER_FX_PARAMS.lock() {
+        guard.clone().unwrap_or_default()
+    } else {
+        MasterFxParams::default()
+    }
+}
+
+fn update_master_fx_params<F>(f: F)
+where
+    F: FnOnce(&mut MasterFxParams),
+{
+    let mut params = get_master_fx_params();
+    f(&mut params);
+
+    if let Ok(mut guard) = MASTER_FX_PARAMS.lock() {
+        *guard = Some(params.clone());
+    }
+
+    if let Some(mixer) = get_session_mixer() {
+        if let Ok(mut m) = mixer.lock() {
+            m.master_fx.set_params(params);
+        }
+    }
+}
 
 /// Initializes the real-time DualDeckMixer and hardware AudioOutputDriver.
 /// Returns 0 for hardware audio active, 1 for headless/fallback mode, -1 on failure.
@@ -199,7 +227,9 @@ pub extern "C" fn attune_player_start() -> i32 {
     }
 
     let sample_rate = AudioOutputDriver::default_sample_rate().unwrap_or(44100);
-    let mixer = Arc::new(Mutex::new(DualDeckMixer::new(sample_rate)));
+    let mut mixer_obj = DualDeckMixer::new(sample_rate);
+    mixer_obj.master_fx.set_params(get_master_fx_params());
+    let mixer = Arc::new(Mutex::new(mixer_obj));
 
     // Attempt to start hardware output stream (gracefully fallback if headless)
     let driver = AudioOutputDriver::new(Arc::clone(&mixer)).ok();
@@ -438,6 +468,118 @@ pub extern "C" fn attune_player_stop() -> i32 {
     0
 }
 
+/// Enables or disables the Master FX Rack (0 = disabled, 1 = enabled).
+#[no_mangle]
+pub extern "C" fn attune_master_fx_set_enabled(enabled: i32) -> i32 {
+    update_master_fx_params(|p| p.enabled = enabled != 0);
+    0
+}
+
+/// Sets the master pre-amp gain in decibels (-12 dB to +6 dB).
+#[no_mangle]
+pub extern "C" fn attune_master_fx_set_preamp_db(preamp_db: f32) -> i32 {
+    update_master_fx_params(|p| p.preamp_db = preamp_db.clamp(-12.0, 6.0));
+    0
+}
+
+/// Sets the gain in dB for a specific EQ band (0 to 9, -12 dB to +12 dB).
+#[no_mangle]
+pub extern "C" fn attune_master_fx_set_band_gain(band_idx: i32, gain_db: f32) -> i32 {
+    if band_idx >= 0 && (band_idx as usize) < EQ_BANDS_COUNT {
+        update_master_fx_params(|p| p.band_gains_db[band_idx as usize] = gain_db.clamp(-12.0, 12.0));
+        0
+    } else {
+        -1
+    }
+}
+
+/// Sets all 10 EQ band gains from an array of floats.
+#[no_mangle]
+pub extern "C" fn attune_master_fx_set_all_bands(bands_ptr: *const f32, count: i32) -> i32 {
+    if bands_ptr.is_null() || count <= 0 {
+        return -1;
+    }
+    let slice = unsafe { std::slice::from_raw_parts(bands_ptr, (count as usize).min(EQ_BANDS_COUNT)) };
+    update_master_fx_params(|p| {
+        for (i, &db) in slice.iter().enumerate() {
+            p.band_gains_db[i] = db.clamp(-12.0, 12.0);
+        }
+    });
+    0
+}
+
+/// Configures ViPER Bass psychoacoustic sub-harmonic synthesizer.
+#[no_mangle]
+pub extern "C" fn attune_master_fx_set_bass(enabled: i32, gain_db: f32, freq_hz: f32) -> i32 {
+    update_master_fx_params(|p| {
+        p.bass_enabled = enabled != 0;
+        p.bass_gain_db = gain_db.clamp(0.0, 14.0);
+        p.bass_freq_hz = freq_hz.clamp(40.0, 150.0);
+    });
+    0
+}
+
+/// Configures ViPER Clarity & Vocal Air harmonic exciter.
+#[no_mangle]
+pub extern "C" fn attune_master_fx_set_clarity(enabled: i32, wet: f32) -> i32 {
+    update_master_fx_params(|p| {
+        p.clarity_enabled = enabled != 0;
+        p.clarity_wet = wet.clamp(0.0, 0.40);
+    });
+    0
+}
+
+/// Sets stereo field expansion width (0.0 = mono, 1.0 = normal, 2.0 = ultra-wide).
+#[no_mangle]
+pub extern "C" fn attune_master_fx_set_stereo_width(width: f32) -> i32 {
+    update_master_fx_params(|p| {
+        p.stereo_width = width.clamp(0.0, 2.5);
+    });
+    0
+}
+
+/// Sets the entire Master FX Rack state from a JSON string.
+#[no_mangle]
+pub extern "C" fn attune_master_fx_set_params_json(json_ptr: *const c_char) -> i32 {
+    if json_ptr.is_null() {
+        return -1;
+    }
+    let c_str = unsafe { CStr::from_ptr(json_ptr) };
+    let json_str = match c_str.to_str() {
+        Ok(s) => s,
+        Err(_) => return -1,
+    };
+    let params: MasterFxParams = match serde_json::from_str(json_str) {
+        Ok(p) => p,
+        Err(_) => return -1,
+    };
+    update_master_fx_params(|p| *p = params);
+    0
+}
+
+/// Returns the current Master FX Rack state serialized as JSON.
+/// The caller must free the returned string using `attune_free_string`.
+#[no_mangle]
+pub extern "C" fn attune_master_fx_get_params_json() -> *mut c_char {
+    let params = get_master_fx_params();
+    match serde_json::to_string(&params) {
+        Ok(json) => CString::new(json).unwrap().into_raw(),
+        Err(_) => std::ptr::null_mut(),
+    }
+}
+
+/// Probes the host OS for active or installed external audio DSPs (ViPER, EasyEffects, JamesDSP, Equalizer APO).
+/// Returns an ExternalDspStatus object serialized as JSON.
+/// The caller must free the returned string using `attune_free_string`.
+#[no_mangle]
+pub extern "C" fn attune_probe_external_dsp() -> *mut c_char {
+    let status = probe_external_dsp();
+    match serde_json::to_string(&status) {
+        Ok(json) => CString::new(json).unwrap().into_raw(),
+        Err(_) => std::ptr::null_mut(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -471,4 +613,45 @@ mod tests {
         assert_eq!(attune_player_seek(-1, 5000), 0);
         assert_eq!(attune_player_stop(), 0);
     }
+
+    #[test]
+    fn test_master_fx_ffi_lifecycle() {
+        attune_init();
+        assert_eq!(attune_master_fx_set_enabled(1), 0);
+        assert_eq!(attune_master_fx_set_preamp_db(-2.5), 0);
+        assert_eq!(attune_master_fx_set_band_gain(0, 3.5), 0);
+        assert_eq!(attune_master_fx_set_band_gain(9, -4.0), 0);
+        assert_eq!(attune_master_fx_set_bass(1, 5.0, 90.0), 0);
+        assert_eq!(attune_master_fx_set_clarity(1, 0.15), 0);
+        assert_eq!(attune_master_fx_set_stereo_width(1.4), 0);
+
+        let json_ptr = attune_master_fx_get_params_json();
+        assert!(!json_ptr.is_null());
+        let json_str = unsafe { CStr::from_ptr(json_ptr) }.to_str().unwrap();
+        let parsed: MasterFxParams = serde_json::from_str(json_str).unwrap();
+        assert!(parsed.enabled);
+        assert!((parsed.preamp_db - (-2.5)).abs() < 1e-4);
+        assert!((parsed.band_gains_db[0] - 3.5).abs() < 1e-4);
+        assert!((parsed.band_gains_db[9] - (-4.0)).abs() < 1e-4);
+        assert!(parsed.bass_enabled);
+        assert!((parsed.bass_gain_db - 5.0).abs() < 1e-4);
+        assert!((parsed.bass_freq_hz - 90.0).abs() < 1e-4);
+        assert!(parsed.clarity_enabled);
+        assert!((parsed.clarity_wet - 0.15).abs() < 1e-4);
+        assert!((parsed.stereo_width - 1.4).abs() < 1e-4);
+        attune_free_string(json_ptr);
+    }
+
+    #[test]
+    fn test_probe_external_dsp_ffi() {
+        attune_init();
+        let dsp_ptr = attune_probe_external_dsp();
+        assert!(!dsp_ptr.is_null());
+        let dsp_str = unsafe { CStr::from_ptr(dsp_ptr) }.to_str().unwrap();
+        let val: serde_json::Value = serde_json::from_str(dsp_str).unwrap();
+        assert!(val.get("detected").is_some());
+        assert!(val.get("engine_name").is_some());
+        attune_free_string(dsp_ptr);
+    }
 }
+

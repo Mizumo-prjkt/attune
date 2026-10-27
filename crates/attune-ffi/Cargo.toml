@@ -12,7 +12,9 @@ crate-type = ["cdylib", "staticlib", "rlib"]
 
 [dependencies]
 attune-core = { path = "../attune-core" }
+attune-dsp-ffi = { path = "../attune-dsp-ffi" }
 serde = { workspace = true }
 serde_json = { workspace = true }
 log = { workspace = true }
+
 env_logger = { workspace = true }

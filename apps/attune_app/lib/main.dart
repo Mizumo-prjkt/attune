@@ -2,6 +2,7 @@ import 'dart:io';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'shell/responsive_glass_scaffold.dart';
+import 'stages/equalizer_stage.dart';
 import 'stages/settings_stage.dart';
 import 'stages/song_exclusion_stage.dart';
 import 'stages/transition_inspector_stage.dart';
@@ -81,6 +82,7 @@ class AttuneApp extends StatelessWidget {
         '/settings': (context) => const SettingsAndAudioStage(isStandaloneActivity: true),
         '/transition_inspector': (context) => const TransitionInspectorStage(isStandaloneActivity: true),
         '/song_exclusion': (context) => const SongExclusionStage(),
+        '/equalizer': (context) => const EqualizerStage(),
       },
     );
   }

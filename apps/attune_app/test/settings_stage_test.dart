@@ -179,7 +179,7 @@ void main() {
 
       final tile = find.text('View Equalizer');
       expect(tile, findsOneWidget);
-      await tester.tap(tile);
+      await tester.longPress(tile);
       await tester.pump(const Duration(milliseconds: 100));
 
       expect(find.text('Equalizer DSP'), findsOneWidget);
@@ -189,7 +189,8 @@ void main() {
       expect(find.text('Reset to Flat (0 dB)'), findsOneWidget);
 
       await tester.tap(find.text('Done'));
-      await tester.pump(const Duration(milliseconds: 100));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 500));
       expect(find.text('Equalizer DSP'), findsNothing);
     });
 

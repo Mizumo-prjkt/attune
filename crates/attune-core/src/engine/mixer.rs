@@ -3,6 +3,7 @@
 use super::deck::{Deck, DeckId, DeckState};
 use crate::audio::AudioBuffer;
 use crate::schema::{DeckAutomation, DspAutomationKeyframe, TransitionRecipe};
+use attune_dsp_ffi::master_fx::MasterFxRack;
 
 #[derive(Debug, Clone)]
 pub struct ActiveTransition {
@@ -19,6 +20,7 @@ pub struct DualDeckMixer {
     pub active_deck: DeckId,
     pub should_be_playing: bool,
     pub transition: Option<ActiveTransition>,
+    pub master_fx: MasterFxRack,
     master_gain_linear: f32,
 }
 
@@ -32,6 +34,7 @@ impl DualDeckMixer {
             active_deck: DeckId::DeckA,
             should_be_playing: false,
             transition: None,
+            master_fx: MasterFxRack::new(sr as f32),
             master_gain_linear: 1.0,
         }
     }
@@ -41,6 +44,7 @@ impl DualDeckMixer {
             self.sample_rate = sample_rate;
             self.deck_a.set_output_sample_rate(sample_rate);
             self.deck_b.set_output_sample_rate(sample_rate);
+            self.master_fx.set_sample_rate(sample_rate as f32);
         }
     }
 
@@ -204,11 +208,10 @@ impl DualDeckMixer {
             }
         };
 
-        // Master output stage with soft-knee saturator to prevent digital clipping
-        let out_l = soft_limit(raw_l * self.master_gain_linear);
-        let out_r = soft_limit(raw_r * self.master_gain_linear);
+        // Master FX Rack mastering chain (pre-amp, 10-band EQ, ViPER Bass & Clarity, stereo widen, brickwall limiter)
+        let (fx_l, fx_r) = self.master_fx.process_stereo_frame((raw_l * self.master_gain_linear, raw_r * self.master_gain_linear));
 
-        (out_l, out_r)
+        (fx_l, fx_r)
     }
 
     /// Process a block of interleaved stereo samples `[L, R, L, R, ...]` (real-time audio callback safe)
@@ -218,18 +221,6 @@ impl DualDeckMixer {
             frame[0] = l;
             frame[1] = r;
         }
-    }
-}
-
-/// Transparent soft-knee limiter for summed audio
-#[inline]
-fn soft_limit(x: f32) -> f32 {
-    if x > 1.0 {
-        1.0 - (-x + 1.0).exp() * 0.5
-    } else if x < -1.0 {
-        -1.0 + (x + 1.0).exp() * 0.5
-    } else {
-        x
     }
 }
 

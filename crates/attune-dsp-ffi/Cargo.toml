@@ -8,7 +8,9 @@ description = "DSP primitives, crossover filters, EQ, and time/pitch shifting fo
 
 [dependencies]
 serde = { workspace = true }
+serde_json = { workspace = true }
 thiserror = { workspace = true }
 log = { workspace = true }
 rustfft = { workspace = true }
 realfft = { workspace = true }
+

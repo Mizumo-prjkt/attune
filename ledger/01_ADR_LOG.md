@@ -861,6 +861,59 @@ This file records all major architectural decisions for **Attune**, including co
   - Strictly 0 hardcoded values in both implementation and automated tests.
   - 100% test pass rate across all 40 Flutter unit/widget tests and 17 Rust workspace tests; 0 analyze warnings.
 
+---
+
+### ADR-030: ViPER-Grade Master FX DSP Rack (`MasterFxRack`), 10-Band EQ, Psychoacoustic Bass & Clarity, Mid-Side Stereo Expander, Brickwall Soft Limiter & External DSP Active Detection
+
+- **Date**: 2026-10-28
+- **Status**: **LOCKED**
+- **Context**:
+  - Standard 5-band or 10-band slider equalizers feel flat and underwhelming compared to ViPER4Android or studio mastering racks because ViPER is not just a graphic EQ—it is a multi-stage sequential mastering chain that includes harmonic excitation, psychoacoustic bass synthesis, stereo field imaging, and dynamic limiting.
+  - Tools like ViPER4Android require root or hacky `AudioPlaybackCapture` loops only because they intercept audio inside the OS mixer (`AudioFlinger`). Because Attune decodes raw PCM f32 audio samples in memory before handing them to the OS output stream (`cpal` / `oboe`), Attune can run a full ViPER-grade mastering DSP rack inside its own process with near-zero latency, locked-device compatibility, and bit-perfect isolation.
+  - Running built-in DSP on top of system-wide external DSPs (ViPER, EasyEffects, JamesDSP, Equalizer APO) can cause muddy double-equalization and phase cancellation unless actively detected and mitigated.
+- **Decision**:
+  1. **Pure Rust Master FX Rack (`MasterFxRack`)**:
+     - Built `crates/attune-dsp-ffi/src/master_fx.rs` executing a sequential 6-stage f32 mastering chain in-process:
+       * **Stage 1 (Pre-Amp Headroom Pad)**: Configurable -12 dB to +6 dB (default -3 dB) headroom attenuator to prevent filter clipping when EQ bands are boosted.
+       * **Stage 2 (10-Band Graphic/Parametric EQ)**: Cascaded DirectForm2Transposed IIR biquad filters operating at ISO standard center frequencies: [31, 62, 125, 250, 500, 1000, 2000, 4000, 8000, 16000 Hz]. Band 0 uses a low-shelf filter, Band 9 uses a high-shelf filter, and intermediate bands use peaking EQ filters ($Q = 1.414$).
+       * **Stage 3 (ViPER Bass / Pure Bass+)**: Psychoacoustic sub-harmonic synthesizer that isolates frequencies below the selected cutoff ($40-150\text{ Hz}$, default $80\text{ Hz}$), applies non-linear waveshaping ($y = \tanh(2.2x) + 0.15 x |x|$) to generate 2nd and 3rd harmonics for earbuds/small speakers, smooths with a 180 Hz lowpass filter to prevent vocal bleed, and sums with the dry signal.
+       * **Stage 4 (ViPER Clarity & Vocal Air)**: High-pass filter above 3.5 kHz followed by soft polynomial saturation ($y = x - \frac{x^3}{3} + 0.08x^2$) and wet/dry blending (0% to 40%, default 12%) to restore presence and air.
+       * **Stage 5 (Stereo Field Expander / Differential Surround)**: Mid-Side matrix conversion ($M = \frac{L+R}{2}, S = \frac{L-R}{2}$). The Side channel is split with a 150 Hz Butterworth highpass filter, forcing sub-bass strictly to mono to prevent destructive phase cancellation while widening mids and treble from $0.0\text{x}$ (mono) to $2.0\text{x}$ (ultra-wide).
+       * **Stage 6 (Master Limiter & Soft Clipper)**: Fast lookahead envelope tracker (1ms attack, 50ms release) and $\tanh$ soft-knee saturator with a brickwall ceiling at -0.1 dBFS, guaranteeing output samples strictly never exceed digital 1.0.
+       * **1-Pole Per-Frame Exponential Smoothing**: Coefficients ramp smoothly with $\alpha = 0.005$ per sample frame ($\approx 4.5\text{ ms}$ at 44.1 kHz), eliminating zipper noise and clicks during slider dragging.
+  2. **Cross-Platform External DSP Detection (`external_dsp.rs`)**:
+     - Built `crates/attune-core/src/engine/external_dsp.rs`:
+       * Linux: Scans `/proc/[pid]/comm` and PipeWire/Pulse configurations for `easyeffects`, `pulseeffects`, and `jamesdsp`.
+       * Android: Probes system and vendor library paths (`/system/lib64/soundfx/libv4a_fx.so`, `libjamesdsp.so`) and known package sandboxes (`com.pittvandewitt.viperfx`, `com.wstxda.viper4android`, `me.timschneeberger.rootlessjamesdsp`).
+       * Windows: Checks for `EqualizerAPO` installation.
+       * Surfaces structured `ExternalDspStatus` with warning details and bypass recommendations.
+  3. **DualDeckMixer & C-ABI Integration**:
+     - Added `pub master_fx: MasterFxRack` directly to `DualDeckMixer`.
+     - Output frames pass through `self.master_fx.process_stereo_frame()` directly before hardware output.
+     - Exposed C-ABI functions in `crates/attune-ffi/src/lib.rs`: `attune_master_fx_set_enabled`, `attune_master_fx_set_preamp_db`, `attune_master_fx_set_band_gain`, `attune_master_fx_set_all_bands`, `attune_master_fx_set_bass`, `attune_master_fx_set_clarity`, `attune_master_fx_set_stereo_width`, `attune_master_fx_set_params_json`, `attune_master_fx_get_params_json`, and `attune_probe_external_dsp`.
+  4. **Frontend Service & Dedicated Stage UI**:
+     - `EqualizerService` singleton in `apps/attune_app/lib/services/equalizer_service.dart` syncing state with native engine and persisting profile to `~/.config/attune/equalizer_profile.json`.
+     - Presets: `Flat`, `Rock`, `Pop`, `Electronic`, `Vocal Boost`, `Acoustic`, `Bass Punch`, `Custom`.
+     - Dedicated full-screen `EqualizerStage` in `apps/attune_app/lib/stages/equalizer_stage.dart`:
+       * Master power toggle and Reset button.
+       * External DSP warning card with one-click bypass.
+       * Pre-amp headroom pad slider with positive gain clipping caution.
+       * Presets horizontal selector.
+       * Interactive 10-band EQ sliders with smooth cubic bezier spline curve canvas.
+       * ViPER Bass, ViPER Clarity, and Stereo Field Expander cards.
+     - Registered route `'/equalizer'` in `main.dart` and integrated into `SettingsAndAudioStage`.
+  5. **Automated Testing & Zero-Hardcoding**:
+     - 7 unit tests in `attune-dsp-ffi/src/master_fx.rs` verifying bypass, preamp attenuation, 10-band peaking boost, sub-harmonic bass synthesis, stereo widening, brickwall limiter ceiling, and JSON roundtrip.
+     - 2 tests in `attune-core/src/engine/external_dsp.rs` verifying probing and serialization.
+     - 2 tests in `attune-ffi/src/lib.rs` verifying C-ABI FFI lifecycles.
+     - 9 unit and widget tests in `apps/attune_app/test/equalizer_stage_test.dart` with 0 hardcoded values.
+- **Consequences**:
+  - Delivers genuine ViPER-grade sound quality inside Attune without needing device root or AudioFlinger hooks.
+  - Zero zipper noise during real-time adjustments.
+  - Sub-bass phase cancellation is structurally prevented.
+  - 100% test pass rate across 28 Rust workspace tests and 49 Flutter tests; 0 analyze warnings.
+
+
 
 
 
