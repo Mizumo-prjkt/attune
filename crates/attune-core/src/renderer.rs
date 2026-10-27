@@ -87,6 +87,19 @@ impl TransitionRenderer {
         }
         let mut freeze_idx = 0;
 
+        // Synthesize generative fill if Archetype 6
+        let fill_audio = if recipe.archetype == crate::schema::TransitionArchetype::GenerativeMelodicFill {
+            let config = crate::generative::GenerativeFillEngine::create_config_from_slices(
+                &slice_a_trans,
+                &slice_b_trans,
+                transition_duration_ms,
+                sr,
+            );
+            Some(crate::generative::GenerativeFillEngine::render_fill(&config, Some(&slice_a_trans)))
+        } else {
+            None
+        };
+
         for frame_idx in 0..total_frames {
             let (l, r) = if frame_idx < pre_frames {
                 // Pre-roll: Track A playing cleanly
@@ -141,8 +154,26 @@ impl TransitionRenderer {
                 (l, r)
             };
 
-            out_left[frame_idx] = l.clamp(-1.0, 1.0);
-            out_right[frame_idx] = r.clamp(-1.0, 1.0);
+            // Overlay generative fill if active (spanning transition window and post-roll resolution)
+            let (fill_l, fill_r) = if frame_idx >= pre_frames {
+                let fill_idx = frame_idx - pre_frames;
+                if let Some(ref fill) = fill_audio {
+                    if fill_idx < fill.channels[0].len() {
+                        let fl = fill.channels[0][fill_idx];
+                        let fr = fill.channels.get(1).map(|c| c[fill_idx]).unwrap_or(fl);
+                        (fl, fr)
+                    } else {
+                        (0.0, 0.0)
+                    }
+                } else {
+                    (0.0, 0.0)
+                }
+            } else {
+                (0.0, 0.0)
+            };
+
+            out_left[frame_idx] = (l + fill_l).clamp(-1.0, 1.0);
+            out_right[frame_idx] = (r + fill_r).clamp(-1.0, 1.0);
         }
 
         // Write WAV

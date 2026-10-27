@@ -438,6 +438,43 @@ This file records all major architectural decisions for **Attune**, including co
   - Mutex deadlocks and thread stalls between UI polling (50ms interval) and deck loading are permanently resolved.
   - All 14 Rust tests and all 9 Flutter unit/widget tests pass with 0 errors and 0 lints.
 
+---
+
+## ADR-019: Generative Melodic Bridge Fill Transition Archetype (`ARCHETYPE_6_GENERATIVE_MELODIC_FILL`), PolyBLEP SuperSaw Synthesis, Octave Tempo Folding, and TPT SVF Stabilization
+
+- **Status**: **LOCKED** (Implemented & Verified)
+- **Date**: 2026-10-27
+- **Context**:
+  - For upbeat electronic, dance, Eurobeat, and EDM genres ($\text{BPM} \ge 135$), traditional crossfades, bass swaps, or stem cuts feel lethargic and drop dancefloor momentum across phrase boundaries.
+  - When transitioning between songs like *Luka Luka★Night Fever* (detected at half-time 80 BPM Eurobeat, exit key F Major) and *Rabbit Hole* / *Liar Dancer* (171.4 BPM, entry key C Major), conventional DJ mixing faces two obstacles:
+    1. A raw BPM ratio gap ($|171.4 - 80| / 80 = 114\%$) that would incorrectly trigger `TailFreeze` despite both tracks sharing energetic 160–171 BPM dance rhythms.
+    2. A harmonic gap (F Major to C Major, a subdominant $\text{IV} \to \text{I}$ cadence) that clashes if overlapped directly without musical resolution.
+  - Furthermore, standard resonant state-variable filters (Chamberlin SVF) blow up into $\text{NaN}$ when filter sweeps exceed $F_s / 6$ ($7.35\text{ kHz}$ at $44.1\text{ kHz}$), creating audio dropouts and digital silence during high-frequency risers.
+- **Decision**:
+  1. **Schema & Archetype Addition**:
+     - Added `ARCHETYPE_6_GENERATIVE_MELODIC_FILL` (`GenerativeMelodicFill`) to `TransitionArchetype` in `crates/attune-core/src/schema.rs`.
+  2. **Octave Tempo Folding in Transition Planner**:
+     - In `crates/attune-core/src/planner.rs`, mapped track nominal tempos into the upbeat dance window $[125.0, 220.0]\text{ BPM}$ before computing tempo distance:
+       - $80.0\text{ BPM} \times 2 = 160.0\text{ BPM}$ vs. $171.4\text{ BPM}$, giving $\Delta\text{BPM} = 7.1\% \le 16\%$.
+     - Selected Archetype 6 when both tracks are upbeat ($\text{eff\_bpm} \ge 135$), within $16\%$ tempo gap, feature dance/electronic instrumentation (synth presence, `POP_DANCE_GROOVE`), and lack distorted rock guitars.
+  3. **Procedural Melodic Fill Synthesis Engine (`crates/attune-core/src/generative.rs`)**:
+     - Built an autonomous synthesis module that extracts root pitch and mode from audio slice chroma, or uses metadata keys.
+     - Generated a 16th-note cadential sequence:
+       - Bars 1–2: Tonic triad arpeggio ($F_4 \to A_4 \to C_5$).
+       - Bar 3: Eurobeat octave bounce & walkup ($F_4 \to G_4$).
+       - Bar 4: Leading-tone buildup on $B_4$ ($C - 1$) with 16th-note snare roll and rising noise sweep.
+       - Downbeat 1: Resolution strike on $C_5$ with $1.2\text{s}$ dotted-16th ping-pong delay and diffuse stereo reverb spillover.
+     - Dual detuned PolyBLEP anti-aliased sawtooth oscillators ($\pm 7\text{ cents}$) with 2:1 FM transient attack punch.
+  4. **Topology-Preserving Transform (TPT) State Variable Filter**:
+     - Replaced unstable Chamberlin filter with Vadim Zavalishin's 2-pole TPT SVF, guaranteeing unconditional numerical stability across the entire audible spectrum ($20\text{ Hz} \le f_c \le 18\text{ kHz}$).
+  5. **Continuous Mixer Automation & Vocal Safety**:
+     - Keyframed a 6-stage transition curve (Deck A high-shelf sweep $\to$ mid/low ducking $\to$ lead fill crescendo $\to$ Deck B slam-in on Downbeat 1 $\to$ spillover ring-out).
+     - Protected vocal clarity: if Track A has singing during handoff, mid EQ is locked at $0.0\text{ dB}$ rather than ducked.
+- **Consequences**:
+  - Seamless, euphoric bridge transitions for upbeat tracks with continuous RMS energy across the entire handoff window.
+  - Zero digital silence, zero $\text{NaN}$ filter blowups, and verified peak level compliance ($0.0\text{ dBFS}$).
+  - All Rust unit and integration tests pass cleanly; benchmark WAVs verify continuous sound across the entire bridge.
+
 
 
 

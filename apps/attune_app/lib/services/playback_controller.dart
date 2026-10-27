@@ -29,6 +29,81 @@ class PlaybackController extends ChangeNotifier {
   bool _isScanning = false;
   ShuffleMode _shuffleMode = ShuffleMode.off;
 
+  // Recent Playback History to prevent track repetition and bias in smart shuffle
+  final List<String> _recentTrackIds = [];
+  static const int _maxRecentHistory = 15;
+
+  void _recordRecentTrack(String? id) {
+    if (id == null || id.isEmpty) return;
+    _recentTrackIds.remove(id);
+    _recentTrackIds.add(id);
+    if (_recentTrackIds.length > _maxRecentHistory) {
+      _recentTrackIds.removeAt(0);
+    }
+  }
+
+  static final Map<String, String> _standardKeyToCamelot = {
+    'b': '1B', 'g#m': '1A', 'abm': '1A',
+    'f#': '2B', 'gb': '2B', 'd#m': '2A', 'ebm': '2A',
+    'db': '3B', 'c#': '3B', 'bbm': '3A', 'a#m': '3A',
+    'ab': '4B', 'g#': '4B', 'fm': '4A',
+    'eb': '5B', 'd#': '5B', 'cm': '5A',
+    'bb': '6B', 'a#': '6B', 'gm': '6A',
+    'f': '7B', 'dm': '7A',
+    'c': '8B', 'am': '8A',
+    'g': '9B', 'em': '9A',
+    'd': '10B', 'bm': '10A',
+    'a': '11B', 'f#m': '11A', 'gbm': '11A',
+    'e': '12B', 'c#m': '12A', 'dbm': '12A',
+  };
+
+  static String? _normalizeToCamelot(String rawKey) {
+    final cleaned = rawKey.trim().toUpperCase();
+    if (cleaned.isEmpty) return null;
+    final camelotRegex = RegExp(r'^([1-9]|1[0-2])([AB])$');
+    if (camelotRegex.hasMatch(cleaned)) {
+      return cleaned;
+    }
+    final simplified = rawKey
+        .trim()
+        .toLowerCase()
+        .replaceAll(' major', '')
+        .replaceAll(' maj', '')
+        .replaceAll(' minor', 'm')
+        .replaceAll(' min', 'm');
+    return _standardKeyToCamelot[simplified];
+  }
+
+  static double _calculateHarmonicScore(String keyA, String keyB) {
+    final camA = _normalizeToCamelot(keyA);
+    final camB = _normalizeToCamelot(keyB);
+    if (camA == null || camB == null) return 0.15;
+
+    final numA = int.tryParse(camA.substring(0, camA.length - 1));
+    final modeA = camA.substring(camA.length - 1);
+    final numB = int.tryParse(camB.substring(0, camB.length - 1));
+    final modeB = camB.substring(camB.length - 1);
+
+    if (numA == null || numB == null) return 0.15;
+
+    final diff = (numA - numB).abs();
+    final circleDist = min(diff, 12 - diff);
+
+    if (circleDist == 0 && modeA == modeB) {
+      return 0.40; // Exact harmonic key match
+    } else if (circleDist == 0 && modeA != modeB) {
+      return 0.35; // Relative major/minor
+    } else if (circleDist == 1 && modeA == modeB) {
+      return 0.30; // Adjacent Camelot harmonic blend
+    } else if (circleDist == 2 && modeA == modeB) {
+      return 0.20; // 2-step energy boost
+    } else if (circleDist == 1 && modeA != modeB) {
+      return 0.25; // Diagonal harmonic step
+    } else {
+      return 0.05; // Distant harmonic relationship
+    }
+  }
+
   // Playback Metrics
   double _positionSec = 0.0;
   double _durationSec = 159.0;
@@ -252,21 +327,30 @@ class PlaybackController extends ChangeNotifier {
           _pendingRecipe = null;
           _advanceQueue();
         } else if (_isPlaying && _durationSec > 5.0) {
-          final deckState = (activeDeck == 'DeckA' ? deckA : deckB)?['state'] as String?;
+          final activeDeckJson = activeDeck == 'DeckA' ? deckA : deckB;
+          final deckState = activeDeckJson?['state'] as String?;
+          final isAudibleFinished = activeDeckJson?['is_audible_finished'] == true;
+          final audibleEndMs = ((activeDeckJson?['audible_end_ms'] as num?)?.toDouble() ?? 0.0);
+          final isNearAudibleEnd = audibleEndMs > 0 && (_positionSec * 1000 >= audibleEndMs - 250);
+          final isTrackEnded = deckState == 'Finished' || isAudibleFinished || isNearAudibleEnd || _positionSec >= _durationSec - 0.3;
+
           if (_shuffleMode == ShuffleMode.smart) {
-            // Smart Algorithmic Transition: trigger ONLY at genuine recipe start time
+            // Smart Algorithmic Transition: trigger at genuine recipe start time
             if (_pendingRecipe != null && !_isTransitionPlanning) {
               final timing = _pendingRecipe!['timing'] as Map<String, dynamic>?;
               final startMs = (timing?['track_a_transition_start_ms'] as num?)?.toDouble();
               if (startMs != null && _positionSec * 1000 >= startMs) {
                 _executeAutoTransition(_pendingRecipe!);
+              } else if (isTrackEnded) {
+                // If track reaches audible silence before recipe startMs, trigger transition immediately!
+                _executeAutoTransition(_pendingRecipe!);
               }
-            } else if (deckState == 'Finished' || _positionSec >= _durationSec - 0.3) {
+            } else if (isTrackEnded) {
               skipNext();
             }
           } else {
-            // Normal (Off) or Standard Random Shuffle: never cut early; play until conclusion
-            if (deckState == 'Finished' || _positionSec >= _durationSec - 0.3) {
+            // Normal (Off) or Standard Random Shuffle: play until music finishes, cutting trailing dead air
+            if (isTrackEnded) {
               skipNext();
             }
           }
@@ -336,6 +420,7 @@ class PlaybackController extends ChangeNotifier {
 
   void skipNext() {
     if (_queue.isEmpty) return;
+    _recordRecentTrack(currentTrack?.id);
 
     _currentQueueIndex = _upNextQueueIndex;
     _upNextQueueIndex = _pickNextQueueIndex();
@@ -356,50 +441,107 @@ class PlaybackController extends ChangeNotifier {
     final current = currentTrack;
     if (current == null) return (_currentQueueIndex + 1) % _queue.length;
 
-    int bestIndex = (_currentQueueIndex + 1) % _queue.length;
-    double bestScore = -999.0;
+    final List<({int index, double score})> scored = [];
 
     for (int i = 0; i < _queue.length; i++) {
       if (i == _currentQueueIndex) continue;
       final candidate = _queue[i];
 
-      // 1. Tempo compatibility (within +-12 BPM or harmonic ratio)
-      final bpmDelta = (current.bpm - candidate.bpm).abs();
-      double tempoScore = 0.0;
-      if (current.bpm <= 0 || candidate.bpm <= 0) {
-        tempoScore = 0.5;
-      } else if (bpmDelta <= 6) {
-        tempoScore = 1.0;
-      } else if (bpmDelta <= 14) {
-        tempoScore = 0.8;
-      } else {
-        final ratio = candidate.bpm / current.bpm;
-        if ((ratio - 1.0).abs() < 0.15 || (ratio - 0.5).abs() < 0.1 || (ratio - 2.0).abs() < 0.1) {
-          tempoScore = 0.75;
+      // 1. Recency Penalty (Heavy penalty for recently played songs to eliminate repetitive bias)
+      double recencyPenalty = 0.0;
+      final historyIdx = _recentTrackIds.lastIndexOf(candidate.id);
+      if (historyIdx != -1) {
+        final recencyRank = _recentTrackIds.length - 1 - historyIdx;
+        if (recencyRank == 0) {
+          recencyPenalty = -6.0; // The song that just played
+        } else if (recencyRank <= 2) {
+          recencyPenalty = -4.0;
+        } else if (recencyRank <= 5) {
+          recencyPenalty = -2.5;
+        } else if (recencyRank <= 10) {
+          recencyPenalty = -1.0;
         } else {
-          tempoScore = (1.0 - (bpmDelta / 120.0)).clamp(0.0, 0.6);
+          recencyPenalty = -0.5;
         }
       }
 
-      // 2. Genre alignment bonus
-      final genreBonus = (candidate.genre == current.genre) ? 0.35 : 0.0;
+      // 2. Tempo compatibility
+      double tempoScore = 0.0;
+      final isCurrentDefault = current.bpm <= 0 || (current.bpm == 120.0 && current.tapProfile == null);
+      final isCandidateDefault = candidate.bpm <= 0 || (candidate.bpm == 120.0 && candidate.tapProfile == null);
+      if (isCurrentDefault || isCandidateDefault) {
+        tempoScore = 0.35; // Neutral baseline for unprofiled tracks
+      } else {
+        final bpmDelta = (current.bpm - candidate.bpm).abs();
+        if (bpmDelta <= 5) {
+          tempoScore = 1.0;
+        } else if (bpmDelta <= 12) {
+          tempoScore = 0.8;
+        } else if (bpmDelta <= 20) {
+          tempoScore = 0.55;
+        } else {
+          final ratio = candidate.bpm / current.bpm;
+          if ((ratio - 1.0).abs() < 0.12 || (ratio - 0.5).abs() < 0.08 || (ratio - 2.0).abs() < 0.08) {
+            tempoScore = 0.75;
+          } else {
+            tempoScore = (0.5 - (bpmDelta / 200.0)).clamp(0.0, 0.45);
+          }
+        }
+      }
 
-      // 3. Artist variety preference
-      final varietyScore = (candidate.artist != current.artist) ? 0.15 : 0.0;
+      // 3. Harmonic Key Alignment (Camelot Wheel / Circle of Fifths)
+      final harmonicScore = _calculateHarmonicScore(current.musicalKey, candidate.musicalKey);
 
-      final totalScore = tempoScore + genreBonus + varietyScore;
-      if (totalScore > bestScore) {
-        bestScore = totalScore;
-        bestIndex = i;
+      // 4. Genre alignment bonus
+      final genreBonus = (candidate.genre.isNotEmpty &&
+              current.genre.isNotEmpty &&
+              candidate.genre.toLowerCase() == current.genre.toLowerCase())
+          ? 0.35
+          : 0.0;
+
+      // 5. Artist variety preference
+      final varietyScore = (candidate.artist != current.artist) ? 0.20 : 0.0;
+
+      // 6. Aggression / Dynamic energy similarity (if TAP profiles exist)
+      double aggressionScore = 0.0;
+      if (current.tapProfile != null && candidate.tapProfile != null) {
+        final aAgg = (current.tapProfile!['global_summary']?['aggression_index'] as num?)?.toDouble() ?? 0.5;
+        final bAgg = (candidate.tapProfile!['global_summary']?['aggression_index'] as num?)?.toDouble() ?? 0.5;
+        aggressionScore = (1.0 - (aAgg - bAgg).abs()) * 0.25;
+      }
+
+      final totalScore = tempoScore + harmonicScore + genreBonus + varietyScore + aggressionScore + recencyPenalty;
+      scored.add((index: i, score: totalScore));
+    }
+
+    if (scored.isEmpty) return (_currentQueueIndex + 1) % _queue.length;
+
+    // Top-K Weighted Probabilistic Selection (Prevents index 0 deterministic tie-breaking)
+    scored.sort((a, b) => b.score.compareTo(a.score));
+    final topScore = scored.first.score;
+
+    final pool = scored.take(6).where((c) => c.score >= topScore - 0.40).toList();
+    if (pool.isEmpty) return scored.first.index;
+
+    final minScore = pool.map((c) => c.score).reduce(min);
+    final weights = pool.map((c) => max(0.1, c.score - minScore + 0.5)).toList();
+    final totalWeight = weights.reduce((a, b) => a + b);
+    double randVal = Random().nextDouble() * totalWeight;
+
+    for (int k = 0; k < pool.length; k++) {
+      randVal -= weights[k];
+      if (randVal <= 0) {
+        return pool[k].index;
       }
     }
-    return bestIndex;
+    return pool.first.index;
   }
 
   void skipPrevious() {
     if (_positionSec > 3.0) {
       seek(0.0);
     } else if (_currentQueueIndex > 0) {
+      _recordRecentTrack(currentTrack?.id);
       _currentQueueIndex--;
       _upNextQueueIndex = _pickNextQueueIndex();
       _positionSec = 0.0;
@@ -415,6 +557,7 @@ class PlaybackController extends ChangeNotifier {
   }
 
   void playTrack(TrackItem track) {
+    _recordRecentTrack(currentTrack?.id);
     final existingIdx = _queue.indexWhere((t) => t.id == track.id);
     if (existingIdx != -1) {
       _currentQueueIndex = existingIdx;
@@ -552,6 +695,7 @@ class PlaybackController extends ChangeNotifier {
 
   void _advanceQueue() {
     if (_queue.isEmpty) return;
+    _recordRecentTrack(currentTrack?.id);
     _currentQueueIndex = _upNextQueueIndex;
     _upNextQueueIndex = _pickNextQueueIndex();
     final current = currentTrack;
@@ -587,15 +731,54 @@ class PlaybackController extends ChangeNotifier {
   }
 
   Future<void> _preparePendingRecipe() async {
+    if (Platform.environment.containsKey('FLUTTER_TEST')) return;
     final current = currentTrack;
     final next = upNextTrack;
     if (_shuffleMode != ShuffleMode.smart || current == null || next == null) {
       _pendingRecipe = null;
       return;
     }
-    if (current.tapProfile != null && next.tapProfile != null) {
+
+    // On-Demand JIT Mode: Analyze head/tail cue zones for unprofiled tracks (<100 ms)
+    if (current.tapProfile == null) {
       try {
-        final recipe = await _bridge.planTransition(current.tapProfile!, next.tapProfile!);
+        final profileA = await _bridge.profileTrack(current.filePath, tier: 0);
+        if (profileA != null) {
+          final bpm = (profileA['global_summary']?['bpm_estimate'] as num?)?.toDouble() ?? current.bpm;
+          final key = profileA['global_summary']?['key_signature'] as String? ?? current.musicalKey;
+          final updated = current.copyWith(tapProfile: profileA, bpm: bpm, musicalKey: key);
+          if (_currentQueueIndex < _queue.length && _queue[_currentQueueIndex].id == current.id) {
+            _queue[_currentQueueIndex] = updated;
+          }
+          AudioStorageService.instance.saveCachedTracks(_queue);
+        }
+      } catch (e) {
+        debugPrint('[PlaybackController] JIT profile A error: $e');
+      }
+    }
+
+    if (next.tapProfile == null) {
+      try {
+        final profileB = await _bridge.profileTrack(next.filePath, tier: 0);
+        if (profileB != null) {
+          final bpm = (profileB['global_summary']?['bpm_estimate'] as num?)?.toDouble() ?? next.bpm;
+          final key = profileB['global_summary']?['key_signature'] as String? ?? next.musicalKey;
+          final updated = next.copyWith(tapProfile: profileB, bpm: bpm, musicalKey: key);
+          if (_upNextQueueIndex < _queue.length && _queue[_upNextQueueIndex].id == next.id) {
+            _queue[_upNextQueueIndex] = updated;
+          }
+          AudioStorageService.instance.saveCachedTracks(_queue);
+        }
+      } catch (e) {
+        debugPrint('[PlaybackController] JIT profile B error: $e');
+      }
+    }
+
+    final curWithProfile = currentTrack;
+    final nextWithProfile = upNextTrack;
+    if (curWithProfile?.tapProfile != null && nextWithProfile?.tapProfile != null) {
+      try {
+        final recipe = await _bridge.planTransition(curWithProfile!.tapProfile!, nextWithProfile!.tapProfile!);
         if (recipe != null) {
           _pendingRecipe = recipe;
           final archetype = recipe['archetype'] as String? ?? 'ARCHETYPE_2_RIFF_HANDOFF';

@@ -154,6 +154,8 @@ pub enum TransitionArchetype {
     TailFreeze,
     #[serde(rename = "ARCHETYPE_5_COLD_CUT")]
     ColdCut,
+    #[serde(rename = "ARCHETYPE_6_GENERATIVE_MELODIC_FILL")]
+    GenerativeMelodicFill,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

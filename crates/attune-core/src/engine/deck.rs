@@ -26,6 +26,8 @@ pub struct Deck {
     pub deck_id: DeckId,
     pub state: DeckState,
     pub output_sample_rate: u32,
+    pub audible_end_ms: u64,
+    pub audible_end_frame: f64,
     audio: Option<AudioBuffer>,
     playhead_frame: f64,
     // DSP State
@@ -45,6 +47,8 @@ impl Deck {
             deck_id,
             state: DeckState::Stopped,
             output_sample_rate: sr,
+            audible_end_ms: 0,
+            audible_end_frame: 0.0,
             audio: None,
             playhead_frame: 0.0,
             gain_db: 0.0,
@@ -70,6 +74,10 @@ impl Deck {
     }
 
     pub fn load_audio(&mut self, audio: AudioBuffer) {
+        let audible_ms = audio.find_audible_end_ms(-45.0);
+        let end_frame = (audible_ms as f64 / 1000.0) * audio.sample_rate as f64;
+        self.audible_end_ms = audible_ms;
+        self.audible_end_frame = end_frame;
         self.audio = Some(audio);
         self.playhead_frame = 0.0;
         self.state = DeckState::Stopped;
@@ -79,6 +87,8 @@ impl Deck {
 
     pub fn clear(&mut self) {
         self.audio = None;
+        self.audible_end_ms = 0;
+        self.audible_end_frame = 0.0;
         self.playhead_frame = 0.0;
         self.state = DeckState::Stopped;
         self.eq.reset_state();
@@ -143,6 +153,14 @@ impl Deck {
 
     pub fn is_playing(&self) -> bool {
         self.state == DeckState::Playing || self.state == DeckState::Transitioning
+    }
+
+    pub fn audible_end_ms(&self) -> u64 {
+        self.audible_end_ms
+    }
+
+    pub fn is_audible_finished(&self) -> bool {
+        self.state == DeckState::Finished
     }
 
     // DSP Setters
@@ -223,7 +241,13 @@ impl Deck {
         };
 
         let total_frames = audio.num_frames();
-        if self.playhead_frame >= total_frames as f64 {
+        let effective_end_frame = if self.audible_end_frame > 0.0 && self.audible_end_frame < total_frames as f64 {
+            self.audible_end_frame
+        } else {
+            total_frames as f64
+        };
+
+        if self.playhead_frame >= effective_end_frame {
             self.state = DeckState::Finished;
             if self.reverb_freeze_send > 0.01 {
                 return self.reverb_freeze.process_stereo(0.0, 0.0);

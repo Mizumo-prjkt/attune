@@ -227,5 +227,110 @@ fn test_vocal_protection_in_transition_planning() {
     }
 }
 
+#[test]
+fn test_generative_fill_transition_planning_and_render() {
+    use attune_core::schema::{
+        AnalysisTier, CueZone, Frames20Hz, GlobalSummary, TrackAnalysisProfile, TrackId, ZoneType,
+    };
+
+    let frames_count = 100;
+    let exit_zone = CueZone {
+        zone_type: ZoneType::EXIT,
+        start_ms: 10000,
+        end_ms: 15000,
+        hop_ms: 50,
+        beats_ms: vec![10000, 10375, 10750, 11125, 11500, 11875, 12250, 12625, 13000, 13375, 13750, 14125, 14500, 14875],
+        downbeats_ms: vec![10000, 11500, 13000, 14500],
+        phrase_boundaries_ms: vec![10000, 13000],
+        sustained_pitch_regions: vec![],
+        frames_20hz: Frames20Hz {
+            f0_midi_cents: vec![0.0; frames_count],
+            chroma_12: vec![[0.0; 12]; frames_count],
+            energy_4band_db: vec![[-12.0; 4]; frames_count],
+            aggression_curve: vec![0.55; frames_count],
+            instrument_activations: vec![vec![0.0; 6]; frames_count],
+        },
+    };
+
+    let entry_zone = CueZone {
+        zone_type: ZoneType::ENTRY,
+        start_ms: 0,
+        end_ms: 10000,
+        hop_ms: 50,
+        beats_ms: vec![0, 350, 700, 1050, 1400, 1750, 2100, 2450, 2800],
+        downbeats_ms: vec![0, 1400, 2800],
+        phrase_boundaries_ms: vec![0, 2800],
+        sustained_pitch_regions: vec![],
+        frames_20hz: Frames20Hz {
+            f0_midi_cents: vec![0.0; frames_count],
+            chroma_12: vec![[0.0; 12]; frames_count],
+            energy_4band_db: vec![[-10.0; 4]; frames_count],
+            aggression_curve: vec![0.58; frames_count],
+            instrument_activations: vec![vec![0.0; 6]; frames_count],
+        },
+    };
+
+    let track_a = TrackAnalysisProfile {
+        schema_version: 1,
+        track_id: TrackId {
+            audio_hash: "synth_track_a".to_string(),
+            duration_ms: 15000,
+            canonical_slug: "synth_track_a".to_string(),
+        },
+        analysis_tier: AnalysisTier::FastHeadTail,
+        global_summary: GlobalSummary {
+            nominal_bpm: 80.0, // Folded to 160.0 BPM
+            bpm_stability: 0.95,
+            primary_key: "F Major".to_string(),
+            mean_aggression_index: 0.55,
+            macro_vibe_family: "POP_DANCE_GROOVE".to_string(),
+            dominant_instruments: vec!["inst_synth_electronic".to_string(), "vocal_clean_melodic".to_string()],
+        },
+        cue_zones: vec![exit_zone],
+    };
+
+    let track_b = TrackAnalysisProfile {
+        schema_version: 1,
+        track_id: TrackId {
+            audio_hash: "synth_track_b".to_string(),
+            duration_ms: 15000,
+            canonical_slug: "synth_track_b".to_string(),
+        },
+        analysis_tier: AnalysisTier::FastHeadTail,
+        global_summary: GlobalSummary {
+            nominal_bpm: 171.4, // Effective ~171.4 BPM (diff 7.1%)
+            bpm_stability: 0.95,
+            primary_key: "C Major".to_string(),
+            mean_aggression_index: 0.58,
+            macro_vibe_family: "POP_DANCE_GROOVE".to_string(),
+            dominant_instruments: vec!["inst_synth_electronic".to_string()],
+        },
+        cue_zones: vec![entry_zone],
+    };
+
+    let planner = TransitionPlanner::new();
+    let recipe = planner.plan_transition(&track_a, &track_b);
+
+    assert_eq!(recipe.archetype, TransitionArchetype::GenerativeMelodicFill);
+    assert!(recipe.confidence_score >= 0.85);
+
+    // Verify keyframes cover transition window
+    assert!(!recipe.dsp_automation_keyframes.is_empty());
+
+    // Test audio rendering with dummy buffers
+    let sr = 44100;
+    let buf_a = generate_test_tone(sr, 15.0, 349.23); // F4
+    let buf_b = generate_test_tone(sr, 15.0, 261.63); // C4
+
+    let renderer = TransitionRenderer::new();
+    let temp_dir = std::env::temp_dir();
+    let out_wav = temp_dir.join("attune_test_generative_fill.wav");
+
+    let res = renderer.render_to_wav(&buf_a, &buf_b, &recipe, &out_wav);
+    assert!(res.is_ok(), "Rendering failed: {:?}", res.err());
+    assert!(out_wav.exists());
+    let _ = std::fs::remove_file(out_wav);
+}
+
 
 

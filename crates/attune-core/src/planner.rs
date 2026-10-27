@@ -81,8 +81,57 @@ impl TransitionPlanner {
             }
         }
 
-        // 2. Check Archetype 4: Large Vibe / Aggression Gap or Huge BPM Gap
-        if bpm_diff_ratio > 0.20 || delta_agg >= 0.38 {
+        // Compute folded octave tempos into upbeat range [125.0, 220.0]
+        let mut eff_bpm_a = bpm_a;
+        while eff_bpm_a < 125.0 {
+            eff_bpm_a *= 2.0;
+        }
+        while eff_bpm_a > 220.0 {
+            eff_bpm_a /= 2.0;
+        }
+
+        let mut eff_bpm_b = bpm_b;
+        while eff_bpm_b < 125.0 {
+            eff_bpm_b *= 2.0;
+        }
+        while eff_bpm_b > 220.0 {
+            eff_bpm_b /= 2.0;
+        }
+
+        let eff_bpm_diff_ratio = (eff_bpm_a - eff_bpm_b).abs() / eff_bpm_a;
+
+        // 2. Check Archetype 6: Generative Melodic Bridge Fill for Upbeat/Eurobeat/Dance tracks
+        let has_distorted_guitar = track_a
+            .global_summary
+            .dominant_instruments
+            .iter()
+            .any(|i| i.contains("distorted"))
+            && track_b
+                .global_summary
+                .dominant_instruments
+                .iter()
+                .any(|i| i.contains("distorted"));
+
+        let has_synth_dance = (
+            track_a.global_summary.macro_vibe_family == "POP_DANCE_GROOVE"
+            || track_b.global_summary.macro_vibe_family == "POP_DANCE_GROOVE"
+        ) && (
+            track_a.global_summary.dominant_instruments.iter().any(|i| i.contains("synth"))
+            && track_b.global_summary.dominant_instruments.iter().any(|i| i.contains("synth"))
+        );
+
+        if eff_bpm_a >= 135.0 && eff_bpm_b >= 135.0 && eff_bpm_diff_ratio <= 0.16 && has_synth_dance && !has_distorted_guitar {
+            return self.build_archetype_6_generative_fill_recipe(
+                track_a,
+                track_b,
+                exit_a,
+                entry_b,
+                eff_bpm_a,
+            );
+        }
+
+        // 3. Check Archetype 4: Large Vibe / Aggression Gap or Huge BPM Gap
+        if eff_bpm_diff_ratio > 0.20 || delta_agg >= 0.38 {
             return self.build_archetype_4_tail_freeze_recipe(
                 track_a,
                 track_b,
@@ -91,7 +140,7 @@ impl TransitionPlanner {
             );
         }
 
-        // 3. Check Archetype 2: Instrument Riff / Drum Fill Handoff (High Aggression)
+        // 4. Check Archetype 2: Instrument Riff / Drum Fill Handoff (High Aggression)
         let has_grit_or_punk = (agg_a >= 0.60 && agg_b >= 0.55)
             || (agg_a >= 0.50 && agg_b >= 0.50 && (
                 track_a.global_summary.dominant_instruments.iter().any(|i| i.contains("distorted") || i.contains("grit"))
@@ -842,6 +891,202 @@ impl TransitionPlanner {
                 track_a_exit_end_ms: a_cut + 100,
                 track_b_entry_start_ms: b_start,
                 track_b_native_lock_ms: b_start + 100,
+            },
+            optional_stem_bridge_uri: None,
+            dsp_automation_keyframes: keyframes,
+        }
+    }
+
+    pub fn build_archetype_6_generative_fill_recipe(
+        &self,
+        track_a: &TrackAnalysisProfile,
+        track_b: &TrackAnalysisProfile,
+        exit_a: Option<&crate::schema::CueZone>,
+        entry_b: Option<&crate::schema::CueZone>,
+        eff_bpm_a: f32,
+    ) -> TransitionRecipe {
+        let beat_ms = (60_000.0 / eff_bpm_a) as u64;
+        let fill_duration_ms = beat_ms * 4; // 1-bar (4-beat) generative fill
+
+        let vocal_end = exit_a.and_then(|z| z.last_vocal_end_ms());
+        let a_cut_point = exit_a
+            .and_then(|z| {
+                if let Some(v_end) = vocal_end {
+                    z.downbeats_ms
+                        .iter()
+                        .copied()
+                        .find(|&db| db >= v_end && db <= z.end_ms)
+                        .or_else(|| Some(z.end_ms))
+                } else {
+                    z.downbeats_ms
+                        .iter()
+                        .copied()
+                        .filter(|&db| db <= z.end_ms)
+                        .next_back()
+                        .or_else(|| z.downbeats_ms.last().copied())
+                }
+            })
+            .unwrap_or(track_a.track_id.duration_ms.saturating_sub(fill_duration_ms));
+
+        let b_entry_point = entry_b
+            .map(|z| z.start_ms)
+            .unwrap_or(0);
+
+        let a_start = a_cut_point.saturating_sub(fill_duration_ms);
+
+        let has_vocals_in_handoff = exit_a
+            .map(|z| z.has_vocal_between_ms(a_start, a_cut_point))
+            .unwrap_or(false);
+
+        let mid_duck_b2 = if has_vocals_in_handoff { 0.0 } else { -3.0 };
+        let mid_duck_b3 = if has_vocals_in_handoff { 0.0 } else { -6.0 };
+        let mid_duck_b3_5 = if has_vocals_in_handoff { 0.0 } else { -12.0 };
+
+        let beat_1_ms = fill_duration_ms / 4;
+        let beat_2_ms = fill_duration_ms / 2;
+        let beat_3_ms = (fill_duration_ms * 3) / 4;
+        let beat_3_5_ms = (fill_duration_ms * 7) / 8;
+
+        let keyframes = vec![
+            DspAutomationKeyframe {
+                offset_ms: 0,
+                deck_a: DeckAutomation {
+                    gain_db: 0.0,
+                    eq_sub_db: 0.0,
+                    eq_mid_db: 0.0,
+                    eq_high_db: 0.0,
+                    stretch_ratio: 1.0,
+                    pitch_cents: 0,
+                    reverb_freeze_send: 0.0,
+                },
+                deck_b: DeckAutomation {
+                    gain_db: -60.0,
+                    eq_sub_db: -24.0,
+                    eq_mid_db: -12.0,
+                    eq_high_db: -6.0,
+                    stretch_ratio: 1.0,
+                    pitch_cents: 0,
+                    reverb_freeze_send: 0.0,
+                },
+            },
+            DspAutomationKeyframe {
+                offset_ms: beat_1_ms,
+                deck_a: DeckAutomation {
+                    gain_db: -1.5,
+                    eq_sub_db: -9.0,
+                    eq_mid_db: 0.0,
+                    eq_high_db: 0.0,
+                    stretch_ratio: 1.0,
+                    pitch_cents: 0,
+                    reverb_freeze_send: 0.0,
+                },
+                deck_b: DeckAutomation {
+                    gain_db: -36.0,
+                    eq_sub_db: -18.0,
+                    eq_mid_db: -6.0,
+                    eq_high_db: -3.0,
+                    stretch_ratio: 1.0,
+                    pitch_cents: 0,
+                    reverb_freeze_send: 0.0,
+                },
+            },
+            DspAutomationKeyframe {
+                offset_ms: beat_2_ms,
+                deck_a: DeckAutomation {
+                    gain_db: -3.5,
+                    eq_sub_db: -18.0,
+                    eq_mid_db: mid_duck_b2,
+                    eq_high_db: -3.0,
+                    stretch_ratio: 1.0,
+                    pitch_cents: 0,
+                    reverb_freeze_send: 0.0,
+                },
+                deck_b: DeckAutomation {
+                    gain_db: -18.0,
+                    eq_sub_db: -12.0,
+                    eq_mid_db: -2.0,
+                    eq_high_db: 0.0,
+                    stretch_ratio: 1.0,
+                    pitch_cents: 0,
+                    reverb_freeze_send: 0.0,
+                },
+            },
+            DspAutomationKeyframe {
+                offset_ms: beat_3_ms,
+                deck_a: DeckAutomation {
+                    gain_db: -6.0,
+                    eq_sub_db: -24.0,
+                    eq_mid_db: mid_duck_b3,
+                    eq_high_db: -6.0,
+                    stretch_ratio: 1.0,
+                    pitch_cents: 0,
+                    reverb_freeze_send: 0.15,
+                },
+                deck_b: DeckAutomation {
+                    gain_db: -6.0,
+                    eq_sub_db: -6.0,
+                    eq_mid_db: 0.0,
+                    eq_high_db: 0.0,
+                    stretch_ratio: 1.0,
+                    pitch_cents: 0,
+                    reverb_freeze_send: 0.0,
+                },
+            },
+            DspAutomationKeyframe {
+                offset_ms: beat_3_5_ms,
+                deck_a: DeckAutomation {
+                    gain_db: -12.0,
+                    eq_sub_db: -36.0,
+                    eq_mid_db: mid_duck_b3_5,
+                    eq_high_db: -12.0,
+                    stretch_ratio: 1.0,
+                    pitch_cents: 0,
+                    reverb_freeze_send: 0.35,
+                },
+                deck_b: DeckAutomation {
+                    gain_db: -2.0,
+                    eq_sub_db: -2.0,
+                    eq_mid_db: 0.0,
+                    eq_high_db: 0.0,
+                    stretch_ratio: 1.0,
+                    pitch_cents: 0,
+                    reverb_freeze_send: 0.0,
+                },
+            },
+            DspAutomationKeyframe {
+                offset_ms: fill_duration_ms,
+                deck_a: DeckAutomation {
+                    gain_db: -60.0,
+                    eq_sub_db: -60.0,
+                    eq_mid_db: -60.0,
+                    eq_high_db: -60.0,
+                    stretch_ratio: 1.0,
+                    pitch_cents: 0,
+                    reverb_freeze_send: 0.0,
+                },
+                deck_b: DeckAutomation {
+                    gain_db: 0.0,
+                    eq_sub_db: 0.0,
+                    eq_mid_db: 0.0,
+                    eq_high_db: 0.0,
+                    stretch_ratio: 1.0,
+                    pitch_cents: 0,
+                    reverb_freeze_send: 0.0,
+                },
+            },
+        ];
+
+        TransitionRecipe {
+            schema_version: 1,
+            track_a_hash: track_a.track_id.audio_hash.clone(),
+            track_b_hash: track_b.track_id.audio_hash.clone(),
+            archetype: TransitionArchetype::GenerativeMelodicFill,
+            confidence_score: 0.95,
+            timing: TransitionTiming {
+                track_a_transition_start_ms: a_start,
+                track_a_exit_end_ms: a_cut_point,
+                track_b_entry_start_ms: b_entry_point,
+                track_b_native_lock_ms: b_entry_point + fill_duration_ms,
             },
             optional_stem_bridge_uri: None,
             dsp_automation_keyframes: keyframes,

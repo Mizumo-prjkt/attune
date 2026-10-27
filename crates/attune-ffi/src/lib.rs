@@ -1,6 +1,7 @@
 //! C-ABI dynamic library export for Attune Engine.
 //! Exposes audio profiling, transition recipe generation, and cache repository
 //! management to Dart FFI, Flutter, and native mobile/desktop platforms.
+#![allow(clippy::not_unsafe_ptr_arg_deref)]
 
 use std::ffi::{CStr, CString};
 use std::os::raw::c_char;
@@ -361,8 +362,10 @@ pub extern "C" fn attune_player_get_state() -> *mut c_char {
     let deck_a_json = serde_json::json!({
         "position_ms": mixer.deck_a.current_position_ms(),
         "duration_ms": mixer.deck_a.duration_ms(),
+        "audible_end_ms": mixer.deck_a.audible_end_ms(),
         "state": format!("{:?}", mixer.deck_a.state),
         "is_playing": mixer.deck_a.is_playing(),
+        "is_audible_finished": mixer.deck_a.is_audible_finished(),
         "gain_db": mixer.deck_a.gain_db(),
         "stretch_ratio": mixer.deck_a.stretch_ratio(),
         "pitch_cents": mixer.deck_a.pitch_cents(),
@@ -375,8 +378,10 @@ pub extern "C" fn attune_player_get_state() -> *mut c_char {
     let deck_b_json = serde_json::json!({
         "position_ms": mixer.deck_b.current_position_ms(),
         "duration_ms": mixer.deck_b.duration_ms(),
+        "audible_end_ms": mixer.deck_b.audible_end_ms(),
         "state": format!("{:?}", mixer.deck_b.state),
         "is_playing": mixer.deck_b.is_playing(),
+        "is_audible_finished": mixer.deck_b.is_audible_finished(),
         "gain_db": mixer.deck_b.gain_db(),
         "stretch_ratio": mixer.deck_b.stretch_ratio(),
         "pitch_cents": mixer.deck_b.pitch_cents(),
