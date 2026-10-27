@@ -312,9 +312,14 @@ class ProfileAndStatsStage extends StatelessWidget {
                         applicationName: 'Attune',
                         applicationVersion: 'v0.5.0',
                         applicationIcon: Container(
-                          padding: const EdgeInsets.all(8),
-                          decoration: BoxDecoration(color: colorScheme.primary, shape: BoxShape.circle),
-                          child: const Icon(Icons.graphic_eq_rounded, color: Colors.white, size: 28),
+                          width: 48,
+                          height: 48,
+                          padding: const EdgeInsets.all(6),
+                          decoration: BoxDecoration(color: colorScheme.primary.withValues(alpha: 0.15), shape: BoxShape.circle),
+                          child: Image.asset(
+                            'assets/icon/icon_transparent.png',
+                            fit: BoxFit.contain,
+                          ),
                         ),
                         children: [
                           const SizedBox(height: 12),

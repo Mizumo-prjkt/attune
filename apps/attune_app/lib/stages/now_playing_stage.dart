@@ -456,10 +456,14 @@ class _NowPlayingStageState extends State<NowPlayingStage> {
         ),
       ),
       child: Center(
-        child: Icon(
-          Icons.graphic_eq_rounded,
-          size: 72,
-          color: colorScheme.primary.withValues(alpha: 0.8),
+        child: Opacity(
+          opacity: 0.85,
+          child: Image.asset(
+            'assets/icon/icon_transparent.png',
+            width: 96,
+            height: 96,
+            fit: BoxFit.contain,
+          ),
         ),
       ),
     );

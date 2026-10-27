@@ -102,7 +102,13 @@ class _StartupSetupStageState extends State<StartupSetupStage> {
                         ),
                       ],
                     ),
-                    child: const Icon(Icons.graphic_eq_rounded, color: Colors.white, size: 36),
+                    child: Padding(
+                      padding: const EdgeInsets.all(12.0),
+                      child: Image.asset(
+                        'assets/icon/icon_transparent.png',
+                        fit: BoxFit.contain,
+                      ),
+                    ),
                   ),
 
                   const SizedBox(height: 18),

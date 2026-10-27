@@ -281,14 +281,18 @@ class _ResponsiveGlassScaffoldState extends State<ResponsiveGlassScaffold>
             surfaceAlpha: 0.16,
             child: Column(
               children: [
-                // App Logo Icon
                 Container(
-                  padding: const EdgeInsets.all(10),
+                  padding: const EdgeInsets.all(8),
                   decoration: BoxDecoration(
-                    color: colorScheme.primary.withValues(alpha: 0.25),
+                    color: colorScheme.primary.withValues(alpha: 0.15),
                     shape: BoxShape.circle,
                   ),
-                  child: Icon(Icons.graphic_eq_rounded, color: colorScheme.primary, size: 24),
+                  child: Image.asset(
+                    'assets/icon/icon_transparent.png',
+                    width: 28,
+                    height: 28,
+                    fit: BoxFit.contain,
+                  ),
                 ),
                 const SizedBox(height: 28),
 

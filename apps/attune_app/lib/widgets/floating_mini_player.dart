@@ -60,11 +60,11 @@ class FloatingMiniPlayer extends StatelessWidget {
                             fit: BoxFit.cover,
                           )
                         : Container(
-                            color: accentColor.withValues(alpha: 0.3),
-                            child: Icon(
-                              Icons.music_note_rounded,
-                              color: accentColor,
-                              size: 26,
+                            color: accentColor.withValues(alpha: 0.2),
+                            padding: const EdgeInsets.all(8),
+                            child: Image.asset(
+                              'assets/icon/icon_transparent.png',
+                              fit: BoxFit.contain,
                             ),
                           ),
                   ),

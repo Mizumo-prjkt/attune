@@ -7,7 +7,7 @@ import 'package:flutter/services.dart';
 /// (SettingsActivity, TransitionInspectorActivity) for OS-level Predictive Back
 /// gesture window-peeking, with automatic fallback to Flutter Navigator on Desktop/Web.
 class PlatformNavigation {
-  static const MethodChannel _channel = MethodChannel('com.attune.player/navigation');
+  static const MethodChannel _channel = MethodChannel('org.mizproject.attune/navigation');
 
   /// Opens the Settings & Audio Configuration UI.
   /// On Android, launches the independent `SettingsActivity` task window.

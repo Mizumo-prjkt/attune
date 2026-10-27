@@ -1,4 +1,4 @@
-package com.attune.player.attune_app
+package org.mizproject.attune
 
 import android.content.Intent
 import io.flutter.embedding.android.FlutterActivity
@@ -6,7 +6,7 @@ import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 
 class MainActivity : FlutterActivity() {
-    private val NAVIGATION_CHANNEL = "com.attune.player/navigation"
+    private val NAVIGATION_CHANNEL = "org.mizproject.attune/navigation"
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)

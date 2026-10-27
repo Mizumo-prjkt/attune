@@ -5,7 +5,7 @@ plugins {
 }
 
 android {
-    namespace = "com.attune.player.attune_app"
+    namespace = "org.mizproject.attune"
     compileSdk = flutter.compileSdkVersion
     ndkVersion = flutter.ndkVersion
 
@@ -15,8 +15,7 @@ android {
     }
 
     defaultConfig {
-        // TODO: Specify your own unique Application ID (https://developer.android.com/studio/build/application-id.html).
-        applicationId = "com.attune.player.attune_app"
+        applicationId = "org.mizproject.attune"
         // You can update the following values to match your application needs.
         // For more information, see: https://flutter.dev/to/review-gradle-config.
         minSdk = flutter.minSdkVersion

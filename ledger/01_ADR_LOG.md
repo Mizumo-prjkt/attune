@@ -548,6 +548,43 @@ This file records all major architectural decisions for **Attune**, including co
   - Solid, gorgeous liquid frosted glass presentation with zero text bleeding.
   - All 17 Rust tests and 10 Flutter unit/widget tests pass with 0 errors and 0 warnings.
 
+---
+
+## ADR-022: Official Brand Assets Integration & Application Package ID Migration (`org.mizproject.attune`)
+
+- **Status**: **LOCKED** (Implemented & Verified)
+- **Date**: 2026-10-27
+- **Context**:
+  - The project previously used generic or template package identifiers (`com.attune.player.attune_app`, `com.attune.player`, `com.attune.app`) across Android manifests, CMakeLists, Xcode project definitions, Windows resource scripts, and Dart method channels.
+  - Furthermore, in-app UI widgets (the navigation rail header, startup setup wizard, and profile about dialog) used generic Material Icon placeholders (`Icons.graphic_eq_rounded`).
+  - The user provided high-resolution brand assets in `/home/miku/Documents/attune/icon`:
+    - `icon-transparent.png` (850x850 RGBA transparent circular glass disc with `| > |` branding)
+    - `icon.png` (2048x2048 RGBA high-resolution app squircle)
+  - The user requested updating the frontend with this icon and formally setting the application package name ID to `org.mizproject.attune`.
+- **Decision**:
+  1. **Application Package ID Migration to `org.mizproject.attune`**:
+     - **Android**: Updated `namespace = "org.mizproject.attune"` and `applicationId = "org.mizproject.attune"` in `apps/attune_app/android/app/build.gradle.kts`. Updated `taskAffinity` definitions (`org.mizproject.attune.main`, `.settings`, `.transition_inspector`) in `AndroidManifest.xml`. Relocated Kotlin activity files (`MainActivity.kt`, `SettingsActivity.kt`, `TransitionInspectorActivity.kt`) from `com/attune/player/attune_app/` to `org/mizproject/attune/` with updated package declarations.
+     - **Linux**: Updated `set(APPLICATION_ID "org.mizproject.attune")` in `apps/attune_app/linux/CMakeLists.txt`. Configured window title to `"Attune"` and attached window icon via `gtk_window_set_icon_from_file` in `apps/attune_app/linux/runner/my_application.cc`.
+     - **macOS & iOS**: Updated `PRODUCT_BUNDLE_IDENTIFIER = org.mizproject.attune` in `apps/attune_app/macos/Runner/Configs/AppInfo.xcconfig`, `apps/attune_app/ios/Runner.xcodeproj/project.pbxproj`, and `apps/attune_app/macos/Runner.xcodeproj/project.pbxproj`.
+     - **Windows**: Updated `CompanyName` and `LegalCopyright` to `"org.mizproject"` in `apps/attune_app/windows/runner/Runner.rc`.
+     - **Dart / Flutter Services**: Updated `PlatformNavigation._channel` to `MethodChannel('org.mizproject.attune/navigation')`. Added Android 11+ scoped media directory fallback paths for `org.mizproject.attune` in `AudioStorageService`.
+  2. **In-App Frontend Brand Asset Integration**:
+     - Declared `assets/icon/` in `apps/attune_app/pubspec.yaml`.
+     - Placed `icon_transparent.png` and `icon.png` inside `apps/attune_app/assets/icon/`.
+     - Updated NavigationRail header in `apps/attune_app/lib/shell/responsive_glass_scaffold.dart` to display the transparent glass disc logo inside an ambient cyan tinted container.
+     - Updated `StartupSetupStage` welcome hero icon to feature the authentic glowing brand icon.
+     - Updated `ProfileAndStatsStage` About dialog to feature the branded circular application icon.
+     - Updated `FloatingMiniPlayer` and `NowPlayingStage` fallback artwork containers to display the transparent logo in place of generic placeholder glyphs.
+  3. **Multi-Platform Native Launcher Icons Generation**:
+     - Android: Generated `res/mipmap-*/ic_launcher.png` for mdpi (48px), hdpi (72px), xhdpi (96px), xxhdpi (144px), and xxxhdpi (192px).
+     - macOS: Resized full suite of `AppIcon.appiconset` (16, 32, 64, 128, 256, 512, 1024).
+     - Web: Generated `Icon-192.png`, `Icon-512.png`, maskable variants, and `favicon.png`.
+     - Linux: Application window and desktop integration loads `assets/icon/icon.png`.
+- **Consequences**:
+  - Unified branding identity across the entire user experience.
+  - Clean separation and canonical reverse-DNS package identifier `org.mizproject.attune` ready for Play Store, Flathub/AppImage, and App Store packaging.
+  - All 17 Rust tests and all 10 Flutter unit/widget tests pass with 0 errors and 0 warnings.
+
 
 
 

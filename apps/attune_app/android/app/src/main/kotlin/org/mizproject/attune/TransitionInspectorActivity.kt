@@ -1,4 +1,4 @@
-package com.attune.player.attune_app
+package org.mizproject.attune
 
 import android.content.Context
 import android.content.Intent

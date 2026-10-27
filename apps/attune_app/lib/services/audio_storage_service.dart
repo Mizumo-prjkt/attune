@@ -54,6 +54,8 @@ class AudioStorageService {
         '/storage/emulated/0/Ringtones',
         '/sdcard/Music',
         '/sdcard/Download',
+        '/storage/emulated/0/Android/media/org.mizproject.attune',
+        '/storage/emulated/0/Android/data/org.mizproject.attune/files/Music',
         '/storage/emulated/0/Android/media/com.attune.app',
         '/storage/emulated/0/Android/data/com.attune.app/files/Music',
       ]);
