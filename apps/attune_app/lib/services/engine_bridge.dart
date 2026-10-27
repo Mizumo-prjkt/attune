@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:ffi';
 import 'dart:io';
+import 'dart:isolate';
 import 'package:ffi/ffi.dart';
 import 'package:flutter/foundation.dart';
 
@@ -55,13 +56,13 @@ class AttuneEngineBridge {
   static AttuneEngineBridge get instance => _instance ??= AttuneEngineBridge._init();
 
   DynamicLibrary? _lib;
+  String? _resolvedLibraryPath;
+  String? get resolvedLibraryPath => _resolvedLibraryPath;
   bool _isInitialized = false;
 
   AttuneInitDart? _attuneInit;
   AttuneVersionDart? _attuneVersion;
   AttuneFreeStringDart? _attuneFreeString;
-  AttuneProfileFileDart? _attuneProfileFile;
-  AttunePlanTransitionDart? _attunePlanTransition;
   AttuneCacheStatsDart? _attuneCacheStats;
 
   AttunePlayerStartDart? _attunePlayerStart;
@@ -93,16 +94,23 @@ class AttuneEngineBridge {
         ];
         for (final path in candidatePaths) {
           if (File(path).existsSync()) {
+            _resolvedLibraryPath = path;
             _lib = DynamicLibrary.open(path);
             break;
           }
         }
-        _lib ??= DynamicLibrary.open('libattune_engine.so');
+        if (_lib == null) {
+          _resolvedLibraryPath = 'libattune_engine.so';
+          _lib = DynamicLibrary.open('libattune_engine.so');
+        }
       } else if (Platform.isAndroid) {
+        _resolvedLibraryPath = 'libattune_engine.so';
         _lib = DynamicLibrary.open('libattune_engine.so');
       } else if (Platform.isMacOS) {
+        _resolvedLibraryPath = 'libattune_engine.dylib';
         _lib = DynamicLibrary.open('libattune_engine.dylib');
       } else if (Platform.isWindows) {
+        _resolvedLibraryPath = 'attune_engine.dll';
         _lib = DynamicLibrary.open('attune_engine.dll');
       }
 
@@ -110,9 +118,6 @@ class AttuneEngineBridge {
         _attuneInit = _lib!.lookupFunction<AttuneInitC, AttuneInitDart>('attune_init');
         _attuneVersion = _lib!.lookupFunction<AttuneVersionC, AttuneVersionDart>('attune_version');
         _attuneFreeString = _lib!.lookupFunction<AttuneFreeStringC, AttuneFreeStringDart>('attune_free_string');
-        _attuneProfileFile = _lib!.lookupFunction<AttuneProfileFileC, AttuneProfileFileDart>('attune_profile_file');
-        _attunePlanTransition =
-            _lib!.lookupFunction<AttunePlanTransitionC, AttunePlanTransitionDart>('attune_plan_transition');
         _attuneCacheStats = _lib!.lookupFunction<AttuneCacheStatsC, AttuneCacheStatsDart>('attune_cache_stats');
 
         _attunePlayerStart = _lib!.lookupFunction<AttunePlayerStartC, AttunePlayerStartDart>('attune_player_start');
@@ -148,42 +153,69 @@ class AttuneEngineBridge {
     return str;
   }
 
-  /// Profiles an audio file and returns its parsed TrackAnalysisProfile (TAP)
+  /// Profiles an audio file and returns its parsed TrackAnalysisProfile (TAP) asynchronously on a background worker
   Future<Map<String, dynamic>?> profileTrack(String filePath, {int tier = 1}) async {
-    if (!isAvailable || _attuneProfileFile == null || _attuneFreeString == null) {
-      return null;
-    }
-    final pathPtr = filePath.toNativeUtf8();
+    if (!isAvailable) return null;
+    final libPath = _resolvedLibraryPath;
+    if (libPath == null) return null;
+
     try {
-      final resPtr = _attuneProfileFile!(pathPtr, tier);
-      if (resPtr.address == 0) return null;
-      final jsonStr = resPtr.toDartString();
-      _attuneFreeString!(resPtr);
-      return jsonDecode(jsonStr) as Map<String, dynamic>;
-    } finally {
-      calloc.free(pathPtr);
+      return await Isolate.run(() {
+        final lib = DynamicLibrary.open(libPath);
+        final profileFn = lib.lookupFunction<AttuneProfileFileC, AttuneProfileFileDart>('attune_profile_file');
+        final freeFn = lib.lookupFunction<AttuneFreeStringC, AttuneFreeStringDart>('attune_free_string');
+
+        final pathPtr = filePath.toNativeUtf8();
+        try {
+          final resPtr = profileFn(pathPtr, tier);
+          if (resPtr.address == 0) return null;
+          final jsonStr = resPtr.toDartString();
+          freeFn(resPtr);
+          return jsonDecode(jsonStr) as Map<String, dynamic>;
+        } finally {
+          calloc.free(pathPtr);
+        }
+      });
+    } catch (e) {
+      debugPrint('[AttuneEngineBridge] Background profileTrack notice: $e');
+      return null;
     }
   }
 
-  /// Plans a seamless transition recipe between two TrackAnalysisProfiles
+  /// Plans a seamless transition recipe between two TrackAnalysisProfiles asynchronously on a background worker
   Future<Map<String, dynamic>?> planTransition(
     Map<String, dynamic> tapA,
     Map<String, dynamic> tapB,
   ) async {
-    if (!isAvailable || _attunePlanTransition == null || _attuneFreeString == null) {
-      return null;
-    }
-    final jsonA = jsonEncode(tapA).toNativeUtf8();
-    final jsonB = jsonEncode(tapB).toNativeUtf8();
+    if (!isAvailable) return null;
+    final libPath = _resolvedLibraryPath;
+    if (libPath == null) return null;
+
+    final jsonA = jsonEncode(tapA);
+    final jsonB = jsonEncode(tapB);
+
     try {
-      final resPtr = _attunePlanTransition!(jsonA, jsonB);
-      if (resPtr.address == 0) return null;
-      final jsonStr = resPtr.toDartString();
-      _attuneFreeString!(resPtr);
-      return jsonDecode(jsonStr) as Map<String, dynamic>;
-    } finally {
-      calloc.free(jsonA);
-      calloc.free(jsonB);
+      return await Isolate.run(() {
+        final lib = DynamicLibrary.open(libPath);
+        final planFn = lib.lookupFunction<AttunePlanTransitionC, AttunePlanTransitionDart>('attune_plan_transition');
+        final freeFn = lib.lookupFunction<AttuneFreeStringC, AttuneFreeStringDart>('attune_free_string');
+
+        final aPtr = jsonA.toNativeUtf8();
+        final bPtr = jsonB.toNativeUtf8();
+        try {
+          final resPtr = planFn(aPtr, bPtr);
+          if (resPtr.address == 0) return null;
+          final jsonStr = resPtr.toDartString();
+          freeFn(resPtr);
+          return jsonDecode(jsonStr) as Map<String, dynamic>;
+        } finally {
+          calloc.free(aPtr);
+          calloc.free(bPtr);
+        }
+      });
+    } catch (e) {
+      debugPrint('[AttuneEngineBridge] Background planTransition notice: $e');
+      return null;
     }
   }
 

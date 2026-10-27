@@ -470,7 +470,7 @@ class _ResponsiveGlassScaffoldState extends State<ResponsiveGlassScaffold>
                     filter: ImageFilter.blur(sigmaX: blurSigma, sigmaY: blurSigma),
                     child: Container(
                       decoration: BoxDecoration(
-                        color: Colors.black.withValues(alpha: 0.35 * t),
+                        color: Colors.black.withValues(alpha: 0.88 * t + 0.10),
                         gradient: midPeak > 0.05
                             ? LinearGradient(
                                 begin: Alignment.topLeft,

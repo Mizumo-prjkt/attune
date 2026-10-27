@@ -285,7 +285,7 @@ class PlaybackController extends ChangeNotifier {
     final state = _bridge.playerGetState();
 
     if (state != null && state['initialized'] == true) {
-      _isPlaying = state['is_playing'] as bool? ?? false;
+      final nativeIsPlaying = state['is_playing'] as bool? ?? false;
       final activeDeck = state['active_deck'] as String? ?? 'DeckA';
       final deckA = state['deck_a'] as Map<String, dynamic>?;
       final deckB = state['deck_b'] as Map<String, dynamic>?;
@@ -318,7 +318,7 @@ class PlaybackController extends ChangeNotifier {
         _isTransitioning = true;
         _transitionProgress = (trans['progress'] as num? ?? 0.0).toDouble();
         _activeArchetype =
-            (trans['archetype'] as String? ?? 'Riff Handoff').replaceAll('ARCHETYPE_', '').replaceAll('_', ' ');
+            (trans['archetype'] as String? ?? 'Eq Swap').replaceAll('ARCHETYPE_', '').replaceAll('_', ' ');
       } else {
         if (_isTransitioning) {
           // Transition finished in native mixer: advance queue and update active deck
@@ -326,7 +326,7 @@ class PlaybackController extends ChangeNotifier {
           _transitionProgress = 0.0;
           _pendingRecipe = null;
           _advanceQueue();
-        } else if (_isPlaying && _durationSec > 5.0) {
+        } else if (_durationSec > 5.0) {
           final activeDeckJson = activeDeck == 'DeckA' ? deckA : deckB;
           final deckState = activeDeckJson?['state'] as String?;
           final isAudibleFinished = activeDeckJson?['is_audible_finished'] == true;
@@ -334,28 +334,23 @@ class PlaybackController extends ChangeNotifier {
           final isNearAudibleEnd = audibleEndMs > 0 && (_positionSec * 1000 >= audibleEndMs - 250);
           final isTrackEnded = deckState == 'Finished' || isAudibleFinished || isNearAudibleEnd || _positionSec >= _durationSec - 0.3;
 
-          if (_shuffleMode == ShuffleMode.smart) {
-            // Smart Algorithmic Transition: trigger at genuine recipe start time
-            if (_pendingRecipe != null && !_isTransitionPlanning) {
-              final timing = _pendingRecipe!['timing'] as Map<String, dynamic>?;
-              final startMs = (timing?['track_a_transition_start_ms'] as num?)?.toDouble();
-              if (startMs != null && _positionSec * 1000 >= startMs) {
-                _executeAutoTransition(_pendingRecipe!);
-              } else if (isTrackEnded) {
-                // If track reaches audible silence before recipe startMs, trigger transition immediately!
-                _executeAutoTransition(_pendingRecipe!);
-              }
-            } else if (isTrackEnded) {
-              skipNext();
+          if (isTrackEnded && (_isPlaying || deckState == 'Finished' || isAudibleFinished)) {
+            if (_shuffleMode == ShuffleMode.smart && _pendingRecipe != null && !_isTransitionPlanning) {
+              _executeAutoTransition(_pendingRecipe!);
+            } else {
+              skipNext(autoPlay: true);
             }
-          } else {
-            // Normal (Off) or Standard Random Shuffle: play until music finishes, cutting trailing dead air
-            if (isTrackEnded) {
-              skipNext();
+          } else if (_isPlaying && _shuffleMode == ShuffleMode.smart && _pendingRecipe != null && !_isTransitionPlanning) {
+            // Smart Algorithmic Transition: trigger at genuine recipe start time
+            final timing = _pendingRecipe!['timing'] as Map<String, dynamic>?;
+            final startMs = (timing?['track_a_transition_start_ms'] as num?)?.toDouble();
+            if (startMs != null && _positionSec * 1000 >= startMs) {
+              _executeAutoTransition(_pendingRecipe!);
             }
           }
         }
       }
+      _isPlaying = nativeIsPlaying;
       notifyListeners();
     } else if (_isPlaying) {
       // Fallback/Simulated progression when audio hardware is not attached
@@ -385,6 +380,10 @@ class PlaybackController extends ChangeNotifier {
   }
 
   void play() {
+    if (_queue.isEmpty) return;
+    if (_positionSec >= _durationSec - 0.5) {
+      seek(0.0);
+    }
     _isPlaying = true;
     _bridge.playerPlay();
     notifyListeners();
@@ -418,8 +417,9 @@ class PlaybackController extends ChangeNotifier {
     }
   }
 
-  void skipNext() {
+  void skipNext({bool autoPlay = false}) {
     if (_queue.isEmpty) return;
+    final wasPlaying = _isPlaying || autoPlay;
     _recordRecentTrack(currentTrack?.id);
 
     _currentQueueIndex = _upNextQueueIndex;
@@ -430,7 +430,8 @@ class PlaybackController extends ChangeNotifier {
     _isTransitioning = false;
     _pendingRecipe = null;
     _loadCurrentTrackToEngine(force: true);
-    if (_isPlaying) {
+    if (wasPlaying) {
+      _isPlaying = true;
       _bridge.playerPlay();
     }
     notifyListeners();

@@ -101,7 +101,11 @@ impl Deck {
     }
 
     pub fn play(&mut self) {
-        if self.audio.is_some() {
+        if let Some(ref audio) = self.audio {
+            let total = audio.num_frames() as f64;
+            if self.state == DeckState::Finished || self.playhead_frame >= (total - 100.0).max(0.0) {
+                self.playhead_frame = 0.0;
+            }
             self.state = DeckState::Playing;
         }
     }

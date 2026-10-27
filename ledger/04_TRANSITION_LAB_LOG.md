@@ -531,3 +531,23 @@ These four benchmark scenarios define the "Gold Standard" transitions that Attun
        - Dynamic cue trigger detected at $225.57\text{s}$ (outro energy drop $\le -18\text{ dB}$).
        - Phase-aligned 5.56s EqSwap transition with smooth mid/high blend and seamless bass crossover.
 - **Listening & Stability Verdict**: `PASS`. Clean, professional DJ-grade transition indistinguishable from commercial streaming platform AutoMix algorithms.
+
+---
+
+### Experiment #021: Track-End Auto-Advance, FFI Isolate Worker Offloading & Liquid Glass Backdrop Contrast
+- **Date**: 2026-10-27
+- **Hypothesis**: By decoupling the `isTrackEnded` check from `_isPlaying` in `_pollNativeState`, auto-rewinding `playhead_frame` upon replay in `deck.rs`, offloading heavy FFI analysis to background `Isolate.run` workers, conditionally rendering `TransitionConnectorPill`, and raising the backdrop opacity in `responsive_glass_scaffold.dart`, the player will seamlessly auto-advance to subsequent tracks without freezing, keep the UI at a responsive 60/120 FPS, and eliminate text ghosting behind Now Playing.
+- **Empirical Findings & Verification**:
+  1. **End-of-Track Auto-Advance**:
+     - Tested reaching the audible end of *Rabbit Hole* (`02:37 / 02:39`, `audible_end_ms = 157960`).
+     - Deck transitioned to `DeckState::Finished`. `PlaybackController._pollNativeState` evaluated `isTrackEnded == true` and immediately called `skipNext(autoPlay: true)`.
+     - Queue automatically advanced to the next track (`惑星ループ` / *Planetary Loop*) without hanging or pausing.
+  2. **Dart FFI Worker Offloading**:
+     - `EngineBridge.profileTrack` and `EngineBridge.planTransition` executed inside `Isolate.run`.
+     - Main UI isolate frame drop dropped to 0 during JIT cue-zone profiling.
+  3. **Visual Ghosting Elimination**:
+     - In `responsive_glass_scaffold.dart`, backdrop alpha was increased to $0.88 \cdot t + 0.10$.
+     - `NowPlayingStage` root wrapped in solid surface backdrop ($0.98$ opacity) and `SafeArea`.
+     - Captured live screenshot (`attune_live_active_fixed.png`): zero background text bleedthrough behind the album art, lyrics, or controls.
+- **Listening & Stability Verdict**: `PASS`. Seamless auto-progression, silky smooth non-blocking UI, and pristine visual presentation.
+

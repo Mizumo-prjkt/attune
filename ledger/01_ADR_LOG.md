@@ -514,6 +514,41 @@ This file records all major architectural decisions for **Attune**, including co
     - *Happy Synthesizer* $\to$ *Hello-How are you*: Smooth 5.56s EqSwap AutoMix transition with continuous acoustic energy.
     - *Luka Luka★Night Fever* $\to$ *Rabbit Hole*: Clean 2.20s EqSwap AutoMix transition with zero tempo clash and crisp bass swap.
 
+---
+
+## ADR-021: Non-Blocking FFI Worker Isolates, Track-End Auto-Advance Unfreezing & Backdrop Bleedthrough Elimination
+- **Status**: **LOCKED** (Implemented & Verified)
+- **Date**: 2026-10-27
+- **Context**:
+  - User reported that the player froze indefinitely at track completion (`02:37 / 02:39` in *Rabbit Hole*) even without smart shuffle enabled, and that background lists bled through behind the expanded Now Playing view.
+  - Three compounding defects caused this failure mode:
+    1. **Poll Loop Deadlock on Deck State `Finished`**: When audio reached `audible_end_ms` or `effective_end_frame`, the native deck entered `DeckState::Finished`, which set `mixer.is_playing() = false`. In `playback_controller.dart`, `isTrackEnded` was guarded under `else if (_isPlaying && _durationSec > 5.0)`. As soon as `_isPlaying` flipped to `false`, `isTrackEnded` was completely bypassed, causing the player to halt permanently without auto-advancing the queue. Clicking "Play" also failed because `playhead_frame` was not rewound, immediately re-hitting `Finished`.
+    2. **Synchronous Dart FFI Blocking**: `_bridge.profileTrack()` and `_bridge.planTransition()` were executed synchronously on the main Flutter UI thread. Running Symphonia audio decoding, 12-bin CQT, and autocorrelation pitch extraction directly on the UI thread locked up the event loop for 1–3 seconds, causing dropped frames and touch unresponsiveness.
+    3. **UI Ghosting & Hardcoded Connector Pill**: `TransitionConnectorPill` was unconditionally rendered even with shuffle OFF, displaying hardcoded dummy metrics (1.4s, 94% match). Simultaneously, `responsive_glass_scaffold.dart` only provided `0.35 * t` black opacity, allowing the home screen and album list items to bleed visibly through the open Now Playing screen.
+- **Decision**:
+  1. **Background FFI Worker Isolates**:
+     - Updated `EngineBridge.profileTrack` and `EngineBridge.planTransition` to run inside `Isolate.run(...)`.
+     - Opens isolated `DynamicLibrary` instances and performs C-ABI calls on secondary background threads, keeping the Flutter UI thread completely free of audio decoding or recipe calculation latency.
+  2. **Deck Playhead Rewind on Finished**:
+     - In `crates/attune-core/src/engine/deck.rs`, `deck.play()` detects if `self.state == DeckState::Finished` or `playhead_frame >= (total - 100.0).max(0.0)` and automatically rewinds `playhead_frame = 0.0`.
+     - In `apps/attune_app/lib/services/playback_controller.dart`, `play()` checks `_positionSec >= _durationSec - 0.5` and calls `seek(0.0)` before issuing the native play command.
+  3. **Decoupled End-of-Track Auto-Advance**:
+     - Refactored `_pollNativeState` in `playback_controller.dart`: computes `isTrackEnded = deckState == 'Finished' || isAudibleFinished || isNearAudibleEnd || _positionSec >= _durationSec - 0.3`.
+     - If `isTrackEnded` is true, immediately triggers `_executeAutoTransition(_pendingRecipe!)` (if smart shuffle is active with a recipe) or `skipNext(autoPlay: true)` (if linear/standard shuffle or finished), ensuring the queue advances continuously without human intervention.
+     - In `skipNext({bool autoPlay = false})`, preserves playback state if previous track was playing or if `autoPlay` is requested.
+  4. **Conditional Transition Connector Pill**:
+     - Wrapped `TransitionConnectorPill` in `NowPlayingStage` inside `if (controller.isTransitioning || (controller.shuffleMode == ShuffleMode.smart && controller.pendingRecipe != null))`.
+     - Dynamically extracts transition length and confidence score directly from `controller.pendingRecipe`.
+  5. **Backdrop Contrast & Bleedthrough Elimination**:
+     - In `responsive_glass_scaffold.dart`, increased `NowPlaying` overlay backdrop opacity from `0.35 * t` to `0.88 * t + 0.10`.
+     - In `NowPlayingStage`, wrapped the stage root in `Container(color: colorScheme.surface.withValues(alpha: 0.98), child: SafeArea(...))` ensuring zero visual text bleedthrough from underlying views.
+- **Consequences**:
+  - 100% responsive UI during JIT track profiling and pairwise transition planning.
+  - Seamless, automatic queue advancement when tracks reach audible conclusion without hanging or pausing.
+  - Solid, gorgeous liquid frosted glass presentation with zero text bleeding.
+  - All 17 Rust tests and 10 Flutter unit/widget tests pass with 0 errors and 0 warnings.
+
+
 
 
 

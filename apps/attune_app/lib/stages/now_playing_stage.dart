@@ -64,8 +64,11 @@ class _NowPlayingStageState extends State<NowPlayingStage> {
             ? AttuneColorEngine.lerpSchemes(baseScheme, targetScheme, controller.transitionProgress)
             : baseScheme;
 
-        return SingleChildScrollView(
-          physics: const BouncingScrollPhysics(),
+        return Container(
+          color: colorScheme.surface.withValues(alpha: 0.98),
+          child: SafeArea(
+            child: SingleChildScrollView(
+              physics: const BouncingScrollPhysics(),
           padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 12.0),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.center,
@@ -293,14 +296,28 @@ class _NowPlayingStageState extends State<NowPlayingStage> {
               const SizedBox(height: 20),
 
               // 6. Subtle Inline Transition Connector Pill (Section 3.2)
-              TransitionConnectorPill(
-                archetype: controller.activeArchetype,
-                durationSeconds: 1.4,
-                confidenceScore: 0.94,
-                onTap: () => PlatformNavigation.openTransitionInspector(context),
-              ),
-
-              const SizedBox(height: 16),
+              if (controller.isTransitioning ||
+                  (controller.shuffleMode == ShuffleMode.smart && controller.pendingRecipe != null)) ...[
+                Builder(
+                  builder: (context) {
+                    final recipe = controller.pendingRecipe;
+                    final timing = recipe?['timing'] as Map<String, dynamic>?;
+                    final durSec = timing != null
+                        ? (((timing['track_a_exit_end_ms'] as num? ?? 1400) -
+                                (timing['track_a_transition_start_ms'] as num? ?? 0))
+                            .abs() / 1000.0)
+                        : 1.4;
+                    final conf = (recipe?['confidence_score'] as num?)?.toDouble() ?? 0.95;
+                    return TransitionConnectorPill(
+                      archetype: controller.activeArchetype,
+                      durationSeconds: durSec,
+                      confidenceScore: conf,
+                      onTap: () => PlatformNavigation.openTransitionInspector(context),
+                    );
+                  },
+                ),
+                const SizedBox(height: 16),
+              ],
 
               // 7. Mini Up-Next Row Preview
               if (nextTrack != null)
@@ -364,6 +381,8 @@ class _NowPlayingStageState extends State<NowPlayingStage> {
 
               const SizedBox(height: 80),
             ],
+          ),
+            ),
           ),
         );
       },
