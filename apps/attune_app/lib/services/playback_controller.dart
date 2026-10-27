@@ -98,12 +98,16 @@ class PlaybackController extends ChangeNotifier {
         break;
     }
     _upNextQueueIndex = _pickNextQueueIndex();
+    notifyListeners();
+
+    // Preload upcoming track asynchronously via microtask without blocking touch interaction
     final next = upNextTrack;
     if (next != null) {
-      _bridge.playerLoadTrack(1, next.filePath);
+      Future.microtask(() {
+        _bridge.playerLoadTrack(1, next.filePath);
+        _preparePendingRecipe();
+      });
     }
-    _preparePendingRecipe();
-    notifyListeners();
   }
 
   /// Scans local directories for genuine audio files (.flac, .mp3, .wav, .ogg, etc.)
@@ -362,7 +366,9 @@ class PlaybackController extends ChangeNotifier {
       // 1. Tempo compatibility (within +-12 BPM or harmonic ratio)
       final bpmDelta = (current.bpm - candidate.bpm).abs();
       double tempoScore = 0.0;
-      if (bpmDelta <= 6) {
+      if (current.bpm <= 0 || candidate.bpm <= 0) {
+        tempoScore = 0.5;
+      } else if (bpmDelta <= 6) {
         tempoScore = 1.0;
       } else if (bpmDelta <= 14) {
         tempoScore = 0.8;

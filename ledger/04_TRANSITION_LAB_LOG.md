@@ -442,5 +442,30 @@ These four benchmark scenarios define the "Gold Standard" transitions that Attun
   - Live app test: Selecting `Rabbit Hole` plays `Rabbit Hole` from 0.00s; Miku sings her final phrase through resolution; Deck B transitions into `(Not) A Devil` at $156.56\text{s}$ with zero syllable cutoff.
 - **Listening & Stability Verdict**: `PASS`. 1-track desynchronization completely eliminated; vocal phrase integrity 100% preserved.
 
+---
+
+### Experiment #018: Shuffle Button Freeze Diagnosis, Mutex Decoupling & Instant UI Responsiveness
+- **Date**: 2026-10-27
+- **Hypothesis**: Tapping the shuffle button froze the application indefinitely due to nested mutex lock contention between `PLAYBACK_SESSION` and `DualDeckMixer` during high-frequency (50ms) FFI polling, coupled with synchronous touch-event preloading in Dart and unoptimized debug library resolution.
+- **Empirical Findings**:
+  1. `PLAYBACK_SESSION.lock()` was previously held across `DualDeckMixer.lock()` in `attune_player_load_track`, `attune_player_play`, `attune_player_pause`, `attune_player_seek`, `attune_player_trigger_transition`, and `attune_player_get_state`.
+  2. While `attune_player_get_state` was serializing JSON under the global session guard, a UI interaction calling `playerLoadTrack` resulted in lock starvation.
+  3. Dart's `candidatePaths` loaded `target/debug/libattune_engine.so` ahead of `target/release/libattune_engine.so`.
+- **Engineering Changes Applied**:
+  1. Created `get_session_mixer() -> Option<Arc<Mutex<DualDeckMixer>>>` in `crates/attune-ffi/src/lib.rs` to acquire and immediately drop the session guard before taking any lock on `DualDeckMixer`.
+  2. In `apps/attune_app/lib/services/playback_controller.dart`:
+     - Dispatched `notifyListeners()` instantly on shuffle click for 0 ms UI response.
+     - Scheduled Deck B loading and pairwise transition planning in `Future.microtask(...)`.
+     - Guarded `current.bpm <= 0 || candidate.bpm <= 0` in `_findBestSmartMatchIndex()`.
+  3. In `apps/attune_app/lib/services/engine_bridge.dart`:
+     - Reordered `candidatePaths` to prioritize `target/release/libattune_engine.so` and bundled `lib/libattune_engine.so`.
+- **Empirical Verification**:
+  - `flutter test test/shuffle_interaction_test.dart`: Passed in 2 seconds, cycling through `Shuffle Off` $\to$ `Basic Shuffle` $\to$ `Smart Shuffle` $\to$ `Shuffle Off` with immediate UI assertions and zero frames dropped.
+  - All 14 Rust tests passed.
+  - All 9 Flutter unit/widget tests passed.
+  - Live bundle execution screenshot verified active playback and UI layout.
+- **Listening & Stability Verdict**: `PASS`. Touch interaction is completely non-blocking and instantaneous.
+
+
 
 

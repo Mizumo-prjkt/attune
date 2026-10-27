@@ -213,6 +213,14 @@ pub extern "C" fn attune_player_start() -> i32 {
     }
 }
 
+fn get_session_mixer() -> Option<Arc<Mutex<DualDeckMixer>>> {
+    if let Ok(guard) = PLAYBACK_SESSION.lock() {
+        guard.as_ref().map(|s| Arc::clone(&s.mixer))
+    } else {
+        None
+    }
+}
+
 /// Loads an audio file into Deck A (0) or Deck B (1).
 #[no_mangle]
 pub extern "C" fn attune_player_load_track(deck_id: i32, path_ptr: *const c_char) -> i32 {
@@ -229,16 +237,14 @@ pub extern "C" fn attune_player_load_track(deck_id: i32, path_ptr: *const c_char
 
     // Synchronously reset target deck under lock so polling state immediately sees
     // position 0 and stopped state while the background worker decodes the audio.
-    if let Ok(session_guard) = PLAYBACK_SESSION.lock() {
-        if let Some(session) = session_guard.as_ref() {
-            if let Ok(mut mixer) = session.mixer.lock() {
-                if deck_id == 1 {
-                    mixer.deck_b.clear();
-                } else {
-                    mixer.transition = None;
-                    mixer.deck_a.clear();
-                    mixer.active_deck = DeckId::DeckA;
-                }
+    if let Some(mixer) = get_session_mixer() {
+        if let Ok(mut m) = mixer.lock() {
+            if deck_id == 1 {
+                m.deck_b.clear();
+            } else {
+                m.transition = None;
+                m.deck_a.clear();
+                m.active_deck = DeckId::DeckA;
             }
         }
     }
@@ -246,14 +252,12 @@ pub extern "C" fn attune_player_load_track(deck_id: i32, path_ptr: *const c_char
     // Multi-core worker offloading: Decodes audio without blocking caller UI thread
     std::thread::spawn(move || {
         if let Ok(audio) = AudioDecoder::load_file(&path) {
-            if let Ok(session_guard) = PLAYBACK_SESSION.lock() {
-                if let Some(session) = session_guard.as_ref() {
-                    if let Ok(mut mixer) = session.mixer.lock() {
-                        if deck_id == 1 {
-                            mixer.load_track_b(audio);
-                        } else {
-                            mixer.load_track_a(audio);
-                        }
+            if let Some(mixer) = get_session_mixer() {
+                if let Ok(mut m) = mixer.lock() {
+                    if deck_id == 1 {
+                        m.load_track_b(audio);
+                    } else {
+                        m.load_track_a(audio);
                     }
                 }
             }
@@ -268,13 +272,9 @@ pub extern "C" fn attune_player_load_track(deck_id: i32, path_ptr: *const c_char
 /// Starts audio playback on the active deck.
 #[no_mangle]
 pub extern "C" fn attune_player_play() -> i32 {
-    let session_guard = match PLAYBACK_SESSION.lock() {
-        Ok(g) => g,
-        Err(_) => return -1,
-    };
-    if let Some(session) = session_guard.as_ref() {
-        if let Ok(mut mixer) = session.mixer.lock() {
-            mixer.play();
+    if let Some(mixer) = get_session_mixer() {
+        if let Ok(mut m) = mixer.lock() {
+            m.play();
             return 0;
         }
     }
@@ -284,13 +284,9 @@ pub extern "C" fn attune_player_play() -> i32 {
 /// Pauses audio playback.
 #[no_mangle]
 pub extern "C" fn attune_player_pause() -> i32 {
-    let session_guard = match PLAYBACK_SESSION.lock() {
-        Ok(g) => g,
-        Err(_) => return -1,
-    };
-    if let Some(session) = session_guard.as_ref() {
-        if let Ok(mut mixer) = session.mixer.lock() {
-            mixer.pause();
+    if let Some(mixer) = get_session_mixer() {
+        if let Ok(mut m) = mixer.lock() {
+            m.pause();
             return 0;
         }
     }
@@ -300,18 +296,14 @@ pub extern "C" fn attune_player_pause() -> i32 {
 /// Seeks a deck: deck_id 0 = Deck A, 1 = Deck B, -1 = active deck.
 #[no_mangle]
 pub extern "C" fn attune_player_seek(deck_id: i32, position_ms: u64) -> i32 {
-    let session_guard = match PLAYBACK_SESSION.lock() {
-        Ok(g) => g,
-        Err(_) => return -1,
-    };
-    if let Some(session) = session_guard.as_ref() {
-        if let Ok(mut mixer) = session.mixer.lock() {
+    if let Some(mixer) = get_session_mixer() {
+        if let Ok(mut m) = mixer.lock() {
             match deck_id {
-                0 => mixer.deck_a.seek_ms(position_ms),
-                1 => mixer.deck_b.seek_ms(position_ms),
-                _ => match mixer.active_deck {
-                    DeckId::DeckA => mixer.deck_a.seek_ms(position_ms),
-                    DeckId::DeckB => mixer.deck_b.seek_ms(position_ms),
+                0 => m.deck_a.seek_ms(position_ms),
+                1 => m.deck_b.seek_ms(position_ms),
+                _ => match m.active_deck {
+                    DeckId::DeckA => m.deck_a.seek_ms(position_ms),
+                    DeckId::DeckB => m.deck_b.seek_ms(position_ms),
                 },
             }
             return 0;
@@ -337,13 +329,9 @@ pub extern "C" fn attune_player_trigger_transition(recipe_json_ptr: *const c_cha
         Err(_) => return -2,
     };
 
-    let session_guard = match PLAYBACK_SESSION.lock() {
-        Ok(g) => g,
-        Err(_) => return -3,
-    };
-    if let Some(session) = session_guard.as_ref() {
-        if let Ok(mut mixer) = session.mixer.lock() {
-            mixer.trigger_transition(recipe);
+    if let Some(mixer) = get_session_mixer() {
+        if let Ok(mut m) = mixer.lock() {
+            m.trigger_transition(recipe);
             return 0;
         }
     }
@@ -354,13 +342,8 @@ pub extern "C" fn attune_player_trigger_transition(recipe_json_ptr: *const c_cha
 /// The caller must free the returned string using `attune_free_string`.
 #[no_mangle]
 pub extern "C" fn attune_player_get_state() -> *mut c_char {
-    let session_guard = match PLAYBACK_SESSION.lock() {
-        Ok(g) => g,
-        Err(_) => return std::ptr::null_mut(),
-    };
-
-    let session = match session_guard.as_ref() {
-        Some(s) => s,
+    let mixer_arc = match get_session_mixer() {
+        Some(m) => m,
         None => {
             let empty = serde_json::json!({
                 "initialized": false,
@@ -370,7 +353,7 @@ pub extern "C" fn attune_player_get_state() -> *mut c_char {
         }
     };
 
-    let mixer = match session.mixer.lock() {
+    let mixer = match mixer_arc.lock() {
         Ok(m) => m,
         Err(_) => return std::ptr::null_mut(),
     };

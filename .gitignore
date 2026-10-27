@@ -13,6 +13,11 @@ test_output/
 music
 music/
 
+# Binaries / Shared Libraries
+*.so
+*.dylib
+*.dll
+
 # IDE / OS
 .DS_Store
 .idea/

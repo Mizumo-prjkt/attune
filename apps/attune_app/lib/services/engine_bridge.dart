@@ -82,12 +82,13 @@ class AttuneEngineBridge {
   void _loadLibrary() {
     try {
       if (Platform.isLinux) {
-        // Search workspace build targets first during development
+        // Search workspace build targets first during development (favoring release)
         final candidatePaths = [
-          '../../target/debug/libattune_engine.so',
           '../../target/release/libattune_engine.so',
-          '/home/miku/Documents/attune/target/debug/libattune_engine.so',
+          '../../target/debug/libattune_engine.so',
           '/home/miku/Documents/attune/target/release/libattune_engine.so',
+          '/home/miku/Documents/attune/target/debug/libattune_engine.so',
+          'lib/libattune_engine.so',
           'libattune_engine.so',
         ];
         for (final path in candidatePaths) {
