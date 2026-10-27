@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import '../models/track_item.dart';
 import '../services/lyrics_service.dart';
 import '../services/playback_controller.dart';
@@ -26,6 +27,8 @@ class SynchronizedLyricsStage extends StatefulWidget {
 
 class _SynchronizedLyricsStageState extends State<SynchronizedLyricsStage> {
   final ScrollController _scrollController = ScrollController();
+  final Map<int, GlobalKey> _lineKeys = {};
+  bool _isLockedToActive = true;
   int _selectedSourceIndex = 0; // 0: Embedded, 1: .LRC File, 2: Ultra-Sync
   int _lastActiveIndex = -1;
 
@@ -69,6 +72,9 @@ class _SynchronizedLyricsStageState extends State<SynchronizedLyricsStage> {
       _isLoading = true;
       _loadedTrackId = track.id;
       _loadedSource = source;
+      _lineKeys.clear();
+      _isLockedToActive = true;
+      _lastActiveIndex = -1;
     });
 
     final result = await LyricsService.instance.loadLyrics(track, source);
@@ -94,16 +100,88 @@ class _SynchronizedLyricsStageState extends State<SynchronizedLyricsStage> {
     return active;
   }
 
-  void _scrollToActive(int index) {
+  void _scrollToActive(int index, {bool force = false}) {
+    if (!_isLockedToActive && !force) return;
     if (!_scrollController.hasClients) return;
-    if (index == _lastActiveIndex) return;
+    if (index == _lastActiveIndex && !force) return;
     _lastActiveIndex = index;
 
-    final targetOffset = (index * 72.0 - 100.0).clamp(0.0, _scrollController.position.maxScrollExtent);
-    _scrollController.animateTo(
-      targetOffset,
-      duration: const Duration(milliseconds: 350),
-      curve: Curves.easeOutCubic,
+    final key = _lineKeys[index];
+    final targetContext = key?.currentContext;
+    if (targetContext != null) {
+      Scrollable.ensureVisible(
+        targetContext,
+        alignment: 0.5, // Precisely center the active singing line in the viewport
+        duration: const Duration(milliseconds: 380),
+        curve: Curves.easeOutCubic,
+      );
+    } else {
+      // Graceful fallback if far out of immediate viewport
+      final lines = _lyricResult?.lines ?? const [];
+      if (lines.isNotEmpty && _scrollController.position.hasContentDimensions) {
+        final ratio = (index / lines.length).clamp(0.0, 1.0);
+        final targetOffset = (ratio * _scrollController.position.maxScrollExtent);
+        _scrollController.animateTo(
+          targetOffset,
+          duration: const Duration(milliseconds: 380),
+          curve: Curves.easeOutCubic,
+        );
+      }
+    }
+  }
+
+  void _handleUserScroll() {
+    if (_isLockedToActive) {
+      setState(() {
+        _isLockedToActive = false;
+      });
+    }
+  }
+
+  Widget _buildSyncToCurrentButton(int activeIndex, ColorScheme colorScheme) {
+    return Center(
+      child: GestureDetector(
+        onTap: () {
+          setState(() {
+            _isLockedToActive = true;
+          });
+          _scrollToActive(activeIndex, force: true);
+        },
+        behavior: HitTestBehavior.opaque,
+        child: LiquidGlassContainer(
+          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
+          borderRadius: 24,
+          surfaceAlpha: 0.32,
+          tintOverride: colorScheme.primary.withValues(alpha: 0.30),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.40),
+              blurRadius: 18,
+              offset: const Offset(0, 4),
+            ),
+            BoxShadow(
+              color: colorScheme.primary.withValues(alpha: 0.28),
+              blurRadius: 12,
+              spreadRadius: 1,
+            ),
+          ],
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.vertical_align_center_rounded, size: 16, color: colorScheme.primary),
+              const SizedBox(width: 8),
+              Text(
+                'Sync to Current Line',
+                style: AttuneTypography.soraBadge(
+                  color: Colors.white,
+                  fontSize: 12,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 
@@ -375,74 +453,105 @@ class _SynchronizedLyricsStageState extends State<SynchronizedLyricsStage> {
     PlaybackController controller,
     ColorScheme colorScheme,
   ) {
-    return ListView.builder(
-      controller: _scrollController,
-      physics: const BouncingScrollPhysics(),
-      padding: const EdgeInsets.symmetric(horizontal: 28.0, vertical: 36.0),
-      itemCount: lines.length,
-      itemBuilder: (context, index) {
-        final line = lines[index];
-        final isActive = index == activeIndex;
+    return Stack(
+      children: [
+        NotificationListener<ScrollNotification>(
+          onNotification: (notification) {
+            if (notification is UserScrollNotification && notification.direction != ScrollDirection.idle) {
+              _handleUserScroll();
+            } else if (notification is ScrollStartNotification && notification.dragDetails != null) {
+              _handleUserScroll();
+            }
+            return false;
+          },
+          child: ListView.builder(
+            controller: _scrollController,
+            physics: const BouncingScrollPhysics(),
+            scrollCacheExtent: const ScrollCacheExtent.pixels(2000.0),
+            padding: const EdgeInsets.symmetric(horizontal: 28.0, vertical: 36.0),
+            itemCount: lines.length,
+            itemBuilder: (context, index) {
+              final line = lines[index];
+              final isActive = index == activeIndex;
+              final key = _lineKeys.putIfAbsent(index, () => GlobalKey(debugLabel: 'full_lyric_$index'));
 
-        if (line.isInstrumental) {
-          return Center(
-            child: Padding(
-              padding: const EdgeInsets.symmetric(vertical: 24.0),
-              child: LiquidGlassContainer(
-                padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 8),
-                borderRadius: 16,
-                surfaceAlpha: isActive ? 0.24 : 0.10,
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(Icons.waves_rounded, size: 16, color: colorScheme.primary),
-                    const SizedBox(width: 8),
-                    Text(
-                      line.text,
-                      style: AttuneTypography.soraBadge(
-                        color: colorScheme.primary,
-                        fontSize: 11,
+              if (line.isInstrumental) {
+                return Center(
+                  key: key,
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 24.0),
+                    child: LiquidGlassContainer(
+                      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 8),
+                      borderRadius: 16,
+                      surfaceAlpha: isActive ? 0.24 : 0.10,
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.waves_rounded, size: 16, color: colorScheme.primary),
+                          const SizedBox(width: 8),
+                          Text(
+                            line.text,
+                            style: AttuneTypography.soraBadge(
+                              color: colorScheme.primary,
+                              fontSize: 11,
+                            ),
+                          ),
+                        ],
                       ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          );
-        }
-
-        return GestureDetector(
-          onTap: () => controller.seek(line.timeSec),
-          behavior: HitTestBehavior.opaque,
-          child: Padding(
-            padding: const EdgeInsets.symmetric(vertical: 14.0),
-            child: isActive
-                ? LiquidGlassContainer(
-                    padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 16),
-                    borderRadius: 22,
-                    surfaceAlpha: 0.28,
-                    tintOverride: colorScheme.primary.withValues(alpha: 0.26),
-                    child: Text(
-                      line.text,
-                      style: AttuneTypography.soraHeading(
-                        fontSize: 22,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.white,
-                      ),
-                    ),
-                  )
-                : Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 14.0),
-                    child: Text(
-                      line.text,
-                      style: AttuneTypography.jakartaLyricsInactive(
-                        color: colorScheme.onSurface.withValues(alpha: 0.40),
-                      ).copyWith(fontSize: 18),
                     ),
                   ),
+                );
+              }
+
+              return GestureDetector(
+                key: key,
+                onTap: () {
+                  controller.seek(line.timeSec);
+                  setState(() => _isLockedToActive = true);
+                  _scrollToActive(index, force: true);
+                },
+                behavior: HitTestBehavior.opaque,
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 14.0),
+                  child: isActive
+                      ? LiquidGlassContainer(
+                          padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 16),
+                          borderRadius: 22,
+                          surfaceAlpha: 0.28,
+                          tintOverride: colorScheme.primary.withValues(alpha: 0.26),
+                          child: Text(
+                            line.text,
+                            style: AttuneTypography.soraHeading(
+                              fontSize: 22,
+                              fontWeight: FontWeight.bold,
+                              color: Colors.white,
+                            ),
+                          ),
+                        )
+                      : Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 14.0),
+                          child: Text(
+                            line.text,
+                            style: AttuneTypography.jakartaLyricsInactive(
+                              color: colorScheme.onSurface.withValues(alpha: 0.40),
+                            ).copyWith(fontSize: 18),
+                          ),
+                        ),
+                ),
+              );
+            },
           ),
-        );
-      },
+        ),
+
+        // Floating Liquid Glass Sync-to-Current-Line button when user is in free-scroll mode
+        if (!_isLockedToActive && lines.isNotEmpty)
+          Positioned(
+            bottom: 16,
+            left: 0,
+            right: 0,
+            child: _buildSyncToCurrentButton(activeIndex, colorScheme),
+          ),
+      ],
     );
   }
 
@@ -471,67 +580,98 @@ class _SynchronizedLyricsStageState extends State<SynchronizedLyricsStage> {
           child: _isLoading
               ? _buildLoadingState(colorScheme)
               : hasLyrics
-                  ? ListView.builder(
-                      controller: _scrollController,
-                      physics: const BouncingScrollPhysics(),
-                      padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 16.0),
-                      itemCount: lines.length,
-                      itemBuilder: (context, index) {
-                        final line = lines[index];
-                        final isActive = index == activeIndex;
+                  ? Stack(
+                      children: [
+                        NotificationListener<ScrollNotification>(
+                          onNotification: (notification) {
+                            if (notification is UserScrollNotification && notification.direction != ScrollDirection.idle) {
+                              _handleUserScroll();
+                            } else if (notification is ScrollStartNotification && notification.dragDetails != null) {
+                              _handleUserScroll();
+                            }
+                            return false;
+                          },
+                          child: ListView.builder(
+                            controller: _scrollController,
+                            physics: const BouncingScrollPhysics(),
+                            scrollCacheExtent: const ScrollCacheExtent.pixels(2000.0),
+                            padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 16.0),
+                            itemCount: lines.length,
+                            itemBuilder: (context, index) {
+                              final line = lines[index];
+                              final isActive = index == activeIndex;
+                              final key = _lineKeys.putIfAbsent(index, () => GlobalKey(debugLabel: 'dock_lyric_$index'));
 
-                        if (line.isInstrumental) {
-                          return Center(
-                            child: Padding(
-                              padding: const EdgeInsets.symmetric(vertical: 16.0),
-                              child: LiquidGlassContainer(
-                                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
-                                borderRadius: 14,
-                                surfaceAlpha: 0.12,
-                                child: Row(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    Icon(Icons.waves_rounded, size: 14, color: colorScheme.secondary),
-                                    const SizedBox(width: 6),
-                                    Text(
-                                      line.text,
-                                      style: AttuneTypography.soraBadge(color: colorScheme.secondary, fontSize: 10),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ),
-                          );
-                        }
-
-                        return GestureDetector(
-                          onTap: () => controller.seek(line.timeSec),
-                          behavior: HitTestBehavior.opaque,
-                          child: Padding(
-                            padding: const EdgeInsets.symmetric(vertical: 10.0),
-                            child: isActive
-                                ? LiquidGlassContainer(
-                                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                                    borderRadius: 16,
-                                    surfaceAlpha: 0.22,
-                                    tintOverride: colorScheme.primary.withValues(alpha: 0.20),
-                                    child: Text(
-                                      line.text,
-                                      style: AttuneTypography.jakartaLyricsActive(color: Colors.white).copyWith(fontSize: 16),
-                                    ),
-                                  )
-                                : Padding(
-                                    padding: const EdgeInsets.symmetric(horizontal: 10.0),
-                                    child: Text(
-                                      line.text,
-                                      style: AttuneTypography.jakartaLyricsInactive(
-                                        color: colorScheme.onSurface.withValues(alpha: 0.40),
-                                      ).copyWith(fontSize: 14),
+                              if (line.isInstrumental) {
+                                return Center(
+                                  key: key,
+                                  child: Padding(
+                                    padding: const EdgeInsets.symmetric(vertical: 16.0),
+                                    child: LiquidGlassContainer(
+                                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                                      borderRadius: 14,
+                                      surfaceAlpha: 0.12,
+                                      child: Row(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          Icon(Icons.waves_rounded, size: 14, color: colorScheme.secondary),
+                                          const SizedBox(width: 6),
+                                          Text(
+                                            line.text,
+                                            style: AttuneTypography.soraBadge(color: colorScheme.secondary, fontSize: 10),
+                                          ),
+                                        ],
+                                      ),
                                     ),
                                   ),
+                                );
+                              }
+
+                              return GestureDetector(
+                                key: key,
+                                onTap: () {
+                                  controller.seek(line.timeSec);
+                                  setState(() => _isLockedToActive = true);
+                                  _scrollToActive(index, force: true);
+                                },
+                                behavior: HitTestBehavior.opaque,
+                                child: Padding(
+                                  padding: const EdgeInsets.symmetric(vertical: 10.0),
+                                  child: isActive
+                                      ? LiquidGlassContainer(
+                                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                                          borderRadius: 16,
+                                          surfaceAlpha: 0.22,
+                                          tintOverride: colorScheme.primary.withValues(alpha: 0.20),
+                                          child: Text(
+                                            line.text,
+                                            style: AttuneTypography.jakartaLyricsActive(color: Colors.white).copyWith(fontSize: 16),
+                                          ),
+                                        )
+                                      : Padding(
+                                          padding: const EdgeInsets.symmetric(horizontal: 10.0),
+                                          child: Text(
+                                            line.text,
+                                            style: AttuneTypography.jakartaLyricsInactive(
+                                              color: colorScheme.onSurface.withValues(alpha: 0.40),
+                                            ).copyWith(fontSize: 14),
+                                          ),
+                                        ),
+                                ),
+                              );
+                            },
                           ),
-                        );
-                      },
+                        ),
+
+                        // Floating Liquid Glass Sync-to-Current-Line button when user is in free-scroll mode
+                        if (!_isLockedToActive && lines.isNotEmpty)
+                          Positioned(
+                            bottom: 12,
+                            left: 0,
+                            right: 0,
+                            child: _buildSyncToCurrentButton(activeIndex, colorScheme),
+                          ),
+                      ],
                     )
                   : _buildEmptyState(track, colorScheme),
         ),
@@ -690,7 +830,12 @@ class _SynchronizedLyricsStageState extends State<SynchronizedLyricsStage> {
     final isSelected = _selectedSourceIndex == index;
     return GestureDetector(
       onTap: () {
-        setState(() => _selectedSourceIndex = index);
+        setState(() {
+          _selectedSourceIndex = index;
+          _lineKeys.clear();
+          _isLockedToActive = true;
+          _lastActiveIndex = -1;
+        });
         _checkAndLoadLyrics();
       },
       behavior: HitTestBehavior.opaque,

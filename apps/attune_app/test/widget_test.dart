@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:attune_app/main.dart';
-import 'package:attune_app/services/engine_bridge.dart';
 import 'package:attune_app/theme/color_engine.dart';
 import 'package:attune_app/widgets/audio_quality_badge.dart';
 import 'package:attune_app/widgets/transition_connector_pill.dart';

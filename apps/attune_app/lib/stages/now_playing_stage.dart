@@ -584,74 +584,82 @@ class _NowPlayingStageState extends State<NowPlayingStage> {
       context: context,
       barrierColor: Colors.black.withValues(alpha: 0.45),
       builder: (context) {
-        return Center(
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 400),
-            child: LiquidGlassContainer(
-              margin: const EdgeInsets.symmetric(horizontal: 24),
-              padding: const EdgeInsets.all(24),
-              borderRadius: 28,
-              surfaceAlpha: 0.22,
-              blurSigma: 32,
-              child: Material(
-                color: Colors.transparent,
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        return ListenableBuilder(
+          listenable: PlaybackController.instance,
+          builder: (context, _) {
+            final controller = PlaybackController.instance;
+            return Center(
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 400),
+                child: LiquidGlassContainer(
+                  margin: const EdgeInsets.symmetric(horizontal: 24),
+                  padding: const EdgeInsets.all(24),
+                  borderRadius: 28,
+                  surfaceAlpha: 0.22,
+                  blurSigma: 32,
+                  child: Material(
+                    color: Colors.transparent,
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(
-                          'Player Style & Glass Refraction',
-                          style: AttuneTypography.soraHeading(
-                            fontSize: 16,
-                            fontWeight: FontWeight.bold,
-                            color: colorScheme.onSurface,
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Text(
+                              'Player Style & Glass Refraction',
+                              style: AttuneTypography.soraHeading(
+                                fontSize: 16,
+                                fontWeight: FontWeight.bold,
+                                color: colorScheme.onSurface,
+                              ),
+                            ),
+                            IconButton(
+                              icon: const Icon(Icons.close_rounded, size: 20),
+                              color: colorScheme.onSurface.withValues(alpha: 0.6),
+                              onPressed: () => Navigator.of(context).pop(),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 16),
+                        ListTile(
+                          contentPadding: EdgeInsets.zero,
+                          leading: Icon(Icons.blur_on_rounded, color: colorScheme.primary),
+                          title: Text(
+                            'Living Beat & Lavalamp Globs',
+                            style: AttuneTypography.soraSubheading(fontSize: 13, color: colorScheme.onSurface),
+                          ),
+                          subtitle: Text(
+                            'Fluid liquid light globs pulsing dynamically to track BPM & kick',
+                            style: AttuneTypography.jakartaBodySmall(color: colorScheme.onSurface.withValues(alpha: 0.6)),
+                          ),
+                          trailing: Switch(
+                            value: controller.livingBeatMeshEnabled,
+                            activeThumbColor: colorScheme.primary,
+                            onChanged: (v) {
+                              controller.setLivingBeatMeshEnabled(v);
+                            },
                           ),
                         ),
-                        IconButton(
-                          icon: const Icon(Icons.close_rounded, size: 20),
-                          color: colorScheme.onSurface.withValues(alpha: 0.6),
-                          onPressed: () => Navigator.of(context).pop(),
+                        ListTile(
+                          contentPadding: EdgeInsets.zero,
+                          leading: Icon(Icons.water_drop_rounded, color: colorScheme.secondary),
+                          title: Text(
+                            'Frosted Glass Depth',
+                            style: AttuneTypography.soraSubheading(fontSize: 13, color: colorScheme.onSurface),
+                          ),
+                          subtitle: Text(
+                            'Viscous liquid refraction with 40px backdrop blur',
+                            style: AttuneTypography.jakartaBodySmall(color: colorScheme.onSurface.withValues(alpha: 0.6)),
+                          ),
                         ),
                       ],
                     ),
-                    const SizedBox(height: 16),
-                    ListTile(
-                      contentPadding: EdgeInsets.zero,
-                      leading: Icon(Icons.blur_on_rounded, color: colorScheme.primary),
-                      title: Text(
-                        'Living Beat Mesh',
-                        style: AttuneTypography.soraSubheading(fontSize: 13, color: colorScheme.onSurface),
-                      ),
-                      subtitle: Text(
-                        'Dynamic ambient gradients breathing with track BPM',
-                        style: AttuneTypography.jakartaBodySmall(color: colorScheme.onSurface.withValues(alpha: 0.6)),
-                      ),
-                      trailing: Switch(
-                        value: true,
-                        activeThumbColor: colorScheme.primary,
-                        onChanged: (v) {},
-                      ),
-                    ),
-                    ListTile(
-                      contentPadding: EdgeInsets.zero,
-                      leading: Icon(Icons.water_drop_rounded, color: colorScheme.secondary),
-                      title: Text(
-                        'Frosted Glass Depth',
-                        style: AttuneTypography.soraSubheading(fontSize: 13, color: colorScheme.onSurface),
-                      ),
-                      subtitle: Text(
-                        'Viscous liquid refraction with 40px backdrop blur',
-                        style: AttuneTypography.jakartaBodySmall(color: colorScheme.onSurface.withValues(alpha: 0.6)),
-                      ),
-                    ),
-                  ],
+                  ),
                 ),
               ),
-            ),
-          ),
+            );
+          },
         );
       },
     );

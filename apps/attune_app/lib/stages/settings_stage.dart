@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../services/playback_controller.dart';
 import '../services/platform_navigation.dart';
 import '../theme/liquid_glass.dart';
 import '../theme/typography.dart';
@@ -63,7 +64,7 @@ class _SettingsAndAudioStageState extends State<SettingsAndAudioStage> {
                         borderRadius: BorderRadius.circular(8),
                       ),
                       child: Text(
-                        'v0.3.0',
+                        'v0.1.0',
                         style: AttuneTypography.soraMetric(
                           fontSize: 10,
                           weight: FontWeight.w700,
@@ -112,6 +113,39 @@ class _SettingsAndAudioStageState extends State<SettingsAndAudioStage> {
                               const SizedBox(width: 8),
                               _buildLensOption('64px Frosted', 64.0, colorScheme),
                             ],
+                          ),
+                          const Divider(height: 24, color: Colors.white12),
+                          ListenableBuilder(
+                            listenable: PlaybackController.instance,
+                            builder: (context, _) {
+                              final controller = PlaybackController.instance;
+                              return Row(
+                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                children: [
+                                  Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        'Living Beat & Lavalamp Globs',
+                                        style: AttuneTypography.soraTitleSmall(color: Colors.white),
+                                      ),
+                                      const SizedBox(height: 2),
+                                      Text(
+                                        'Fluid liquid light globs responding to track BPM & kick',
+                                        style: AttuneTypography.jakartaBodySmall(
+                                          color: colorScheme.onSurface.withValues(alpha: 0.6),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                  Switch(
+                                    value: controller.livingBeatMeshEnabled,
+                                    activeThumbColor: colorScheme.primary,
+                                    onChanged: (v) => controller.setLivingBeatMeshEnabled(v),
+                                  ),
+                                ],
+                              );
+                            },
                           ),
                         ],
                       ),

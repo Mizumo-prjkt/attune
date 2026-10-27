@@ -630,6 +630,42 @@ This file records all major architectural decisions for **Attune**, including co
   - Fully responsive and customizable UI adaptable from mobile portrait to wide multi-monitor layouts.
   - 100% test pass rate across all 15 Flutter unit and widget test suites and all 17 Rust workspace test suites.
 
+---
+
+## ADR-024: Living Beat Mesh Toggle, Fluid Lavalamp Liquid Light Globs Dynamics & Precision Viewport-Centered Lyrics Lock Mode
+
+- **Status**: **LOCKED** (Implemented & Verified)
+- **Date**: 2026-10-27
+- **Context**:
+  - User feedback from interactive testing identified 3 critical experiential defects:
+    1. **Living Beat Background Untoggleable**: In the "Player Style & Glass Refraction" modal dialog, the "Living Beat Mesh" switch was stateless (`value: true`, `onChanged: (v) {}`), preventing the user from disabling the moving background.
+    2. **Desire for True Lavalamp Liquid Light Globs**: The existing background used simple orbiting circles. The user requested an organic, fluid lavalamp aesthetic where viscous liquid light globs rise, stretch vertically with velocity, float, sink, and react dynamically with elastic squash, radiance pulse, and expansion on track BPM and kick hits. When disabled, the background must halt all animation loops and render a calm, sleek, non-distracting dark frosted surface.
+    3. **Lyrics Auto-Scroll Drift & Lack of Free-Scroll Lock/Sync Check**: When songs advanced line-by-line (e.g. *Rabbit Hole* and *(Not) A Devil*), lyrics used a naive linear pixel multiplier (`index * 72.0 - 100.0`). Because line heights vary dynamically (single-line, wrapped multi-line, instrumental wave badges), offset errors accumulated rapidly, causing the active singing line to drift completely off the screen. Furthermore, any attempt by the user to scroll through lyrics was immediately snatched back by the auto-scroller. The user required a clear check: when locked in, lyrics auto-center smoothly; when the user free-scrolls, auto-scroll is suspended and a floating liquid glass button (`[Sync to Current Line]`) appears to smoothly return to the current line on demand.
+- **Decision**:
+  1. **Persistent Reactive Toggle (`PlaybackController` & Stage Bindings)**:
+     - Added `bool _livingBeatMeshEnabled = true;` with getter and `setLivingBeatMeshEnabled(bool enabled)` calling `notifyListeners()`.
+     - In `NowPlayingStage._showPlayerStyleDialog`, wrapped contents in `ListenableBuilder(listenable: PlaybackController.instance)` and bound the switch to `controller.livingBeatMeshEnabled`.
+     - Added a dedicated setting tile in `SettingsAndAudioStage` under Section 1 ("Liquid Glass Materiality") for unified control.
+  2. **Fluid Lavalamp Physics & Beat Response Engine (`_LavalampGlobsPainter`)**:
+     - Upgraded `AmbientMeshBackground` to render GPU-accelerated fluid lavalamp physics via custom shader painter:
+       - **Molten Base Reservoir**: Wide liquid wax heat pool at the viewport base undulating gently.
+       - **Top Condenser Pool**: Soft cooling reservoir collecting at the top of the canvas.
+       - **Buoyant Droplets with Velocity-Based Stretch**: Modeled non-linear harmonic ascent/descent ($y(t) = \sin(t) + 0.25 \cos(2t)$). Globs dynamically elongate vertically along the velocity vector ($s_y = 1.0 + 0.6 \cdot |v_y|, s_x = 1.0 / \sqrt{s_y}$) preserving liquid volume.
+       - **Acoustic Kick & Beat Response**: On each downbeat pulse, globs swell in volume ($+16\%$), intensify in core radiance ($+35\%$), and exhibit viscoelastic squash-and-stretch ($s_x \times 1.08, s_y \times 0.95$).
+       - **4-Stop Liquid Light Gradients**: Molten core, saturated body, soft aura falloff, and transparent boundary with smooth compositing mimicking liquid metaball fusion.
+       - **Power-Saving Disablement**: When `livingBeatMeshEnabled == false`, both animation controllers are stopped (`stop()`) and the canvas renders a tranquil, dark frosted glass surface with zero animation cycles.
+  3. **Precision Viewport-Centered Lyrics Auto-Scroll & Lock Mode (`SynchronizedLyricsStage`)**:
+     - Bound unique `GlobalKey` identifiers to each rendered lyric line (`_lineKeys.putIfAbsent(index, () => GlobalKey(...))`) with `ScrollCacheExtent.pixels(2000.0)`.
+     - Replaced inaccurate fixed height arithmetic with `Scrollable.ensureVisible(context, alignment: 0.5, duration: 380ms, curve: easeOutCubic)`, keeping the active singing line precisely centered in the viewport regardless of line wrapping or instrumental badges.
+     - Implemented Free-Scroll detection via `NotificationListener<ScrollNotification>`: user drag or wheel gesture instantly sets `_isLockedToActive = false`, suspending auto-scroll so users can explore lyrics freely.
+     - Added floating Liquid Material Glass pill button (`[Sync to Current Line]`, `Icons.vertical_align_center_rounded`) that appears when in free-scroll mode. Tapping it (or tapping any specific lyric line to seek) re-engages `_isLockedToActive = true` and centers the current line.
+- **Consequences**:
+  - Full user autonomy over ambient animation with complete disablement support.
+  - Hypnotic, organic lavalamp visuals that breathe and pulse in harmony with the music.
+  - Zero lyrics viewport drift; singing lines stay centered at all times.
+  - Effortless toggle between hands-free locked auto-follow and user-driven free browsing.
+  - All 18 Flutter unit/widget tests and all 17 Rust workspace tests pass with 0 errors and 0 warnings.
+
 
 
 

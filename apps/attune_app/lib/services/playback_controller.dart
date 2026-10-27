@@ -28,6 +28,7 @@ class PlaybackController extends ChangeNotifier {
   int _upNextQueueIndex = 0;
   bool _isScanning = false;
   ShuffleMode _shuffleMode = ShuffleMode.off;
+  bool _livingBeatMeshEnabled = true;
 
   // Recent Playback History to prevent track repetition and bias in smart shuffle
   final List<String> _recentTrackIds = [];
@@ -137,7 +138,14 @@ class PlaybackController extends ChangeNotifier {
   int get upNextQueueIndex => _upNextQueueIndex;
   bool get isScanning => _isScanning;
   ShuffleMode get shuffleMode => _shuffleMode;
+  bool get livingBeatMeshEnabled => _livingBeatMeshEnabled;
   Map<String, dynamic>? get pendingRecipe => _pendingRecipe;
+
+  void setLivingBeatMeshEnabled(bool enabled) {
+    if (_livingBeatMeshEnabled == enabled) return;
+    _livingBeatMeshEnabled = enabled;
+    notifyListeners();
+  }
 
   TrackItem? get currentTrack =>
       _queue.isNotEmpty && _currentQueueIndex < _queue.length ? _queue[_currentQueueIndex] : null;
