@@ -3,7 +3,7 @@ import '../services/equalizer_service.dart';
 import '../theme/liquid_glass.dart';
 import '../theme/typography.dart';
 
-/// Full-screen ViPER-Grade Master FX Rack and Equalizer Stage
+/// Full-screen Attune Studio Master FX Rack and Equalizer Stage
 class EqualizerStage extends StatefulWidget {
   const EqualizerStage({super.key});
 
@@ -91,12 +91,12 @@ class _EqualizerStageState extends State<EqualizerStage> {
                       _buildGraphicEqCard(context, colorScheme),
                       const SizedBox(height: 16),
 
-                      // ViPER Bass Sub-Harmonic Synthesizer
-                      _buildViperBassCard(context, colorScheme),
+                      // Attune Pure Bass+ Sub-Harmonic Synthesizer
+                      _buildAttuneBassCard(context, colorScheme),
                       const SizedBox(height: 16),
 
-                      // ViPER Clarity & Vocal Air Harmonic Exciter
-                      _buildViperClarityCard(context, colorScheme),
+                      // Attune Clarity & Vocal Air Harmonic Exciter
+                      _buildAttuneClarityCard(context, colorScheme),
                       const SizedBox(height: 16),
 
                       // Stereo Field Expander / Differential Surround
@@ -485,7 +485,7 @@ class _EqualizerStageState extends State<EqualizerStage> {
     );
   }
 
-  Widget _buildViperBassCard(BuildContext context, ColorScheme colorScheme) {
+  Widget _buildAttuneBassCard(BuildContext context, ColorScheme colorScheme) {
     final gainText = '+${_eq.bassGainDb.toStringAsFixed(1)} dB';
 
     return LiquidGlassContainer(
@@ -504,7 +504,7 @@ class _EqualizerStageState extends State<EqualizerStage> {
                     Icon(Icons.speaker_group_rounded, color: Colors.deepOrangeAccent, size: 20),
                     const SizedBox(width: 8),
                     Text(
-                      'ViPER Bass (Pure Bass+)',
+                      'Attune Pure Bass+',
                       style: AttuneTypography.soraTitleSmall(color: Colors.white),
                     ),
                   ],
@@ -589,7 +589,7 @@ class _EqualizerStageState extends State<EqualizerStage> {
     );
   }
 
-  Widget _buildViperClarityCard(BuildContext context, ColorScheme colorScheme) {
+  Widget _buildAttuneClarityCard(BuildContext context, ColorScheme colorScheme) {
     final wetPercent = '${(_eq.clarityWet * 100).toStringAsFixed(0)}%';
 
     return LiquidGlassContainer(
@@ -608,7 +608,7 @@ class _EqualizerStageState extends State<EqualizerStage> {
                     Icon(Icons.auto_awesome_rounded, color: Colors.cyanAccent, size: 20),
                     const SizedBox(width: 8),
                     Text(
-                      'ViPER Clarity & Vocal Air',
+                      'Attune Clarity & Vocal Air',
                       style: AttuneTypography.soraTitleSmall(color: Colors.white),
                     ),
                   ],

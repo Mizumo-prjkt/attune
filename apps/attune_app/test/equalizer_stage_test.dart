@@ -49,7 +49,7 @@ void main() {
       }
     });
 
-    test('ViPER Bass and Clarity adjustments update state', () {
+    test('Attune Pure Bass+ and Clarity adjustments update state', () {
       eq.setBass(enabled: true, gainDb: 6.5, freqHz: 90.0);
       expect(eq.bassEnabled, isTrue);
       expect(eq.bassGainDb, equals(6.5));
@@ -90,8 +90,8 @@ void main() {
       expect(find.text('Studio-Grade 6-Stage Mastering Rack'), findsOneWidget);
       expect(find.text('Pre-Amp Headroom Pad'), findsOneWidget);
       expect(find.text('10-Band Graphic Equalizer'), findsOneWidget);
-      expect(find.text('ViPER Bass (Pure Bass+)'), findsOneWidget);
-      expect(find.text('ViPER Clarity & Vocal Air'), findsOneWidget);
+      expect(find.text('Attune Pure Bass+'), findsOneWidget);
+      expect(find.text('Attune Clarity & Vocal Air'), findsOneWidget);
       expect(find.text('Stereo Field Expander'), findsOneWidget);
 
       // Verify all dynamic presets are rendered

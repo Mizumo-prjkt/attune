@@ -913,6 +913,38 @@ This file records all major architectural decisions for **Attune**, including co
   - Sub-bass phase cancellation is structurally prevented.
   - 100% test pass rate across 28 Rust workspace tests and 49 Flutter tests; 0 analyze warnings.
 
+---
+
+### ADR-031: Native DSP Rebranding to Attune (Pure Bass+ & Clarity), Zero-Overlap ViperFX Detection, Omnipresent Equalizer Navigation & Bundle Compilation
+- **Status**: **LOCKED** (Phase 5 / Polish & Packaging)
+- **Date**: 2026-10-28
+- **Context**:
+  - The DSP rack was originally referenced internally as "ViPER-Grade Master FX Rack". Because Attune's in-process DSP is an independent, 1:1 bit-perfect mastering rack (sub-harmonic psychoacoustic synthesizer, polynomial harmonic exciter, mid-side stereo expander, biquad EQ, brickwall limiter), user-facing branding should be Attune's own ("Attune Studio Master FX Rack", "Attune Pure Bass+", "Attune Clarity & Vocal Air").
+  - Detection of third-party system-wide ViPER4Android / ViperFX installations must remain completely untouched in `crates/attune-core/src/engine/external_dsp.rs` (`com.pittvandewitt.viperfx`, `com.wstxda.viper4android`, `libv4a_fx.so`) to prevent double-processing conflicts.
+  - Users launching pre-compiled Linux debug bundles (`apps/attune_app/build/linux/x64/debug/bundle/attune_app`) had not received the updated kernel assets.
+  - Equalizer access in `SettingsAndAudioStage` had an outdated subtitle and dialog from the prior 3-band iteration, and lacked 1-click access from the Now Playing header and Desktop navigation rail.
+- **Decision**:
+  1. **Branding Transition**:
+     - Renamed all user-facing strings, widget methods, and internal doc comments to:
+       * "Attune Studio Master FX Rack" (Master EQ engine)
+       * "Attune Pure Bass+" (`_buildAttuneBassCard`, psychoacoustic sub-harmonic generator)
+       * "Attune Clarity & Vocal Air" (`_buildAttuneClarityCard`, polynomial high-shelf exciter)
+     - Preserved all external detection strings in `crates/attune-core/src/engine/external_dsp.rs` for conflict probing.
+  2. **Omnipresent Equalizer Navigation & Live Telemetry**:
+     - `SettingsAndAudioStage`: Added live listener to `EqualizerService` updating the "View Equalizer" subtitle dynamically with active preset, pre-amp gain, bass, clarity, and stereo width.
+     - Modernized the floating quick dialog with `Wrap` layout to prevent `RenderFlex` overflows on compact form factors.
+     - Added an Equalizer icon button (`Icons.equalizer_rounded`) to the `NowPlayingStage` header for direct 1-tap access during listening.
+     - Added an Equalizer icon button to the Desktop navigation rail in `ResponsiveGlassScaffold`.
+  3. **Build & Test Verification**:
+     - Recompiled release native library `cargo build --release -p attune-ffi`.
+     - Rebuilt Linux debug bundle via `flutter build linux --debug` updating `kernel_blob.bin`.
+     - Verified all 28 Rust tests and 49 Flutter tests pass with 0 warnings.
+- **Consequences**:
+  - Cohesive, proprietary branding across the player while maintaining robust conflict detection.
+  - Immediate, 1-tap access to the 10-band master FX stage from Settings, Now Playing, and Desktop sidebar.
+  - Linux debug bundle on disk is fully synchronized with the latest Dart and Rust implementations.
+
+
 
 
 

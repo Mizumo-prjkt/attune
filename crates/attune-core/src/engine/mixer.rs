@@ -208,7 +208,7 @@ impl DualDeckMixer {
             }
         };
 
-        // Master FX Rack mastering chain (pre-amp, 10-band EQ, ViPER Bass & Clarity, stereo widen, brickwall limiter)
+        // Master FX Rack mastering chain (pre-amp, 10-band EQ, Attune Pure Bass+ & Clarity, stereo widen, brickwall limiter)
         let (fx_l, fx_r) = self.master_fx.process_stereo_frame((raw_l * self.master_gain_linear, raw_r * self.master_gain_linear));
 
         (fx_l, fx_r)

@@ -7,6 +7,7 @@ import '../theme/liquid_glass.dart';
 import '../theme/typography.dart';
 import '../widgets/audio_quality_badge.dart';
 import '../widgets/transition_connector_pill.dart';
+import 'equalizer_stage.dart';
 import 'synchronized_lyrics_stage.dart';
 
 /// Full-height Now Playing Stage implementing Section 3 of UI Design Spec:
@@ -138,6 +139,18 @@ class _NowPlayingStageState extends State<NowPlayingStage> {
                       Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
+                          IconButton(
+                            icon: const Icon(Icons.equalizer_rounded, size: 22),
+                            color: colorScheme.onSurface.withValues(alpha: 0.8),
+                            onPressed: () {
+                              Navigator.of(context).push(
+                                MaterialPageRoute(
+                                  builder: (_) => const EqualizerStage(),
+                                ),
+                              );
+                            },
+                            tooltip: 'Attune Studio Master FX & Equalizer',
+                          ),
                           IconButton(
                             icon: const Icon(Icons.tune_rounded, size: 22),
                             color: colorScheme.onSurface.withValues(alpha: 0.8),

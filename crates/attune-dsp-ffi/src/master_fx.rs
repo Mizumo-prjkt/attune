@@ -1,4 +1,4 @@
-//! ViPER-Grade Master FX DSP Rack
+//! Attune Studio Master FX DSP Rack
 //!
 //! Sequential high-performance f32 mastering chain executed directly inside
 //! Attune's native process right after the dual-deck crossfader and before
@@ -7,8 +7,8 @@
 //! [Decoded PCM f32]
 //!   ➔ 1. Pre-Amp Headroom Pad (-12 dB to +6 dB, preventing filter clipping)
 //!   ➔ 2. 10-Band Graphic / Parametric EQ (Cascaded IIR DirectForm2Transposed Biquads)
-//!   ➔ 3. ViPER Bass (Natural / Pure Bass+ Psychoacoustic Sub-Harmonic Synthesizer)
-//!   ➔ 4. ViPER Clarity (High-Shelf Harmonic Exciter & Vocal Air)
+//!   ➔ 3. Attune Pure Bass+ (Psychoacoustic Sub-Harmonic Synthesizer)
+//!   ➔ 4. Attune Clarity & Vocal Air (High-Shelf Harmonic Exciter)
 //!   ➔ 5. Stereo Field Expander / Differential Surround (Mid-Side matrix with Mono-Bass protection)
 //!   ➔ 6. Master Limiter & Soft-Knee Saturator (Brickwall -0.1 dBFS ceiling)
 //!   ➔ [OS Audio Output Sink]
@@ -219,7 +219,7 @@ impl Default for MasterFxParams {
     }
 }
 
-/// ViPER-Style Master FX Rack executing the full 6-stage mastering chain
+/// Attune Studio Master FX Rack executing the full 6-stage mastering chain
 #[derive(Debug, Clone)]
 pub struct MasterFxRack {
     sample_rate: f32,
@@ -234,7 +234,7 @@ pub struct MasterFxRack {
     eq_state_l: [BiquadState; EQ_BANDS_COUNT],
     eq_state_r: [BiquadState; EQ_BANDS_COUNT],
 
-    // 3. ViPER Bass (Psychoacoustic Sub-Harmonic Synthesizer)
+    // 3. Attune Pure Bass+ (Psychoacoustic Sub-Harmonic Synthesizer)
     bass_isolate_coeffs: BiquadCoeffs,
     bass_smooth_coeffs: BiquadCoeffs,
     bass_isolate_l: BiquadState,
@@ -244,7 +244,7 @@ pub struct MasterFxRack {
     current_bass_linear: f32,
     target_bass_linear: f32,
 
-    // 4. ViPER Clarity (High-Shelf Harmonic Exciter & Vocal Air)
+    // 4. Attune Clarity & Vocal Air (High-Shelf Harmonic Exciter)
     clarity_hp_coeffs: BiquadCoeffs,
     clarity_hp_l: BiquadState,
     clarity_hp_r: BiquadState,
@@ -445,7 +445,7 @@ impl MasterFxRack {
             r = self.eq_state_r[i].process(r, c);
         }
 
-        // Stage 3: ViPER Bass (Psychoacoustic Sub-Harmonic Synthesizer)
+        // Stage 3: Attune Pure Bass+ (Psychoacoustic Sub-Harmonic Synthesizer)
         if self.current_bass_linear > 0.001 {
             // Isolate low frequencies
             let sub_l = self.bass_isolate_l.process(l, &self.bass_isolate_coeffs);
@@ -463,7 +463,7 @@ impl MasterFxRack {
             r += clean_bass_r * self.current_bass_linear;
         }
 
-        // Stage 4: ViPER Clarity & Vocal Air (High-Shelf Harmonic Exciter)
+        // Stage 4: Attune Clarity & Vocal Air (High-Shelf Harmonic Exciter)
         if self.current_clarity_wet > 0.001 {
             let high_l = self.clarity_hp_l.process(l, &self.clarity_hp_coeffs);
             let high_r = self.clarity_hp_r.process(r, &self.clarity_hp_coeffs);
@@ -596,7 +596,7 @@ mod tests {
     }
 
     #[test]
-    fn test_viper_bass_synthesis() {
+    fn test_attune_bass_synthesis() {
         let mut rack = MasterFxRack::new(44100.0);
         rack.set_preamp_db(0.0);
         rack.set_bass(true, 6.0, 80.0);
@@ -625,7 +625,7 @@ mod tests {
             }
         }
 
-        assert!(bass_energy > no_bass_energy, "ViPER bass must synthesize sub-harmonics");
+        assert!(bass_energy > no_bass_energy, "Attune Pure Bass+ must synthesize sub-harmonics");
     }
 
     #[test]

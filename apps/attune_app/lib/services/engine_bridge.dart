@@ -360,7 +360,7 @@ class AttuneEngineBridge {
     return _attunePlayerStop!();
   }
 
-  // Master FX & ViPER DSP Mastering Chain Controls
+  // Attune Studio Master FX Rack Controls
 
   int masterFxSetEnabled(bool enabled) {
     if (!isAvailable || _attuneMasterFxSetEnabled == null) return -1;

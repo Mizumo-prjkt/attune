@@ -17,7 +17,7 @@ const Map<String, List<double>> kEqualizerPresets = {
   'Bass Punch': [6.5, 5.5, 3.5, 1.0, -0.5, -1.0, 0.0, 1.0, 1.5, 2.0],
 };
 
-/// ViPER-Grade Equalizer & Mastering Rack Service
+/// Attune Studio Master FX Rack & Equalizer Service
 /// Manages state, presets, psychoacoustic bass, clarity exciter, stereo widening,
 /// external DSP conflict detection, and hardware synchronization.
 class EqualizerService extends ChangeNotifier {
@@ -30,12 +30,12 @@ class EqualizerService extends ChangeNotifier {
   List<double> _bandGainsDb = List.filled(10, 0.0);
   String _activePreset = 'Flat';
 
-  // ViPER Bass
+  // Attune Pure Bass+
   bool _bassEnabled = false;
   double _bassGainDb = 4.0;
   double _bassFreqHz = 80.0;
 
-  // ViPER Clarity & Vocal Air
+  // Attune Clarity & Vocal Air
   bool _clarityEnabled = false;
   double _clarityWet = 0.12;
 
@@ -67,6 +67,7 @@ class EqualizerService extends ChangeNotifier {
   double get clarityWet => _clarityWet;
 
   double get stereoWidth => _stereoWidth;
+  bool get stereoExpanderEnabled => (_stereoWidth - 1.0).abs() > 0.05;
 
   bool get externalDspDetected => _externalDspDetected;
   String get externalDspName => _externalDspName;

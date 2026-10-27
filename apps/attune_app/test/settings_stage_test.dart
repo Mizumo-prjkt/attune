@@ -182,16 +182,19 @@ void main() {
       await tester.longPress(tile);
       await tester.pump(const Duration(milliseconds: 100));
 
-      expect(find.text('Equalizer DSP'), findsOneWidget);
-      expect(find.text('Low / Bass (60 Hz)'), findsOneWidget);
-      expect(find.text('Mid / Vocals (1,000 Hz)'), findsOneWidget);
-      expect(find.text('High / Treble (10,000 Hz)'), findsOneWidget);
-      expect(find.text('Reset to Flat (0 dB)'), findsOneWidget);
+      expect(find.text('Attune Master FX & Equalizer'), findsOneWidget);
+      expect(find.text('Master FX Engine', skipOffstage: false), findsOneWidget);
+      expect(find.text('Active Mastering Preset', skipOffstage: false), findsOneWidget);
+      expect(find.text('Pre-Amp Headroom Pad', skipOffstage: false), findsOneWidget);
+      expect(find.text('Attune Pure Bass+', skipOffstage: false), findsOneWidget);
+      expect(find.text('Attune Clarity & Vocal Air', skipOffstage: false), findsOneWidget);
+      expect(find.text('Open Full 10-Band Stage', skipOffstage: false), findsOneWidget);
+      expect(find.text('Reset to Flat', skipOffstage: false), findsOneWidget);
 
-      await tester.tap(find.text('Done'));
+      await tester.tap(find.text('Reset to Flat', skipOffstage: false));
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 500));
-      expect(find.text('Equalizer DSP'), findsNothing);
+      expect(find.text('Attune Master FX & Equalizer'), findsNothing);
     });
 
     testWidgets('Opens Hardware Assessment Checks floating dialog with real dynamic metrics', (WidgetTester tester) async {

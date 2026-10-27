@@ -6,6 +6,7 @@ import '../services/audio_storage_service.dart';
 import '../services/playback_controller.dart';
 import '../services/platform_navigation.dart';
 import '../stages/albums_stage.dart';
+import '../stages/equalizer_stage.dart';
 import '../stages/home_stage.dart';
 import '../stages/now_playing_stage.dart';
 import '../stages/playlist_queue_stage.dart';
@@ -327,6 +328,21 @@ class _ResponsiveGlassScaffoldState extends State<ResponsiveGlassScaffold>
                           onPressed: () => setState(() => _showLeftRail = false),
                         ),
                         const SizedBox(height: 4),
+
+                        // Master Equalizer Button
+                        LiquidGlassContainer(
+                          padding: const EdgeInsets.all(10),
+                          borderRadius: 16,
+                          surfaceAlpha: 0.18,
+                          onTap: () => Navigator.of(context).push(
+                            MaterialPageRoute(builder: (_) => const EqualizerStage()),
+                          ),
+                          child: const Tooltip(
+                            message: 'Attune Studio Master FX & Equalizer',
+                            child: Icon(Icons.equalizer_rounded, color: Colors.white, size: 22),
+                          ),
+                        ),
+                        const SizedBox(height: 8),
 
                         // Settings Button
                         LiquidGlassContainer(

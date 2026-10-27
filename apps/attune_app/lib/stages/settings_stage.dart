@@ -7,6 +7,7 @@ import '../services/engine_bridge.dart';
 import '../services/lyrics_service.dart';
 import '../services/permission_service.dart';
 import '../services/playback_controller.dart';
+import '../services/equalizer_service.dart';
 import '../services/platform_navigation.dart';
 import '../services/settings_service.dart';
 import 'equalizer_stage.dart';
@@ -37,6 +38,7 @@ class _SettingsAndAudioStageState extends State<SettingsAndAudioStage> with Widg
   final SettingsService _settings = SettingsService.instance;
   final PlaybackController _playback = PlaybackController.instance;
   final PlatformPermissionService _permissionService = PlatformPermissionService.instance;
+  final EqualizerService _eq = EqualizerService.instance;
 
   bool _androidWakelockGranted = false;
   bool _androidNotificationGranted = false;
@@ -45,13 +47,19 @@ class _SettingsAndAudioStageState extends State<SettingsAndAudioStage> with Widg
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    _eq.addListener(_onEqStateChanged);
     _refreshPermissions();
   }
 
   @override
   void dispose() {
+    _eq.removeListener(_onEqStateChanged);
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
+  }
+
+  void _onEqStateChanged() {
+    if (mounted) setState(() {});
   }
 
   @override
@@ -133,8 +141,11 @@ class _SettingsAndAudioStageState extends State<SettingsAndAudioStage> with Widg
                       const SizedBox(height: 16),
                       const Divider(height: 1, color: Colors.white12),
                       const SizedBox(height: 12),
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.end,
+                      Wrap(
+                        alignment: WrapAlignment.end,
+                        crossAxisAlignment: WrapCrossAlignment.center,
+                        spacing: 8,
+                        runSpacing: 8,
                         children: actions,
                       ),
                     ],
@@ -323,7 +334,9 @@ class _SettingsAndAudioStageState extends State<SettingsAndAudioStage> with Widg
                               _buildSettingTile(
                                 icon: Icons.tune_rounded,
                                 title: 'View Equalizer',
-                                subtitle: 'Studio-Grade 10-Band EQ & ViPER DSP Rack • Tap to open stage (long-press for quick dialog)',
+                                subtitle: _eq.enabled
+                                    ? 'Preset: ${_eq.activePreset} • Pre-amp: ${_eq.preampDb >= 0 ? "+" : ""}${_eq.preampDb.toStringAsFixed(1)} dB${_eq.bassEnabled ? " • Pure Bass+" : ""}${_eq.clarityEnabled ? " • Clarity" : ""}${_eq.stereoExpanderEnabled ? " • Stereo ${_eq.stereoWidth.toStringAsFixed(1)}x" : ""}'
+                                    : 'Bypassed • Tap to configure 10-Band EQ & Master FX',
                                 trailing: const Icon(Icons.chevron_right_rounded, color: Colors.white38, size: 20),
                                 onTap: () {
                                   Navigator.of(context).push(
@@ -823,84 +836,237 @@ class _SettingsAndAudioStageState extends State<SettingsAndAudioStage> with Widg
     final colorScheme = Theme.of(context).colorScheme;
     _showGlassDialog(
       context: context,
-      title: 'Equalizer DSP',
+      title: 'Attune Master FX & Equalizer',
       child: StatefulBuilder(
         builder: (ctx, setDialogState) {
-          final isOff = _settings.equalizerMode == EqualizerMode.off;
+          final isBypassed = !_eq.enabled;
           return Column(
             crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
             children: [
-              if (isOff)
+                // Master Enable Switch
                 Container(
-                  padding: const EdgeInsets.all(12),
-                  margin: const EdgeInsets.only(bottom: 16),
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
                   decoration: BoxDecoration(
-                    color: Colors.amber.withValues(alpha: 0.15),
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: Colors.amber.withValues(alpha: 0.3)),
+                    color: Colors.white.withValues(alpha: 0.08),
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(color: Colors.white12),
                   ),
                   child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      const Icon(Icons.info_outline_rounded, color: Colors.amberAccent, size: 20),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: Text(
-                          'Equalizer is currently Off in settings. Sliders adjust active filters once enabled.',
-                          style: AttuneTypography.jakartaBodySmall(color: Colors.amberAccent),
-                        ),
+                      Row(
+                        children: [
+                          Icon(Icons.power_settings_new_rounded,
+                              color: _eq.enabled ? colorScheme.primary : Colors.white54, size: 20),
+                          const SizedBox(width: 10),
+                          Text('Master FX Engine', style: AttuneTypography.soraTitleSmall(color: Colors.white)),
+                        ],
+                      ),
+                      Switch(
+                        value: _eq.enabled,
+                        activeThumbColor: colorScheme.primary,
+                        onChanged: (v) {
+                          _eq.setEnabled(v);
+                          setDialogState(() {});
+                        },
                       ),
                     ],
                   ),
                 ),
+                if (isBypassed) ...[
+                  const SizedBox(height: 12),
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: Colors.amber.withValues(alpha: 0.15),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: Colors.amber.withValues(alpha: 0.3)),
+                    ),
+                    child: Row(
+                      children: [
+                        const Icon(Icons.info_outline_rounded, color: Colors.amberAccent, size: 20),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Text(
+                            'Master FX Rack is currently bypassed. Turn on above to engage 10-band EQ & enhancement DSP.',
+                            style: AttuneTypography.jakartaBodySmall(color: Colors.amberAccent),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+                const SizedBox(height: 16),
 
-              // 3-Band Sliders: Low, Mid, High
-              _buildEqBandRow(
-                title: 'Low / Bass (60 Hz)',
-                value: _settings.eqLowDb,
-                colorScheme: colorScheme,
-                onChanged: (v) {
-                  setDialogState(() {
-                    _settings.setEqBands(lowDb: v);
-                  });
-                },
-              ),
-              const SizedBox(height: 16),
-              _buildEqBandRow(
-                title: 'Mid / Vocals (1,000 Hz)',
-                value: _settings.eqMidDb,
-                colorScheme: colorScheme,
-                onChanged: (v) {
-                  setDialogState(() {
-                    _settings.setEqBands(midDb: v);
-                  });
-                },
-              ),
-              const SizedBox(height: 16),
-              _buildEqBandRow(
-                title: 'High / Treble (10,000 Hz)',
-                value: _settings.eqHighDb,
-                colorScheme: colorScheme,
-                onChanged: (v) {
-                  setDialogState(() {
-                    _settings.setEqBands(highDb: v);
-                  });
-                },
-              ),
-            ],
-          );
+                // Presets Selection
+                Text('Active Mastering Preset', style: AttuneTypography.soraTitleSmall(color: Colors.white)),
+                const SizedBox(height: 8),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: kEqualizerPresets.keys.map((preset) {
+                    final isSel = _eq.activePreset == preset;
+                    return InkWell(
+                      borderRadius: BorderRadius.circular(12),
+                      onTap: _eq.enabled
+                          ? () {
+                              _eq.applyPreset(preset);
+                              setDialogState(() {});
+                            }
+                          : null,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                        decoration: BoxDecoration(
+                          color: isSel ? colorScheme.primary.withValues(alpha: 0.3) : Colors.white.withValues(alpha: 0.06),
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: isSel ? colorScheme.primary : Colors.white12),
+                        ),
+                        child: Text(
+                          preset,
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: isSel ? FontWeight.w600 : FontWeight.normal,
+                            color: isSel ? Colors.white : Colors.white70,
+                          ),
+                        ),
+                      ),
+                    );
+                  }).toList(),
+                ),
+                const SizedBox(height: 16),
+
+                // Pre-amp Headroom Pad
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text('Pre-Amp Headroom Pad', style: AttuneTypography.jakartaBodySmall(color: Colors.white70)),
+                    Text(
+                      '${_eq.preampDb >= 0 ? "+" : ""}${_eq.preampDb.toStringAsFixed(1)} dB',
+                      style: AttuneTypography.soraMetric(color: colorScheme.primary, fontSize: 12),
+                    ),
+                  ],
+                ),
+                Slider(
+                  value: _eq.preampDb,
+                  min: -12.0,
+                  max: 6.0,
+                  divisions: 36,
+                  activeColor: colorScheme.primary,
+                  inactiveColor: Colors.white12,
+                  onChanged: _eq.enabled
+                      ? (v) {
+                          _eq.setPreampDb(v);
+                          setDialogState(() {});
+                        }
+                      : null,
+                ),
+                const SizedBox(height: 12),
+
+                // Attune Pure Bass+
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Row(
+                      children: [
+                        Icon(Icons.speaker_group_rounded, color: Colors.deepOrangeAccent, size: 18),
+                        const SizedBox(width: 8),
+                        Text('Attune Pure Bass+', style: AttuneTypography.soraTitleSmall(color: Colors.white, fontSize: 13)),
+                      ],
+                    ),
+                    Switch(
+                      value: _eq.bassEnabled,
+                      activeThumbColor: Colors.deepOrangeAccent,
+                      onChanged: _eq.enabled
+                          ? (v) {
+                              _eq.setBass(enabled: v);
+                              setDialogState(() {});
+                            }
+                          : null,
+                    ),
+                  ],
+                ),
+                if (_eq.bassEnabled)
+                  Slider(
+                    value: _eq.bassGainDb,
+                    min: 0.0,
+                    max: 14.0,
+                    divisions: 28,
+                    activeColor: Colors.deepOrangeAccent,
+                    inactiveColor: Colors.white12,
+                    onChanged: _eq.enabled
+                        ? (v) {
+                            _eq.setBass(gainDb: v);
+                            setDialogState(() {});
+                          }
+                        : null,
+                  ),
+                const SizedBox(height: 12),
+
+                // Attune Clarity & Vocal Air
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Row(
+                      children: [
+                        Icon(Icons.auto_awesome_rounded, color: Colors.cyanAccent, size: 18),
+                        const SizedBox(width: 8),
+                        Text('Attune Clarity & Vocal Air', style: AttuneTypography.soraTitleSmall(color: Colors.white, fontSize: 13)),
+                      ],
+                    ),
+                    Switch(
+                      value: _eq.clarityEnabled,
+                      activeThumbColor: Colors.cyanAccent,
+                      onChanged: _eq.enabled
+                          ? (v) {
+                              _eq.setClarity(enabled: v);
+                              setDialogState(() {});
+                            }
+                          : null,
+                    ),
+                  ],
+                ),
+                if (_eq.clarityEnabled)
+                  Slider(
+                    value: _eq.clarityWet,
+                    min: 0.0,
+                    max: 0.40,
+                    divisions: 40,
+                    activeColor: Colors.cyanAccent,
+                    inactiveColor: Colors.white12,
+                    onChanged: _eq.enabled
+                        ? (v) {
+                            _eq.setClarity(wet: v);
+                            setDialogState(() {});
+                          }
+                        : null,
+                  ),
+              ],
+            );
         },
       ),
       actions: [
         TextButton(
           onPressed: () {
-            _settings.resetEqualizer();
+            _eq.resetToFlat();
             Navigator.of(context).pop();
           },
-          child: Text('Reset to Flat (0 dB)', style: TextStyle(color: colorScheme.primary)),
+          child: Text('Reset to Flat', style: TextStyle(color: colorScheme.primary)),
         ),
-        TextButton(
-          onPressed: () => Navigator.of(context).pop(),
-          child: const Text('Done', style: TextStyle(color: Colors.white)),
+        FilledButton.icon(
+          style: FilledButton.styleFrom(
+            backgroundColor: colorScheme.primary,
+            foregroundColor: colorScheme.onPrimary,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+          ),
+          icon: const Icon(Icons.open_in_new_rounded, size: 18),
+          label: const Text('Open Full 10-Band Stage'),
+          onPressed: () {
+            Navigator.of(context).pop();
+            Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => const EqualizerStage()),
+            );
+          },
         ),
       ],
     );

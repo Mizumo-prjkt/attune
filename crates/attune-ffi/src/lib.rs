@@ -508,7 +508,7 @@ pub extern "C" fn attune_master_fx_set_all_bands(bands_ptr: *const f32, count: i
     0
 }
 
-/// Configures ViPER Bass psychoacoustic sub-harmonic synthesizer.
+/// Configures Attune Pure Bass+ psychoacoustic sub-harmonic synthesizer.
 #[no_mangle]
 pub extern "C" fn attune_master_fx_set_bass(enabled: i32, gain_db: f32, freq_hz: f32) -> i32 {
     update_master_fx_params(|p| {
@@ -519,7 +519,7 @@ pub extern "C" fn attune_master_fx_set_bass(enabled: i32, gain_db: f32, freq_hz:
     0
 }
 
-/// Configures ViPER Clarity & Vocal Air harmonic exciter.
+/// Configures Attune Clarity & Vocal Air harmonic exciter.
 #[no_mangle]
 pub extern "C" fn attune_master_fx_set_clarity(enabled: i32, wet: f32) -> i32 {
     update_master_fx_params(|p| {
