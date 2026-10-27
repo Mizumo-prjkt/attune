@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import '../models/track_item.dart';
@@ -265,8 +266,99 @@ class AudioStorageService {
     );
   }
 
+  File get _cacheFile {
+    final home = Platform.environment['HOME'] ?? Platform.environment['USERPROFILE'] ?? '.';
+    final dir = Directory('$home/.config/attune');
+    if (!dir.existsSync()) {
+      try {
+        dir.createSync(recursive: true);
+      } catch (_) {}
+    }
+    return File('${dir.path}/library_cache.json');
+  }
+
+  File get _configFile {
+    final home = Platform.environment['HOME'] ?? Platform.environment['USERPROFILE'] ?? '.';
+    final dir = Directory('$home/.config/attune');
+    if (!dir.existsSync()) {
+      try {
+        dir.createSync(recursive: true);
+      } catch (_) {}
+    }
+    return File('${dir.path}/config.json');
+  }
+
+  /// Loads cached track metadata from local disk for instant (< 5ms) startup.
+  List<TrackItem> loadCachedTracks() {
+    try {
+      final file = _cacheFile;
+      if (file.existsSync()) {
+        final content = file.readAsStringSync();
+        if (content.isNotEmpty) {
+          final list = jsonDecode(content) as List<dynamic>;
+          return list.map((item) => TrackItem.fromJson(item as Map<String, dynamic>)).toList();
+        }
+      }
+    } catch (e) {
+      debugPrint('[AudioStorageService] Cache load notice: $e');
+    }
+    return [];
+  }
+
+  /// Persists track list to local disk cache.
+  void saveCachedTracks(List<TrackItem> tracks) {
+    try {
+      final file = _cacheFile;
+      final jsonList = tracks.map((t) => t.toJson()).toList();
+      file.writeAsStringSync(jsonEncode(jsonList));
+      debugPrint('[AudioStorageService] Saved ${tracks.length} tracks to library cache: ${file.path}');
+    } catch (e) {
+      debugPrint('[AudioStorageService] Cache save notice: $e');
+    }
+  }
+
+  /// Checks if first-run setup has been completed.
+  bool isSetupCompleted() {
+    try {
+      final file = _configFile;
+      if (file.existsSync()) {
+        final content = file.readAsStringSync();
+        final map = jsonDecode(content) as Map<String, dynamic>;
+        return (map['has_completed_setup'] as bool?) ?? (map['setupCompleted'] as bool?) ?? false;
+      }
+    } catch (_) {}
+    return false;
+  }
+
+  /// Saves setup completion status and selected music roots.
+  void setSetupCompleted(bool completed, {List<String>? selectedRoots}) {
+    try {
+      final file = _configFile;
+      final map = {
+        'has_completed_setup': completed,
+        'selected_roots': selectedRoots ?? [],
+        'updated_at': DateTime.now().toIso8601String(),
+      };
+      file.writeAsStringSync(jsonEncode(map));
+      debugPrint('[AudioStorageService] Updated setup config: completed=$completed');
+    } catch (e) {
+      debugPrint('[AudioStorageService] Config save error: $e');
+    }
+  }
+
   /// Scans library and returns sorted track items.
-  Future<List<TrackItem>> scanLibrary({List<String>? additionalRoots}) async {
+  /// If [forceRefresh] is false and cache exists, returns cached tracks immediately!
+  Future<List<TrackItem>> scanLibrary({bool forceRefresh = false, List<String>? additionalRoots}) async {
+    // 1. Fast Path: Read from local disk cache immediately
+    if (!forceRefresh && additionalRoots == null) {
+      final cached = loadCachedTracks();
+      if (cached.isNotEmpty) {
+        debugPrint('[AudioStorageService] Loaded ${cached.length} tracks instantly from local cache.');
+        return cached;
+      }
+    }
+
+    // 2. Slow Path: Discover audio files on disk
     final files = await discoverAudioFiles(additionalRoots: additionalRoots);
     final tracks = files.map((f) => parseTrackMetadata(f)).toList();
 
@@ -277,6 +369,10 @@ class AudioStorageService {
       if (aScore != bScore) return bScore.compareTo(aScore);
       return a.title.compareTo(b.title);
     });
+
+    if (tracks.isNotEmpty) {
+      saveCachedTracks(tracks);
+    }
 
     return tracks;
   }

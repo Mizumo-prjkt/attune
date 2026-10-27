@@ -15,6 +15,7 @@ class LiquidGlassContainer extends StatelessWidget {
   final double blurSigma;
   final double surfaceAlpha;
   final Color? tintOverride;
+  final Color? borderColor;
   final VoidCallback? onTap;
 
   const LiquidGlassContainer({
@@ -28,6 +29,7 @@ class LiquidGlassContainer extends StatelessWidget {
     this.blurSigma = 36.0,
     this.surfaceAlpha = 0.14,
     this.tintOverride,
+    this.borderColor,
     this.onTap,
   });
 
@@ -45,7 +47,7 @@ class LiquidGlassContainer extends StatelessWidget {
         borderRadius: BorderRadius.circular(borderRadius),
         border: Border.all(
           width: 1.0,
-          color: Colors.transparent, // Border painter handles diagonal specular gradient
+          color: borderColor ?? Colors.transparent, // Border painter handles diagonal specular gradient if not overridden
         ),
       ),
       child: child,

@@ -7,15 +7,19 @@ import '../theme/liquid_glass.dart';
 import '../theme/typography.dart';
 import '../widgets/audio_quality_badge.dart';
 import '../widgets/transition_connector_pill.dart';
+import 'synchronized_lyrics_stage.dart';
 
 /// NowPlayingStage implementing Stage 1 of 05_UI_DESIGN_SPEC.md:
-/// Artwork card, subtle Cue-Zone wave progress bar, Sora title/artist,
-/// Human-Friendly Audio Quality badge, transport controls, and mini Up-Next pill.
-class NowPlayingStage extends StatelessWidget {
+/// Integrated lyrics toggle inside player, collapse header button,
+/// subtle Cue-Zone wave progress bar, Sora title/artist,
+/// Human-Friendly Audio Quality badge, transport controls with Smart Shuffle,
+/// and mini Up-Next pill.
+class NowPlayingStage extends StatefulWidget {
   final bool? isPlaying;
   final VoidCallback? onTogglePlay;
   final VoidCallback? onNext;
   final VoidCallback? onPrevious;
+  final VoidCallback? onDismiss;
 
   const NowPlayingStage({
     super.key,
@@ -23,7 +27,15 @@ class NowPlayingStage extends StatelessWidget {
     this.onTogglePlay,
     this.onNext,
     this.onPrevious,
+    this.onDismiss,
   });
+
+  @override
+  State<NowPlayingStage> createState() => _NowPlayingStageState();
+}
+
+class _NowPlayingStageState extends State<NowPlayingStage> {
+  bool _showLyrics = false;
 
   @override
   Widget build(BuildContext context) {
@@ -31,7 +43,7 @@ class NowPlayingStage extends StatelessWidget {
       listenable: PlaybackController.instance,
       builder: (context, _) {
         final controller = PlaybackController.instance;
-        final playing = isPlaying ?? controller.isPlaying;
+        final playing = widget.isPlaying ?? controller.isPlaying;
         final track = controller.currentTrack;
         final nextTrack = controller.upNextTrack;
 
@@ -54,55 +66,100 @@ class NowPlayingStage extends StatelessWidget {
 
         return SingleChildScrollView(
           physics: const BouncingScrollPhysics(),
-          padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 16.0),
+          padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 12.0),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.center,
             children: [
-              const SizedBox(height: 8),
+              // 0. Top Bar: Dismiss/Collapse Button, View Mode Segment (Artwork vs Lyrics), Settings
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  if (widget.onDismiss != null)
+                    IconButton(
+                      icon: const Icon(Icons.keyboard_arrow_down_rounded, size: 28),
+                      color: colorScheme.onSurface.withValues(alpha: 0.8),
+                      onPressed: widget.onDismiss,
+                      tooltip: 'Collapse to main screen',
+                    )
+                  else
+                    const SizedBox(width: 48),
 
-              // 1. Hero Artwork Glass Card
+                  // Segmented switch: Artwork vs Lyrics
+                  LiquidGlassContainer(
+                    padding: const EdgeInsets.all(3),
+                    borderRadius: 16,
+                    surfaceAlpha: 0.16,
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        _buildModeTab('Artwork', !_showLyrics, colorScheme, () {
+                          setState(() => _showLyrics = false);
+                        }),
+                        _buildModeTab('Lyrics', _showLyrics, colorScheme, () {
+                          setState(() => _showLyrics = true);
+                        }),
+                      ],
+                    ),
+                  ),
+
+                  IconButton(
+                    icon: const Icon(Icons.settings_outlined, size: 22),
+                    color: colorScheme.onSurface.withValues(alpha: 0.8),
+                    onPressed: () => PlatformNavigation.openSettings(context),
+                    tooltip: 'Audio Settings',
+                  ),
+                ],
+              ),
+
+              const SizedBox(height: 16),
+
+              // 1. Hero Artwork Card OR Integrated Synchronized Lyrics
               Center(
-                child: LiquidGlassContainer(
-                  width: 320,
-                  height: 320,
-                  padding: EdgeInsets.zero,
-                  borderRadius: 32,
-                  surfaceAlpha: 0.16,
-                  child: Stack(
-                    fit: StackFit.expand,
-                    children: [
-                      if (track?.artworkFile != null && File(track!.artworkFile!).existsSync())
-                        ClipRRect(
-                          borderRadius: BorderRadius.circular(32),
-                          child: Image.file(
-                            File(track.artworkFile!),
-                            fit: BoxFit.cover,
-                            errorBuilder: (context, error, stackTrace) => _buildFallbackCover(colorScheme),
+                child: AnimatedSwitcher(
+                  duration: const Duration(milliseconds: 300),
+                  child: _showLyrics
+                      ? SizedBox(
+                          key: const ValueKey('lyrics_view'),
+                          width: 320,
+                          height: 320,
+                          child: LiquidGlassContainer(
+                            padding: EdgeInsets.zero,
+                            borderRadius: 32,
+                            surfaceAlpha: 0.16,
+                            child: const ClipRRect(
+                              borderRadius: BorderRadius.all(Radius.circular(32)),
+                              child: SynchronizedLyricsStage(),
+                            ),
                           ),
                         )
-                      else
-                        _buildFallbackCover(colorScheme),
-                      Positioned(
-                        top: 16,
-                        right: 16,
-                        child: LiquidGlassContainer(
-                          padding: const EdgeInsets.all(8),
-                          borderRadius: 14,
-                          surfaceAlpha: 0.25,
-                          onTap: () => PlatformNavigation.openSettings(context),
-                          child: const Icon(
-                            Icons.settings_outlined,
-                            size: 18,
-                            color: Colors.white,
+                      : LiquidGlassContainer(
+                          key: const ValueKey('artwork_view'),
+                          width: 320,
+                          height: 320,
+                          padding: EdgeInsets.zero,
+                          borderRadius: 32,
+                          surfaceAlpha: 0.16,
+                          child: Stack(
+                            fit: StackFit.expand,
+                            children: [
+                              if (track?.artworkFile != null && File(track!.artworkFile!).existsSync())
+                                ClipRRect(
+                                  borderRadius: BorderRadius.circular(32),
+                                  child: Image.file(
+                                    File(track.artworkFile!),
+                                    fit: BoxFit.cover,
+                                    errorBuilder: (context, error, stackTrace) => _buildFallbackCover(colorScheme),
+                                  ),
+                                )
+                              else
+                                _buildFallbackCover(colorScheme),
+                            ],
                           ),
                         ),
-                      ),
-                    ],
-                  ),
                 ),
               ),
 
-              const SizedBox(height: 28),
+              const SizedBox(height: 24),
 
               // 2. Track Title & Artist
               Text(
@@ -112,7 +169,7 @@ class NowPlayingStage extends StatelessWidget {
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
               ),
-              const SizedBox(height: 6),
+              const SizedBox(height: 4),
               Text(
                 track?.artist ?? 'DECO*27 feat. Hatsune Miku',
                 style: AttuneTypography.jakartaArtistSubtitle(
@@ -123,7 +180,7 @@ class NowPlayingStage extends StatelessWidget {
                 overflow: TextOverflow.ellipsis,
               ),
 
-              const SizedBox(height: 14),
+              const SizedBox(height: 12),
 
               // 3. Human-Friendly Audio Quality Glass Badge (Section 3.1)
               AudioQualityBadge(
@@ -133,7 +190,7 @@ class NowPlayingStage extends StatelessWidget {
                 isProprietary: track?.isProprietary ?? false,
               ),
 
-              const SizedBox(height: 24),
+              const SizedBox(height: 20),
 
               // 4. Subtle Cue-Zone Wave Progress Bar
               Column(
@@ -179,26 +236,20 @@ class NowPlayingStage extends StatelessWidget {
                 ],
               ),
 
-              const SizedBox(height: 16),
+              const SizedBox(height: 14),
 
-              // 5. Transport Controls
+              // 5. Transport Controls with Tri-State Shuffle (Off, Standard, Smart)
               Row(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  IconButton(
-                    icon: const Icon(Icons.shuffle_rounded),
-                    iconSize: 22,
-                    visualDensity: VisualDensity.compact,
-                    color: colorScheme.onSurface.withValues(alpha: 0.7),
-                    onPressed: () {},
-                  ),
+                  _buildShuffleButton(controller, colorScheme),
                   const SizedBox(width: 8),
                   IconButton(
                     icon: const Icon(Icons.skip_previous_rounded),
                     iconSize: 34,
                     visualDensity: VisualDensity.compact,
                     color: colorScheme.onSurface,
-                    onPressed: onPrevious ?? controller.skipPrevious,
+                    onPressed: widget.onPrevious ?? controller.skipPrevious,
                   ),
                   const SizedBox(width: 12),
 
@@ -210,7 +261,7 @@ class NowPlayingStage extends StatelessWidget {
                     borderRadius: 34,
                     surfaceAlpha: 0.22,
                     tintOverride: colorScheme.primary.withValues(alpha: 0.28),
-                    onTap: onTogglePlay ?? controller.togglePlay,
+                    onTap: widget.onTogglePlay ?? controller.togglePlay,
                     child: Center(
                       child: Icon(
                         playing ? Icons.pause_rounded : Icons.play_arrow_rounded,
@@ -226,7 +277,7 @@ class NowPlayingStage extends StatelessWidget {
                     iconSize: 34,
                     visualDensity: VisualDensity.compact,
                     color: colorScheme.onSurface,
-                    onPressed: onNext ?? controller.skipNext,
+                    onPressed: widget.onNext ?? controller.skipNext,
                   ),
                   const SizedBox(width: 8),
                   IconButton(
@@ -239,60 +290,79 @@ class NowPlayingStage extends StatelessWidget {
                 ],
               ),
 
-              const SizedBox(height: 28),
+              const SizedBox(height: 20),
 
-              // 6. Up-Next Preview Bar with Transition Connector Pill (Section 3.2)
-              LiquidGlassContainer(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                borderRadius: 20,
-                surfaceAlpha: 0.12,
-                child: Row(
-                  children: [
-                    ClipRRect(
-                      borderRadius: BorderRadius.circular(10),
-                      child: Container(
-                        width: 40,
-                        height: 40,
-                        color: colorScheme.secondary.withValues(alpha: 0.5),
-                        child: const Icon(Icons.music_note_rounded, color: Colors.white, size: 20),
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            'UP NEXT',
-                            style: AttuneTypography.soraSectionHeader(
-                              color: colorScheme.primary,
-                            ),
+              // 6. Subtle Inline Transition Connector Pill (Section 3.2)
+              TransitionConnectorPill(
+                archetype: controller.activeArchetype,
+                durationSeconds: 1.4,
+                confidenceScore: 0.94,
+                onTap: () => PlatformNavigation.openTransitionInspector(context),
+              ),
+
+              const SizedBox(height: 16),
+
+              // 7. Mini Up-Next Row Preview
+              if (nextTrack != null)
+                LiquidGlassContainer(
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                  borderRadius: 20,
+                  surfaceAlpha: 0.12,
+                  child: Row(
+                    children: [
+                      Container(
+                        width: 36,
+                        height: 36,
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(10),
+                          gradient: LinearGradient(
+                            colors: [nextTrack.seedColor, nextTrack.seedColor.withValues(alpha: 0.5)],
                           ),
-                          const SizedBox(height: 2),
-                          Text(
-                            nextTrack?.title ?? '(Not) A Devil',
-                            style: AttuneTypography.soraTitleSmall(color: colorScheme.onSurface),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    Flexible(
-                      child: FittedBox(
-                        fit: BoxFit.scaleDown,
-                        child: TransitionConnectorPill(
-                          archetype: controller.activeArchetype,
-                          durationSeconds: 1.4,
-                          isCompact: true,
+                        ),
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(10),
+                          child: nextTrack.artworkFile != null && File(nextTrack.artworkFile!).existsSync()
+                              ? Image.file(File(nextTrack.artworkFile!), fit: BoxFit.cover)
+                              : const Icon(Icons.music_note, color: Colors.white, size: 20),
                         ),
                       ),
-                    ),
-                  ],
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'UP NEXT',
+                              style: AttuneTypography.soraBadge(
+                                color: colorScheme.onSurface.withValues(alpha: 0.6),
+                                fontSize: 9,
+                              ),
+                            ),
+                            Text(
+                              nextTrack.title,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: AttuneTypography.soraSubheading(
+                                fontSize: 13,
+                                fontWeight: FontWeight.w600,
+                                color: colorScheme.onSurface,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      TransitionConnectorPill(
+                        archetype: 'Riff Handoff',
+                        durationSeconds: 1.4,
+                        confidenceScore: 0.91,
+                        isCompact: true,
+                        onTap: () => PlatformNavigation.openTransitionInspector(context),
+                      ),
+                    ],
+                  ),
                 ),
-              ),
-              const SizedBox(height: 16),
+
+              const SizedBox(height: 80),
             ],
           ),
         );
@@ -300,24 +370,77 @@ class NowPlayingStage extends StatelessWidget {
     );
   }
 
+  Widget _buildModeTab(String label, bool isSelected, ColorScheme colorScheme, VoidCallback onTap) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+        decoration: BoxDecoration(
+          color: isSelected ? colorScheme.primary.withValues(alpha: 0.28) : Colors.transparent,
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Text(
+          label,
+          style: AttuneTypography.soraBadge(
+            color: isSelected ? colorScheme.primary : colorScheme.onSurface.withValues(alpha: 0.6),
+            fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildShuffleButton(PlaybackController controller, ColorScheme colorScheme) {
+    IconData icon;
+    Color color;
+    String tooltip;
+
+    switch (controller.shuffleMode) {
+      case ShuffleMode.off:
+        icon = Icons.shuffle_rounded;
+        color = colorScheme.onSurface.withValues(alpha: 0.35);
+        tooltip = 'Shuffle Off (Linear Sequence)';
+        break;
+      case ShuffleMode.standard:
+        icon = Icons.shuffle_rounded;
+        color = colorScheme.primary;
+        tooltip = 'Basic Shuffle (Random Track)';
+        break;
+      case ShuffleMode.smart:
+        icon = Icons.auto_awesome_rounded;
+        color = colorScheme.tertiary;
+        tooltip = 'Smart Shuffle (Algorithmic Transition Match)';
+        break;
+    }
+
+    return IconButton(
+      icon: Icon(icon),
+      iconSize: 22,
+      visualDensity: VisualDensity.compact,
+      color: color,
+      tooltip: tooltip,
+      onPressed: controller.cycleShuffleMode,
+    );
+  }
+
   Widget _buildFallbackCover(ColorScheme colorScheme) {
     return Container(
       decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(32),
         gradient: LinearGradient(
+          colors: [
+            colorScheme.primary.withValues(alpha: 0.5),
+            colorScheme.secondary.withValues(alpha: 0.3),
+            colorScheme.surface,
+          ],
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
-          colors: [
-            colorScheme.primary.withValues(alpha: 0.8),
-            colorScheme.secondary.withValues(alpha: 0.8),
-          ],
         ),
       ),
       child: Center(
         child: Icon(
-          Icons.album_rounded,
-          size: 110,
-          color: Colors.white.withValues(alpha: 0.9),
+          Icons.graphic_eq_rounded,
+          size: 72,
+          color: colorScheme.primary.withValues(alpha: 0.8),
         ),
       ),
     );

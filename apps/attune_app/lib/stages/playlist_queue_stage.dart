@@ -17,7 +17,6 @@ class PlaylistQueueStage extends StatefulWidget {
 
 class _PlaylistQueueStageState extends State<PlaylistQueueStage> {
   int _selectedFilterIndex = 0;
-  bool _smartShuffle = true;
   bool _autoplay = true;
 
   @override
@@ -131,35 +130,58 @@ class _PlaylistQueueStageState extends State<PlaylistQueueStage> {
 
             const SizedBox(height: 16),
 
-            // 4. Quick Toggles (Smart Shuffle & Autoplay)
-            Wrap(
-              alignment: WrapAlignment.spaceBetween,
-              crossAxisAlignment: WrapCrossAlignment.center,
-              spacing: 8,
-              runSpacing: 8,
-              children: [
-                _buildActionChip(
-                  icon: Icons.auto_awesome_rounded,
-                  label: 'Smart Shuffle',
-                  active: _smartShuffle,
-                  colorScheme: colorScheme,
-                  onTap: () => setState(() => _smartShuffle = !_smartShuffle),
-                ),
-                _buildActionChip(
-                  icon: Icons.all_inclusive_rounded,
-                  label: 'Autoplay',
-                  active: _autoplay,
-                  colorScheme: colorScheme,
-                  onTap: () => setState(() => _autoplay = !_autoplay),
-                ),
-                Text(
-                  '${queue.length} songs',
-                  style: AttuneTypography.jakartaBodySmall(
-                    color: colorScheme.onSurface.withValues(alpha: 0.5),
+            // 4. Quick Toggles (Tri-State Shuffle & Autoplay)
+            () {
+              String shuffleLabel;
+              IconData shuffleIcon;
+              bool isShuffleActive;
+              switch (controller.shuffleMode) {
+                case ShuffleMode.off:
+                  shuffleLabel = 'Shuffle Off';
+                  shuffleIcon = Icons.shuffle_rounded;
+                  isShuffleActive = false;
+                  break;
+                case ShuffleMode.standard:
+                  shuffleLabel = 'Basic Shuffle';
+                  shuffleIcon = Icons.shuffle_rounded;
+                  isShuffleActive = true;
+                  break;
+                case ShuffleMode.smart:
+                  shuffleLabel = 'Smart Shuffle';
+                  shuffleIcon = Icons.auto_awesome_rounded;
+                  isShuffleActive = true;
+                  break;
+              }
+
+              return Wrap(
+                alignment: WrapAlignment.spaceBetween,
+                crossAxisAlignment: WrapCrossAlignment.center,
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  _buildActionChip(
+                    icon: shuffleIcon,
+                    label: shuffleLabel,
+                    active: isShuffleActive,
+                    colorScheme: colorScheme,
+                    onTap: controller.cycleShuffleMode,
                   ),
-                ),
-              ],
-            ),
+                  _buildActionChip(
+                    icon: Icons.all_inclusive_rounded,
+                    label: 'Autoplay',
+                    active: _autoplay,
+                    colorScheme: colorScheme,
+                    onTap: () => setState(() => _autoplay = !_autoplay),
+                  ),
+                  Text(
+                    '${queue.length} songs',
+                    style: AttuneTypography.jakartaBodySmall(
+                      color: colorScheme.onSurface.withValues(alpha: 0.5),
+                    ),
+                  ),
+                ],
+              );
+            }(),
 
             const SizedBox(height: 12),
 

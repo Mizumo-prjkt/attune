@@ -83,4 +83,51 @@ class TrackItem {
       tapProfile: tapProfile ?? this.tapProfile,
     );
   }
+
+  Map<String, dynamic> toJson() {
+    return {
+      'id': id,
+      'title': title,
+      'artist': artist,
+      'album': album,
+      'filePath': filePath,
+      'durationMs': duration.inMilliseconds,
+      'bpm': bpm,
+      'musicalKey': musicalKey,
+      'format': format,
+      'genre': genre,
+      'sampleRate': sampleRate,
+      'bitDepth': bitDepth,
+      'isLossless': isLossless,
+      'isProprietary': isProprietary,
+      'seedColorValue': seedColor.toARGB32(),
+      'artworkAsset': artworkAsset,
+      'artworkFile': artworkFile,
+      'tapProfile': tapProfile,
+    };
+  }
+
+  factory TrackItem.fromJson(Map<String, dynamic> json) {
+    return TrackItem(
+      id: json['id'] as String? ?? '',
+      title: json['title'] as String? ?? 'Unknown Title',
+      artist: json['artist'] as String? ?? 'Unknown Artist',
+      album: json['album'] as String? ?? 'Unknown Album',
+      filePath: json['filePath'] as String? ?? '',
+      duration: Duration(milliseconds: (json['durationMs'] as num? ?? 180000).toInt()),
+      bpm: (json['bpm'] as num? ?? 120.0).toDouble(),
+      musicalKey: json['musicalKey'] as String? ?? 'C Major',
+      format: json['format'] as String? ?? 'FLAC',
+      genre: json['genre'] as String? ?? 'Pop',
+      sampleRate: (json['sampleRate'] as num? ?? 44100).toInt(),
+      bitDepth: (json['bitDepth'] as num? ?? 16).toInt(),
+      isLossless: json['isLossless'] as bool? ?? true,
+      isProprietary: json['isProprietary'] as bool? ?? false,
+      seedColor: Color((json['seedColorValue'] as num? ?? 0xFF6366F1).toInt()),
+      artworkAsset: json['artworkAsset'] as String?,
+      artworkFile: json['artworkFile'] as String?,
+      tapProfile: json['tapProfile'] as Map<String, dynamic>?,
+    );
+  }
 }
+

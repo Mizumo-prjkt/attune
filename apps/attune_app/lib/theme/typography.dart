@@ -7,43 +7,57 @@ import 'package:google_fonts/google_fonts.dart';
 /// - Tabular figures enabled on timestamps and DSP metrics to prevent digit jitter
 class AttuneTypography {
   // Sora (Display, Titles, Badges, Metrics)
-  static TextStyle soraDisplayLarge({Color? color}) => GoogleFonts.sora(
-        fontSize: 32,
-        fontWeight: FontWeight.w700,
+  static TextStyle soraDisplayLarge({Color? color, double? fontSize, FontWeight? fontWeight}) => GoogleFonts.sora(
+        fontSize: fontSize ?? 32,
+        fontWeight: fontWeight ?? FontWeight.w700,
         letterSpacing: -0.64, // -0.02em
         color: color,
       );
 
-  static TextStyle soraTitleLarge({Color? color}) => GoogleFonts.sora(
-        fontSize: 22,
-        fontWeight: FontWeight.w700,
+  static TextStyle soraHeading({Color? color, double? fontSize, FontWeight? fontWeight}) => GoogleFonts.sora(
+        fontSize: fontSize ?? 22,
+        fontWeight: fontWeight ?? FontWeight.w700,
+        letterSpacing: -0.44,
+        color: color,
+      );
+
+  static TextStyle soraTitleLarge({Color? color, double? fontSize, FontWeight? fontWeight}) => GoogleFonts.sora(
+        fontSize: fontSize ?? 22,
+        fontWeight: fontWeight ?? FontWeight.w700,
         letterSpacing: -0.44, // -0.02em
         color: color,
       );
 
-  static TextStyle soraTitleMedium({Color? color}) => GoogleFonts.sora(
-        fontSize: 18,
-        fontWeight: FontWeight.w600,
+  static TextStyle soraSubheading({Color? color, double? fontSize, FontWeight? fontWeight}) => GoogleFonts.sora(
+        fontSize: fontSize ?? 16,
+        fontWeight: fontWeight ?? FontWeight.w600,
         letterSpacing: -0.36,
         color: color,
       );
 
-  static TextStyle soraTitleSmall({Color? color}) => GoogleFonts.sora(
-        fontSize: 15,
-        fontWeight: FontWeight.w600,
+  static TextStyle soraTitleMedium({Color? color, double? fontSize, FontWeight? fontWeight}) => GoogleFonts.sora(
+        fontSize: fontSize ?? 18,
+        fontWeight: fontWeight ?? FontWeight.w600,
+        letterSpacing: -0.36,
         color: color,
       );
 
-  static TextStyle soraSectionHeader({Color? color}) => GoogleFonts.sora(
-        fontSize: 12,
-        fontWeight: FontWeight.w700,
+  static TextStyle soraTitleSmall({Color? color, double? fontSize, FontWeight? fontWeight}) => GoogleFonts.sora(
+        fontSize: fontSize ?? 15,
+        fontWeight: fontWeight ?? FontWeight.w600,
+        color: color,
+      );
+
+  static TextStyle soraSectionHeader({Color? color, double? fontSize, FontWeight? fontWeight}) => GoogleFonts.sora(
+        fontSize: fontSize ?? 12,
+        fontWeight: fontWeight ?? FontWeight.w700,
         letterSpacing: 0.48, // +0.04em
         color: color,
       );
 
-  static TextStyle soraBadge({Color? color}) => GoogleFonts.sora(
-        fontSize: 11,
-        fontWeight: FontWeight.w600,
+  static TextStyle soraBadge({Color? color, double? fontSize, FontWeight? fontWeight}) => GoogleFonts.sora(
+        fontSize: fontSize ?? 11,
+        fontWeight: fontWeight ?? FontWeight.w600,
         letterSpacing: 0.22,
         color: color,
       );
@@ -58,28 +72,34 @@ class AttuneTypography {
       );
 
   // Plus Jakarta Sans (Body, Subtitles, Lyrics, Queue, Search)
-  static TextStyle jakartaBodyLarge({Color? color}) => GoogleFonts.plusJakartaSans(
-        fontSize: 16,
-        fontWeight: FontWeight.w400,
+  static TextStyle jakartaBody({Color? color, double? fontSize, FontWeight? fontWeight}) => GoogleFonts.plusJakartaSans(
+        fontSize: fontSize ?? 14,
+        fontWeight: fontWeight ?? FontWeight.w400,
         color: color,
       );
 
-  static TextStyle jakartaBodyMedium({Color? color, FontWeight weight = FontWeight.w400}) =>
+  static TextStyle jakartaBodyLarge({Color? color, double? fontSize, FontWeight? fontWeight}) => GoogleFonts.plusJakartaSans(
+        fontSize: fontSize ?? 16,
+        fontWeight: fontWeight ?? FontWeight.w400,
+        color: color,
+      );
+
+  static TextStyle jakartaBodyMedium({Color? color, double? fontSize, FontWeight? weight}) =>
       GoogleFonts.plusJakartaSans(
-        fontSize: 14,
-        fontWeight: weight,
+        fontSize: fontSize ?? 14,
+        fontWeight: weight ?? FontWeight.w400,
         color: color,
       );
 
-  static TextStyle jakartaBodySmall({Color? color}) => GoogleFonts.plusJakartaSans(
-        fontSize: 12,
-        fontWeight: FontWeight.w500,
+  static TextStyle jakartaBodySmall({Color? color, double? fontSize, FontWeight? fontWeight}) => GoogleFonts.plusJakartaSans(
+        fontSize: fontSize ?? 12,
+        fontWeight: fontWeight ?? FontWeight.w500,
         color: color,
       );
 
-  static TextStyle jakartaArtistSubtitle({Color? color}) => GoogleFonts.plusJakartaSans(
-        fontSize: 15,
-        fontWeight: FontWeight.w500,
+  static TextStyle jakartaArtistSubtitle({Color? color, double? fontSize, FontWeight? fontWeight}) => GoogleFonts.plusJakartaSans(
+        fontSize: fontSize ?? 15,
+        fontWeight: fontWeight ?? FontWeight.w500,
         color: color,
       );
 

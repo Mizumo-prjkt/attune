@@ -11,6 +11,7 @@ class TransitionConnectorPill extends StatelessWidget {
   final double durationSeconds;
   final double confidenceScore;
   final bool isCompact;
+  final VoidCallback? onTap;
 
   const TransitionConnectorPill({
     super.key,
@@ -18,6 +19,7 @@ class TransitionConnectorPill extends StatelessWidget {
     required this.durationSeconds,
     this.confidenceScore = 0.91,
     this.isCompact = false,
+    this.onTap,
   });
 
   @override
@@ -32,7 +34,7 @@ class TransitionConnectorPill extends StatelessWidget {
       borderRadius: 16,
       surfaceAlpha: 0.16,
       tintOverride: colorScheme.primary.withValues(alpha: 0.14),
-      onTap: () => PlatformNavigation.openTransitionInspector(context),
+      onTap: onTap ?? () => PlatformNavigation.openTransitionInspector(context),
       child: FittedBox(
         fit: BoxFit.scaleDown,
         child: Row(

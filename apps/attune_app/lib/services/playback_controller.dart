@@ -1,9 +1,17 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:math';
 import 'package:flutter/material.dart';
 import '../models/track_item.dart';
 import 'audio_storage_service.dart';
 import 'engine_bridge.dart';
+
+/// Shuffle playback mode
+enum ShuffleMode {
+  off,        // Sequential linear progression
+  standard,   // Basic random shuffle
+  smart,      // Algorithmic / tempo / beat transition shuffle
+}
 
 /// Central reactive playback controller managing dual-deck audio state,
 /// real-time playhead synchronization, queue progression, dynamic library scanning,
@@ -18,6 +26,7 @@ class PlaybackController extends ChangeNotifier {
   final List<TrackItem> _queue = [];
   int _currentQueueIndex = 0;
   bool _isScanning = false;
+  ShuffleMode _shuffleMode = ShuffleMode.off;
 
   // Playback Metrics
   double _positionSec = 0.0;
@@ -48,6 +57,7 @@ class PlaybackController extends ChangeNotifier {
   List<TrackItem> get queue => List.unmodifiable(_queue);
   int get currentQueueIndex => _currentQueueIndex;
   bool get isScanning => _isScanning;
+  ShuffleMode get shuffleMode => _shuffleMode;
 
   TrackItem? get currentTrack =>
       _queue.isNotEmpty && _currentQueueIndex < _queue.length ? _queue[_currentQueueIndex] : null;
@@ -70,15 +80,31 @@ class PlaybackController extends ChangeNotifier {
   double get deckBEqHigh => _deckBEqHigh;
   double get reverbFreezeSend => _reverbFreezeSend;
 
+  void cycleShuffleMode() {
+    switch (_shuffleMode) {
+      case ShuffleMode.off:
+        _shuffleMode = ShuffleMode.standard;
+        break;
+      case ShuffleMode.standard:
+        _shuffleMode = ShuffleMode.smart;
+        break;
+      case ShuffleMode.smart:
+        _shuffleMode = ShuffleMode.off;
+        break;
+    }
+    notifyListeners();
+  }
+
   /// Scans local directories for genuine audio files (.flac, .mp3, .wav, .ogg, etc.)
   /// utilizing AudioStorageService across Windows, Linux, and Android scoped storage.
-  Future<void> scanLocalAudioDirectories({String? customPath}) async {
+  Future<void> scanLocalAudioDirectories({String? customPath, bool forceRefresh = false}) async {
     if (_isScanning) return;
     _isScanning = true;
     notifyListeners();
 
     try {
       final scannedTracks = await AudioStorageService.instance.scanLibrary(
+        forceRefresh: forceRefresh,
         additionalRoots: customPath != null ? [customPath] : null,
       );
 
@@ -102,9 +128,6 @@ class PlaybackController extends ChangeNotifier {
       }
 
       debugPrint('[PlaybackController] Ingested ${_libraryTracks.length} genuine tracks via AudioStorageService.');
-
-      // Asynchronously profile the active tracks in background
-      _triggerBackgroundProfilingForQueue();
     } catch (e) {
       debugPrint('[PlaybackController] Error scanning audio files: $e');
     } finally {
@@ -113,17 +136,7 @@ class PlaybackController extends ChangeNotifier {
     }
   }
 
-  void _triggerBackgroundProfilingForQueue() {
-    // Avoid running heavy multi-track audio DSP profiling inside automated test environments
-    if (Platform.environment.containsKey('FLUTTER_TEST')) return;
-
-    final tracksToProfile = _queue.take(3).toList();
-    for (final track in tracksToProfile) {
-      _profileTrackAsync(track);
-    }
-  }
-
-  Future<void> _profileTrackAsync(TrackItem track) async {
+  Future<void> profileTrackAsync(TrackItem track) async {
     if (Platform.environment.containsKey('FLUTTER_TEST')) return;
     try {
       final tap = await _bridge.profileTrack(track.filePath, tier: 1);
@@ -258,16 +271,77 @@ class PlaybackController extends ChangeNotifier {
 
   void skipNext() {
     if (_queue.isEmpty) return;
-    if (_currentQueueIndex + 1 < _queue.length) {
-      _currentQueueIndex++;
-    } else {
-      _currentQueueIndex = 0;
+
+    if (_shuffleMode == ShuffleMode.off) {
+      if (_currentQueueIndex + 1 < _queue.length) {
+        _currentQueueIndex++;
+      } else {
+        _currentQueueIndex = 0;
+      }
+    } else if (_shuffleMode == ShuffleMode.standard) {
+      if (_queue.length > 1) {
+        final rand = Random();
+        int nextIdx = _currentQueueIndex;
+        while (nextIdx == _currentQueueIndex) {
+          nextIdx = rand.nextInt(_queue.length);
+        }
+        _currentQueueIndex = nextIdx;
+      }
+    } else if (_shuffleMode == ShuffleMode.smart) {
+      _currentQueueIndex = _findBestSmartMatchIndex();
     }
+
     _positionSec = 0.0;
     _transitionProgress = 0.0;
     _isTransitioning = false;
     _loadCurrentTrackToEngine();
+    if (_isPlaying) {
+      _bridge.playerPlay();
+    }
     notifyListeners();
+  }
+
+  int _findBestSmartMatchIndex() {
+    if (_queue.length <= 1) return _currentQueueIndex;
+    final current = currentTrack;
+    if (current == null) return (_currentQueueIndex + 1) % _queue.length;
+
+    int bestIndex = (_currentQueueIndex + 1) % _queue.length;
+    double bestScore = -999.0;
+
+    for (int i = 0; i < _queue.length; i++) {
+      if (i == _currentQueueIndex) continue;
+      final candidate = _queue[i];
+
+      // 1. Tempo compatibility (within +-12 BPM or harmonic ratio)
+      final bpmDelta = (current.bpm - candidate.bpm).abs();
+      double tempoScore = 0.0;
+      if (bpmDelta <= 6) {
+        tempoScore = 1.0;
+      } else if (bpmDelta <= 14) {
+        tempoScore = 0.8;
+      } else {
+        final ratio = candidate.bpm / current.bpm;
+        if ((ratio - 1.0).abs() < 0.15 || (ratio - 0.5).abs() < 0.1 || (ratio - 2.0).abs() < 0.1) {
+          tempoScore = 0.75;
+        } else {
+          tempoScore = (1.0 - (bpmDelta / 120.0)).clamp(0.0, 0.6);
+        }
+      }
+
+      // 2. Genre alignment bonus
+      final genreBonus = (candidate.genre == current.genre) ? 0.35 : 0.0;
+
+      // 3. Artist variety preference
+      final varietyScore = (candidate.artist != current.artist) ? 0.15 : 0.0;
+
+      final totalScore = tempoScore + genreBonus + varietyScore;
+      if (totalScore > bestScore) {
+        bestScore = totalScore;
+        bestIndex = i;
+      }
+    }
+    return bestIndex;
   }
 
   void skipPrevious() {
@@ -277,6 +351,9 @@ class PlaybackController extends ChangeNotifier {
       _currentQueueIndex--;
       _positionSec = 0.0;
       _loadCurrentTrackToEngine();
+      if (_isPlaying) {
+        _bridge.playerPlay();
+      }
     }
     notifyListeners();
   }
@@ -399,9 +476,6 @@ class PlaybackController extends ChangeNotifier {
     final next = upNextTrack;
     if (next != null) {
       _bridge.playerLoadTrack(1, next.filePath);
-      if (next.tapProfile == null) {
-        _profileTrackAsync(next);
-      }
     }
   }
 
