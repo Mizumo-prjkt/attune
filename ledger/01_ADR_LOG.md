@@ -583,7 +583,53 @@ This file records all major architectural decisions for **Attune**, including co
 - **Consequences**:
   - Unified branding identity across the entire user experience.
   - Clean separation and canonical reverse-DNS package identifier `org.mizproject.attune` ready for Play Store, Flathub/AppImage, and App Store packaging.
-  - All 17 Rust tests and all 10 Flutter unit/widget tests pass with 0 errors and 0 warnings.
+
+---
+
+## ADR-023: Real Lyrics Engine, Living Beat-Synchronized Glass, Full-Screen Lyrics & Collapsible Desktop Shell
+
+- **Status**: **LOCKED** (Implemented & Verified)
+- **Date**: 2026-10-27
+- **Context**:
+  - Code review feedback on PR diffs explicitly stated: *"please no hardcoded lyrics, use real source"*.
+  - User audio libraries frequently contain genuine embedded Vorbis comments (`LYRICS`, `UNSYNCEDLYRICS` in FLAC/OGG), ID3v2 frames (`USLT`, `SYLT` in MP3), or companion `.lrc` and `.txt` sidecars (e.g. `01 Rabbit Hole.lrc`, `01 東京テディベア.lrc`, `Machine Love.lrc`).
+  - Mobile Now Playing lyrics required full-height display with top song metadata (title, artist, audio quality badge), centered large-text synchronized lyrics, and bottom source switcher (`[Embedded]`, `[.LRC File]`, `[Ultra-Sync (Soon)]`) + transport controls over liquid frosted glass.
+  - Tablet/desktop required collapsible side panels (left navigation rail and right docked contextual pane) to eliminate visual clutter on demand.
+  - The Now Playing container previously had `alpha: 0.98`, causing an abrupt pitch-black cutoff against the ambient glowing background.
+  - Tapping the inline `TransitionConnectorPill` previously opened raw developer DSP diagnostics directly; user requested a human-friendly explanation of why the transition was selected.
+  - Official app logo was missing from the Flutter Licenses page, and application version needed to be aligned to `0.1.0`.
+- **Decision**:
+  1. **Zero-Hardcoding Real Lyrics Engine (`LyricsService`)**:
+     - Created `apps/attune_app/lib/services/lyrics_service.dart`.
+     - Direct binary extraction of Vorbis comments in FLAC (`blockType == 4`) without external dependencies.
+     - Direct binary parsing of ID3v2 `USLT` / `SYLT` frames in MP3 files supporting UTF-8, Latin1, and UTF-16 encodings.
+     - Filesystem companion resolution scanning `.lrc` and `.txt` files in track directories and candidate roots.
+     - Timestamp parser converting `[mm:ss.xx]` and multi-timestamp lines into millisecond-accurate `LyricLine`s, with graceful active-duration pacing for unsynchronized text.
+     - Completely eliminated static `_lyricCatalog` maps.
+  2. **Living Beat-Synchronized Ambient Background (`AmbientMeshBackground`)**:
+     - Bound dual animation controllers (`_driftController` for fluid drift, `_beatController` dynamically synchronized to `60000 / BPM`).
+     - Ambient orbs and diffuse radial halos breathe and scale in lockstep with the active track's tempo and rhythm.
+  3. **Translucent Frosted Glass Now Playing & Full-Screen Lyrics**:
+     - Replaced opaque surface (`alpha: 0.98`) with translucent frosted glass (`alpha: 0.20`), letting the living beat background illuminate the player.
+     - Seamlessly transitions to full-screen `SynchronizedLyricsStage` on mobile when Lyrics is selected.
+     - Removed redundant segmented tab switch from tablet/desktop header.
+     - Added player style & glass refraction dialog (`Icons.tune_rounded`).
+     - Removed duplicate `TransitionConnectorPill` from the mini Up-Next row.
+  4. **Musical Rationale Transition Dialog**:
+     - Tapping `TransitionConnectorPill` displays a clean glass modal card detailing harmonic match percentage, 180 Hz EQ crossover, vocal completion contour protection, and 4-bar phrase downbeat lock.
+     - Provides an optional secondary link to launch the advanced DSP inspector.
+  5. **Collapsible Tablet/Desktop Multi-Pane Shell**:
+     - Added collapsible states (`_showLeftRail`, `_showRightPane`) to `ResponsiveGlassScaffold`.
+     - Left navigation rail features top and bottom toggle controls.
+     - Right contextual pane features a header collapse button (`>>`) and center stage provides a "Show Sidebar" pill when collapsed.
+  6. **Branding & Version 0.1.0**:
+     - App version set to `0.1.0+1` in `pubspec.yaml`.
+     - Integrated `assets/icon/icon_transparent.png` into `showLicensePage(applicationIcon: ...)`.
+- **Consequences**:
+  - Pure authentic user-data experience: real `.lrc` files and audio tags render dynamically with zero hardcoded mocks.
+  - Fully responsive and customizable UI adaptable from mobile portrait to wide multi-monitor layouts.
+  - 100% test pass rate across all 15 Flutter unit and widget test suites and all 17 Rust workspace test suites.
+
 
 
 

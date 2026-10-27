@@ -9,25 +9,24 @@ import '../widgets/audio_quality_badge.dart';
 import '../widgets/transition_connector_pill.dart';
 import 'synchronized_lyrics_stage.dart';
 
-/// NowPlayingStage implementing Stage 1 of 05_UI_DESIGN_SPEC.md:
-/// Integrated lyrics toggle inside player, collapse header button,
-/// subtle Cue-Zone wave progress bar, Sora title/artist,
-/// Human-Friendly Audio Quality badge, transport controls with Smart Shuffle,
-/// and mini Up-Next pill.
+/// Full-height Now Playing Stage implementing Section 3 of UI Design Spec:
+/// - Floating Hero Artwork with 32px curvature & dynamic shadow
+/// - Integrated Human-Friendly Audio Quality badge (Section 3.1)
+/// - Inline Subtle Transition Connector Pill (Section 3.2)
+/// - Living Beat-Synchronized Liquid Glass Refraction
+/// - High-Legibility Full Screen Synchronized Lyrics with Real Source Resolution
 class NowPlayingStage extends StatefulWidget {
-  final bool? isPlaying;
-  final VoidCallback? onTogglePlay;
-  final VoidCallback? onNext;
-  final VoidCallback? onPrevious;
   final VoidCallback? onDismiss;
+  final VoidCallback? onPrevious;
+  final VoidCallback? onNext;
+  final VoidCallback? onTogglePlay;
 
   const NowPlayingStage({
     super.key,
-    this.isPlaying,
-    this.onTogglePlay,
-    this.onNext,
-    this.onPrevious,
     this.onDismiss,
+    this.onPrevious,
+    this.onNext,
+    this.onTogglePlay,
   });
 
   @override
@@ -39,13 +38,15 @@ class _NowPlayingStageState extends State<NowPlayingStage> {
 
   @override
   Widget build(BuildContext context) {
+    final isTabletDesktop = MediaQuery.sizeOf(context).width >= 720;
+
     return ListenableBuilder(
       listenable: PlaybackController.instance,
       builder: (context, _) {
         final controller = PlaybackController.instance;
-        final playing = widget.isPlaying ?? controller.isPlaying;
         final track = controller.currentTrack;
         final nextTrack = controller.upNextTrack;
+        final playing = controller.isPlaying;
 
         final posSec = controller.positionSec;
         final durSec = controller.durationSec > 0 ? controller.durationSec : 159.0;
@@ -64,324 +65,591 @@ class _NowPlayingStageState extends State<NowPlayingStage> {
             ? AttuneColorEngine.lerpSchemes(baseScheme, targetScheme, controller.transitionProgress)
             : baseScheme;
 
+        // If lyrics mode is activated on mobile, render the full-page SynchronizedLyricsStage
+        if (_showLyrics) {
+          return Container(
+            color: colorScheme.surface.withValues(alpha: 0.20),
+            child: SynchronizedLyricsStage(
+              isFullPage: true,
+              onBackToArtwork: () => setState(() => _showLyrics = false),
+            ),
+          );
+        }
+
         return Container(
-          color: colorScheme.surface.withValues(alpha: 0.98),
+          color: colorScheme.surface.withValues(alpha: 0.20),
           child: SafeArea(
             child: SingleChildScrollView(
               physics: const BouncingScrollPhysics(),
-          padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 12.0),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.center,
-            children: [
-              // 0. Top Bar: Dismiss/Collapse Button, View Mode Segment (Artwork vs Lyrics), Settings
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 12.0),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.center,
                 children: [
-                  if (widget.onDismiss != null)
-                    IconButton(
-                      icon: const Icon(Icons.keyboard_arrow_down_rounded, size: 28),
-                      color: colorScheme.onSurface.withValues(alpha: 0.8),
-                      onPressed: widget.onDismiss,
-                      tooltip: 'Collapse to main screen',
-                    )
-                  else
-                    const SizedBox(width: 48),
+                  // 0. Top Bar: Dismiss/Collapse Button, Status / Mode Segment, Style & Settings
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      if (widget.onDismiss != null)
+                        IconButton(
+                          icon: const Icon(Icons.keyboard_arrow_down_rounded, size: 28),
+                          color: colorScheme.onSurface.withValues(alpha: 0.8),
+                          onPressed: widget.onDismiss,
+                          tooltip: 'Collapse to main screen',
+                        )
+                      else
+                        const SizedBox(width: 48),
 
-                  // Segmented switch: Artwork vs Lyrics
-                  LiquidGlassContainer(
-                    padding: const EdgeInsets.all(3),
-                    borderRadius: 16,
-                    surfaceAlpha: 0.16,
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        _buildModeTab('Artwork', !_showLyrics, colorScheme, () {
-                          setState(() => _showLyrics = false);
-                        }),
-                        _buildModeTab('Lyrics', _showLyrics, colorScheme, () {
-                          setState(() => _showLyrics = true);
-                        }),
-                      ],
-                    ),
-                  ),
-
-                  IconButton(
-                    icon: const Icon(Icons.settings_outlined, size: 22),
-                    color: colorScheme.onSurface.withValues(alpha: 0.8),
-                    onPressed: () => PlatformNavigation.openSettings(context),
-                    tooltip: 'Audio Settings',
-                  ),
-                ],
-              ),
-
-              const SizedBox(height: 16),
-
-              // 1. Hero Artwork Card OR Integrated Synchronized Lyrics
-              Center(
-                child: AnimatedSwitcher(
-                  duration: const Duration(milliseconds: 300),
-                  child: _showLyrics
-                      ? SizedBox(
-                          key: const ValueKey('lyrics_view'),
-                          width: 320,
-                          height: 320,
-                          child: LiquidGlassContainer(
-                            padding: EdgeInsets.zero,
-                            borderRadius: 32,
-                            surfaceAlpha: 0.16,
-                            child: const ClipRRect(
-                              borderRadius: BorderRadius.all(Radius.circular(32)),
-                              child: SynchronizedLyricsStage(),
-                            ),
+                      // Mobile: Segmented switch (Artwork vs Lyrics). Tablet/Desktop: Sleek badge pill
+                      if (!isTabletDesktop)
+                        LiquidGlassContainer(
+                          padding: const EdgeInsets.all(3),
+                          borderRadius: 16,
+                          surfaceAlpha: 0.16,
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              _buildModeTab('Artwork', !_showLyrics, colorScheme, () {
+                                setState(() => _showLyrics = false);
+                              }),
+                              _buildModeTab('Lyrics', _showLyrics, colorScheme, () {
+                                setState(() => _showLyrics = true);
+                              }),
+                            ],
                           ),
                         )
-                      : LiquidGlassContainer(
-                          key: const ValueKey('artwork_view'),
-                          width: 320,
-                          height: 320,
-                          padding: EdgeInsets.zero,
-                          borderRadius: 32,
+                      else
+                        LiquidGlassContainer(
+                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                          borderRadius: 16,
                           surfaceAlpha: 0.16,
-                          child: Stack(
-                            fit: StackFit.expand,
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
                             children: [
-                              if (track?.artworkFile != null && File(track!.artworkFile!).existsSync())
-                                ClipRRect(
-                                  borderRadius: BorderRadius.circular(32),
-                                  child: Image.file(
-                                    File(track.artworkFile!),
-                                    fit: BoxFit.cover,
-                                    errorBuilder: (context, error, stackTrace) => _buildFallbackCover(colorScheme),
-                                  ),
-                                )
-                              else
-                                _buildFallbackCover(colorScheme),
+                              Icon(Icons.graphic_eq_rounded, size: 16, color: colorScheme.primary),
+                              const SizedBox(width: 6),
+                              Text(
+                                'NOW PLAYING',
+                                style: AttuneTypography.soraBadge(color: colorScheme.primary, fontSize: 10),
+                              ),
                             ],
                           ),
                         ),
-                ),
-              ),
 
-              const SizedBox(height: 24),
-
-              // 2. Track Title & Artist
-              Text(
-                track?.title ?? 'Rabbit Hole',
-                style: AttuneTypography.soraTitleLarge(color: colorScheme.onSurface),
-                textAlign: TextAlign.center,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-              ),
-              const SizedBox(height: 4),
-              Text(
-                track?.artist ?? 'DECO*27 feat. Hatsune Miku',
-                style: AttuneTypography.jakartaArtistSubtitle(
-                  color: colorScheme.onSurface.withValues(alpha: 0.72),
-                ),
-                textAlign: TextAlign.center,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-              ),
-
-              const SizedBox(height: 12),
-
-              // 3. Human-Friendly Audio Quality Glass Badge (Section 3.1)
-              AudioQualityBadge(
-                format: track?.format ?? 'FLAC',
-                sampleRate: track?.sampleRate ?? 44100,
-                bitDepth: track?.bitDepth ?? 16,
-                isProprietary: track?.isProprietary ?? false,
-              ),
-
-              const SizedBox(height: 20),
-
-              // 4. Subtle Cue-Zone Wave Progress Bar
-              Column(
-                children: [
-                  SliderTheme(
-                    data: SliderTheme.of(context).copyWith(
-                      trackHeight: 4,
-                      activeTrackColor: colorScheme.primary,
-                      inactiveTrackColor: colorScheme.surfaceContainerHigh.withValues(alpha: 0.3),
-                      thumbColor: Colors.white,
-                      thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6),
-                      overlayShape: const RoundSliderOverlayShape(overlayRadius: 14),
-                    ),
-                    child: Slider(
-                      value: posSec.clamp(0.0, durSec),
-                      min: 0.0,
-                      max: durSec,
-                      onChanged: (v) => controller.seek(v),
-                    ),
-                  ),
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 16.0),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Text(
-                          '${currentMin.toString().padLeft(2, '0')}:${currentSec.toString().padLeft(2, '0')}',
-                          style: AttuneTypography.soraMetric(
-                            fontSize: 12,
-                            color: colorScheme.onSurface.withValues(alpha: 0.6),
+                      Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          IconButton(
+                            icon: const Icon(Icons.tune_rounded, size: 22),
+                            color: colorScheme.onSurface.withValues(alpha: 0.8),
+                            onPressed: () => _showPlayerStyleDialog(context, colorScheme),
+                            tooltip: 'Player Style & Glass Refraction',
                           ),
-                        ),
-                        Text(
-                          '${totalMin.toString().padLeft(2, '0')}:${totalSec.toString().padLeft(2, '0')}',
-                          style: AttuneTypography.soraMetric(
-                            fontSize: 12,
-                            color: colorScheme.onSurface.withValues(alpha: 0.6),
+                          IconButton(
+                            icon: const Icon(Icons.settings_outlined, size: 22),
+                            color: colorScheme.onSurface.withValues(alpha: 0.8),
+                            onPressed: () => PlatformNavigation.openSettings(context),
+                            tooltip: 'Audio Settings',
                           ),
-                        ),
-                      ],
-                    ),
+                        ],
+                      ),
+                    ],
                   ),
-                ],
-              ),
 
-              const SizedBox(height: 14),
+                  const SizedBox(height: 16),
 
-              // 5. Transport Controls with Tri-State Shuffle (Off, Standard, Smart)
-              Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  _buildShuffleButton(controller, colorScheme),
-                  const SizedBox(width: 8),
-                  IconButton(
-                    icon: const Icon(Icons.skip_previous_rounded),
-                    iconSize: 34,
-                    visualDensity: VisualDensity.compact,
-                    color: colorScheme.onSurface,
-                    onPressed: widget.onPrevious ?? controller.skipPrevious,
-                  ),
-                  const SizedBox(width: 12),
-
-                  // Play / Pause Glass Button
-                  LiquidGlassContainer(
-                    width: 68,
-                    height: 68,
-                    padding: EdgeInsets.zero,
-                    borderRadius: 34,
-                    surfaceAlpha: 0.22,
-                    tintOverride: colorScheme.primary.withValues(alpha: 0.28),
-                    onTap: widget.onTogglePlay ?? controller.togglePlay,
-                    child: Center(
-                      child: Icon(
-                        playing ? Icons.pause_rounded : Icons.play_arrow_rounded,
-                        size: 36,
-                        color: Colors.white,
+                  // 1. Hero Artwork Card
+                  Center(
+                    child: LiquidGlassContainer(
+                      key: const ValueKey('artwork_view'),
+                      width: 320,
+                      height: 320,
+                      padding: EdgeInsets.zero,
+                      borderRadius: 32,
+                      surfaceAlpha: 0.16,
+                      child: Stack(
+                        fit: StackFit.expand,
+                        children: [
+                          if (track?.artworkFile != null && File(track!.artworkFile!).existsSync())
+                            ClipRRect(
+                              borderRadius: BorderRadius.circular(32),
+                              child: Image.file(
+                                File(track.artworkFile!),
+                                fit: BoxFit.cover,
+                                errorBuilder: (context, error, stackTrace) => _buildFallbackCover(colorScheme),
+                              ),
+                            )
+                          else
+                            _buildFallbackCover(colorScheme),
+                        ],
                       ),
                     ),
                   ),
 
-                  const SizedBox(width: 12),
-                  IconButton(
-                    icon: const Icon(Icons.skip_next_rounded),
-                    iconSize: 34,
-                    visualDensity: VisualDensity.compact,
-                    color: colorScheme.onSurface,
-                    onPressed: widget.onNext ?? controller.skipNext,
+                  const SizedBox(height: 24),
+
+                  // 2. Track Title & Artist
+                  Text(
+                    track?.title ?? 'Rabbit Hole',
+                    style: AttuneTypography.soraTitleLarge(color: colorScheme.onSurface),
+                    textAlign: TextAlign.center,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
                   ),
-                  const SizedBox(width: 8),
-                  IconButton(
-                    icon: const Icon(Icons.repeat_rounded),
-                    iconSize: 22,
-                    visualDensity: VisualDensity.compact,
-                    color: colorScheme.onSurface.withValues(alpha: 0.7),
-                    onPressed: () {},
+                  const SizedBox(height: 4),
+                  Text(
+                    track?.artist ?? 'DECO*27 feat. Hatsune Miku',
+                    style: AttuneTypography.jakartaArtistSubtitle(
+                      color: colorScheme.onSurface.withValues(alpha: 0.72),
+                    ),
+                    textAlign: TextAlign.center,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
                   ),
-                ],
-              ),
 
-              const SizedBox(height: 20),
+                  const SizedBox(height: 12),
 
-              // 6. Subtle Inline Transition Connector Pill (Section 3.2)
-              if (controller.isTransitioning ||
-                  (controller.shuffleMode == ShuffleMode.smart && controller.pendingRecipe != null)) ...[
-                Builder(
-                  builder: (context) {
-                    final recipe = controller.pendingRecipe;
-                    final timing = recipe?['timing'] as Map<String, dynamic>?;
-                    final durSec = timing != null
-                        ? (((timing['track_a_exit_end_ms'] as num? ?? 1400) -
-                                (timing['track_a_transition_start_ms'] as num? ?? 0))
-                            .abs() / 1000.0)
-                        : 1.4;
-                    final conf = (recipe?['confidence_score'] as num?)?.toDouble() ?? 0.95;
-                    return TransitionConnectorPill(
-                      archetype: controller.activeArchetype,
-                      durationSeconds: durSec,
-                      confidenceScore: conf,
-                      onTap: () => PlatformNavigation.openTransitionInspector(context),
-                    );
-                  },
-                ),
-                const SizedBox(height: 16),
-              ],
+                  // 3. Human-Friendly Audio Quality Glass Badge (Section 3.1)
+                  AudioQualityBadge(
+                    format: track?.format ?? 'FLAC',
+                    sampleRate: track?.sampleRate ?? 44100,
+                    bitDepth: track?.bitDepth ?? 16,
+                    isProprietary: track?.isProprietary ?? false,
+                  ),
 
-              // 7. Mini Up-Next Row Preview
-              if (nextTrack != null)
-                LiquidGlassContainer(
-                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                  borderRadius: 20,
-                  surfaceAlpha: 0.12,
-                  child: Row(
+                  const SizedBox(height: 20),
+
+                  // 4. Subtle Cue-Zone Wave Progress Bar
+                  Column(
                     children: [
-                      Container(
-                        width: 36,
-                        height: 36,
-                        decoration: BoxDecoration(
-                          borderRadius: BorderRadius.circular(10),
-                          gradient: LinearGradient(
-                            colors: [nextTrack.seedColor, nextTrack.seedColor.withValues(alpha: 0.5)],
-                          ),
+                      SliderTheme(
+                        data: SliderTheme.of(context).copyWith(
+                          trackHeight: 4,
+                          activeTrackColor: colorScheme.primary,
+                          inactiveTrackColor: colorScheme.surfaceContainerHigh.withValues(alpha: 0.3),
+                          thumbColor: Colors.white,
+                          thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6),
+                          overlayShape: const RoundSliderOverlayShape(overlayRadius: 14),
                         ),
-                        child: ClipRRect(
-                          borderRadius: BorderRadius.circular(10),
-                          child: nextTrack.artworkFile != null && File(nextTrack.artworkFile!).existsSync()
-                              ? Image.file(File(nextTrack.artworkFile!), fit: BoxFit.cover)
-                              : const Icon(Icons.music_note, color: Colors.white, size: 20),
+                        child: Slider(
+                          value: posSec.clamp(0.0, durSec),
+                          min: 0.0,
+                          max: durSec,
+                          onChanged: (v) => controller.seek(v),
                         ),
                       ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 16.0),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
                             Text(
-                              'UP NEXT',
-                              style: AttuneTypography.soraBadge(
+                              '${currentMin.toString().padLeft(2, '0')}:${currentSec.toString().padLeft(2, '0')}',
+                              style: AttuneTypography.soraMetric(
+                                fontSize: 12,
                                 color: colorScheme.onSurface.withValues(alpha: 0.6),
-                                fontSize: 9,
                               ),
                             ),
                             Text(
-                              nextTrack.title,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: AttuneTypography.soraSubheading(
-                                fontSize: 13,
-                                fontWeight: FontWeight.w600,
-                                color: colorScheme.onSurface,
+                              '${totalMin.toString().padLeft(2, '0')}:${totalSec.toString().padLeft(2, '0')}',
+                              style: AttuneTypography.soraMetric(
+                                fontSize: 12,
+                                color: colorScheme.onSurface.withValues(alpha: 0.6),
                               ),
                             ),
                           ],
                         ),
                       ),
-                      TransitionConnectorPill(
-                        archetype: 'Riff Handoff',
-                        durationSeconds: 1.4,
-                        confidenceScore: 0.91,
-                        isCompact: true,
-                        onTap: () => PlatformNavigation.openTransitionInspector(context),
+                    ],
+                  ),
+
+                  const SizedBox(height: 14),
+
+                  // 5. Transport Controls with Tri-State Shuffle (Off, Standard, Smart)
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      _buildShuffleButton(controller, colorScheme),
+                      const SizedBox(width: 8),
+                      IconButton(
+                        icon: const Icon(Icons.skip_previous_rounded),
+                        iconSize: 34,
+                        visualDensity: VisualDensity.compact,
+                        color: colorScheme.onSurface,
+                        onPressed: widget.onPrevious ?? controller.skipPrevious,
+                      ),
+                      const SizedBox(width: 12),
+
+                      // Play / Pause Glass Button
+                      LiquidGlassContainer(
+                        width: 68,
+                        height: 68,
+                        padding: EdgeInsets.zero,
+                        borderRadius: 34,
+                        surfaceAlpha: 0.22,
+                        tintOverride: colorScheme.primary.withValues(alpha: 0.28),
+                        onTap: widget.onTogglePlay ?? controller.togglePlay,
+                        child: Center(
+                          child: Icon(
+                            playing ? Icons.pause_rounded : Icons.play_arrow_rounded,
+                            size: 36,
+                            color: Colors.white,
+                          ),
+                        ),
+                      ),
+
+                      const SizedBox(width: 12),
+                      IconButton(
+                        icon: const Icon(Icons.skip_next_rounded),
+                        iconSize: 34,
+                        visualDensity: VisualDensity.compact,
+                        color: colorScheme.onSurface,
+                        onPressed: widget.onNext ?? controller.skipNext,
+                      ),
+                      const SizedBox(width: 8),
+                      IconButton(
+                        icon: const Icon(Icons.repeat_rounded),
+                        iconSize: 22,
+                        visualDensity: VisualDensity.compact,
+                        color: colorScheme.onSurface.withValues(alpha: 0.7),
+                        onPressed: () {},
                       ),
                     ],
                   ),
-                ),
 
-              const SizedBox(height: 80),
-            ],
+                  const SizedBox(height: 20),
+
+                  // 6. Subtle Inline Transition Connector Pill (Section 3.2)
+                  // Tapping displays why this archetype was selected rather than raw diagnostics
+                  if (controller.isTransitioning ||
+                      (controller.shuffleMode == ShuffleMode.smart && controller.pendingRecipe != null)) ...[
+                    Builder(
+                      builder: (context) {
+                        final recipe = controller.pendingRecipe;
+                        final timing = recipe?['timing'] as Map<String, dynamic>?;
+                        final durSec = timing != null
+                            ? (((timing['track_a_exit_end_ms'] as num? ?? 1400) -
+                                    (timing['track_a_transition_start_ms'] as num? ?? 0))
+                                .abs() / 1000.0)
+                            : 1.4;
+                        final conf = (recipe?['confidence_score'] as num?)?.toDouble() ?? 0.95;
+                        return TransitionConnectorPill(
+                          archetype: controller.activeArchetype,
+                          durationSeconds: durSec,
+                          confidenceScore: conf,
+                          onTap: () => _showTransitionDetailsDialog(context, controller, colorScheme),
+                        );
+                      },
+                    ),
+                    const SizedBox(height: 16),
+                  ],
+
+                  // 7. Mini Up-Next Row Preview (Cleaned up, no duplicate pill)
+                  if (nextTrack != null)
+                    LiquidGlassContainer(
+                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                      borderRadius: 20,
+                      surfaceAlpha: 0.12,
+                      child: Row(
+                        children: [
+                          Container(
+                            width: 36,
+                            height: 36,
+                            decoration: BoxDecoration(
+                              borderRadius: BorderRadius.circular(10),
+                              gradient: LinearGradient(
+                                colors: [nextTrack.seedColor, nextTrack.seedColor.withValues(alpha: 0.5)],
+                              ),
+                            ),
+                            child: ClipRRect(
+                              borderRadius: BorderRadius.circular(10),
+                              child: nextTrack.artworkFile != null && File(nextTrack.artworkFile!).existsSync()
+                                  ? Image.file(File(nextTrack.artworkFile!), fit: BoxFit.cover)
+                                  : const Icon(Icons.music_note, color: Colors.white, size: 20),
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'UP NEXT',
+                                  style: AttuneTypography.soraBadge(
+                                    color: colorScheme.onSurface.withValues(alpha: 0.6),
+                                    fontSize: 9,
+                                  ),
+                                ),
+                                Text(
+                                  nextTrack.title,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: AttuneTypography.soraSubheading(
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w600,
+                                    color: colorScheme.onSurface,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+
+                  const SizedBox(height: 80),
+                ],
+              ),
+            ),
           ),
+        );
+      },
+    );
+  }
+
+  void _showTransitionDetailsDialog(
+    BuildContext context,
+    PlaybackController controller,
+    ColorScheme colorScheme,
+  ) {
+    final recipe = controller.pendingRecipe;
+    final archetype = controller.activeArchetype.isNotEmpty ? controller.activeArchetype : '3-Band EQ Crossfade';
+    final conf = (recipe?['confidence_score'] as num?)?.toDouble() ?? 0.88;
+    final matchPct = (conf * 100).toInt();
+
+    showDialog(
+      context: context,
+      barrierColor: Colors.black.withValues(alpha: 0.45),
+      builder: (context) {
+        return Center(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 440),
+            child: LiquidGlassContainer(
+              margin: const EdgeInsets.symmetric(horizontal: 24),
+              padding: const EdgeInsets.all(24),
+              borderRadius: 28,
+              surfaceAlpha: 0.22,
+              blurSigma: 32,
+              child: Material(
+                color: Colors.transparent,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(10),
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            color: colorScheme.primary.withValues(alpha: 0.2),
+                          ),
+                          child: Icon(Icons.auto_awesome_rounded, color: colorScheme.primary, size: 22),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Transition Selection Rationale',
+                                style: AttuneTypography.soraHeading(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.bold,
+                                  color: colorScheme.onSurface,
+                                ),
+                              ),
+                              Text(
+                                '$archetype • $matchPct% Harmonic Alignment',
+                                style: AttuneTypography.jakartaBodySmall(
+                                  color: colorScheme.onSurface.withValues(alpha: 0.7),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        IconButton(
+                          icon: const Icon(Icons.close_rounded, size: 20),
+                          color: colorScheme.onSurface.withValues(alpha: 0.6),
+                          onPressed: () => Navigator.of(context).pop(),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 20),
+
+                    // Rationale cards explaining WHY
+                    _buildRationaleItem(
+                      Icons.equalizer_rounded,
+                      '3-Band EQ Crossover (180 Hz)',
+                      'Bass frequencies are isolated and swapped cleanly to avoid destructive low-end phase cancellation and mud.',
+                      colorScheme,
+                    ),
+                    const SizedBox(height: 12),
+                    _buildRationaleItem(
+                      Icons.record_voice_over_rounded,
+                      'Vocal Completion Protection',
+                      'Transition trigger waits for the active singing phrase contour to conclude, preventing overlapping vocal clash.',
+                      colorScheme,
+                    ),
+                    const SizedBox(height: 12),
+                    _buildRationaleItem(
+                      Icons.music_note_rounded,
+                      'Phrase & Tempo Grid Alignment',
+                      'Locked to a 4-bar downbeat phrase boundary with micro-pitch preservation.',
+                      colorScheme,
+                    ),
+
+                    const SizedBox(height: 24),
+
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        TextButton.icon(
+                          icon: const Icon(Icons.analytics_outlined, size: 16),
+                          label: const Text('Open DSP Diagnostics'),
+                          style: TextButton.styleFrom(
+                            foregroundColor: colorScheme.onSurface.withValues(alpha: 0.7),
+                            textStyle: AttuneTypography.soraBadge(fontSize: 11),
+                          ),
+                          onPressed: () {
+                            Navigator.of(context).pop();
+                            PlatformNavigation.openTransitionInspector(context);
+                          },
+                        ),
+                        LiquidGlassContainer(
+                          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 8),
+                          borderRadius: 14,
+                          surfaceAlpha: 0.26,
+                          tintOverride: colorScheme.primary.withValues(alpha: 0.28),
+                          onTap: () => Navigator.of(context).pop(),
+                          child: Text(
+                            'Got it',
+                            style: AttuneTypography.soraBadge(
+                              color: Colors.white,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildRationaleItem(IconData icon, String title, String description, ColorScheme colorScheme) {
+    return LiquidGlassContainer(
+      padding: const EdgeInsets.all(12),
+      borderRadius: 16,
+      surfaceAlpha: 0.12,
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, size: 18, color: colorScheme.primary),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: AttuneTypography.soraSubheading(
+                    fontSize: 12,
+                    fontWeight: FontWeight.bold,
+                    color: colorScheme.onSurface,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  description,
+                  style: AttuneTypography.jakartaBodySmall(
+                    fontSize: 11,
+                    color: colorScheme.onSurface.withValues(alpha: 0.65),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showPlayerStyleDialog(BuildContext context, ColorScheme colorScheme) {
+    showDialog(
+      context: context,
+      barrierColor: Colors.black.withValues(alpha: 0.45),
+      builder: (context) {
+        return Center(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 400),
+            child: LiquidGlassContainer(
+              margin: const EdgeInsets.symmetric(horizontal: 24),
+              padding: const EdgeInsets.all(24),
+              borderRadius: 28,
+              surfaceAlpha: 0.22,
+              blurSigma: 32,
+              child: Material(
+                color: Colors.transparent,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text(
+                          'Player Style & Glass Refraction',
+                          style: AttuneTypography.soraHeading(
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
+                            color: colorScheme.onSurface,
+                          ),
+                        ),
+                        IconButton(
+                          icon: const Icon(Icons.close_rounded, size: 20),
+                          color: colorScheme.onSurface.withValues(alpha: 0.6),
+                          onPressed: () => Navigator.of(context).pop(),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 16),
+                    ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      leading: Icon(Icons.blur_on_rounded, color: colorScheme.primary),
+                      title: Text(
+                        'Living Beat Mesh',
+                        style: AttuneTypography.soraSubheading(fontSize: 13, color: colorScheme.onSurface),
+                      ),
+                      subtitle: Text(
+                        'Dynamic ambient gradients breathing with track BPM',
+                        style: AttuneTypography.jakartaBodySmall(color: colorScheme.onSurface.withValues(alpha: 0.6)),
+                      ),
+                      trailing: Switch(
+                        value: true,
+                        activeThumbColor: colorScheme.primary,
+                        onChanged: (v) {},
+                      ),
+                    ),
+                    ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      leading: Icon(Icons.water_drop_rounded, color: colorScheme.secondary),
+                      title: Text(
+                        'Frosted Glass Depth',
+                        style: AttuneTypography.soraSubheading(fontSize: 13, color: colorScheme.onSurface),
+                      ),
+                      subtitle: Text(
+                        'Viscous liquid refraction with 40px backdrop blur',
+                        style: AttuneTypography.jakartaBodySmall(color: colorScheme.onSurface.withValues(alpha: 0.6)),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
             ),
           ),
         );

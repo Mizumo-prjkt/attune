@@ -302,7 +302,7 @@ class ProfileAndStatsStage extends StatelessWidget {
                       style: AttuneTypography.soraSubheading(fontSize: 14, color: colorScheme.onSurface),
                     ),
                     subtitle: Text(
-                      'Version 0.5.0 (Native Core v$engineVersion)',
+                      'Version 0.1.0 (Native Core v$engineVersion)',
                       style: AttuneTypography.jakartaBody(fontSize: 12, color: colorScheme.onSurface.withValues(alpha: 0.5)),
                     ),
                     trailing: const Icon(Icons.chevron_right_rounded),
@@ -310,7 +310,7 @@ class ProfileAndStatsStage extends StatelessWidget {
                       showAboutDialog(
                         context: context,
                         applicationName: 'Attune',
-                        applicationVersion: 'v0.5.0',
+                        applicationVersion: 'v0.1.0',
                         applicationIcon: Container(
                           width: 48,
                           height: 48,
@@ -346,7 +346,17 @@ class ProfileAndStatsStage extends StatelessWidget {
                       showLicensePage(
                         context: context,
                         applicationName: 'Attune',
-                        applicationVersion: 'v0.5.0',
+                        applicationVersion: 'v0.1.0',
+                        applicationIcon: Container(
+                          width: 48,
+                          height: 48,
+                          padding: const EdgeInsets.all(6),
+                          decoration: BoxDecoration(color: colorScheme.primary.withValues(alpha: 0.15), shape: BoxShape.circle),
+                          child: Image.asset(
+                            'assets/icon/icon_transparent.png',
+                            fit: BoxFit.contain,
+                          ),
+                        ),
                       );
                     },
                   ),

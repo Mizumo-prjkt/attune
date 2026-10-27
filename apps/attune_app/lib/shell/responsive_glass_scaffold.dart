@@ -34,6 +34,8 @@ class _ResponsiveGlassScaffoldState extends State<ResponsiveGlassScaffold>
     with SingleTickerProviderStateMixin {
   int _activeNavIndex = 0; // 0: Home, 1: Queue, 2: Albums, 3: Profile
   int _dockedContextualTabIndex = 0; // 0: Queue, 1: Lyrics (for tablet/desktop)
+  bool _showLeftRail = true;
+  bool _showRightPane = true;
   late bool _isSetupDone;
 
   late final AnimationController _nowPlayingController;
@@ -247,7 +249,7 @@ class _ResponsiveGlassScaffoldState extends State<ResponsiveGlassScaffold>
     );
   }
 
-  // Tablet & Desktop Shared Layout (>= 720px)
+  // Tablet & Desktop Shared Layout (>= 720px) with Collapsible Side Panels
   Widget _buildTabletDesktopLayout(double width, ColorScheme colorScheme, PlaybackController controller) {
     Widget centerStage;
     switch (_activeNavIndex) {
@@ -271,58 +273,94 @@ class _ResponsiveGlassScaffoldState extends State<ResponsiveGlassScaffold>
 
     return Row(
       children: [
-        // 1. Left Floating Glass Navigation Rail
-        Padding(
-          padding: const EdgeInsets.all(16.0),
-          child: LiquidGlassContainer(
-            width: 80,
-            padding: const EdgeInsets.symmetric(vertical: 24),
-            borderRadius: 28,
-            surfaceAlpha: 0.16,
-            child: Column(
-              children: [
-                Container(
-                  padding: const EdgeInsets.all(8),
-                  decoration: BoxDecoration(
-                    color: colorScheme.primary.withValues(alpha: 0.15),
-                    shape: BoxShape.circle,
+        // 1. Left Floating Glass Navigation Rail (Collapsible)
+        AnimatedSize(
+          duration: const Duration(milliseconds: 250),
+          curve: Curves.easeOutCubic,
+          child: _showLeftRail
+              ? Padding(
+                  padding: const EdgeInsets.all(16.0),
+                  child: LiquidGlassContainer(
+                    width: 80,
+                    padding: const EdgeInsets.symmetric(vertical: 24),
+                    borderRadius: 28,
+                    surfaceAlpha: 0.16,
+                    child: Column(
+                      children: [
+                        // App Logo & Rail Collapse trigger
+                        GestureDetector(
+                          onTap: () => setState(() => _showLeftRail = false),
+                          child: Tooltip(
+                            message: 'Collapse navigation rail',
+                            child: Container(
+                              padding: const EdgeInsets.all(8),
+                              decoration: BoxDecoration(
+                                color: colorScheme.primary.withValues(alpha: 0.15),
+                                shape: BoxShape.circle,
+                              ),
+                              child: Image.asset(
+                                'assets/icon/icon_transparent.png',
+                                width: 28,
+                                height: 28,
+                                fit: BoxFit.contain,
+                              ),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 28),
+
+                        // Nav Items: Home, Queue, Albums, Profile
+                        _buildRailButton(0, Icons.home_rounded, 'Home', colorScheme),
+                        const SizedBox(height: 12),
+                        _buildRailButton(1, Icons.queue_music_rounded, 'Queue', colorScheme),
+                        const SizedBox(height: 12),
+                        _buildRailButton(2, Icons.album_rounded, 'Albums', colorScheme),
+                        const SizedBox(height: 12),
+                        _buildRailButton(3, Icons.person_rounded, 'Profile', colorScheme),
+
+                        const Spacer(),
+
+                        // Collapse rail toggle button
+                        IconButton(
+                          icon: const Icon(Icons.chevron_left_rounded, color: Colors.white70, size: 22),
+                          tooltip: 'Collapse sidebar',
+                          onPressed: () => setState(() => _showLeftRail = false),
+                        ),
+                        const SizedBox(height: 4),
+
+                        // Settings Button
+                        LiquidGlassContainer(
+                          padding: const EdgeInsets.all(10),
+                          borderRadius: 16,
+                          surfaceAlpha: 0.18,
+                          onTap: () => PlatformNavigation.openSettings(context),
+                          child: const Icon(Icons.settings_outlined, color: Colors.white, size: 22),
+                        ),
+                      ],
+                    ),
                   ),
-                  child: Image.asset(
-                    'assets/icon/icon_transparent.png',
-                    width: 28,
-                    height: 28,
-                    fit: BoxFit.contain,
+                )
+              : Padding(
+                  padding: const EdgeInsets.only(left: 12.0, top: 16.0, bottom: 16.0),
+                  child: Align(
+                    alignment: Alignment.topLeft,
+                    child: LiquidGlassContainer(
+                      padding: const EdgeInsets.all(8),
+                      borderRadius: 16,
+                      surfaceAlpha: 0.18,
+                      onTap: () => setState(() => _showLeftRail = true),
+                      child: const Tooltip(
+                        message: 'Expand navigation rail',
+                        child: Icon(Icons.chevron_right_rounded, color: Colors.white, size: 22),
+                      ),
+                    ),
                   ),
                 ),
-                const SizedBox(height: 28),
-
-                // Nav Items: Home, Queue, Albums, Profile
-                _buildRailButton(0, Icons.home_rounded, 'Home', colorScheme),
-                const SizedBox(height: 12),
-                _buildRailButton(1, Icons.queue_music_rounded, 'Queue', colorScheme),
-                const SizedBox(height: 12),
-                _buildRailButton(2, Icons.album_rounded, 'Albums', colorScheme),
-                const SizedBox(height: 12),
-                _buildRailButton(3, Icons.person_rounded, 'Profile', colorScheme),
-
-                const Spacer(),
-
-                // Settings Button
-                LiquidGlassContainer(
-                  padding: const EdgeInsets.all(10),
-                  borderRadius: 16,
-                  surfaceAlpha: 0.18,
-                  onTap: () => PlatformNavigation.openSettings(context),
-                  child: const Icon(Icons.settings_outlined, color: Colors.white, size: 22),
-                ),
-              ],
-            ),
-          ),
         ),
 
-        // 2. Center-Left Primary Stage with Stacked Mini Player & Liquid Glass Overlay
+        // 2. Center Primary Stage with Stacked Mini Player & Liquid Glass Overlay
         Expanded(
-          flex: 5,
+          flex: _showRightPane ? 5 : 1,
           child: Stack(
             fit: StackFit.expand,
             children: [
@@ -339,52 +377,89 @@ class _ResponsiveGlassScaffoldState extends State<ResponsiveGlassScaffold>
                     onTap: _openNowPlaying,
                   ),
                 ),
+              // Floating Expand Sidebar button when right pane is collapsed
+              if (!_showRightPane)
+                Positioned(
+                  top: 16,
+                  right: 16,
+                  child: LiquidGlassContainer(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                    borderRadius: 16,
+                    surfaceAlpha: 0.18,
+                    onTap: () => setState(() => _showRightPane = true),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.view_sidebar_rounded, size: 16, color: colorScheme.primary),
+                        const SizedBox(width: 6),
+                        Text(
+                          'Show Sidebar',
+                          style: AttuneTypography.soraBadge(color: colorScheme.primary, fontSize: 11),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
               _buildLiquidGlassNowPlayingOverlay(colorScheme),
             ],
           ),
         ),
 
-        // 3. Right Docked Contextual Glass Pane
-        Expanded(
-          flex: 4,
-          child: Padding(
-            padding: const EdgeInsets.all(16.0),
-            child: LiquidGlassContainer(
-              padding: const EdgeInsets.all(16),
-              borderRadius: 32,
-              surfaceAlpha: 0.14,
-              child: Column(
-                children: [
-                  // Glass Segmented Tab Switcher
-                  LiquidGlassContainer(
-                    padding: const EdgeInsets.all(4),
-                    borderRadius: 16,
-                    surfaceAlpha: 0.18,
-                    child: Row(
+        // 3. Right Docked Contextual Glass Pane (Collapsible)
+        if (_showRightPane)
+          Expanded(
+            flex: 4,
+            child: Padding(
+              padding: const EdgeInsets.all(16.0),
+              child: LiquidGlassContainer(
+                padding: const EdgeInsets.all(16),
+                borderRadius: 32,
+                surfaceAlpha: 0.14,
+                child: Column(
+                  children: [
+                    // Glass Segmented Tab Switcher + Collapse Button
+                    Row(
                       children: [
                         Expanded(
-                          child: _buildContextTab('Up Next Queue', 0, colorScheme),
+                          child: LiquidGlassContainer(
+                            padding: const EdgeInsets.all(4),
+                            borderRadius: 16,
+                            surfaceAlpha: 0.18,
+                            child: Row(
+                              children: [
+                                Expanded(
+                                  child: _buildContextTab('Up Next Queue', 0, colorScheme),
+                                ),
+                                Expanded(
+                                  child: _buildContextTab('Synced Lyrics', 1, colorScheme),
+                                ),
+                              ],
+                            ),
+                          ),
                         ),
-                        Expanded(
-                          child: _buildContextTab('Synced Lyrics', 1, colorScheme),
+                        const SizedBox(width: 8),
+                        IconButton(
+                          icon: const Icon(Icons.keyboard_double_arrow_right_rounded, size: 20),
+                          color: colorScheme.onSurface.withValues(alpha: 0.6),
+                          tooltip: 'Collapse side panel',
+                          onPressed: () => setState(() => _showRightPane = false),
                         ),
                       ],
                     ),
-                  ),
 
-                  const SizedBox(height: 12),
+                    const SizedBox(height: 12),
 
-                  // Tab Content
-                  Expanded(
-                    child: _dockedContextualTabIndex == 0
-                        ? const PlaylistQueueStage()
-                        : const SynchronizedLyricsStage(),
-                  ),
-                ],
+                    // Tab Content
+                    Expanded(
+                      child: _dockedContextualTabIndex == 0
+                          ? const PlaylistQueueStage()
+                          : const SynchronizedLyricsStage(),
+                    ),
+                  ],
+                ),
               ),
             ),
           ),
-        ),
       ],
     );
   }
@@ -474,7 +549,7 @@ class _ResponsiveGlassScaffoldState extends State<ResponsiveGlassScaffold>
                     filter: ImageFilter.blur(sigmaX: blurSigma, sigmaY: blurSigma),
                     child: Container(
                       decoration: BoxDecoration(
-                        color: Colors.black.withValues(alpha: 0.88 * t + 0.10),
+                        color: Colors.black.withValues(alpha: 0.28 * t + 0.05),
                         gradient: midPeak > 0.05
                             ? LinearGradient(
                                 begin: Alignment.topLeft,

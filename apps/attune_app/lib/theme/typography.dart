@@ -71,6 +71,9 @@ class AttuneTypography {
         color: color,
       );
 
+  static TextStyle soraTabularTimestamp({Color? color, double fontSize = 12, FontWeight weight = FontWeight.w600}) =>
+      soraMetric(color: color, fontSize: fontSize, weight: weight);
+
   // Plus Jakarta Sans (Body, Subtitles, Lyrics, Queue, Search)
   static TextStyle jakartaBody({Color? color, double? fontSize, FontWeight? fontWeight}) => GoogleFonts.plusJakartaSans(
         fontSize: fontSize ?? 14,

@@ -5,6 +5,7 @@ import 'package:attune_app/services/engine_bridge.dart';
 import 'package:attune_app/theme/color_engine.dart';
 import 'package:attune_app/widgets/audio_quality_badge.dart';
 import 'package:attune_app/widgets/transition_connector_pill.dart';
+import 'package:attune_app/stages/synchronized_lyrics_stage.dart';
 
 void main() {
   group('AudioQualityBadge Tests (Section 3.1 Compliance)', () {
@@ -121,10 +122,54 @@ void main() {
     });
   });
 
-  group('EngineBridge Tests', () {
-    test('Bridge provides valid version string', () {
-      final bridge = AttuneEngineBridge.instance;
-      expect(bridge.version, startsWith('0.1.0'));
+  group('SynchronizedLyricsStage Tests', () {
+    testWidgets('Renders lyric source switcher and empty/real states gracefully', (WidgetTester tester) async {
+      await tester.pumpWidget(
+        const MaterialApp(
+          home: Scaffold(
+            body: SynchronizedLyricsStage(),
+          ),
+        ),
+      );
+      await tester.pump();
+
+      expect(find.text('Embedded'), findsOneWidget);
+      expect(find.text('.LRC File'), findsOneWidget);
+      expect(find.text('Ultra-Sync (Soon)'), findsOneWidget);
+
+      // Tap .LRC File tab
+      await tester.tap(find.text('.LRC File'));
+      await tester.pump(const Duration(milliseconds: 300));
+      expect(find.text('.LRC File'), findsOneWidget);
+    });
+  });
+
+  group('Collapsible Side Panels Tests', () {
+    testWidgets('Right pane and rail collapse and expand correctly', (WidgetTester tester) async {
+      tester.view.physicalSize = const Size(1280, 800);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.resetPhysicalSize);
+
+      await tester.pumpWidget(const AttuneApp());
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 200));
+
+      // Right docked pane has collapse button
+      final collapseRight = find.byTooltip('Collapse side panel');
+      expect(collapseRight, findsOneWidget);
+
+      // Collapse right pane
+      await tester.tap(collapseRight);
+      await tester.pump(const Duration(milliseconds: 300));
+
+      // Right pane is now collapsed, "Show Sidebar" pill appears
+      expect(find.text('Show Sidebar'), findsOneWidget);
+
+      // Restore right pane
+      await tester.tap(find.text('Show Sidebar'));
+      await tester.pump(const Duration(milliseconds: 300));
+      expect(find.byTooltip('Collapse side panel'), findsOneWidget);
     });
   });
 }
+

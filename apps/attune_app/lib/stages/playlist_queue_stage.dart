@@ -17,7 +17,6 @@ class PlaylistQueueStage extends StatefulWidget {
 
 class _PlaylistQueueStageState extends State<PlaylistQueueStage> {
   int _selectedFilterIndex = 0;
-  bool _autoplay = true;
 
   @override
   Widget build(BuildContext context) {
@@ -165,13 +164,6 @@ class _PlaylistQueueStageState extends State<PlaylistQueueStage> {
                     active: isShuffleActive,
                     colorScheme: colorScheme,
                     onTap: controller.cycleShuffleMode,
-                  ),
-                  _buildActionChip(
-                    icon: Icons.all_inclusive_rounded,
-                    label: 'Autoplay',
-                    active: _autoplay,
-                    colorScheme: colorScheme,
-                    onTap: () => setState(() => _autoplay = !_autoplay),
                   ),
                   Text(
                     '${queue.length} songs',

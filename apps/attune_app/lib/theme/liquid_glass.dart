@@ -1,5 +1,7 @@
+import 'dart:math' as math;
 import 'dart:ui';
 import 'package:flutter/material.dart';
+import '../services/playback_controller.dart';
 
 /// The 4-Layer Liquid Material Glass Container adhering to Section 2.2 of 05_UI_DESIGN_SPEC.md:
 /// 1. Frosted Backdrop Blur (BackdropFilter with configurable sigma)
@@ -129,15 +131,16 @@ class _SpecularRimPainter extends CustomPainter {
 }
 
 /// Living Ambient Artwork Mesh rendered behind the entire scaffold (Section 2.2 layer 1)
+/// Dynamically sways and breathes in lockstep with the active track's BPM and musical rhythm.
 class AmbientMeshBackground extends StatefulWidget {
-  final Widget child;
-  final ColorScheme colorScheme;
+  final Widget? child;
+  final ColorScheme? colorScheme;
   final bool isPlaying;
 
   const AmbientMeshBackground({
     super.key,
-    required this.child,
-    required this.colorScheme,
+    this.child,
+    this.colorScheme,
     this.isPlaying = true,
   });
 
@@ -145,65 +148,135 @@ class AmbientMeshBackground extends StatefulWidget {
   State<AmbientMeshBackground> createState() => _AmbientMeshBackgroundState();
 }
 
-class _AmbientMeshBackgroundState extends State<AmbientMeshBackground> with SingleTickerProviderStateMixin {
-  late AnimationController _controller;
+class _AmbientMeshBackgroundState extends State<AmbientMeshBackground> with TickerProviderStateMixin {
+  late AnimationController _driftController;
+  late AnimationController _beatController;
+  double _lastBpm = 120.0;
 
   @override
   void initState() {
     super.initState();
-    _controller = AnimationController(
+    _driftController = AnimationController(
       vsync: this,
-      duration: const Duration(seconds: 12),
+      duration: const Duration(seconds: 14),
     )..repeat(reverse: true);
+
+    _beatController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 500), // 120 BPM default
+    )..repeat(reverse: true);
+  }
+
+  void _updateBeatTempo(double rawBpm, bool isPlaying) {
+    if (!isPlaying) {
+      if (_beatController.isAnimating) {
+        _beatController.stop();
+      }
+      return;
+    }
+
+    final effectiveBpm = rawBpm > 40.0 && rawBpm < 260.0 ? rawBpm : 120.0;
+    if ((effectiveBpm - _lastBpm).abs() > 1.0 || !_beatController.isAnimating) {
+      _lastBpm = effectiveBpm;
+      final beatMs = (60000.0 / effectiveBpm).round().clamp(250, 1500);
+      _beatController.duration = Duration(milliseconds: beatMs);
+      if (!_beatController.isAnimating) {
+        _beatController.repeat(reverse: true);
+      }
+    }
   }
 
   @override
   void dispose() {
-    _controller.dispose();
+    _driftController.dispose();
+    _beatController.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    return AnimatedBuilder(
-      animation: _controller,
+    return ListenableBuilder(
+      listenable: PlaybackController.instance,
       builder: (context, _) {
-        final t = _controller.value;
-        final primary = widget.colorScheme.primary;
-        final secondary = widget.colorScheme.secondary;
-        final tertiary = widget.colorScheme.tertiary;
+        final controller = PlaybackController.instance;
+        final bpm = controller.currentTrack?.bpm ?? 120.0;
+        final isPlaying = controller.isPlaying;
 
-        return Stack(
-          children: [
-            // Deep base background
-            Container(color: widget.colorScheme.surface),
+        _updateBeatTempo(bpm, isPlaying);
 
-            // Diffused breathing radial color orbs
-            Positioned(
-              top: -80 + (t * 40),
-              left: -80 + (t * 20),
-              width: 360,
-              height: 360,
-              child: _Orb(color: primary.withValues(alpha: 0.28)),
-            ),
-            Positioned(
-              bottom: 100 - (t * 30),
-              right: -60 - (t * 20),
-              width: 420,
-              height: 420,
-              child: _Orb(color: secondary.withValues(alpha: 0.22)),
-            ),
-            Positioned(
-              top: 220 + (t * 50),
-              right: 20 - (t * 30),
-              width: 300,
-              height: 300,
-              child: _Orb(color: tertiary.withValues(alpha: 0.18)),
-            ),
+        return AnimatedBuilder(
+          animation: Listenable.merge([_driftController, _beatController]),
+          builder: (context, _) {
+            final t = _driftController.value;
+            final beatPulse = isPlaying ? Curves.easeInOutSine.transform(_beatController.value) : 0.0;
+            final beatScale = 1.0 + (0.12 * beatPulse);
+            final beatAlphaMult = 0.85 + (0.35 * beatPulse);
 
-            // Child scaffold content on top
-            widget.child,
-          ],
+            final scheme = widget.colorScheme ?? Theme.of(context).colorScheme;
+            final primary = scheme.primary;
+            final secondary = scheme.secondary;
+            final tertiary = scheme.tertiary;
+
+            final swayX = math.sin(t * math.pi * 2) * 40.0;
+            final swayY = math.cos(t * math.pi * 2) * 30.0;
+
+            return Stack(
+              children: [
+                // Deep base surface
+                Container(color: scheme.surface),
+
+                // 1. Primary Hue Orb (Top-Left / Center sway with beat)
+                Positioned(
+                  top: -60 + swayY,
+                  left: -60 + swayX,
+                  width: 440 * beatScale,
+                  height: 440 * beatScale,
+                  child: _Orb(color: primary.withValues(alpha: 0.32 * beatAlphaMult)),
+                ),
+
+                // 2. Secondary Hue Orb (Bottom-Right beat wash)
+                Positioned(
+                  bottom: 60 - swayY,
+                  right: -50 - swayX,
+                  width: 480 * beatScale,
+                  height: 480 * beatScale,
+                  child: _Orb(color: secondary.withValues(alpha: 0.28 * beatAlphaMult)),
+                ),
+
+                // 3. Tertiary Hue Orb (Center-Right rhythmic accent)
+                Positioned(
+                  top: 200 + (swayY * 1.5),
+                  right: 40 + (swayX * 1.2),
+                  width: 380 * (1.0 + 0.15 * (1.0 - beatPulse)),
+                  height: 380 * (1.0 + 0.15 * (1.0 - beatPulse)),
+                  child: _Orb(color: tertiary.withValues(alpha: 0.22 * beatAlphaMult)),
+                ),
+
+                // 4. Center Ambient Diffuse Beat Halo
+                Positioned.fill(
+                  child: IgnorePointer(
+                    child: Container(
+                      decoration: BoxDecoration(
+                        gradient: RadialGradient(
+                          center: Alignment(swayX / 100.0, swayY / 100.0),
+                          radius: 1.25 * beatScale,
+                          colors: [
+                            primary.withValues(alpha: 0.08 * beatAlphaMult),
+                            secondary.withValues(alpha: 0.04 * beatAlphaMult),
+                            Colors.transparent,
+                          ],
+                          stops: const [0.0, 0.55, 1.0],
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+
+                // Child content on top if provided
+                if (widget.child != null) widget.child!,
+              ],
+            );
+          },
         );
       },
     );
