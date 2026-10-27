@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import '../models/track_item.dart';
 import 'audio_storage_service.dart';
 import 'engine_bridge.dart';
+import 'settings_service.dart';
 
 /// Shuffle playback mode
 enum ShuffleMode {
@@ -22,6 +23,7 @@ class PlaybackController extends ChangeNotifier {
   final AttuneEngineBridge _bridge = AttuneEngineBridge.instance;
 
   // Track Lists
+  final List<TrackItem> _rawScannedTracks = [];
   final List<TrackItem> _libraryTracks = [];
   final List<TrackItem> _queue = [];
   int _currentQueueIndex = 0;
@@ -132,6 +134,7 @@ class PlaybackController extends ChangeNotifier {
   }
 
   // Getters
+  List<TrackItem> get rawScannedTracks => List.unmodifiable(_rawScannedTracks);
   List<TrackItem> get libraryTracks => List.unmodifiable(_libraryTracks);
   List<TrackItem> get queue => List.unmodifiable(_queue);
   int get currentQueueIndex => _currentQueueIndex;
@@ -193,6 +196,38 @@ class PlaybackController extends ChangeNotifier {
     }
   }
 
+  /// Applies duration thresholds and exclusion list filters to the active library and queue
+  void applyLibraryFilters() {
+    final settings = SettingsService.instance;
+    final minSec = settings.minSongDurationSec;
+    final excluded = settings.excludedSongIds;
+
+    _libraryTracks.clear();
+    for (final track in _rawScannedTracks) {
+      if (excluded.contains(track.id) || excluded.contains(track.filePath)) {
+        continue;
+      }
+      if (track.duration > Duration.zero && track.duration.inSeconds < minSec) {
+        continue;
+      }
+      _libraryTracks.add(track);
+    }
+
+    _queue.clear();
+    _queue.addAll(_libraryTracks);
+    if (_queue.isNotEmpty) {
+      if (_currentQueueIndex >= _queue.length) {
+        _currentQueueIndex = 0;
+      }
+      _upNextQueueIndex = _pickNextQueueIndex();
+      _durationSec = _queue[_currentQueueIndex].duration.inSeconds.toDouble();
+    } else {
+      _currentQueueIndex = 0;
+      _upNextQueueIndex = 0;
+    }
+    notifyListeners();
+  }
+
   /// Scans local directories for genuine audio files (.flac, .mp3, .wav, .ogg, etc.)
   /// utilizing AudioStorageService across Windows, Linux, and Android scoped storage.
   Future<void> scanLocalAudioDirectories({String? customPath, bool forceRefresh = false}) async {
@@ -201,9 +236,10 @@ class PlaybackController extends ChangeNotifier {
     notifyListeners();
 
     try {
+      final allowed = SettingsService.instance.allowedDirectories;
       final scannedTracks = await AudioStorageService.instance.scanLibrary(
         forceRefresh: forceRefresh,
-        additionalRoots: customPath != null ? [customPath] : null,
+        additionalRoots: customPath != null ? [customPath] : (allowed.isNotEmpty ? allowed.toList() : null),
       );
 
       if (scannedTracks.isEmpty) {
@@ -213,20 +249,15 @@ class PlaybackController extends ChangeNotifier {
         return;
       }
 
-      _libraryTracks.clear();
-      _libraryTracks.addAll(scannedTracks);
-
-      _queue.clear();
-      _queue.addAll(scannedTracks);
-      _currentQueueIndex = 0;
-      _upNextQueueIndex = _pickNextQueueIndex();
+      _rawScannedTracks.clear();
+      _rawScannedTracks.addAll(scannedTracks);
+      applyLibraryFilters();
 
       if (_queue.isNotEmpty) {
-        _durationSec = _queue.first.duration.inSeconds.toDouble();
         _loadCurrentTrackToEngine();
       }
 
-      debugPrint('[PlaybackController] Ingested ${_libraryTracks.length} genuine tracks via AudioStorageService.');
+      debugPrint('[PlaybackController] Ingested ${_libraryTracks.length} genuine tracks (${_rawScannedTracks.length} raw) via AudioStorageService.');
     } catch (e) {
       debugPrint('[PlaybackController] Error scanning audio files: $e');
     } finally {

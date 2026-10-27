@@ -748,6 +748,46 @@ This file records all major architectural decisions for **Attune**, including co
   - Zero compute overhead when loading pre-synced community TTML, ELRC, or YRC files.
   - 100% test pass rate across all 25 Flutter unit and widget tests and all 17 Rust workspace tests.
 
+---
+
+### ADR-027: Settings Screen Modernization, 6 Categorized Sections, Floating Liquid Glass Dialog Architecture, Zero-Hardcoding & Elimination of Decorative Pills
+
+- **Date**: 2026-10-28
+- **Status**: **LOCKED**
+- **Context**:
+  - The previous Settings screen had decorative pill badges (e.g. `v0.1.0` badge next to the app bar header), hardcoded mock strings, and flat unstructured option rows.
+  - The user explicitly requested an overhaul:
+    1. Remove all useless decorative pills (especially the header version pill crossed out in user screenshot `media_1793133119700_72a323ad.png`).
+    2. Strictly NO hardcoded values—all hardware, CPU cores, memory RSS, engine versions, and storage paths must be live queries from `Platform`, `ProcessInfo`, `AttuneEngineBridge`, and `AudioStorageService`.
+    3. Reorganize settings into 6 clean, structured lists with Floating Liquid Glass Dialogs:
+       - General (Language [coming soon], Wakelock Held [DISABLE_BATTERY_OPTIMIZATION], Notifications)
+       - Audio (Rust Player Version text, Audio Focus Hook Level with 5 sensitivity levels, Decoder engine, Equalizer mode & interactive 3-band Equalizer dialog)
+       - Lyrics (LRCLIB fetching switch)
+       - Skin (Glass Configurations & tweaks, Enable Glow Blob, Glow Blob follows rhythm)
+       - Files (Directory scan checkmarks dynamically queried from disk, Song exclusion lists, Song limit timer 5s–300s)
+       - Developer Options (Pairwise transition test lab using native Rust engine, Hardware assessment checks with real runtime metrics)
+- **Decision**:
+  1. **Clean Dedicated State & Persistence Service (`SettingsService`)**:
+     - Built `SettingsService` (`ChangeNotifier`, singleton `SettingsService.instance`) with automated disk persistence to `~/.config/attune/app_settings.json`.
+     - Enums: `AudioFocusLevel` (standard, sensitive, ultraSensitive, ahFuckAlerts, ahFuckEverything), `AudioDecoderMode` (attuneRust, androidDefault), `EqualizerMode` (attuneEq, systemDefault, off).
+     - Reactive properties for wakelock, notifications, LRCLIB switch, glass lens blur sigma, glass surface opacity, rhythm-following mesh, allowed directories, excluded songs set, and min song duration timer (default 60s).
+  2. **Floating Liquid Glass Dialog System**:
+     - Created reusable `_showGlassDialog` using `BackdropFilter` ($\sigma = 20\text{px}$) and `LiquidGlassContainer` with `borderRadius: 24`, `surfaceAlpha: 0.28`, and diagonal rim catch light.
+     - Implemented floating dialogs for Language, Audio Focus Hook Levels (detailed descriptions of all 5 levels), Audio Decoder (with transition engine loss disclaimer), Equalizer Mode, Interactive Equalizer DSP (3-band Low/Mid/High dB sliders + Reset to Flat), Glass Materiality Tweaks, Media Directories (live filesystem existence checks + Custom Folder addition), Song Exclusion Manager, Song Limit Timer (5s–300s slider with quick presets), Pairwise Transition Recipe Lab, and Live Hardware Assessment.
+  3. **Strict Zero-Hardcoding Enforcement**:
+     - CPU Cores: Dynamically queried via `Platform.numberOfProcessors`.
+     - Operating System: Dynamically queried via `Platform.operatingSystem` and `Platform.operatingSystemVersion`.
+     - Dart Runtime: `Platform.version`.
+     - Rust Engine: Dynamically queried from native cdylib via C-ABI FFI `AttuneEngineBridge.instance.version`.
+     - Process RSS / Peak RSS: Dynamically queried via `ProcessInfo.currentRss` and `ProcessInfo.maxRss`.
+     - Storage Roots: Dynamically populated from `AudioStorageService.instance.getCandidateRoots()` and verified via `Directory.existsSync()`.
+  4. **Active Library Filtering Integration**:
+     - Connected `SettingsService.minSongDurationSec` and `excludedSongIds` to `PlaybackController.applyLibraryFilters()`, updating visible library tracks and playback queues in real-time.
+- **Consequences**:
+  - The settings interface is clean, elegant, responsive, and adheres to the Liquid Material Glass design language.
+  - Zero decorative pill clutter; all technical metrics are dynamic, honest, and verifiable.
+  - Comprehensive unit and widget tests in `apps/attune_app/test/settings_stage_test.dart` pass 100%. All 34 Flutter tests and 17 Rust tests pass.
+
 
 
 

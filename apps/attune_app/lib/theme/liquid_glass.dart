@@ -2,6 +2,7 @@ import 'dart:math' as math;
 import 'dart:ui';
 import 'package:flutter/material.dart';
 import '../services/playback_controller.dart';
+import '../services/settings_service.dart';
 
 /// The 4-Layer Liquid Material Glass Container adhering to Section 2.2 of 05_UI_DESIGN_SPEC.md:
 /// 1. Frosted Backdrop Blur (BackdropFilter with configurable sigma)
@@ -186,6 +187,17 @@ class _AmbientMeshBackgroundState extends State<AmbientMeshBackground> with Tick
       _driftController.repeat(reverse: true);
     }
 
+    final followsRhythm = SettingsService.instance.glowBlobFollowsRhythm;
+    if (!followsRhythm) {
+      if (_beatController.duration != const Duration(milliseconds: 1200)) {
+        _beatController.duration = const Duration(milliseconds: 1200);
+      }
+      if (!_beatController.isAnimating) {
+        _beatController.repeat(reverse: true);
+      }
+      return;
+    }
+
     final effectiveBpm = rawBpm > 40.0 && rawBpm < 260.0 ? rawBpm : 120.0;
     if ((effectiveBpm - _lastBpm).abs() > 1.0 || !_beatController.isAnimating) {
       _lastBpm = effectiveBpm;
@@ -207,7 +219,7 @@ class _AmbientMeshBackgroundState extends State<AmbientMeshBackground> with Tick
   @override
   Widget build(BuildContext context) {
     return ListenableBuilder(
-      listenable: PlaybackController.instance,
+      listenable: Listenable.merge([PlaybackController.instance, SettingsService.instance]),
       builder: (context, _) {
         final controller = PlaybackController.instance;
         final isEnabled = controller.livingBeatMeshEnabled;
