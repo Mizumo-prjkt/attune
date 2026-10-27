@@ -228,12 +228,18 @@ fn test_vocal_protection_in_transition_planning() {
 }
 
 #[test]
-fn test_generative_fill_transition_planning_and_render() {
+fn test_automix_equal_power_and_bass_swap_planning_and_render() {
     use attune_core::schema::{
         AnalysisTier, CueZone, Frames20Hz, GlobalSummary, TrackAnalysisProfile, TrackId, ZoneType,
     };
 
     let frames_count = 100;
+    let mut exit_energy = vec![[-12.0; 4]; frames_count];
+    for i in 40..frames_count {
+        let decay = (i - 40) as f32 * 0.8;
+        exit_energy[i] = [(-12.0 - decay).max(-80.0); 4];
+    }
+
     let exit_zone = CueZone {
         zone_type: ZoneType::EXIT,
         start_ms: 10000,
@@ -246,11 +252,16 @@ fn test_generative_fill_transition_planning_and_render() {
         frames_20hz: Frames20Hz {
             f0_midi_cents: vec![0.0; frames_count],
             chroma_12: vec![[0.0; 12]; frames_count],
-            energy_4band_db: vec![[-12.0; 4]; frames_count],
+            energy_4band_db: exit_energy,
             aggression_curve: vec![0.55; frames_count],
             instrument_activations: vec![vec![0.0; 6]; frames_count],
         },
     };
+
+    let mut entry_energy = vec![[-10.0; 4]; frames_count];
+    for i in 0..10 {
+        entry_energy[i] = [-60.0; 4];
+    }
 
     let entry_zone = CueZone {
         zone_type: ZoneType::ENTRY,
@@ -264,7 +275,7 @@ fn test_generative_fill_transition_planning_and_render() {
         frames_20hz: Frames20Hz {
             f0_midi_cents: vec![0.0; frames_count],
             chroma_12: vec![[0.0; 12]; frames_count],
-            energy_4band_db: vec![[-10.0; 4]; frames_count],
+            energy_4band_db: entry_energy,
             aggression_curve: vec![0.58; frames_count],
             instrument_activations: vec![vec![0.0; 6]; frames_count],
         },
@@ -298,7 +309,7 @@ fn test_generative_fill_transition_planning_and_render() {
         },
         analysis_tier: AnalysisTier::FastHeadTail,
         global_summary: GlobalSummary {
-            nominal_bpm: 171.4, // Effective ~171.4 BPM (diff 7.1%)
+            nominal_bpm: 165.0, // Effective 165.0 BPM (diff 3.1% <= 6% threshold)
             bpm_stability: 0.95,
             primary_key: "C Major".to_string(),
             mean_aggression_index: 0.58,
@@ -311,11 +322,35 @@ fn test_generative_fill_transition_planning_and_render() {
     let planner = TransitionPlanner::new();
     let recipe = planner.plan_transition(&track_a, &track_b);
 
-    assert_eq!(recipe.archetype, TransitionArchetype::GenerativeMelodicFill);
+    assert_eq!(recipe.archetype, TransitionArchetype::EqSwap);
     assert!(recipe.confidence_score >= 0.85);
 
     // Verify keyframes cover transition window
     assert!(!recipe.dsp_automation_keyframes.is_empty());
+
+    // Check Equal-Power Property: At midpoint, G_a^2 + G_b^2 ~= 1.0 (within epsilon)
+    let total_duration = recipe.timing.track_a_exit_end_ms.saturating_sub(recipe.timing.track_a_transition_start_ms);
+    let mid_kf = recipe.dsp_automation_keyframes.iter().find(|kf| {
+        (kf.offset_ms as f32 - (total_duration as f32 * 0.5)).abs() < 100.0
+    });
+    if let Some(kf) = mid_kf {
+        let gain_a = 10.0f32.powf(kf.deck_a.gain_db / 20.0);
+        let gain_b = 10.0f32.powf(kf.deck_b.gain_db / 20.0);
+        let power = gain_a * gain_a + gain_b * gain_b;
+        assert!(
+            (power - 1.0).abs() < 0.1,
+            "Midpoint power sum {} deviated from 1.0 (gain_a: {}, gain_b: {})",
+            power,
+            gain_a,
+            gain_b
+        );
+    }
+
+    // Check DJ Bass Swap: Deck B sub should be ducked at start, Deck A sub ducked at end
+    let first_kf = recipe.dsp_automation_keyframes.first().unwrap();
+    let last_kf = recipe.dsp_automation_keyframes.last().unwrap();
+    assert!(first_kf.deck_b.eq_sub_db <= -18.0, "Deck B sub EQ should be ducked early");
+    assert!(last_kf.deck_a.eq_sub_db <= -18.0, "Deck A sub EQ should be ducked late");
 
     // Test audio rendering with dummy buffers
     let sr = 44100;
@@ -324,7 +359,7 @@ fn test_generative_fill_transition_planning_and_render() {
 
     let renderer = TransitionRenderer::new();
     let temp_dir = std::env::temp_dir();
-    let out_wav = temp_dir.join("attune_test_generative_fill.wav");
+    let out_wav = temp_dir.join("attune_test_automix_eq_swap.wav");
 
     let res = renderer.render_to_wav(&buf_a, &buf_b, &recipe, &out_wav);
     assert!(res.is_ok(), "Rendering failed: {:?}", res.err());

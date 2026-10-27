@@ -40,7 +40,7 @@ impl AudioOutputDriver {
         let sample_rate = default_config.sample_rate();
         let channels = default_config.channels();
         let sample_format = default_config.sample_format();
-        let mut config = default_config.config().clone();
+        let mut config = default_config.config();
 
         // Ensure a stable hardware buffer size (e.g. 2048 frames ~45ms) to prevent ALSA XRUN buffer underruns
         if let cpal::SupportedBufferSize::Range { min, max } = default_config.buffer_size() {

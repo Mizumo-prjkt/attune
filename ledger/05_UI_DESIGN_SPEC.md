@@ -21,9 +21,9 @@ The user explicitly selected the typography pairing from [`mockup_typography_ref
 
 ---
 
-## 2. True "Material You" Color Dynamics + Apple "Liquid Glass" Materiality
+## 2. True "Material You" Color Dynamics + Liquid Glass Materiality
 
-The reference mockup screenshot (`mockup_screens_reference.png`) failed to properly execute **Material You Dynamic Color** and **Apple Liquid Glass**, using hardcoded neon borders on flat dark grey boxes instead. The Coder Agent **must** fix this by implementing the **4-Layer Liquid Material Glass Stack**:
+The reference mockup screenshot (`mockup_screens_reference.png`) failed to properly execute **Material You Dynamic Color** and **Liquid Glass**, using hardcoded neon borders on flat dark grey boxes instead. The Coder Agent **must** fix this by implementing the **4-Layer Liquid Material Glass Stack**:
 
 ### 2.1 Material You Dynamic Color Engine (`material_color_utilities`)
 1. **Live Album-Art HCT Extraction**:
@@ -38,7 +38,7 @@ The reference mockup screenshot (`mockup_screens_reference.png`) failed to prope
      - Tertiary Seed: `#FB7185` (Coral Rose)
      - Deep Canvas Base: `#090A10`
 
-### 2.2 Apple-Style "Liquid Glass" Surface Architecture
+### 2.2 Walled Garden Music Algorithm-Style "Liquid Glass" Surface Architecture
 Never render flat opaque dark grey cards (`#14161F`). Every card, pill, navigation bar, and panel must use a shared `LiquidGlassContainer` widget composed of:
 1. **Living Ambient Artwork Mesh (Background Layer)**:
    - Behind the entire scaffold sits an animated canvas rendering 4–5 heavily diffused (`sigma: 90px`) radial color orbs sampled from the active HCT palette (`primary`, `secondary`, `tertiary`, `primaryContainer`), gently breathing with playback state. This gives the glass surfaces real underlying color and light to refract.
@@ -81,7 +81,7 @@ Never render flat opaque dark grey cards (`#14161F`). Every card, pill, navigati
 To prevent duplicate code and ensure visual consistency, **Mobile, Tablet, and Desktop share 100% of the core Glass Feature Widgets**:
 1. `NowPlayingStage` (Artwork card, subtle Cue-Zone wave progress bar, `Sora` title/artist, Human-Friendly Audio Quality badge, transport controls, and mini Up-Next pill).
 2. `PlaylistQueueStage` (Now Playing mini-header, subtle inline transition connector pill, Up Next / Favorites / History chips, Smart Shuffle / Add Songs / Autoplay toggles, and Queued Streams list).
-3. `SynchronizedLyricsStage` (Apple Music-style scrolling lyrics with blurred glass active-singing focus card and *"Instrumental Wave"* pill).
+3. `SynchronizedLyricsStage` (walled garden music algorithm-style scrolling lyrics with blurred glass active-singing focus card and *"Instrumental Wave"* pill).
 4. `MusicLibraryStage` (Search bar, Playlists/Albums/Artists filter pills, Liked Songs / Heavy Rotation / Local Audio cards, Recently Played carousel, and Made For You grid).
 5. `SettingsAndAudioStage` (Active Lens profile, Liquid Glass Translucency selector, Dynamic Cover Theming toggle + manual fallback palette, Visualizer mode, Lyrics display mode, Audio Engine fidelity, and External Compute Node / Cache Sync controls).
 

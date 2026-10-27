@@ -3,7 +3,7 @@ import '../theme/liquid_glass.dart';
 import '../theme/typography.dart';
 
 /// SynchronizedLyricsStage implementing Stage 3 of 05_UI_DESIGN_SPEC.md:
-/// Apple Music-style scrolling lyrics with blurred glass active singing card
+/// Walled garden music algorithm-style scrolling lyrics with blurred glass active singing card
 /// and Instrumental Wave indicator.
 class SynchronizedLyricsStage extends StatefulWidget {
   const SynchronizedLyricsStage({super.key});

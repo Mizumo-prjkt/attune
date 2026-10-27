@@ -80,25 +80,16 @@ impl TransitionRenderer {
         // Reverb freeze state for Archetype 4: capture the outgoing chord at a_start
         let freeze_samples_len = (sr as f32 * 0.25) as usize;
         let mut freeze_buf = vec![0.0f32; freeze_samples_len];
-        for i in 0..freeze_samples_len {
+        for (i, sample) in freeze_buf.iter_mut().enumerate() {
             let l = slice_a_trans.channels.first().and_then(|c| c.get(i)).copied().unwrap_or(0.0);
             let r = slice_a_trans.channels.get(1).and_then(|c| c.get(i)).copied().unwrap_or(l);
-            freeze_buf[i] = (l + r) * 0.5;
+            *sample = (l + r) * 0.5;
         }
         let mut freeze_idx = 0;
 
-        // Synthesize generative fill if Archetype 6
-        let fill_audio = if recipe.archetype == crate::schema::TransitionArchetype::GenerativeMelodicFill {
-            let config = crate::generative::GenerativeFillEngine::create_config_from_slices(
-                &slice_a_trans,
-                &slice_b_trans,
-                transition_duration_ms,
-                sr,
-            );
-            Some(crate::generative::GenerativeFillEngine::render_fill(&config, Some(&slice_a_trans)))
-        } else {
-            None
-        };
+        // ThreeBandEq isolator filters for Deck A and Deck B to execute sample-accurate 180 Hz DJ Bass Swap
+        let mut eq_a = attune_dsp_ffi::eq::ThreeBandEq::new(sr as f32);
+        let mut eq_b = attune_dsp_ffi::eq::ThreeBandEq::new(sr as f32);
 
         for frame_idx in 0..total_frames {
             let (l, r) = if frame_idx < pre_frames {
@@ -123,9 +114,20 @@ impl TransitionRenderer {
                 let b_l = slice_b_trans.channels.first().and_then(|c| c.get(b_trans_idx)).copied().unwrap_or(0.0);
                 let b_r = slice_b_trans.channels.get(1).and_then(|c| c.get(b_trans_idx)).copied().unwrap_or(b_l);
 
+                // Process through 3-band Isolator EQ (low-shelf 200 Hz bass swap)
+                eq_a.set_low_db(auto_a.eq_sub_db);
+                eq_a.set_mid_db(auto_a.eq_mid_db);
+                eq_a.set_high_db(auto_a.eq_high_db);
+                let (eq_a_l, eq_a_r) = eq_a.process_stereo(a_l, a_r);
+
+                eq_b.set_low_db(auto_b.eq_sub_db);
+                eq_b.set_mid_db(auto_b.eq_mid_db);
+                eq_b.set_high_db(auto_b.eq_high_db);
+                let (eq_b_l, eq_b_r) = eq_b.process_stereo(b_l, b_r);
+
                 let gain_a = db_to_linear(auto_a.gain_db);
-                let mut processed_a_l = a_l * gain_a * db_to_linear(auto_a.eq_mid_db);
-                let mut processed_a_r = a_r * gain_a * db_to_linear(auto_a.eq_mid_db);
+                let mut processed_a_l = eq_a_l * gain_a;
+                let mut processed_a_r = eq_a_r * gain_a;
 
                 if auto_a.reverb_freeze_send > 0.01 {
                     let freeze_sample = freeze_buf[freeze_idx % freeze_buf.len()];
@@ -137,8 +139,8 @@ impl TransitionRenderer {
                 }
 
                 let gain_b = db_to_linear(auto_b.gain_db);
-                let processed_b_l = b_l * gain_b * db_to_linear(auto_b.eq_mid_db);
-                let processed_b_r = b_r * gain_b * db_to_linear(auto_b.eq_mid_db);
+                let processed_b_l = eq_b_l * gain_b;
+                let processed_b_r = eq_b_r * gain_b;
 
                 (processed_a_l + processed_b_l, processed_a_r + processed_b_r)
             } else {
@@ -154,26 +156,8 @@ impl TransitionRenderer {
                 (l, r)
             };
 
-            // Overlay generative fill if active (spanning transition window and post-roll resolution)
-            let (fill_l, fill_r) = if frame_idx >= pre_frames {
-                let fill_idx = frame_idx - pre_frames;
-                if let Some(ref fill) = fill_audio {
-                    if fill_idx < fill.channels[0].len() {
-                        let fl = fill.channels[0][fill_idx];
-                        let fr = fill.channels.get(1).map(|c| c[fill_idx]).unwrap_or(fl);
-                        (fl, fr)
-                    } else {
-                        (0.0, 0.0)
-                    }
-                } else {
-                    (0.0, 0.0)
-                }
-            } else {
-                (0.0, 0.0)
-            };
-
-            out_left[frame_idx] = (l + fill_l).clamp(-1.0, 1.0);
-            out_right[frame_idx] = (r + fill_r).clamp(-1.0, 1.0);
+            out_left[frame_idx] = l.clamp(-1.0, 1.0);
+            out_right[frame_idx] = r.clamp(-1.0, 1.0);
         }
 
         // Write WAV

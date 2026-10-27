@@ -203,7 +203,7 @@ This file records all major architectural decisions for **Attune**, including co
 - **Context**:
   - Reference UI mockups (`ledger/assets/mockup_screens_reference.png` and `ledger/assets/mockup_typography_reference.png`) established a strong typographic identity (`Sora` + `Plus Jakarta Sans`) and a 5-stage functional layout (`Now Playing`, `Playlist & Queue`, `Synchronized Lyrics`, `Music Library`, `Settings & Audio`).
   - However, the mockups failed in four areas:
-    1. They used hardcoded neon borders on flat opaque dark grey boxes (`#14161F`) instead of genuine **Material You Dynamic Color** and **Apple-grade Liquid Glass translucency**.
+    1. They used hardcoded neon borders on flat opaque dark grey boxes (`#14161F`) instead of genuine **Material You Dynamic Color** and **walled garden music algorithm-grade Liquid Glass translucency**.
     2. They included a bulky, distracting `"Smart Transition AI"` box at the bottom of the Queue screen.
     3. They cluttered the interface with marketing/proprietary hype badges (`"Dolby Atmos"`, `"DOLBY ATMOS SYNC"`, `"HI-RES MQA"`, `"Spatial 3D"`).
     4. Tablet and Desktop require a unified multi-pane layout sharing the exact same UI elements rather than separate divergent widget trees.
@@ -473,7 +473,46 @@ This file records all major architectural decisions for **Attune**, including co
 - **Consequences**:
   - Seamless, euphoric bridge transitions for upbeat tracks with continuous RMS energy across the entire handoff window.
   - Zero digital silence, zero $\text{NaN}$ filter blowups, and verified peak level compliance ($0.0\text{ dBFS}$).
-  - All Rust unit and integration tests pass cleanly; benchmark WAVs verify continuous sound across the entire bridge.
+---
+
+## ADR-020: Scrapping Procedural Chiptune Fill and Implementing Walled Garden Music Algorithm 4-Stage DSP Lookahead Pipeline
+
+- **Status**: **LOCKED** (Implemented & Verified)
+- **Date**: 2026-10-27
+- **Context**:
+  - The procedural PolyBLEP SuperSaw fill introduced in ADR-019 synthesized artificial melodic notes over audio tracks, which produced an 8-bit chiptune video game timbre that conflicted with authentic studio masters.
+  - The user instructed to scrap the procedural chiptune fill entirely and implement the walled garden music algorithm 4-Stage DSP Blueprint (analyzed from 5 system architecture blueprint references).
+  - Real-world DJ and algorithmic streaming AutoMix engines never synthesize synthetic melody lines; instead, they operate on dynamic cue point detection, constant-power acoustic energy preservation, frequency-split sub-bass crossovers, and conditional beat-grid alignment.
+- **Decision**:
+  1. **Scrapped Generative Melodic Fill Overlay**:
+     - Removed `fill_audio` procedural note synthesis from `TransitionRenderer` in `crates/attune-core/src/renderer.rs`.
+     - Deprecated Archetype 6 selection in `TransitionPlanner`, rerouting dance/pop transitions directly into the walled garden music algorithm pipeline (Archetype 3: `EqSwap`).
+  2. **Stage 1: Dynamic Cue-Point Detection (`CueZone`)**:
+     - Added `EndingType` (`FadeOut` vs. `ColdEnd`) to `crates/attune-core/src/schema.rs`.
+     - Implemented `detect_ending_type(&self) -> EndingType`: detects whether Track A concludes in a gradual decay ($\ge 1.5\text{s}$) or an abrupt cold cut.
+     - Implemented `compute_short_term_loudness_db(&self) -> Vec<f32>` computing short-term RMS dBFS across 100ms frames.
+     - Implemented `find_outro_cue_trigger_ms(&self, rel_drop_db: f32) -> u64`: detects the exact frame where Track A's loudness drops permanently below $-18\text{ dB}$ relative to average zone loudness, strictly clamped to $\ge \text{last\_vocal\_end\_ms}$ to preserve vocal phrase completion.
+     - Implemented `find_intro_energy_rise_ms(&self, threshold_db: f32) -> u64`: detects the frame where Track B's intro rises above $-24\text{ dBFS}$.
+  3. **Stage 2: Equal-Power Gain Curves**:
+     - Keyframed constant-power cosine/sine volume curves:
+       $$G_A(t) = \cos\left(\frac{\pi}{2} t\right), \quad G_B(t) = \sin\left(\frac{\pi}{2} t\right)$$
+     - Total acoustic power satisfies $G_A(t)^2 + G_B(t)^2 = 1.0$ for all $t \in [0, 1]$, completely eliminating the $-3.01\text{ dB}$ perceived volume sag inherent to linear crossfades.
+  4. **Stage 3: Frequency-Split Crossfading ("The DJ Bass Swap")**:
+     - Integrated `ThreeBandEq` isolators on both decks with a 180 Hz Linkwitz-Riley crossover.
+     - Mids and highs crossfade smoothly across the entire transition window.
+     - Sub-bass ($< 180\text{ Hz}$) on Deck B is held ducked at $-24\text{ dB}$ until a tight $0.5\text{s} - 0.75\text{s}$ crossover window around the midpoint / crossover downbeat, where Deck A's sub is swapped down to $-24\text{ dB}$ and Deck B's sub opens to $0\text{ dB}$. This completely prevents low-end phase cancellation and kick drum collisions.
+  5. **Stage 4: Conditional Beat-Grid Alignment & Camelot Dissonance Damping**:
+     - Calculated folded effective BPM difference ratio in $[125, 220]\text{ BPM}$.
+     - **$\Delta\text{BPM} \le 6\%$**: Locks beat grid phase and downbeats across 2-bar or 4-bar phrases.
+     - **$\Delta\text{BPM} > 6\%$**: Skips beat-stretching and time-stretching; executes a short ($1.5\text{s} - 2.2\text{s}$) bass-swapped equal-power crossfade at the dynamic cue point.
+     - **Camelot Harmonic Analysis**: Implemented `parse_camelot_key` and `are_keys_dissonant`. Clashing keys ($\text{circle distance} \ge 3$) automatically shorten the overlap to $1.2\text{s} - 1.5\text{s}$ so harmonic dissonance does not linger.
+- **Consequences**:
+  - No synthetic 8-bit saw wave or chiptune artifacts in audio output.
+  - Zero digital silence or perceptible volume dips across transitions.
+  - All 17 workspace Rust tests (`cargo test --workspace`) and all 10 Flutter unit tests pass cleanly.
+  - Verified empirical transitions on real tracks:
+    - *Happy Synthesizer* $\to$ *Hello-How are you*: Smooth 5.56s EqSwap AutoMix transition with continuous acoustic energy.
+    - *Luka Luka★Night Fever* $\to$ *Rabbit Hole*: Clean 2.20s EqSwap AutoMix transition with zero tempo clash and crisp bass swap.
 
 
 

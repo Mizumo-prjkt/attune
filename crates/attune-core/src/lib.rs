@@ -9,7 +9,7 @@ pub mod engine;
 pub mod cache;
 pub mod generative;
 
-pub use schema::{TrackAnalysisProfile, TransitionRecipe};
+pub use schema::{EndingType, TrackAnalysisProfile, TransitionRecipe};
 pub use profiler::AudioProfiler;
 pub use planner::TransitionPlanner;
 pub use renderer::TransitionRenderer;

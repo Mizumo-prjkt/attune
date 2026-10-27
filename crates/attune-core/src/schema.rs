@@ -130,6 +130,93 @@ impl CueZone {
         }
         false
     }
+
+    /// Detect whether this zone concludes in a gradual fade-out or an abrupt cold-end / reverb ring-out
+    pub fn detect_ending_type(&self) -> EndingType {
+        let loudness = self.compute_short_term_loudness_db();
+        if loudness.len() < 10 {
+            return EndingType::ColdEnd;
+        }
+        let peak_loudness = loudness.iter().copied().fold(-120.0f32, f32::max);
+        let threshold = peak_loudness - 18.0;
+
+        // Check if there is a long gradual decay spanning >= 2.5 seconds
+        if let Some(first_cross) = loudness.iter().position(|&l| l <= threshold) {
+            let decay_frames = loudness.len() - first_cross;
+            let decay_ms = decay_frames as u64 * self.hop_ms.max(1) as u64;
+            if decay_ms >= 1500 {
+                return EndingType::FadeOut;
+            }
+        }
+        EndingType::ColdEnd
+    }
+
+    /// Computes short-term loudness contour (RMS dBFS per frame)
+    pub fn compute_short_term_loudness_db(&self) -> Vec<f32> {
+        self.frames_20hz
+            .energy_4band_db
+            .iter()
+            .map(|band_db| {
+                let p_sum: f32 = band_db
+                    .iter()
+                    .map(|&db| 10.0f32.powf(db / 10.0))
+                    .sum();
+                if p_sum > 1e-9 {
+                    10.0 * p_sum.log10()
+                } else {
+                    -90.0
+                }
+            })
+            .collect()
+    }
+
+    /// Dynamic Cue-Point Trigger: Finds the exact frame in Track A's outro where energy drops
+    /// permanently below `rel_drop_db` (default 18.0 dB) relative to average zone loudness,
+    /// strictly clamped to >= last_vocal_end_ms to preserve vocal phrase integrity.
+    pub fn find_outro_cue_trigger_ms(&self, rel_drop_db: f32) -> u64 {
+        let loudness = self.compute_short_term_loudness_db();
+        if loudness.is_empty() {
+            return self.end_ms;
+        }
+        let avg_loudness: f32 = loudness.iter().sum::<f32>() / loudness.len() as f32;
+        let threshold = avg_loudness - rel_drop_db.abs();
+
+        let vocal_end = self.last_vocal_end_ms().unwrap_or(self.start_ms);
+
+        let mut drop_idx = loudness.len().saturating_sub(1);
+        for i in 0..loudness.len() {
+            let ms = self.start_ms + (i as u64 * self.hop_ms.max(1) as u64);
+            if ms < vocal_end {
+                continue;
+            }
+            // Permanently drops below threshold for remaining frames
+            if loudness[i..].iter().all(|&l| l <= threshold) {
+                drop_idx = i;
+                break;
+            }
+        }
+
+        let trigger_ms = self.start_ms + (drop_idx as u64 * self.hop_ms.max(1) as u64);
+        trigger_ms.max(vocal_end).min(self.end_ms)
+    }
+
+    /// Dynamic Cue-Point Trigger: Finds the point where Track B's intro rises above `threshold_db` (e.g. -24 dBFS)
+    pub fn find_intro_energy_rise_ms(&self, threshold_db: f32) -> u64 {
+        let loudness = self.compute_short_term_loudness_db();
+        for (i, &l) in loudness.iter().enumerate() {
+            if l >= threshold_db {
+                return self.start_ms + (i as u64 * self.hop_ms.max(1) as u64);
+            }
+        }
+        self.downbeats_ms.first().copied().unwrap_or(self.start_ms)
+    }
+}
+
+/// Outro termination behavior for dynamic cue detection
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum EndingType {
+    FadeOut,
+    ColdEnd,
 }
 
 /// Track Analysis Profile (.tap)
