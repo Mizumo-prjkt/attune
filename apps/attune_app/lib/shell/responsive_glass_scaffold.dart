@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
+import '../services/playback_controller.dart';
 import '../services/platform_navigation.dart';
 import '../stages/music_library_stage.dart';
 import '../stages/now_playing_stage.dart';
 import '../stages/playlist_queue_stage.dart';
 import '../stages/synchronized_lyrics_stage.dart';
+import '../theme/color_engine.dart';
 import '../theme/liquid_glass.dart';
 import '../theme/typography.dart';
 
@@ -20,25 +22,43 @@ class ResponsiveGlassScaffold extends StatefulWidget {
 class _ResponsiveGlassScaffoldState extends State<ResponsiveGlassScaffold> {
   int _activeNavIndex = 0; // 0: Playing, 1: Queue, 2: Lyrics, 3: Library
   int _dockedContextualTabIndex = 0; // 0: Queue, 1: Lyrics (for tablet/desktop)
-  bool _isPlaying = true;
 
   @override
   Widget build(BuildContext context) {
     final mediaQuery = MediaQuery.of(context);
     final width = mediaQuery.size.width;
-    final colorScheme = Theme.of(context).colorScheme;
-
     final isWide = width >= 720;
 
-    return Scaffold(
-      backgroundColor: Colors.transparent,
-      body: AmbientMeshBackground(
-        colorScheme: colorScheme,
-        isPlaying: _isPlaying,
-        child: SafeArea(
-          child: isWide ? _buildTabletDesktopLayout(width, colorScheme) : _buildMobileLayout(colorScheme),
-        ),
-      ),
+    return ListenableBuilder(
+      listenable: PlaybackController.instance,
+      builder: (context, _) {
+        final controller = PlaybackController.instance;
+        final currentTrack = controller.currentTrack;
+        final nextTrack = controller.upNextTrack;
+
+        final baseScheme = AttuneColorEngine.createSchemeFromSeed(
+          currentTrack?.seedColor ?? AttuneColorEngine.fallbackPrimary,
+        );
+        final targetScheme = AttuneColorEngine.createSchemeFromSeed(
+          nextTrack?.seedColor ?? AttuneColorEngine.fallbackSecondary,
+        );
+        final colorScheme = controller.isTransitioning
+            ? AttuneColorEngine.lerpSchemes(baseScheme, targetScheme, controller.transitionProgress)
+            : baseScheme;
+
+        return Scaffold(
+          backgroundColor: Colors.transparent,
+          body: AmbientMeshBackground(
+            colorScheme: colorScheme,
+            isPlaying: controller.isPlaying,
+            child: SafeArea(
+              child: isWide
+                  ? _buildTabletDesktopLayout(width, colorScheme)
+                  : _buildMobileLayout(colorScheme),
+            ),
+          ),
+        );
+      },
     );
   }
 
@@ -47,12 +67,7 @@ class _ResponsiveGlassScaffoldState extends State<ResponsiveGlassScaffold> {
     Widget activeStage;
     switch (_activeNavIndex) {
       case 0:
-        activeStage = NowPlayingStage(
-          isPlaying: _isPlaying,
-          onTogglePlay: () => setState(() => _isPlaying = !_isPlaying),
-          onNext: () {},
-          onPrevious: () {},
-        );
+        activeStage = const NowPlayingStage();
         break;
       case 1:
         activeStage = const PlaylistQueueStage();
@@ -182,12 +197,7 @@ class _ResponsiveGlassScaffoldState extends State<ResponsiveGlassScaffold> {
           flex: 5,
           child: _activeNavIndex == 3
               ? const MusicLibraryStage()
-              : NowPlayingStage(
-                  isPlaying: _isPlaying,
-                  onTogglePlay: () => setState(() => _isPlaying = !_isPlaying),
-                  onNext: () {},
-                  onPrevious: () {},
-                ),
+              : const NowPlayingStage(),
         ),
 
         // 3. Right Docked Contextual Glass Pane

@@ -86,6 +86,10 @@ impl ThreeBandEq {
         eq
     }
 
+    pub fn params(&self) -> ThreeBandEqParams {
+        self.params
+    }
+
     pub fn set_params(&mut self, params: ThreeBandEqParams) {
         self.target_params = params;
         self.params = params;

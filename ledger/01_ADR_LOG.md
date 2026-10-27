@@ -259,4 +259,33 @@ This file records all major architectural decisions for **Attune**, including co
   - Android Predictive Back peek gesture works natively at the OS window manager level.
   - Complete zero-copy / low-overhead interop between Flutter UI and native Rust analysis and planning routines.
 
+---
+
+### ADR-014: Centralized Cross-Platform Audio Storage Service, Dynamic Real-Time Playback & Genre-Driven Library Ingestion
+- **Date**: 2026-10-27
+- **Status**: LOCKED
+- **Context**:
+  - In Phase 5, the user mandated that no dummy or hardcoded tracks should populate the library ("no, it should scan what it can find instead, do not populate like we are dummy testing").
+  - The local repository symlink (`music/` -> `/home/miku/Music/Soulseek Complete`) contains over 150 real audio files in `.flac` and `.mp3` format.
+  - Cross-platform filesystem calls must safely navigate Android 11+ scoped storage (API 30+ `/storage/emulated/0/Music`, SAF paths), Windows (`USERPROFILE\\Music`), Linux (XDG directories and dev symlinks), and macOS/iOS.
+  - The user also requested standard musical genre filtering ('All Music', 'Rock', 'Pop', 'Electronic', 'Jazz', 'Acoustic') rather than technical format labels or narrow artist filters.
+- **Decision**:
+  1. **Centralized Audio Storage Service (`AudioStorageService`)**:
+     - Created `apps/attune_app/lib/services/audio_storage_service.dart` as a single dedicated component handling all filesystem discovery and path-finding.
+     - Automatically resolves platform-specific roots (Android scoped storage, Linux XDG/Music, Windows USERPROFILE, dev relative paths).
+     - Protects against recursive symlink loops by tracking canonical paths (`resolveSymbolicLinksSync()`).
+     - Extracts track metadata, reads `album.nfo` if present (`<artist>`, `<title>`, `<genre>`, `<duration>`), discovers local album artwork (`cover.jpg`, `Folder.jpg`, etc.), and normalizes genres.
+  2. **Real-Time Playback & C-ABI Exports (`crates/attune-ffi`)**:
+     - Exported real-time hardware playback controls (`attune_player_start`, `attune_player_load_track`, `attune_player_play`, `attune_player_pause`, `attune_player_seek`, `attune_player_trigger_transition`, `attune_player_get_state`, `attune_player_stop`).
+     - Global thread-safe `PLAYBACK_SESSION` managing `DualDeckMixer` and `AudioOutputDriver`.
+  3. **Reactive UI & Playback Controller (`PlaybackController`)**:
+     - Manages dual-deck state, live playhead synchronization, queue progression, and JIT background profiling.
+     - Wires `NowPlayingStage`, `PlaylistQueueStage`, `MusicLibraryStage`, and `TransitionInspectorStage`.
+     - Displays genuine album art images from local files, with fallback to ambient seed color gradients.
+- **Consequences**:
+  - Zero mock/dummy data: 159 genuine local tracks are ingested dynamically upon launch.
+  - Clean separation of concerns: all filesystem I/O is isolated in `AudioStorageService`.
+  - Musical genre filtering complies directly with user expectations.
+
+
 

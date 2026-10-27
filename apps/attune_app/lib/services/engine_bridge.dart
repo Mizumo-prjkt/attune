@@ -23,8 +23,33 @@ typedef AttunePlanTransitionDart = Pointer<Utf8> Function(Pointer<Utf8>, Pointer
 typedef AttuneCacheStatsC = Pointer<Utf8> Function(Pointer<Utf8>);
 typedef AttuneCacheStatsDart = Pointer<Utf8> Function(Pointer<Utf8>);
 
+typedef AttunePlayerStartC = Int32 Function();
+typedef AttunePlayerStartDart = int Function();
+
+typedef AttunePlayerLoadTrackC = Int32 Function(Int32, Pointer<Utf8>);
+typedef AttunePlayerLoadTrackDart = int Function(int, Pointer<Utf8>);
+
+typedef AttunePlayerPlayC = Int32 Function();
+typedef AttunePlayerPlayDart = int Function();
+
+typedef AttunePlayerPauseC = Int32 Function();
+typedef AttunePlayerPauseDart = int Function();
+
+typedef AttunePlayerSeekC = Int32 Function(Int32, Uint64);
+typedef AttunePlayerSeekDart = int Function(int, int);
+
+typedef AttunePlayerTriggerTransitionC = Int32 Function(Pointer<Utf8>);
+typedef AttunePlayerTriggerTransitionDart = int Function(Pointer<Utf8>);
+
+typedef AttunePlayerGetStateC = Pointer<Utf8> Function();
+typedef AttunePlayerGetStateDart = Pointer<Utf8> Function();
+
+typedef AttunePlayerStopC = Int32 Function();
+typedef AttunePlayerStopDart = int Function();
+
 /// High-performance Dart FFI bridge to the native Rust `attune-core` & `attune-ffi` engine.
-/// Exposes 5-layer audio profiling, transition recipe planning, and SQLite cache analytics.
+/// Exposes 5-layer audio profiling, transition recipe planning, SQLite cache analytics,
+/// and real-time dual-deck hardware playback control.
 class AttuneEngineBridge {
   static AttuneEngineBridge? _instance;
   static AttuneEngineBridge get instance => _instance ??= AttuneEngineBridge._init();
@@ -38,6 +63,15 @@ class AttuneEngineBridge {
   AttuneProfileFileDart? _attuneProfileFile;
   AttunePlanTransitionDart? _attunePlanTransition;
   AttuneCacheStatsDart? _attuneCacheStats;
+
+  AttunePlayerStartDart? _attunePlayerStart;
+  AttunePlayerLoadTrackDart? _attunePlayerLoadTrack;
+  AttunePlayerPlayDart? _attunePlayerPlay;
+  AttunePlayerPauseDart? _attunePlayerPause;
+  AttunePlayerSeekDart? _attunePlayerSeek;
+  AttunePlayerTriggerTransitionDart? _attunePlayerTriggerTransition;
+  AttunePlayerGetStateDart? _attunePlayerGetState;
+  AttunePlayerStopDart? _attunePlayerStop;
 
   AttuneEngineBridge._init() {
     _loadLibrary();
@@ -79,6 +113,18 @@ class AttuneEngineBridge {
         _attunePlanTransition =
             _lib!.lookupFunction<AttunePlanTransitionC, AttunePlanTransitionDart>('attune_plan_transition');
         _attuneCacheStats = _lib!.lookupFunction<AttuneCacheStatsC, AttuneCacheStatsDart>('attune_cache_stats');
+
+        _attunePlayerStart = _lib!.lookupFunction<AttunePlayerStartC, AttunePlayerStartDart>('attune_player_start');
+        _attunePlayerLoadTrack =
+            _lib!.lookupFunction<AttunePlayerLoadTrackC, AttunePlayerLoadTrackDart>('attune_player_load_track');
+        _attunePlayerPlay = _lib!.lookupFunction<AttunePlayerPlayC, AttunePlayerPlayDart>('attune_player_play');
+        _attunePlayerPause = _lib!.lookupFunction<AttunePlayerPauseC, AttunePlayerPauseDart>('attune_player_pause');
+        _attunePlayerSeek = _lib!.lookupFunction<AttunePlayerSeekC, AttunePlayerSeekDart>('attune_player_seek');
+        _attunePlayerTriggerTransition = _lib!.lookupFunction<AttunePlayerTriggerTransitionC,
+            AttunePlayerTriggerTransitionDart>('attune_player_trigger_transition');
+        _attunePlayerGetState =
+            _lib!.lookupFunction<AttunePlayerGetStateC, AttunePlayerGetStateDart>('attune_player_get_state');
+        _attunePlayerStop = _lib!.lookupFunction<AttunePlayerStopC, AttunePlayerStopDart>('attune_player_stop');
 
         _attuneInit?.call();
         _isInitialized = true;
@@ -155,5 +201,67 @@ class AttuneEngineBridge {
     } finally {
       calloc.free(pathPtr);
     }
+  }
+
+  // Real-Time Playback Engine Controls
+
+  int playerStart() {
+    if (!isAvailable || _attunePlayerStart == null) return -1;
+    return _attunePlayerStart!();
+  }
+
+  int playerLoadTrack(int deckId, String filePath) {
+    if (!isAvailable || _attunePlayerLoadTrack == null) return -1;
+    final pathPtr = filePath.toNativeUtf8();
+    try {
+      return _attunePlayerLoadTrack!(deckId, pathPtr);
+    } finally {
+      calloc.free(pathPtr);
+    }
+  }
+
+  int playerPlay() {
+    if (!isAvailable || _attunePlayerPlay == null) return -1;
+    return _attunePlayerPlay!();
+  }
+
+  int playerPause() {
+    if (!isAvailable || _attunePlayerPause == null) return -1;
+    return _attunePlayerPause!();
+  }
+
+  int playerSeek(int deckId, int positionMs) {
+    if (!isAvailable || _attunePlayerSeek == null) return -1;
+    return _attunePlayerSeek!(deckId, positionMs);
+  }
+
+  int playerTriggerTransition(Map<String, dynamic> recipe) {
+    if (!isAvailable || _attunePlayerTriggerTransition == null) return -1;
+    final jsonPtr = jsonEncode(recipe).toNativeUtf8();
+    try {
+      return _attunePlayerTriggerTransition!(jsonPtr);
+    } finally {
+      calloc.free(jsonPtr);
+    }
+  }
+
+  Map<String, dynamic>? playerGetState() {
+    if (!isAvailable || _attunePlayerGetState == null || _attuneFreeString == null) {
+      return null;
+    }
+    final ptr = _attunePlayerGetState!();
+    if (ptr.address == 0) return null;
+    final str = ptr.toDartString();
+    _attuneFreeString!(ptr);
+    try {
+      return jsonDecode(str) as Map<String, dynamic>;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  int playerStop() {
+    if (!isAvailable || _attunePlayerStop == null) return -1;
+    return _attunePlayerStop!();
   }
 }

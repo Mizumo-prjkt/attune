@@ -164,6 +164,35 @@ impl Deck {
         self.reverb_freeze.set_freeze(active, send);
     }
 
+    // DSP Getters
+    pub fn gain_db(&self) -> f32 {
+        self.gain_db
+    }
+
+    pub fn stretch_ratio(&self) -> f32 {
+        self.stretch_ratio
+    }
+
+    pub fn pitch_cents(&self) -> i32 {
+        self.pitch_cents
+    }
+
+    pub fn reverb_freeze_send(&self) -> f32 {
+        self.reverb_freeze_send
+    }
+
+    pub fn eq_low_db(&self) -> f32 {
+        self.eq.params().low_db
+    }
+
+    pub fn eq_mid_db(&self) -> f32 {
+        self.eq.params().mid_db
+    }
+
+    pub fn eq_high_db(&self) -> f32 {
+        self.eq.params().high_db
+    }
+
     /// Read next stereo audio frame with sample interpolation, EQ, gain, and freeze wash
     #[inline]
     pub fn read_stereo_frame(&mut self) -> (f32, f32) {
