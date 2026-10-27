@@ -325,3 +325,32 @@ These four benchmark scenarios define the "Gold Standard" transitions that Attun
      - On first play: JIT mode 1 analyzed head/tail buffers and cached recipe to `~/.attune/cache.db`.
      - On second play: JIT mode 1 retrieved cached recipe with vocal protection in **105 ms** (vs 1630 ms uncached).
 - **Listening & Functional Verdict**: `PASS`. Phase 3 milestones fully achieved and verified headlessly and over local HTTP networking.
+
+---
+
+### [2026-10-27] Exp #014: Phase 4 Flutter UI Scaffold, Multi-Activity Android Predictive Back, Liquid Material Glass & Dart FFI Native Engine Verification
+- **Objective**:
+  - Verify Phase 4 frontend architecture and Flutter integration in `apps/attune_app`:
+    1. Independent native Android Activities (`MainActivity`, `SettingsActivity`, `TransitionInspectorActivity`) declared with `android:enableOnBackInvokedCallback="true"` and dedicated `taskAffinity` to empower Android 14+ OS-level Predictive Back window peeking.
+    2. Strict adherence to [`ledger/05_UI_DESIGN_SPEC.md`](file:///home/miku/Documents/attune/ledger/05_UI_DESIGN_SPEC.md):
+       - 4-layer "Liquid Material Glass" stack with living ambient artwork mesh canvas.
+       - Perceptual HCT color dynamics (`material_color_utilities`) with real-time transition palette morphing (`lerpSchemes`).
+       - Typography conforming to Sora (Headlines, Badges, Metrics with tabular figures) and Plus Jakarta Sans (Body, Subtitles, Lyrics).
+       - Human-Friendly Audio Quality Glass Badge (Section 3.1: "Very Good Quality Audio", "Good Quality Audio", "Proprietary Audio Codec" with strictly zero Dolby Atmos / MQA / Spatial 3D marketing mentions).
+       - Subtle inline transition connector pill replacing the bulky "Smart Transition AI" box.
+       - Unified adaptive shell (`ResponsiveGlassScaffold`) sharing 100% of stage widgets across mobile (<720px) and tablet/desktop (>=720px).
+    3. Dedicated C-ABI dynamic library (`crates/attune-ffi` -> `libattune_engine.so`) and Dart FFI bridge (`AttuneEngineBridge`).
+- **Empirical Test Results**:
+  - **Flutter Static Analysis**:
+    - `flutter analyze` executed with **0 issues found** (0 errors, 0 warnings, 0 lints).
+  - **Flutter Unit & Widget Tests**:
+    - `flutter test` executed with **8 passed, 0 failed**:
+      - `AudioQualityBadge`: Verified Section 3.1 compliance (displays "Very Good Quality Audio" with diamond icon for FLAC 24/96; displays "Good Quality Audio" for OGG; displays "Proprietary Audio Codec" for AAC; confirmed zero occurrences of Dolby/MQA/Spatial).
+      - `TransitionConnectorPill`: Verified metrics display and interactive tap callback.
+      - `AttuneColorEngine`: Verified HCT dark scheme generation and continuous palette interpolation across transition window progress.
+      - `ResponsiveGlassScaffold`: Verified adaptive desktop/tablet and mobile shell rendering without RenderFlex overflows.
+      - `AttuneEngineBridge`: Successfully loaded native `libattune_engine.so` cdylib via `dart:ffi` and verified version string (`0.1.0`).
+  - **Rust Workspace Unit Tests**:
+    - `cargo test --workspace` executed with **13 passed, 0 failed** across `attune-core`, `attune-dsp-ffi`, `attune-cli`, and `attune-ffi`.
+- **Verdict**: `PASS`. Phase 4 Flutter frontend, native Android multi-activity architecture, and Rust Dart FFI bridge fully implemented and verified.
+

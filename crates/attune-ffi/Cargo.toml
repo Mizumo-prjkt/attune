@@ -1,0 +1,18 @@
+[package]
+name = "attune-ffi"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "C-ABI dynamic library export for Dart FFI and mobile/desktop platform interop"
+
+[lib]
+name = "attune_engine"
+crate-type = ["cdylib", "staticlib", "rlib"]
+
+[dependencies]
+attune-core = { path = "../attune-core" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+log = { workspace = true }
+env_logger = { workspace = true }

@@ -1,9 +1,9 @@
 # 00 — Attune Master Knowledge Ledger
 
 - **Project Name**: Attune
-- **Current Phase**: `Phase 3 COMPLETED -> Ready for Phase 4 (Flutter Frontend & Transition Inspector)`
+- **Current Phase**: `Phase 4 COMPLETED -> Ready for Phase 5 (Full Integration & End-to-End Real-Time Playback)`
 - **Last Updated**: 2026-10-27
-- **Active Coding Status**: Phase 3 Portable Cache & External Compute Node fully implemented and verified. SQLite storage (`CacheDatabase`), portable exchange bundle (`CachePack`), background library scanner with pairwise precomputation (`LibraryScanner`), lightweight HTTP node server and sync client (`NodeServer` / `NodeClient`), and cache-integrated JIT engine (`JitPlanner::plan_cached_or_jit`) fully operational.
+- **Active Coding Status**: Phase 4 Flutter Frontend, Multi-Activity Android Predictive Back architecture, Liquid Material Glass design system, and Rust C-ABI engine bridge (`attune-ffi`) fully implemented and verified. All 8 Flutter unit/widget tests and all 13 Rust workspace tests pass with 0 errors and 0 lints.
 
 ---
 
@@ -26,7 +26,8 @@ Furthermore, Attune decouples **Audio Profiling / Transition Planning** from **R
 | **Phase 1** | **Headless DSP Sandbox (`attune-cli`)** | CLI extracts 5-layer `.tap` profiles, generates `.ptr` recipes, and renders benchmark transitions (Whitney $\rightarrow$ Mariah, Ado $\rightarrow$ Punk/Rock, Slow Rock $\rightarrow$ Pop) to WAV for listening verification. | **COMPLETED** |
 | **Phase 2** | **Real-Time Dual-Deck Native Engine** | Lock-free dual-deck playback mixer executing `.ptr` time-stretch, formant pitch-shift, and 3-band EQ curves in real time + On-Demand 45s JIT Fast-Pass + real-time audio driver + hardware sample rate adaptation + vocal integrity protection. | **COMPLETED** |
 | **Phase 3** | **Portable Cache & External Compute Node** | SQLite + blob cache indexing, acoustic fingerprinting, Demucs stem-bridge schema, portable CachePack export/import, and LAN HTTP REST sync between external compute worker and playback client. | **COMPLETED** |
-| **Phase 4** | **Flutter Frontend & Transition Inspector** | Connect Flutter UI via FFI (`flutter_rust_bridge`), starting with a visual waveform/curve Transition Inspector and expanding into the full music player UI. | **READY TO START** |
+| **Phase 4** | **Flutter Frontend & Transition Inspector** | Multi-Activity Android architecture for native Predictive Back, "Liquid Material Glass" design system, honest audio quality badges, subtle transition connector pill, unified responsive scaffold (<720px / >=720px), and native Rust C-ABI engine bridge (`attune-ffi`). | **COMPLETED** |
+| **Phase 5** | **Full Integration & End-to-End Real-Time Playback** | Connect Flutter UI playhead and stage triggers to live `DualDeckMixer` via FFI, playlist queue dragging, audio file importing, and live cross-deck waveform animation. | **READY TO START** |
 
 ---
 
@@ -35,7 +36,7 @@ Furthermore, Attune decouples **Audio Profiling / Transition Planning** from **R
 | ID | Decision Topic | Locked Architecture Baseline | Status |
 | :--- | :--- | :--- | :--- |
 | **ADR-001** | Development Order | Algorithm & Headless CLI first; Flutter UI skeleton second. | **LOCKED** |
-| **ADR-002** | Native Engine Language | Hybrid **Rust** orchestrator (`attune-core` via `flutter_rust_bridge`) wrapping **C/C++ DSP primitives** (`Signalsmith Stretch` / `RubberBand` + `miniaudio`). | **LOCKED** |
+| **ADR-002** | Native Engine Language | Hybrid **Rust** orchestrator (`attune-core` via `flutter_rust_bridge` / C FFI) wrapping **C/C++ DSP primitives** (`Signalsmith Stretch` / `RubberBand` + `miniaudio`). | **LOCKED** |
 | **ADR-003** | Compute Offloading & Cache | 3-Tier Compute (On-Demand 45s Head/Tail, Local Background, External Worker Node) producing portable `.tap` and `.ptr` caches. | **LOCKED** |
 | **ADR-004** | 5-Layer Audio Profiling | DSP + Ultra-Light Quantized Audio Tagging Model (~2–4 MB ONNX on device + deeper model on External Node) for Pitch/Formant Sustain, Chroma CQT, Beat/Phrase, 4-Band Energy, and Instrument/Vibe/Aggression (Ado/Punk/Rock/Pop). | **LOCKED** |
 | **ADR-005** | External Node Stem Bridges | Export `.tap`/`.ptr` metadata caches by default, plus optionally pre-render short 5–8s isolated vocal/instrument stem bridges (via Demucs) for hero transitions. | **LOCKED** |
@@ -46,23 +47,22 @@ Furthermore, Attune decouples **Audio Profiling / Transition Planning** from **R
 | **ADR-010** | Vocal Integrity & Reverb Spillover | Multi-layer vocal activity inspection in `CueZone`, anchor cuts at/after final vocal resolution, flat mid/high EQ during active singing, and post-transition reverb freeze decay. | **LOCKED** |
 | **ADR-011** | Portable Cache, CachePack & Node Sync Protocol | Bundled SQLite cache repository (`CacheDatabase`), portable `.pack.json` bundle (`CachePack`), background scanner (`LibraryScanner`), REST HTTP sync server (`tiny_http`), and sync client (`ureq`). | **LOCKED** |
 | **ADR-012** | Liquid Material Glass UI, Subtle Transition Pills, Honest Audio Quality Badges & Shared Tablet/Desktop Shell | `Sora` + `Plus Jakarta Sans` typography, Material You HCT dynamic cover color + Apple `BackdropFilter` Liquid Glass (`ledger/05_UI_DESIGN_SPEC.md`), subtle inline transition connector (no bulky AI card), human-friendly audio quality pills (`Very Good Quality Audio`, `Good Quality Audio`, `Proprietary Audio Codec`—zero Dolby Atmos hype), and shared Tablet/Desktop multi-pane layout (`>= 720px`). | **LOCKED** |
+| **ADR-013** | Multi-Activity Android Predictive Back & Rust C-ABI FFI Bridge | Native independent Activities for Android (`MainActivity`, `SettingsActivity`, `TransitionInspectorActivity`) with `android:enableOnBackInvokedCallback="true"` for OS-level window peeking; dedicated `crates/attune-ffi` exporting `libattune_engine.so` cdylib to Dart FFI (`AttuneEngineBridge`). | **LOCKED** |
 
 ---
 
-## 4. Session Handoff Checklist (For Next AI Session — Phase 4 Coder Agent)
+## 4. Session Handoff Checklist (For Next AI Session — Phase 5 Coder Agent)
 
-1. **MANDATORY FIRST READ**: Read [`ledger/05_UI_DESIGN_SPEC.md`](file:///home/miku/Documents/attune/ledger/05_UI_DESIGN_SPEC.md) and inspect the reference images in [`ledger/assets/mockup_screens_reference.png`](file:///home/miku/Documents/attune/ledger/assets/mockup_screens_reference.png) and [`ledger/assets/mockup_typography_reference.png`](file:///home/miku/Documents/attune/ledger/assets/mockup_typography_reference.png).
-2. **Execute Phase 4 (Flutter Frontend & "Liquid Material Glass" UI)**:
-   - Scaffold the Flutter application (e.g., `apps/attune_app` or root Flutter module) connected to `attune-core` via FFI (`flutter_rust_bridge` or native C FFI shim).
-   - **Typography**: Configure `Sora` (Headlines, Titles, Pill Badges, Tabular Timestamps) and `Plus Jakarta Sans` (Body, Subtitles, Queue, Lyrics) so Linux/Desktop/Mobile never fall back to `DejaVu Sans`.
-   - **Theme & Glass Materiality**: Implement the **4-Layer Liquid Material Glass Stack** (`AmbientArtworkMesh` background + `BackdropFilter` Gaussian blur + Material You HCT dynamic `ColorScheme` extracted from album art with transition-synced palette morphing + `1px` diagonal specular rim border).
-   - **Audio Quality Badge Rules (Strictly No "Dolby Atmos" / "MQA" Mentions)**:
-     - High-quality lossless (`FLAC`/`WAV`/`ALAC` $\ge 44.1\text{ kHz}$): display **`Very Good Quality Audio`**.
-     - Mid/low sample rate `FLAC` ($\le 32\text{ kHz}$, e.g. $16\text{ kHz}$) or standard lossy (`MP3`/`AAC`/`OGG`/`Opus`): display **`Good Quality Audio`**.
-     - Dolby (`AC-3`/`E-AC-3`/`AC-4`/`Atmos`), `MQA`, or unnatural codecs: display **`Proprietary Audio Codec`**.
-   - **Subtle Transition Indicator**: Do **not** build the large bottom `"Smart Transition AI"` box from the screenshot; instead render a subtle, compact inline glass pill between *Now Playing* and *Up Next* (e.g., `Riff Handoff • 1.4s`) that opens the expandable **Dual-Deck Transition Inspector** drawer when tapped.
-   - **Shared Tablet & Desktop Shell (`>= 720px`)**: Use a single unified set of glass stage widgets shared across Mobile (`< 720px` bottom glass pill bar) and Tablet/Desktop (`>= 720px` left glass navigation rail + multi-pane stage).
-3. Keep updating [`00_MASTER_LEDGER.md`](file:///home/miku/Documents/attune/ledger/00_MASTER_LEDGER.md) and record any new decisions in [`01_ADR_LOG.md`](file:///home/miku/Documents/attune/ledger/01_ADR_LOG.md).
+1. **Review Current Codebase**:
+   - Flutter app in `apps/attune_app/` with complete "Liquid Material Glass" design system, responsive scaffold, and multi-activity Android declarations.
+   - Rust crates in `crates/` (`attune-core`, `attune-cli`, `attune-dsp-ffi`, `attune-ffi`).
+   - Dart FFI engine bridge in `apps/attune_app/lib/services/engine_bridge.dart`.
+2. **Execute Phase 5 (Full Integration & Real-Time Playback)**:
+   - Connect live audio playback: Hook `DualDeckMixer` audio streaming to Flutter playhead state via FFI callbacks or stream polling.
+   - Hook library track selection in `MusicLibraryStage` and queue reordering in `PlaylistQueueStage` to live track profiling and transition planning.
+   - Render real-time cue-zone waveforms in `TransitionInspectorStage` with dynamic EQ keyframe lines and vocal protection overlays.
+3. Keep updating [`00_MASTER_LEDGER.md`](file:///home/miku/Documents/attune/ledger/00_MASTER_LEDGER.md), [`01_ADR_LOG.md`](file:///home/miku/Documents/attune/ledger/01_ADR_LOG.md), and [`04_TRANSITION_LAB_LOG.md`](file:///home/miku/Documents/attune/ledger/04_TRANSITION_LAB_LOG.md).
+
 
 
 

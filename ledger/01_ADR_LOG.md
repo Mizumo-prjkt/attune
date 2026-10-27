@@ -226,3 +226,37 @@ This file records all major architectural decisions for **Attune**, including co
 - **Consequences**:
   - Full UI specification locked in [`ledger/05_UI_DESIGN_SPEC.md`](file:///home/miku/Documents/attune/ledger/05_UI_DESIGN_SPEC.md) for deterministic execution by the Phase 4 coder agent.
 
+---
+
+## ADR-013: Multi-Activity Android Architecture for Native Predictive Back Gesture & Dedicated C-ABI Engine Bridge (`attune-ffi`)
+- **Date**: 2026-10-27
+- **Status**: `LOCKED`
+- **Context**:
+  - Flutter apps traditionally bundle all views inside a solitary `MainActivity` with Flutter-internal route navigation. However, this prevents Android 14+ OS-level **Predictive Back Gestures** (where a user swipes from the screen edge and holds to physically peek the underlying player UI behind settings/modals) from interacting with Android's native window manager and task stack.
+  - The user specifically mandated that secondary stages (`Settings`, `Transition Inspector`) must be independently declared native Activities rather than bundled into a single `MainActivity`.
+  - Furthermore, Flutter needs low-latency access to the native Rust audio analysis and transition planning engine without cluttering `attune-core` with raw C pointers or memory marshaling.
+- **Decision**:
+  1. **Multi-Activity Android Configuration**:
+     - Declared `android:enableOnBackInvokedCallback="true"` on the `<application>` tag in `apps/attune_app/android/app/src/main/AndroidManifest.xml`.
+     - Declared independent Activities:
+       - `.MainActivity` (`taskAffinity="com.attune.player.main"`)
+       - `.SettingsActivity` (`taskAffinity="com.attune.player.settings"`, `parentActivityName=".MainActivity"`)
+       - `.TransitionInspectorActivity` (`taskAffinity="com.attune.player.transition_inspector"`, `parentActivityName=".MainActivity"`)
+     - Implemented custom Kotlin Activity entrypoints launching Flutter engines with isolated initial routes (`/settings`, `/transition_inspector`).
+  2. **Platform-Aware Navigation Layer (`PlatformNavigation`)**:
+     - On Android, routes to Settings or the Transition Inspector dispatch native Intents via `MethodChannel('com.attune.player/navigation')`.
+     - On Desktop (Linux/macOS/Windows), falls back smoothly to Flutter's route navigation using `PredictiveBackPageTransitionsBuilder`.
+  3. **Dedicated C-ABI Engine Bridge (`crates/attune-ffi`)**:
+     - Created `attune-ffi` producing `cdylib` (`libattune_engine.so`) with exported C-ABI functions:
+       - `attune_init()`
+       - `attune_version()`
+       - `attune_profile_file()`
+       - `attune_plan_transition()`
+       - `attune_cache_stats()`
+       - `attune_free_string()`
+     - Created `apps/attune_app/lib/services/engine_bridge.dart` binding these C-ABI symbols via `dart:ffi` with automated library resolution and graceful mock/fallback mode.
+- **Consequences**:
+  - Android Predictive Back peek gesture works natively at the OS window manager level.
+  - Complete zero-copy / low-overhead interop between Flutter UI and native Rust analysis and planning routines.
+
+
