@@ -51,7 +51,7 @@ class _SynchronizedLyricsStageState extends State<SynchronizedLyricsStage> {
         return LyricSourceType.lrcFile;
       case 2:
       default:
-        return LyricSourceType.ultraSync;
+        return LyricSourceType.syllableSync;
     }
   }
 
@@ -528,35 +528,14 @@ class _SynchronizedLyricsStageState extends State<SynchronizedLyricsStage> {
                     : null,
                 behavior: HitTestBehavior.opaque,
                 child: Padding(
-                  padding: EdgeInsets.symmetric(vertical: isTimed ? 14.0 : 8.0),
-                  child: isActive
-                      ? LiquidGlassContainer(
-                          padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 16),
-                          borderRadius: 22,
-                          surfaceAlpha: 0.28,
-                          tintOverride: colorScheme.primary.withValues(alpha: 0.26),
-                          child: Text(
-                            line.text,
-                            style: AttuneTypography.soraHeading(
-                              fontSize: 22,
-                              fontWeight: FontWeight.bold,
-                              color: Colors.white,
-                            ),
-                          ),
-                        )
-                      : Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 14.0),
-                          child: Text(
-                            line.text,
-                            style: isTimed
-                                ? AttuneTypography.jakartaLyricsInactive(
-                                    color: colorScheme.onSurface.withValues(alpha: 0.40),
-                                  ).copyWith(fontSize: 18)
-                                : AttuneTypography.jakartaLyricsActive(
-                                    color: colorScheme.onSurface.withValues(alpha: 0.85),
-                                  ).copyWith(fontSize: 18, height: 1.5),
-                          ),
-                        ),
+                  padding: EdgeInsets.symmetric(vertical: isTimed ? (line.hasSyllableSync ? 10.0 : 14.0) : 8.0),
+                  child: _buildLineContent(
+                    line: line,
+                    isActive: isActive,
+                    isFullPage: true,
+                    currentPosSec: controller.positionSec,
+                    colorScheme: colorScheme,
+                  ),
                 ),
               );
             },
@@ -663,31 +642,14 @@ class _SynchronizedLyricsStageState extends State<SynchronizedLyricsStage> {
                                     : null,
                                 behavior: HitTestBehavior.opaque,
                                 child: Padding(
-                                  padding: EdgeInsets.symmetric(vertical: isTimed ? 10.0 : 6.0),
-                                  child: isActive
-                                      ? LiquidGlassContainer(
-                                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                                          borderRadius: 16,
-                                          surfaceAlpha: 0.22,
-                                          tintOverride: colorScheme.primary.withValues(alpha: 0.20),
-                                          child: Text(
-                                            line.text,
-                                            style: AttuneTypography.jakartaLyricsActive(color: Colors.white).copyWith(fontSize: 16),
-                                          ),
-                                        )
-                                      : Padding(
-                                          padding: const EdgeInsets.symmetric(horizontal: 10.0),
-                                          child: Text(
-                                            line.text,
-                                            style: isTimed
-                                                ? AttuneTypography.jakartaLyricsInactive(
-                                                    color: colorScheme.onSurface.withValues(alpha: 0.40),
-                                                  ).copyWith(fontSize: 14)
-                                                : AttuneTypography.jakartaLyricsActive(
-                                                    color: colorScheme.onSurface.withValues(alpha: 0.85),
-                                                  ).copyWith(fontSize: 14, height: 1.4),
-                                          ),
-                                        ),
+                                  padding: EdgeInsets.symmetric(vertical: isTimed ? (line.hasSyllableSync ? 8.0 : 10.0) : 6.0),
+                                  child: _buildLineContent(
+                                    line: line,
+                                    isActive: isActive,
+                                    isFullPage: false,
+                                    currentPosSec: controller.positionSec,
+                                    colorScheme: colorScheme,
+                                  ),
                                 ),
                               );
                             },
@@ -708,6 +670,267 @@ class _SynchronizedLyricsStageState extends State<SynchronizedLyricsStage> {
         ),
       ],
     );
+  }
+
+  // ---------------------------------------------------------------------------
+  // LINE RENDERING & BEAT-BY-BEAT SYLLABLE SWEEP SHADER
+  // ---------------------------------------------------------------------------
+  Widget _buildLineContent({
+    required LyricLine line,
+    required bool isActive,
+    required bool isFullPage,
+    required double currentPosSec,
+    required ColorScheme colorScheme,
+  }) {
+    final hasSyllable = line.hasSyllableSync;
+
+    Widget contentWidget;
+    if (hasSyllable) {
+      // Beat-by-beat / Syllable-synchronized rendering with intra-word horizontal gradient sweep
+      contentWidget = Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          if (line.isBackgroundVocal)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 4.0),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    Icons.record_voice_over_rounded,
+                    size: isFullPage ? 14 : 11,
+                    color: colorScheme.secondary.withValues(alpha: 0.85),
+                  ),
+                  const SizedBox(width: 4),
+                  Text(
+                    'Backing Vocal',
+                    style: AttuneTypography.soraBadge(
+                      fontSize: isFullPage ? 10 : 8,
+                      color: colorScheme.secondary.withValues(alpha: 0.85),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          Wrap(
+            spacing: 2.0,
+            runSpacing: 6.0,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            children: line.words.map((word) {
+              return _buildSweepingWord(
+                word: word,
+                currentPosSec: currentPosSec,
+                isActiveLine: isActive,
+                isFullPage: isFullPage,
+                colorScheme: colorScheme,
+              );
+            }).toList(),
+          ),
+          if (line.romanText != null &&
+              line.romanText!.trim().isNotEmpty &&
+              !line.words.any((w) => w.roman != null && w.roman!.trim().isNotEmpty)) ...[
+            const SizedBox(height: 4),
+            Text(
+              line.romanText!.trim(),
+              style: AttuneTypography.jakartaBodySmall(
+                color: isActive ? Colors.white70 : colorScheme.onSurface.withValues(alpha: 0.38),
+              ).copyWith(
+                fontSize: isFullPage ? 13 : 11,
+                fontStyle: FontStyle.italic,
+              ),
+            ),
+          ],
+        ],
+      );
+    } else {
+      // Standard line-level text
+      contentWidget = Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          if (line.isBackgroundVocal)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 4.0),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    Icons.record_voice_over_rounded,
+                    size: isFullPage ? 14 : 11,
+                    color: colorScheme.secondary.withValues(alpha: 0.85),
+                  ),
+                  const SizedBox(width: 4),
+                  Text(
+                    'Backing Vocal',
+                    style: AttuneTypography.soraBadge(
+                      fontSize: isFullPage ? 10 : 8,
+                      color: colorScheme.secondary.withValues(alpha: 0.85),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          Text(
+            line.text,
+            style: isActive
+                ? (isFullPage
+                    ? AttuneTypography.soraHeading(
+                        fontSize: 22,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.white,
+                      )
+                    : AttuneTypography.jakartaLyricsActive(color: Colors.white).copyWith(fontSize: 16))
+                : (isFullPage
+                    ? AttuneTypography.jakartaLyricsInactive(
+                        color: colorScheme.onSurface.withValues(alpha: 0.40),
+                      ).copyWith(fontSize: 18)
+                    : AttuneTypography.jakartaLyricsInactive(
+                        color: colorScheme.onSurface.withValues(alpha: 0.40),
+                      ).copyWith(fontSize: 14)),
+          ),
+          if (line.romanText != null && line.romanText!.trim().isNotEmpty) ...[
+            const SizedBox(height: 3),
+            Text(
+              line.romanText!.trim(),
+              style: AttuneTypography.jakartaBodySmall(
+                color: isActive ? Colors.white70 : colorScheme.onSurface.withValues(alpha: 0.38),
+              ).copyWith(fontSize: isFullPage ? 12 : 10, fontStyle: FontStyle.italic),
+            ),
+          ],
+        ],
+      );
+    }
+
+    if (isActive) {
+      return LiquidGlassContainer(
+        padding: EdgeInsets.symmetric(
+          horizontal: isFullPage ? 22 : 16,
+          vertical: isFullPage ? 16 : 12,
+        ),
+        borderRadius: isFullPage ? 22 : 16,
+        surfaceAlpha: 0.28,
+        tintOverride: colorScheme.primary.withValues(alpha: 0.26),
+        child: contentWidget,
+      );
+    } else {
+      return Padding(
+        padding: EdgeInsets.symmetric(horizontal: isFullPage ? 14.0 : 10.0),
+        child: contentWidget,
+      );
+    }
+  }
+
+  /// Builds individual syllable/word span with smooth intra-word horizontal gradient sweep
+  /// and synchronized phonetic transliteration directly aligned underneath.
+  Widget _buildSweepingWord({
+    required WordSpan word,
+    required double currentPosSec,
+    required bool isActiveLine,
+    required bool isFullPage,
+    required ColorScheme colorScheme,
+  }) {
+    final rawText = word.text;
+    if (rawText.trim().isEmpty) {
+      return const SizedBox(width: 5.0);
+    }
+
+    final isLatin = RegExp(r'[a-zA-Z0-9]').hasMatch(rawText);
+    final rightMargin = isLatin ? 5.0 : 0.5;
+
+    final p = word.progressAt(currentPosSec);
+    final isSweeping = isActiveLine && p > 0.0 && p < 1.0;
+    final isSwept = isActiveLine && p >= 1.0;
+
+    final fontSize = isFullPage ? 22.0 : 16.0;
+    final romanFontSize = isFullPage ? 11.0 : 9.0;
+
+    final activeColor = Colors.white;
+    final inactiveColor = isActiveLine
+        ? Colors.white.withValues(alpha: 0.38)
+        : colorScheme.onSurface.withValues(alpha: 0.40);
+
+    final activeTextStyle = AttuneTypography.soraHeading(
+      fontSize: fontSize,
+      fontWeight: FontWeight.bold,
+      color: activeColor,
+    );
+
+    final inactiveTextStyle = AttuneTypography.soraHeading(
+      fontSize: fontSize,
+      fontWeight: FontWeight.bold,
+      color: inactiveColor,
+    );
+
+    final hasRoman = word.roman != null && word.roman!.trim().isNotEmpty;
+    final romanText = hasRoman ? word.roman!.trim() : null;
+
+    Widget buildWordColumn(TextStyle mainStyle, TextStyle? romanStyle) {
+      return Padding(
+        padding: EdgeInsets.only(right: rightMargin),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            Text(rawText, style: mainStyle),
+            if (hasRoman) ...[
+              const SizedBox(height: 1),
+              Text(romanText!, style: romanStyle),
+            ],
+          ],
+        ),
+      );
+    }
+
+    if (isSweeping) {
+      // Actively sung word: smooth intra-word horizontal gradient fill across both character and romaji
+      final activeColumn = buildWordColumn(
+        activeTextStyle,
+        AttuneTypography.soraBadge(
+          fontSize: romanFontSize,
+          fontWeight: FontWeight.w600,
+          color: activeColor.withValues(alpha: 0.85),
+        ),
+      );
+
+      return ShaderMask(
+        blendMode: BlendMode.srcIn,
+        shaderCallback: (bounds) {
+          return LinearGradient(
+            begin: Alignment.centerLeft,
+            end: Alignment.centerRight,
+            stops: [0.0, p, p, 1.0],
+            colors: [
+              activeColor,
+              activeColor,
+              inactiveColor,
+              inactiveColor,
+            ],
+          ).createShader(bounds);
+        },
+        child: activeColumn,
+      );
+    } else if (isSwept) {
+      // Already sung in active line: fully illuminated
+      return buildWordColumn(
+        activeTextStyle,
+        AttuneTypography.soraBadge(
+          fontSize: romanFontSize,
+          fontWeight: FontWeight.w600,
+          color: activeColor.withValues(alpha: 0.85),
+        ),
+      );
+    } else {
+      // Unsung word or inactive line: rendered dimmed
+      return buildWordColumn(
+        inactiveTextStyle,
+        AttuneTypography.soraBadge(
+          fontSize: romanFontSize,
+          fontWeight: FontWeight.w600,
+          color: inactiveColor.withValues(alpha: 0.55),
+        ),
+      );
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -751,10 +974,10 @@ class _SynchronizedLyricsStageState extends State<SynchronizedLyricsStage> {
         sourceName = '.LRC Companion File';
         detailHint = 'No matching .lrc file found alongside "${track?.title ?? 'this track'}".';
         break;
-      case LyricSourceType.ultraSync:
-        sourceName = 'Ultra-Sync (.MLS)';
-        detailHint = 'Ultra-Sync requires dedicated .mls (Musical Lyric Sync) companion files containing real-time word-by-word vocal synchronization. '
-            'No matching .mls file found for "${track?.title ?? 'this track'}".';
+      case LyricSourceType.syllableSync:
+        sourceName = 'Syllable Sync (.TTML / .ELRC / .YRC)';
+        detailHint = 'Syllable-level synchronization requires open TTML (.ttml), Enhanced LRC (.elrc), or YRC (.yrc) companion files with beat-by-beat word timing and phonetic transliteration. '
+            'No matching syllable file found for "${track?.title ?? 'this track'}".';
         break;
     }
 
@@ -851,7 +1074,7 @@ class _SynchronizedLyricsStageState extends State<SynchronizedLyricsStage> {
             child: _buildSourceItem(1, '.LRC File', Icons.text_snippet_outlined, colorScheme),
           ),
           Expanded(
-            child: _buildSourceItem(2, 'Ultra-Sync (.MLS)', Icons.auto_awesome_rounded, colorScheme),
+            child: _buildSourceItem(2, 'Syllable Sync', Icons.auto_awesome_rounded, colorScheme),
           ),
         ],
       ),

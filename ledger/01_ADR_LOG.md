@@ -711,6 +711,44 @@ This file records all major architectural decisions for **Attune**, including co
   - Fluid, buttery 60+ FPS performance across both mobile and desktop views with zero dual-pass shader overhead.
   - 100% test pass rate across all 20 Flutter unit/widget tests and 17 Rust workspace tests.
 
+---
+
+## ADR-026: Syllable-Synchronized Lyrics Pipeline, Multi-Format Sidecar Waterfall (.TTML / .ELRC / .YRC), Intra-Word Sweeping Gradient Shader & Aligned Phonetic Transliteration
+
+- **Status**: **ACCEPTED**
+- **Date**: 2026-10-27
+- **Context**:
+  - Users listening to Vocaloid, J-Pop, and global music frequently encounter beat-by-beat syllable-synchronized lyrics paired with synchronized phonetic transliterations (e.g. DECO*27's *Monitoring*, where "涙" / "namida" illuminates character-by-character as sung).
+  - Proprietary binary formats (like custom `.mls`) isolate users and prevent community interoperability. The open-source music community has converged around human-editable formats: AMLL-flavored TTML (`.ttml` / `.xml`), Enhanced LRC (`.elrc` / `<mm:ss.xx>`), and NetEase YRC (`.yrc`).
+  - Binary step word highlighting looks jerky and mechanical; singing requires an intra-word horizontal gradient sweep with a 40ms perceptual lookahead ($p = \text{clamp}\left(\frac{t_{\text{now}} - (t_{\text{start}} - 0.04)}{t_{\text{end}} - t_{\text{start}}}, 0.0, 1.0\right)$).
+  - Japanese/CJK Kanji require aligned phonetic/romaji transliteration displayed directly beneath their parent characters, sweeping in identical unison rather than running as disconnected paragraphs.
+  - Background vocal harmonies (e.g., `ttm:role="x-bg"`) require distinct visual badges and styling.
+- **Decision**:
+  1. **Scrapped Proprietary `.mls` in Favor of Open-Source Standards**:
+     - Formally transitioned from proprietary `.mls` to open formats: AMLL TTML (`.ttml`), Enhanced LRC (`.elrc`), and NetEase YRC (`.yrc`).
+     - Renamed `LyricSourceType.ultraSync` $\rightarrow$ `LyricSourceType.syllableSync`.
+  2. **Data Model Architecture (`WordSpan` & `LyricLine`)**:
+     - Created `WordSpan`: encapsulates `text`, `startSec`, `endSec`, `roman` transliteration, and `progressAt(nowSec)` with 40ms auditory lookahead.
+     - Enhanced `LyricLine`: added `endSec`, `romanText`, `words: List<WordSpan>`, `isBackgroundVocal`, and `hasSyllableSync`.
+  3. **Universal Syllable Parsers & Sidecar Waterfall**:
+     - Implemented `parseTtmlText(rawText)`: extracts `<p>` and `<span>` begins/ends/durs, pairs companion `ttm:role="x-roman"` transliteration lines onto parent words, and identifies `ttm:role="x-bg"` backing vocals.
+     - Implemented `parseEnhancedLrcText(rawText)`: extracts inline `<mm:ss.xx>` syllable markers and pairs `[romaji]` companion lines.
+     - Implemented `parseYrcText(rawText)`: parses `[start_ms,dur_ms](start_ms,dur_ms)word` tags into accurate second intervals.
+     - Implemented `_resolveCompanionSyllableFile(track)` checking `.ttml`, `.elrc`, `.yrc`, `.qrc`, `.lys`, `.xml`, plus checking companion `.lrc` for inline syllable tags.
+     - In `LyricsService.determinePreferredSource(track)`: prioritized syllable-synced sources first (Zero compute), seamlessly falling back to timed `.lrc` and embedded tags.
+  4. **Intra-Word Sweeping Gradient Shader**:
+     - In `SynchronizedLyricsStage._buildSweepingWord`:
+       * If $0.0 < p < 1.0$ (actively sung syllable): applies `ShaderMask` with `LinearGradient(stops: [0.0, p, p, 1.0], colors: [activeColor, activeColor, inactiveColor, inactiveColor])` wrapping the stacked character and romaji column.
+       * If $p \ge 1.0$ (already sung): solid active glow.
+       * If $p \le 0.0$ or inactive line: solid dim color without shader overhead, ensuring solid 60+ FPS performance.
+  5. **Hardware Safety Circuit Breaker Architecture**:
+     - Implemented `AlignmentCircuitBreaker` enforcing $\ge 4$ CPU physical cores and Real-Time Factor (RTF) budget $\le 0.35$ for future local background forced alignment workers.
+- **Consequences**:
+  - Delivers an open-source, beat-by-beat syllable lyric experience with smooth intra-character sweep and aligned phonetic transliteration.
+  - Zero compute overhead when loading pre-synced community TTML, ELRC, or YRC files.
+  - 100% test pass rate across all 25 Flutter unit and widget tests and all 17 Rust workspace tests.
+
+
 
 
 

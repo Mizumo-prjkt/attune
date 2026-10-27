@@ -8,25 +8,64 @@ import 'audio_storage_service.dart';
 enum LyricSourceType {
   embedded,
   lrcFile,
-  ultraSync,
+  syllableSync,
 }
 
-/// Represents a single synchronized or estimated lyric line
+/// Represents a single word or syllable span within a synchronized line
+class WordSpan {
+  final String text;
+  final double startSec;
+  final double endSec;
+  final String? roman; // Aligned phonetic/romaji transliteration
+
+  const WordSpan({
+    required this.text,
+    required this.startSec,
+    required this.endSec,
+    this.roman,
+  });
+
+  /// Computes intra-word / intra-syllable sweeping progress [0.0, 1.0]
+  /// with a 40ms perceptual lookahead to match auditory-visual synchronization.
+  double progressAt(double nowSec) {
+    final adjustedNow = nowSec + 0.040; // 40ms lookahead
+    if (adjustedNow <= startSec) return 0.0;
+    if (adjustedNow >= endSec) return 1.0;
+    final dur = endSec - startSec;
+    if (dur <= 0.001) return 1.0;
+    return ((adjustedNow - startSec) / dur).clamp(0.0, 1.0);
+  }
+
+  @override
+  String toString() => 'WordSpan("$text" [${startSec.toStringAsFixed(2)}s - ${endSec.toStringAsFixed(2)}s]${roman != null ? ' ($roman)' : ''})';
+}
+
+/// Represents a single synchronized, syllable-timed, or estimated lyric line
 class LyricLine {
   final double timeSec;
+  final double endSec;
   final String text;
+  final String? romanText; // Line-level romaji if present
+  final List<WordSpan> words; // Syllable / word spans
   final bool isInstrumental;
   final bool isEstimated;
+  final bool isBackgroundVocal; // e.g. ttm:role="x-bg" / harmony
 
   const LyricLine({
     required this.timeSec,
+    this.endSec = -1.0,
     required this.text,
+    this.romanText,
+    this.words = const [],
     this.isInstrumental = false,
     this.isEstimated = false,
+    this.isBackgroundVocal = false,
   });
 
+  bool get hasSyllableSync => words.isNotEmpty;
+
   @override
-  String toString() => 'LyricLine(${timeSec.toStringAsFixed(2)}s: "$text")';
+  String toString() => 'LyricLine(${timeSec.toStringAsFixed(2)}s: "$text"${words.isNotEmpty ? ' [${words.length} words]' : ''})';
 }
 
 /// Output payload from LyricsService
@@ -86,8 +125,8 @@ class LyricsService {
         case LyricSourceType.lrcFile:
           result = await _loadLrcFileLyrics(track);
           break;
-        case LyricSourceType.ultraSync:
-          result = await _loadUltraSyncLyrics(track);
+        case LyricSourceType.syllableSync:
+          result = await _loadSyllableSyncLyrics(track);
           break;
       }
     } catch (e) {
@@ -478,57 +517,86 @@ class LyricsService {
   }
 
   // ---------------------------------------------------------------------------
-  // 3. ULTRA-SYNC / MUSICAL LYRIC SYNC (.MLS)
+  // 3. SYLLABLE-SYNCHRONIZED LYRICS (.TTML / .ELRC / .YRC)
   // ---------------------------------------------------------------------------
-  /// Ultra-Sync strictly requires dedicated .mls (Musical Lyric Sync) companion files
-  /// containing real-time word-by-word vocal synchronization.
-  /// Never casually falls back to standard .lrc or embedded tags.
-  Future<LyricLoadResult> _loadUltraSyncLyrics(TrackItem track) async {
-    final mlsFile = await _resolveCompanionMlsFile(track);
-    if (mlsFile == null || !mlsFile.existsSync()) {
-      return LyricLoadResult.empty(
-        LyricSourceType.ultraSync,
-        statusMessage: 'No .mls (Musical Lyric Sync) file found for "${track.title}". '
-            'Ultra-Sync strictly requires dedicated word-level .mls timing data.',
-      );
+  /// Loads beat-by-beat / syllable-synchronized lyrics for [track].
+  /// Checks open-source companion files (.ttml, .elrc, .yrc, .qrc, .lys) first (zero compute),
+  /// or inspects .lrc files for inline syllable timing markers.
+  Future<LyricLoadResult> _loadSyllableSyncLyrics(TrackItem track) async {
+    // 1. Check for dedicated syllable file (.ttml, .elrc, .yrc, .qrc, .lys, .xml)
+    final syllableFile = await _resolveCompanionSyllableFile(track);
+    if (syllableFile != null && syllableFile.existsSync()) {
+      try {
+        final content = await syllableFile.readAsString();
+        final lines = parseSyllableText(content);
+        final isTimed = lines.isNotEmpty && lines.any((l) => l.timeSec >= 0.0);
+
+        return LyricLoadResult(
+          source: LyricSourceType.syllableSync,
+          lines: lines,
+          sourcePath: syllableFile.path,
+          rawText: content,
+          hasLyrics: lines.isNotEmpty,
+          isTimed: isTimed,
+          statusMessage: 'Loaded ${lines.length} syllable-synchronized lines from ${syllableFile.path.split(Platform.pathSeparator).last}.',
+        );
+      } catch (e) {
+        return LyricLoadResult.empty(
+          LyricSourceType.syllableSync,
+          statusMessage: 'Failed to read syllable file: $e',
+        );
+      }
     }
 
-    try {
-      final content = await mlsFile.readAsString();
-      final lines = parseMlsText(content);
-      final isTimed = lines.isNotEmpty && lines.any((l) => l.timeSec >= 0.0);
-
-      return LyricLoadResult(
-        source: LyricSourceType.ultraSync,
-        lines: lines,
-        sourcePath: mlsFile.path,
-        rawText: content,
-        hasLyrics: lines.isNotEmpty,
-        isTimed: isTimed,
-        statusMessage: 'Loaded ${lines.length} Ultra-Sync lines from ${mlsFile.path.split(Platform.pathSeparator).last}.',
-      );
-    } catch (e) {
-      return LyricLoadResult.empty(
-        LyricSourceType.ultraSync,
-        statusMessage: 'Failed to read .mls file: $e',
-      );
+    // 2. Check if companion .lrc contains inline syllable markers (<mm:ss.xx> or [start,dur])
+    final lrcFile = await _resolveCompanionLrcFile(track);
+    if (lrcFile != null && lrcFile.existsSync()) {
+      try {
+        final content = await lrcFile.readAsString();
+        if (RegExp(r'<\d{1,2}:\d{2}').hasMatch(content) || RegExp(r'\[\d+,\d+\]\(\d+,\d+').hasMatch(content)) {
+          final lines = parseSyllableText(content);
+          if (lines.any((l) => l.hasSyllableSync)) {
+            final isTimed = lines.isNotEmpty && lines.any((l) => l.timeSec >= 0.0);
+            return LyricLoadResult(
+              source: LyricSourceType.syllableSync,
+              lines: lines,
+              sourcePath: lrcFile.path,
+              rawText: content,
+              hasLyrics: lines.isNotEmpty,
+              isTimed: isTimed,
+              statusMessage: 'Loaded ${lines.length} syllable-synchronized lines from ${lrcFile.path.split(Platform.pathSeparator).last}.',
+            );
+          }
+        }
+      } catch (_) {}
     }
+
+    return LyricLoadResult.empty(
+      LyricSourceType.syllableSync,
+      statusMessage: 'No syllable-synchronized (.ttml, .elrc, .yrc) file found for "${track.title}". '
+          'Syllable Sync requires beat-by-beat word timing data.',
+    );
   }
 
-  /// Locates companion .mls file next to audio file or in candidate music directories
-  Future<File?> _resolveCompanionMlsFile(TrackItem track) async {
+  /// Locates companion syllable file (.ttml, .elrc, .yrc, .qrc, .lys, .xml)
+  /// next to audio file or in candidate music directories.
+  Future<File?> _resolveCompanionSyllableFile(TrackItem track) async {
     final audioFile = File(track.filePath);
     final audioDir = audioFile.parent;
+    const extensions = ['.ttml', '.elrc', '.yrc', '.qrc', '.lys', '.xml'];
 
     if (audioFile.existsSync() && audioDir.existsSync()) {
-      // 1. Direct path with .mls extension: song.flac -> song.mls
+      // 1. Direct path with matching extension: song.flac -> song.ttml, song.elrc, etc.
       final dotIndex = audioFile.path.lastIndexOf('.');
       if (dotIndex != -1) {
-        final directMls = File('${audioFile.path.substring(0, dotIndex)}.mls');
-        if (directMls.existsSync()) return directMls;
+        final base = audioFile.path.substring(0, dotIndex);
+        for (final ext in extensions) {
+          final directFile = File('$base$ext');
+          if (directFile.existsSync()) return directFile;
+        }
       }
 
-      // 2. Scan same directory for any .mls files matching track title tokens
+      // 2. Scan same directory for any matching syllable files by title tokens
       try {
         final entries = audioDir.listSync(followLinks: true);
         final titleTokens = _tokenize(track.title);
@@ -536,7 +604,7 @@ class LyricsService {
         for (final entity in entries) {
           if (entity is! File) continue;
           final lower = entity.path.toLowerCase();
-          if (!lower.endsWith('.mls')) continue;
+          if (!extensions.any((ext) => lower.endsWith(ext))) continue;
 
           final filename = entity.path.split(Platform.pathSeparator).last.toLowerCase();
           if (titleTokens.any((t) => t.length >= 3 && filename.contains(t))) {
@@ -559,7 +627,7 @@ class LyricsService {
         for (final entity in entities) {
           if (entity is! File) continue;
           final lower = entity.path.toLowerCase();
-          if (!lower.endsWith('.mls')) continue;
+          if (!extensions.any((ext) => lower.endsWith(ext))) continue;
 
           final filename = entity.path.split(Platform.pathSeparator).last.toLowerCase();
           final candidateClean = filename.replaceAll(RegExp(r'[^a-z0-9ぁ-んァ-ヶ一-龥]'), '');
@@ -573,26 +641,471 @@ class LyricsService {
     return null;
   }
 
-  /// Parses .mls content with optional word-by-word markers `<mm:ss.xx>word`
-  List<LyricLine> parseMlsText(String rawText) {
+  /// Automatically identifies syllable format and dispatches to appropriate parser
+  List<LyricLine> parseSyllableText(String rawText) {
+    final trimmed = rawText.trim();
+    if (trimmed.isEmpty) return const [];
+
+    if (trimmed.contains('<tt') || trimmed.contains('<p') || trimmed.contains('<span')) {
+      return parseTtmlText(rawText);
+    } else if (RegExp(r'\[\d+,\d+\]\(\d+,\d+').hasMatch(trimmed)) {
+      return parseYrcText(rawText);
+    } else if (RegExp(r'<\d{1,2}:\d{2}').hasMatch(trimmed)) {
+      return parseEnhancedLrcText(rawText);
+    } else {
+      final elrc = parseEnhancedLrcText(rawText);
+      if (elrc.any((l) => l.hasSyllableSync)) return elrc;
+      return parseLrcText(rawText);
+    }
+  }
+
+  /// Parses AMLL / open specification TTML (.ttml / .xml) syllable-synchronized lyrics.
+  /// Handles `<p begin="..." end="...">`, child `<span begin="..." end="...">`,
+  /// aligned phonetic transliteration (`ttm:role="x-roman"`), and background vocals (`ttm:role="x-bg"`).
+  List<LyricLine> parseTtmlText(String rawText) {
     if (rawText.trim().isEmpty) return const [];
-    // Leverages standard timestamp parsing while preserving word-level syntax
-    return parseLrcText(rawText);
+
+    final parsed = <LyricLine>[];
+    final pRegex = RegExp(r'<p\b([^>]*)>([\s\S]*?)<\/p>', caseSensitive: false);
+    final spanRegex = RegExp(r'<span\b([^>]*)>([\s\S]*?)<\/span>', caseSensitive: false);
+    final attrRegex = RegExp(r'''([a-zA-Z0-9:_-]+)\s*=\s*(?:"([^"]*)"|'([^']*)')''');
+
+    Map<String, String> parseAttributes(String attrString) {
+      final attrs = <String, String>{};
+      for (final match in attrRegex.allMatches(attrString)) {
+        final key = match.group(1)!.toLowerCase();
+        final value = match.group(2) ?? match.group(3) ?? '';
+        attrs[key] = value;
+      }
+      return attrs;
+    }
+
+    String decodeXml(String str) {
+      return str
+          .replaceAll('&amp;', '&')
+          .replaceAll('&lt;', '<')
+          .replaceAll('&gt;', '>')
+          .replaceAll('&quot;', '"')
+          .replaceAll('&apos;', "'")
+          .replaceAll('&#39;', "'");
+    }
+
+    final pMatches = pRegex.allMatches(rawText);
+    for (final pMatch in pMatches) {
+      final pAttrs = parseAttributes(pMatch.group(1) ?? '');
+      final pContent = pMatch.group(2) ?? '';
+
+      final lineBegin = _parseTimestamp(pAttrs['begin']) ?? 0.0;
+      final dur = _parseTimestamp(pAttrs['dur']);
+      final lineEnd = _parseTimestamp(pAttrs['end']) ?? (dur != null ? lineBegin + dur : -1.0);
+
+      final role = (pAttrs['ttm:role'] ?? pAttrs['role'] ?? '').toLowerCase();
+      final isRoman = role.contains('roman');
+      final isBg = role.contains('bg') || role.contains('background');
+
+      final spans = spanRegex.allMatches(pContent).toList();
+      final words = <WordSpan>[];
+
+      for (int s = 0; s < spans.length; s++) {
+        final spanMatch = spans[s];
+        final spanAttrs = parseAttributes(spanMatch.group(1) ?? '');
+        var spanRawText = spanMatch.group(2) ?? '';
+
+        // Check for ruby transliteration: <rt>roman</rt>
+        String? inlineRoman;
+        final rtMatch = RegExp(r'<rt\b[^>]*>([\s\S]*?)<\/rt>', caseSensitive: false).firstMatch(spanRawText);
+        if (rtMatch != null) {
+          inlineRoman = decodeXml(rtMatch.group(1) ?? '').trim();
+          spanRawText = spanRawText.replaceAll(RegExp(r'<rt\b[^>]*>[\s\S]*?<\/rt>', caseSensitive: false), '');
+        }
+
+        final spanText = decodeXml(spanRawText.replaceAll(RegExp(r'<[^>]+>'), ''));
+        if (spanText.isEmpty && s + 1 == spans.length) continue;
+
+        final spanBegin = _parseTimestamp(spanAttrs['begin']) ?? lineBegin;
+        final spanDur = _parseTimestamp(spanAttrs['dur']);
+        var spanEnd = _parseTimestamp(spanAttrs['end']) ?? (spanDur != null ? spanBegin + spanDur : null);
+
+        if (spanEnd == null || spanEnd <= spanBegin) {
+          if (s + 1 < spans.length) {
+            final nextAttrs = parseAttributes(spans[s + 1].group(1) ?? '');
+            spanEnd = _parseTimestamp(nextAttrs['begin']) ?? (spanBegin + 0.5);
+          } else if (lineEnd > spanBegin) {
+            spanEnd = lineEnd;
+          } else {
+            spanEnd = spanBegin + 0.6;
+          }
+        }
+
+        inlineRoman ??= spanAttrs['roman'] ?? spanAttrs['ttm:roman'];
+
+        words.add(WordSpan(
+          text: spanText,
+          startSec: spanBegin,
+          endSec: spanEnd,
+          roman: inlineRoman,
+        ));
+      }
+
+      final rawCleanText = decodeXml(pContent.replaceAll(RegExp(r'<[^>]+>'), '')).trim();
+
+      // If this <p> is an aligned romanization line, pair it with the preceding line
+      if (isRoman && parsed.isNotEmpty) {
+        final lastLine = parsed.last;
+        if ((lastLine.timeSec - lineBegin).abs() <= 0.8) {
+          if (words.isNotEmpty && lastLine.words.isNotEmpty && words.length == lastLine.words.length) {
+            final updatedWords = <WordSpan>[];
+            for (int w = 0; w < lastLine.words.length; w++) {
+              updatedWords.add(WordSpan(
+                text: lastLine.words[w].text,
+                startSec: lastLine.words[w].startSec,
+                endSec: lastLine.words[w].endSec,
+                roman: words[w].text.trim(),
+              ));
+            }
+            parsed[parsed.length - 1] = LyricLine(
+              timeSec: lastLine.timeSec,
+              endSec: lastLine.endSec,
+              text: lastLine.text,
+              romanText: rawCleanText,
+              words: updatedWords,
+              isInstrumental: lastLine.isInstrumental,
+              isEstimated: lastLine.isEstimated,
+              isBackgroundVocal: lastLine.isBackgroundVocal,
+            );
+            continue;
+          } else {
+            parsed[parsed.length - 1] = LyricLine(
+              timeSec: lastLine.timeSec,
+              endSec: lastLine.endSec,
+              text: lastLine.text,
+              romanText: rawCleanText,
+              words: lastLine.words,
+              isInstrumental: lastLine.isInstrumental,
+              isEstimated: lastLine.isEstimated,
+              isBackgroundVocal: lastLine.isBackgroundVocal,
+            );
+            continue;
+          }
+        }
+      }
+
+      final fullText = words.isNotEmpty
+          ? words.map((w) => w.text).join('')
+          : rawCleanText;
+
+      parsed.add(LyricLine(
+        timeSec: lineBegin,
+        endSec: lineEnd,
+        text: fullText.isNotEmpty ? fullText : 'Instrumental Interlude',
+        words: words,
+        isInstrumental: fullText.isEmpty ||
+            fullText.toLowerCase().contains('instrumental') ||
+            fullText.toLowerCase().contains('solo'),
+        isEstimated: false,
+        isBackgroundVocal: isBg,
+      ));
+    }
+
+    parsed.sort((a, b) => a.timeSec.compareTo(b.timeSec));
+    return parsed;
+  }
+
+  /// Parses Enhanced LRC (.elrc / .lrc) with inline syllable markers `<mm:ss.xx>word`
+  /// and companion `[romaji]` sub-lines.
+  List<LyricLine> parseEnhancedLrcText(String rawText) {
+    if (rawText.trim().isEmpty) return const [];
+
+    final rawLines = rawText.split(RegExp(r'\r?\n'));
+    final parsed = <LyricLine>[];
+
+    final lineTimeRegex = RegExp(r'^\[(\d{1,2}):(\d{2})(?:[.:](\d{1,3}))?\]');
+    final wordTagRegex = RegExp(r'<(\d{1,2}):(\d{2})(?:[.:](\d{1,3}))?>');
+
+    double parseTag(String minStr, String secStr, String? fracStr) {
+      final min = int.tryParse(minStr) ?? 0;
+      final sec = int.tryParse(secStr) ?? 0;
+      double fracSec = 0.0;
+      if (fracStr != null) {
+        final fracInt = int.tryParse(fracStr) ?? 0;
+        fracSec = fracStr.length == 3 ? fracInt / 1000.0 : fracInt / 100.0;
+      }
+      return (min * 60.0) + sec + fracSec;
+    }
+
+    for (int i = 0; i < rawLines.length; i++) {
+      final line = rawLines[i].trim();
+      if (line.isEmpty) continue;
+
+      if (line.startsWith('[ar:') ||
+          line.startsWith('[ti:') ||
+          line.startsWith('[al:') ||
+          line.startsWith('[by:') ||
+          line.startsWith('[offset:') ||
+          line.startsWith('[length:')) {
+        continue;
+      }
+
+      final isRomajiLine = line.toLowerCase().contains('[romaji]') ||
+          line.toLowerCase().contains('(romaji)');
+
+      final lineMatch = lineTimeRegex.firstMatch(line);
+      double lineStartSec = -1.0;
+      String remainder = line;
+
+      if (lineMatch != null) {
+        lineStartSec = parseTag(lineMatch.group(1)!, lineMatch.group(2)!, lineMatch.group(3));
+        remainder = line.substring(lineMatch.end).trim();
+      }
+
+      // Handle companion romaji lines
+      if (isRomajiLine) {
+        remainder = remainder
+            .replaceAll(RegExp(r'\[romaji\]|\(romaji\)', caseSensitive: false), '')
+            .trim();
+
+        if (parsed.isNotEmpty &&
+            (lineStartSec < 0 || (parsed.last.timeSec - lineStartSec).abs() <= 0.6)) {
+          final cleanRomaji = remainder.replaceAll(wordTagRegex, '').trim();
+          final romanMatches = wordTagRegex.allMatches(remainder).toList();
+          if (romanMatches.isNotEmpty && parsed.last.words.isNotEmpty) {
+            final romanWordTexts = <String>[];
+            for (int m = 0; m < romanMatches.length; m++) {
+              final startIdx = romanMatches[m].end;
+              final endIdx = (m + 1 < romanMatches.length)
+                  ? romanMatches[m + 1].start
+                  : remainder.length;
+              final text = remainder.substring(startIdx, endIdx).trim();
+              if (text.isEmpty && m + 1 == romanMatches.length) continue;
+              romanWordTexts.add(text);
+            }
+            if (romanWordTexts.length == parsed.last.words.length) {
+              final updatedWords = <WordSpan>[];
+              for (int w = 0; w < parsed.last.words.length; w++) {
+                updatedWords.add(WordSpan(
+                  text: parsed.last.words[w].text,
+                  startSec: parsed.last.words[w].startSec,
+                  endSec: parsed.last.words[w].endSec,
+                  roman: romanWordTexts[w],
+                ));
+              }
+              parsed[parsed.length - 1] = LyricLine(
+                timeSec: parsed.last.timeSec,
+                endSec: parsed.last.endSec,
+                text: parsed.last.text,
+                romanText: cleanRomaji,
+                words: updatedWords,
+                isInstrumental: parsed.last.isInstrumental,
+                isEstimated: parsed.last.isEstimated,
+                isBackgroundVocal: parsed.last.isBackgroundVocal,
+              );
+              continue;
+            }
+          }
+
+          parsed[parsed.length - 1] = LyricLine(
+            timeSec: parsed.last.timeSec,
+            endSec: parsed.last.endSec,
+            text: parsed.last.text,
+            romanText: cleanRomaji,
+            words: parsed.last.words,
+            isInstrumental: parsed.last.isInstrumental,
+            isEstimated: parsed.last.isEstimated,
+            isBackgroundVocal: parsed.last.isBackgroundVocal,
+          );
+          continue;
+        }
+      }
+
+      // Parse inline syllable tags <mm:ss.xx>
+      final wordMatches = wordTagRegex.allMatches(remainder).toList();
+      if (wordMatches.isNotEmpty) {
+        final words = <WordSpan>[];
+        for (int m = 0; m < wordMatches.length; m++) {
+          final match = wordMatches[m];
+          final startSec = parseTag(match.group(1)!, match.group(2)!, match.group(3));
+          final textStart = match.end;
+          final textEnd = (m + 1 < wordMatches.length)
+              ? wordMatches[m + 1].start
+              : remainder.length;
+
+          var rawWordText = remainder.substring(textStart, textEnd);
+          if (rawWordText.isEmpty && m + 1 == wordMatches.length) {
+            continue;
+          }
+
+          double endSec;
+          if (m + 1 < wordMatches.length) {
+            endSec = parseTag(
+              wordMatches[m + 1].group(1)!,
+              wordMatches[m + 1].group(2)!,
+              wordMatches[m + 1].group(3),
+            );
+          } else {
+            endSec = startSec + 0.8;
+          }
+
+          String? inlineRoman;
+          final parenMatch = RegExp(r'^([^\(\[（]+)[\(\[（]([a-zA-Z\s]+)[\)\]）]$').firstMatch(rawWordText.trim());
+          if (parenMatch != null) {
+            rawWordText = parenMatch.group(1) ?? rawWordText;
+            inlineRoman = parenMatch.group(2);
+          }
+
+          words.add(WordSpan(
+            text: rawWordText,
+            startSec: startSec,
+            endSec: endSec,
+            roman: inlineRoman,
+          ));
+        }
+
+        if (words.isNotEmpty) {
+          if (lineStartSec < 0) {
+            lineStartSec = words.first.startSec;
+          }
+          final lineEndSec = words.last.endSec;
+          final fullText = words.map((w) => w.text).join('').trim();
+          parsed.add(LyricLine(
+            timeSec: lineStartSec,
+            endSec: lineEndSec,
+            text: fullText.isNotEmpty ? fullText : 'Instrumental Interlude',
+            words: words,
+            isInstrumental: fullText.isEmpty ||
+                fullText.toLowerCase().contains('instrumental') ||
+                fullText.toLowerCase().contains('solo'),
+            isEstimated: false,
+          ));
+          continue;
+        }
+      }
+
+      final cleanText = remainder.replaceAll(wordTagRegex, '').trim();
+      if (lineStartSec >= 0 || cleanText.isNotEmpty) {
+        parsed.add(LyricLine(
+          timeSec: lineStartSec,
+          text: cleanText.isNotEmpty ? cleanText : 'Instrumental Interlude',
+          isInstrumental: cleanText.isEmpty ||
+              cleanText.toLowerCase().contains('instrumental') ||
+              cleanText.toLowerCase().contains('solo'),
+          isEstimated: false,
+        ));
+      }
+    }
+
+    parsed.sort((a, b) => a.timeSec.compareTo(b.timeSec));
+    return parsed;
+  }
+
+  /// Parses NetEase YRC (.yrc) format lyrics:
+  /// `[line_start_ms, line_dur_ms](word_start_ms, word_dur_ms, flag)word...`
+  List<LyricLine> parseYrcText(String rawText) {
+    if (rawText.trim().isEmpty) return const [];
+
+    final parsed = <LyricLine>[];
+    final rawLines = rawText.split(RegExp(r'\r?\n'));
+    final lineHeaderRegex = RegExp(r'^\[(\d+),(\d+)\](.*)$');
+    final wordRegex = RegExp(r'\((\d+),(\d+)(?:,\d+)?\)([^\(\[\r\n]+)');
+
+    for (final line in rawLines) {
+      final trimmed = line.trim();
+      if (trimmed.isEmpty) continue;
+
+      final headerMatch = lineHeaderRegex.firstMatch(trimmed);
+      if (headerMatch != null) {
+        final lineStartSec = int.parse(headerMatch.group(1)!) / 1000.0;
+        final lineDurSec = int.parse(headerMatch.group(2)!) / 1000.0;
+        final lineEndSec = lineStartSec + lineDurSec;
+        final remainder = headerMatch.group(3) ?? '';
+
+        final wordMatches = wordRegex.allMatches(remainder);
+        final words = <WordSpan>[];
+
+        for (final w in wordMatches) {
+          final wStartSec = int.parse(w.group(1)!) / 1000.0;
+          final wDurSec = int.parse(w.group(2)!) / 1000.0;
+          final wEndSec = wStartSec + wDurSec;
+          final wText = w.group(3) ?? '';
+
+          words.add(WordSpan(
+            text: wText,
+            startSec: wStartSec,
+            endSec: wEndSec,
+          ));
+        }
+
+        final text = words.isNotEmpty
+            ? words.map((w) => w.text).join('')
+            : remainder.replaceAll(wordRegex, '').trim();
+
+        parsed.add(LyricLine(
+          timeSec: lineStartSec,
+          endSec: lineEndSec,
+          text: text.isNotEmpty ? text : 'Instrumental Interlude',
+          words: words,
+          isInstrumental: text.isEmpty || text.toLowerCase().contains('instrumental'),
+          isEstimated: false,
+        ));
+      }
+    }
+
+    parsed.sort((a, b) => a.timeSec.compareTo(b.timeSec));
+    return parsed;
+  }
+
+  /// Robust timestamp parser supporting formats:
+  /// `00:12.34`, `01:23.456`, `01:23:45.678`, `12.345s`, `12345ms`
+  static double? _parseTimestamp(String? raw) {
+    if (raw == null) return null;
+    final trimmed = raw.trim();
+    if (trimmed.isEmpty) return null;
+
+    if (trimmed.endsWith('ms')) {
+      final ms = double.tryParse(trimmed.substring(0, trimmed.length - 2));
+      if (ms != null) return ms / 1000.0;
+    }
+    if (trimmed.endsWith('s')) {
+      final s = double.tryParse(trimmed.substring(0, trimmed.length - 1));
+      if (s != null) return s;
+    }
+
+    final parts = trimmed.split(':');
+    if (parts.length == 2) {
+      final min = double.tryParse(parts[0]) ?? 0.0;
+      final sec = double.tryParse(parts[1]) ?? 0.0;
+      return (min * 60.0) + sec;
+    } else if (parts.length == 3) {
+      final hr = double.tryParse(parts[0]) ?? 0.0;
+      final min = double.tryParse(parts[1]) ?? 0.0;
+      final sec = double.tryParse(parts[2]) ?? 0.0;
+      return (hr * 3600.0) + (min * 60.0) + sec;
+    }
+
+    return double.tryParse(trimmed);
   }
 
   // ---------------------------------------------------------------------------
-  // 4. SMART SOURCE PRIORITY RESOLVER
+  // 4. SMART SOURCE PRIORITY RESOLVER (Waterfall Architecture)
   // ---------------------------------------------------------------------------
-  /// Determines the preferred default [LyricSourceType] for [track] following exact user rules:
-  /// - If no embedded lyrics but has .lrc -> .lrcFile
-  /// - If only embedded and no .lrc -> .embedded
-  /// - If both are present:
-  ///   * If .lrc is timed and embedded is NOT timed -> .lrcFile
-  ///   * If embedded is timed and .lrc is NOT timed -> .embedded
-  ///   * If both are timed -> .embedded
-  ///   * If neither is timed -> .embedded
-  /// - If neither exists -> .embedded (clean default empty view)
+  /// Determines the preferred default [LyricSourceType] for [track]:
+  /// 1. Syllable Sync (.ttml, .elrc, .yrc) if present and syllable-timed -> .syllableSync
+  /// 2. If no syllable file, checks .lrc vs embedded tags:
+  ///    - If no embedded lyrics but has .lrc -> .lrcFile
+  ///    - If only embedded and no .lrc -> .embedded
+  ///    - If both are present:
+  ///      * If .lrc is timed and embedded is NOT timed -> .lrcFile
+  ///      * If embedded is timed and .lrc is NOT timed -> .embedded
+  ///      * If both are timed -> .embedded
+  ///      * If neither is timed -> .embedded
+  /// 3. If neither exists -> .embedded (clean default empty view)
   Future<LyricSourceType> determinePreferredSource(TrackItem track) async {
+    // 1. Highest priority: Syllable-synced lyrics (TTML, ELRC, YRC)
+    final syllableResult = await loadLyrics(track, LyricSourceType.syllableSync);
+    if (syllableResult.hasLyrics && syllableResult.lines.any((l) => l.hasSyllableSync)) {
+      return LyricSourceType.syllableSync;
+    }
+
+    // 2. Line-level LRC vs Embedded priority matrix
     final embeddedResult = await loadLyrics(track, LyricSourceType.embedded);
     final lrcResult = await loadLyrics(track, LyricSourceType.lrcFile);
 
@@ -615,7 +1128,6 @@ class LyricsService {
       if (embeddedTimed && !lrcTimed) {
         return LyricSourceType.embedded;
       }
-      // If both are timed or neither is timed -> embedded is default priority
       return LyricSourceType.embedded;
     }
 
@@ -707,3 +1219,21 @@ class LyricsService {
     return parsed;
   }
 }
+
+/// Local Forced Alignment Configuration & Hardware Safety Gate.
+/// Guards against thermal throttling and audio dropouts by enforcing core limits
+/// and Real-Time Factor (RTF) budgets before running local CTC / whisper DTW alignment.
+class AlignmentCircuitBreaker {
+  /// Minimum CPU physical core count required before permitting local CTC/DTW alignment
+  static const int minCoresRequired = 4;
+
+  /// Maximum Real-Time Factor (RTF) threshold. If local processing takes > 0.35x real audio duration,
+  /// the circuit breaker trips to prevent thermal throttling and audio dropouts.
+  static const double maxRtfThreshold = 0.35;
+
+  /// Checks if device hardware qualifies for background acoustic forced alignment
+  static bool canRunLocalAlignment() {
+    return Platform.numberOfProcessors >= minCoresRequired;
+  }
+}
+

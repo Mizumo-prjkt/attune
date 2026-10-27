@@ -67,7 +67,7 @@ void main() {
 
       expect(find.text('Embedded'), findsOneWidget);
       expect(find.text('.LRC File'), findsOneWidget);
-      expect(find.text('Ultra-Sync (.MLS)'), findsOneWidget);
+      expect(find.text('Syllable Sync'), findsOneWidget);
 
       // Switching source tab resets state cleanly
       await tester.tap(find.text('.LRC File'));
