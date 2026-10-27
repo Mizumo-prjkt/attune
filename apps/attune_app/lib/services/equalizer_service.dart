@@ -96,6 +96,7 @@ class EqualizerService extends ChangeNotifier {
   }
 
   void _loadFromDisk() {
+    if (Platform.environment.containsKey('FLUTTER_TEST')) return;
     try {
       final file = _configFile;
       if (file.existsSync()) {
@@ -131,6 +132,7 @@ class EqualizerService extends ChangeNotifier {
   }
 
   void _saveToDisk() {
+    if (Platform.environment.containsKey('FLUTTER_TEST')) return;
     try {
       final file = _configFile;
       final map = {
@@ -250,6 +252,7 @@ class EqualizerService extends ChangeNotifier {
   }
 
   void resetToFlat() {
+    _enabled = true;
     applyPreset('Flat');
     _preampDb = -3.0;
     _bassEnabled = false;

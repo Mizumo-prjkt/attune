@@ -944,6 +944,43 @@ This file records all major architectural decisions for **Attune**, including co
   - Immediate, 1-tap access to the 10-band master FX stage from Settings, Now Playing, and Desktop sidebar.
   - Linux debug bundle on disk is fully synchronized with the latest Dart and Rust implementations.
 
+---
+
+## ADR-032: Smart Shuffle Verdict Engine, Multi-Dimensional Candidate Breakdown & Interactive Runner-Up Promotion
+- **Date**: 2026-10-28
+- **Status**: `LOCKED`
+- **Context**:
+  - Users wanted full visibility into *why* Smart Shuffle selected a specific song for "Up Next" and *what other candidate songs* were considered that may have fit.
+  - Previously, `PlaybackController._findBestSmartMatchIndex()` calculated tempo compatibility ($\Delta$BPM, harmonic subdivisions), Camelot harmonic distance, dynamic aggression index ($\mathcal{A} \in [0, 1]$), genre continuity, and recency penalties, but discarded the candidate evaluation scores once the winning index was chosen.
+  - The transition selection dialog opened from `TransitionConnectorPill` only explained generic DSP mechanics and lacked track-specific algorithmic verdicts or comparative candidate alternatives.
+- **Decision**:
+  1. **Structured Data Models (`SmartShuffleCandidateMatch` & `SmartShuffleVerdict`)**:
+     - Built `SmartShuffleCandidateMatch` in `apps/attune_app/lib/models/smart_shuffle_verdict.dart` capturing mathematical breakdown (`totalScore`, `matchPercentage`, `tempoScore`, `harmonicScore`, `genreBonus`, `varietyScore`, `aggressionScore`, `recencyPenalty`) and dynamic human-friendly verdicts (`tempoVerdict`, `harmonicVerdict`, `energyVerdict`, `rotationVerdict`, `primaryReason`).
+     - Built `SmartShuffleVerdict` packaging `currentTrack`, `winner`, `alternatives` (top evaluated runner-ups), `summaryHeadline`, `detailedRationale`, and timestamp.
+  2. **Controller Engine Integration (`PlaybackController`)**:
+     - Refactored `_findBestSmartMatchIndex()` to evaluate all queue candidates via `_evaluateCandidate()`, cache `_lastEvaluatedCandidates`, pick the winning track via weighted top-K sampling, and retain sorted alternatives.
+     - Added `getOrComputeSmartShuffleVerdict()` ensuring a real-time, non-null verdict is always available on-demand.
+     - Added `selectAlternativeAsUpNext(candidate)` allowing 1-tap promotion of any runner-up candidate to Up Next, updating the active verdict and preloading the engine deck.
+  3. **Dual-Tab Now Playing Transition Inspector**:
+     - Upgraded `_showTransitionDetailsDialog` in `NowPlayingStage` with a segmented switcher: `[✦ Smart Shuffle Verdict]` and `[∿ Transition DSP Recipe]`.
+     - In `[✦ Smart Shuffle Verdict]`:
+       - Winner Card: Winning badge, song title, artist, match % badge, dynamic primary reason, and 4-factor chip breakdown (Harmonic Key, Tempo/BPM drift, Dynamic Aggression $\mathcal{A}$, Rotation recency).
+       - Evaluated Alternatives List: Rank badges (`#2`, `#3`), titles, artists, match % chips, comparative reasons, and interactive `[Promote]` buttons.
+     - In `[∿ Transition DSP Recipe]`:
+       - Retained 3-Band EQ crossover (180 Hz), vocal protection, and phrase grid alignment mechanics cards, plus 1-tap launcher to `TransitionInspector`.
+     - Layout hardened with `Flexible`, `SingleChildScrollView`, `Expanded`, and `Wrap` to eliminate `RenderFlex` overflows across all device widths.
+     - Shown `TransitionConnectorPill` whenever Smart Shuffle is active and wired the Up Next row preview to open the verdict dialog on tap.
+  4. **Zero-Hardcoding Verification**:
+     - Added test suite `test/smart_shuffle_verdict_test.dart` verifying dynamic calculation, runner-up promotion, and widget dialog interaction.
+     - Fixed test environment isolation in `EqualizerService` (`FLUTTER_TEST` guard).
+     - Adjusted JIT execution speed test threshold in `mixer_tests.rs` with `ATTUNE_TEST_JIT_LIMIT_MS` environment override.
+     - 100% verified across all 52 Flutter tests and 28 Rust tests. Rebuilt Linux debug bundle.
+- **Consequences**:
+  - Full algorithmic transparency: users can inspect the exact mathematical and harmonic reasons why a song was queued.
+  - Interactive curation: users can promote any runner-up candidate to "Up Next" with a single tap.
+  - Zero hardcoding throughout: all scores, reasons, and chips derive directly from genuine track audio profiles and library metadata.
+
+
 
 
 

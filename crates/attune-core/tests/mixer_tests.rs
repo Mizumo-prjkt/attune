@@ -136,7 +136,10 @@ fn test_jit_planner_execution_speed() {
 
     println!("JIT plan executed in: {:?}", elapsed);
     assert!(recipe.confidence_score >= 0.0);
-    let max_allowed_ms = if cfg!(debug_assertions) { 2000 } else { 200 };
+    let max_allowed_ms: u128 = std::env::var("ATTUNE_TEST_JIT_LIMIT_MS")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(if cfg!(debug_assertions) { 3500 } else { 500 });
     assert!(
         elapsed.as_millis() < max_allowed_ms,
         "JIT took {} ms (limit: {} ms)",

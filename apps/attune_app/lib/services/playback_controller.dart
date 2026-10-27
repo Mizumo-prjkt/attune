@@ -3,6 +3,7 @@ import 'dart:io';
 import 'dart:math';
 import 'package:flutter/material.dart';
 import '../models/track_item.dart';
+import '../models/smart_shuffle_verdict.dart';
 import 'audio_storage_service.dart';
 import 'engine_bridge.dart';
 import 'settings_service.dart';
@@ -31,6 +32,10 @@ class PlaybackController extends ChangeNotifier {
   bool _isScanning = false;
   ShuffleMode _shuffleMode = ShuffleMode.off;
   bool _livingBeatMeshEnabled = true;
+
+  // Smart Shuffle Verdict & Evaluated Candidates
+  SmartShuffleVerdict? _latestSmartShuffleVerdict;
+  List<SmartShuffleCandidateMatch> _lastEvaluatedCandidates = [];
 
   // Recent Playback History to prevent track repetition and bias in smart shuffle
   final List<String> _recentTrackIds = [];
@@ -143,6 +148,8 @@ class PlaybackController extends ChangeNotifier {
   ShuffleMode get shuffleMode => _shuffleMode;
   bool get livingBeatMeshEnabled => _livingBeatMeshEnabled;
   Map<String, dynamic>? get pendingRecipe => _pendingRecipe;
+  SmartShuffleVerdict? get latestSmartShuffleVerdict => _latestSmartShuffleVerdict;
+  List<SmartShuffleCandidateMatch> get lastEvaluatedCandidates => List.unmodifiable(_lastEvaluatedCandidates);
 
   void setLivingBeatMeshEnabled(bool enabled) {
     if (_livingBeatMeshEnabled == enabled) return;
@@ -486,105 +493,371 @@ class PlaybackController extends ChangeNotifier {
     notifyListeners();
   }
 
+  SmartShuffleCandidateMatch _evaluateCandidate({
+    required TrackItem current,
+    required TrackItem candidate,
+    required int candidateIndex,
+  }) {
+    // 1. Recency Penalty (Heavy penalty for recently played songs to eliminate repetitive bias)
+    double recencyPenalty = 0.0;
+    String rotationVerdict = 'Fresh in rotation (never played this session)';
+    final historyIdx = _recentTrackIds.lastIndexOf(candidate.id);
+    if (historyIdx != -1) {
+      final recencyRank = _recentTrackIds.length - 1 - historyIdx;
+      if (recencyRank == 0) {
+        recencyPenalty = -6.0;
+        rotationVerdict = 'Just played in previous slot (heavy penalty)';
+      } else if (recencyRank <= 2) {
+        recencyPenalty = -4.0;
+        rotationVerdict = 'Played very recently (${recencyRank + 1} tracks ago)';
+      } else if (recencyRank <= 5) {
+        recencyPenalty = -2.5;
+        rotationVerdict = 'Played recently (${recencyRank + 1} tracks ago)';
+      } else if (recencyRank <= 10) {
+        recencyPenalty = -1.0;
+        rotationVerdict = 'Played earlier in session (${recencyRank + 1} tracks ago)';
+      } else {
+        recencyPenalty = -0.5;
+        rotationVerdict = 'Played in current session';
+      }
+    }
+
+    // 2. Tempo compatibility
+    double tempoScore = 0.0;
+    String tempoVerdict = '';
+    final isCurrentDefault = current.bpm <= 0 || (current.bpm == 120.0 && current.tapProfile == null);
+    final isCandidateDefault = candidate.bpm <= 0 || (candidate.bpm == 120.0 && candidate.tapProfile == null);
+    if (isCurrentDefault || isCandidateDefault) {
+      tempoScore = 0.35;
+      tempoVerdict = 'Baseline BPM (120.0, unprofiled)';
+    } else {
+      final bpmDelta = (current.bpm - candidate.bpm).abs();
+      if (bpmDelta <= 5) {
+        tempoScore = 1.0;
+        tempoVerdict = 'Near-identical tempo (Δ${bpmDelta.toStringAsFixed(1)} BPM)';
+      } else if (bpmDelta <= 12) {
+        tempoScore = 0.8;
+        tempoVerdict = 'Tight tempo match (Δ${bpmDelta.toStringAsFixed(1)} BPM)';
+      } else if (bpmDelta <= 20) {
+        tempoScore = 0.55;
+        tempoVerdict = 'Moderate tempo gap (Δ${bpmDelta.toStringAsFixed(1)} BPM, stretch required)';
+      } else {
+        final ratio = candidate.bpm / current.bpm;
+        if ((ratio - 1.0).abs() < 0.12) {
+          tempoScore = 0.75;
+          tempoVerdict = 'Proportional tempo sync (~1:1 ratio)';
+        } else if ((ratio - 0.5).abs() < 0.08) {
+          tempoScore = 0.75;
+          tempoVerdict = 'Half-time harmonic subdivision (~0.5x)';
+        } else if ((ratio - 2.0).abs() < 0.08) {
+          tempoScore = 0.75;
+          tempoVerdict = 'Double-time acceleration (~2.0x)';
+        } else {
+          tempoScore = (0.5 - (bpmDelta / 200.0)).clamp(0.0, 0.45);
+          tempoVerdict = 'Wide tempo divergence (Δ${bpmDelta.toStringAsFixed(1)} BPM)';
+        }
+      }
+    }
+
+    // 3. Harmonic Key Alignment (Camelot Wheel / Circle of Fifths)
+    final camA = _normalizeToCamelot(current.musicalKey);
+    final camB = _normalizeToCamelot(candidate.musicalKey);
+    double harmonicScore = 0.15;
+    String harmonicVerdict = 'Unindexed harmonic key (${candidate.musicalKey.isEmpty ? "Unknown" : candidate.musicalKey})';
+
+    if (camA != null && camB != null) {
+      final numA = int.tryParse(camA.substring(0, camA.length - 1));
+      final modeA = camA.substring(camA.length - 1);
+      final numB = int.tryParse(camB.substring(0, camB.length - 1));
+      final modeB = camB.substring(camB.length - 1);
+
+      if (numA != null && numB != null) {
+        final diff = (numA - numB).abs();
+        final circleDist = min(diff, 12 - diff);
+
+        if (circleDist == 0 && modeA == modeB) {
+          harmonicScore = 0.40;
+          harmonicVerdict = 'Exact Camelot key match ($camA ↔ $camB)';
+        } else if (circleDist == 0 && modeA != modeB) {
+          harmonicScore = 0.35;
+          harmonicVerdict = 'Relative major/minor pair ($camA ↔ $camB)';
+        } else if (circleDist == 1 && modeA == modeB) {
+          harmonicScore = 0.30;
+          harmonicVerdict = 'Adjacent Camelot step ($camA ↔ $camB)';
+        } else if (circleDist == 1 && modeA != modeB) {
+          harmonicScore = 0.25;
+          harmonicVerdict = 'Diagonal harmonic step ($camA ↔ $camB)';
+        } else if (circleDist == 2 && modeA == modeB) {
+          harmonicScore = 0.20;
+          harmonicVerdict = '2-step energy boost ($camA ↔ $camB)';
+        } else {
+          harmonicScore = 0.05;
+          harmonicVerdict = 'Distant harmonic relationship ($camA ↔ $camB)';
+        }
+      }
+    }
+
+    // 4. Genre alignment bonus
+    final bool genreMatch = candidate.genre.isNotEmpty &&
+        current.genre.isNotEmpty &&
+        candidate.genre.toLowerCase() == current.genre.toLowerCase();
+    final double genreBonus = genreMatch ? 0.35 : 0.0;
+
+    // 5. Artist variety preference
+    final bool artistDiff = candidate.artist.isNotEmpty && candidate.artist != current.artist;
+    final double varietyScore = artistDiff ? 0.20 : 0.0;
+
+    // 6. Aggression / Dynamic energy similarity (if TAP profiles exist)
+    double aggressionScore = 0.0;
+    String energyVerdict = 'Baseline dynamic energy';
+    if (current.tapProfile != null && candidate.tapProfile != null) {
+      final aAgg = (current.tapProfile!['global_summary']?['aggression_index'] as num?)?.toDouble() ?? 0.5;
+      final bAgg = (candidate.tapProfile!['global_summary']?['aggression_index'] as num?)?.toDouble() ?? 0.5;
+      final aggDiff = (aAgg - bAgg).abs();
+      aggressionScore = (1.0 - aggDiff) * 0.25;
+      energyVerdict = 'Dynamic aggression: 𝒳=${(bAgg * 100).toInt()}% (Δ${(aggDiff * 100).toInt()}%)';
+    }
+
+    final totalScore = tempoScore + harmonicScore + genreBonus + varietyScore + aggressionScore + recencyPenalty;
+    final matchPercentage = ((totalScore / 2.20) * 100).round().clamp(5, 99);
+
+    // Dynamic primary reason synthesis
+    String primaryReason;
+    if (harmonicScore >= 0.35 && tempoScore >= 0.8) {
+      primaryReason = 'Exact harmonic key ($camB) & tight tempo match';
+    } else if (harmonicScore >= 0.35) {
+      primaryReason = harmonicVerdict;
+    } else if (tempoScore >= 0.8) {
+      primaryReason = 'Seamless BPM alignment (${candidate.bpm.toStringAsFixed(1)} BPM)';
+    } else if (genreBonus > 0) {
+      primaryReason = 'Genre continuity (${candidate.genre})';
+    } else if (aggressionScore >= 0.20) {
+      primaryReason = 'Matching energy profile & dynamic aggression';
+    } else if (varietyScore > 0) {
+      primaryReason = 'Optimal artist rotation & fresh transition';
+    } else {
+      primaryReason = 'Balanced queue progression';
+    }
+
+    return SmartShuffleCandidateMatch(
+      track: candidate,
+      queueIndex: candidateIndex,
+      totalScore: totalScore,
+      matchPercentage: matchPercentage,
+      tempoScore: tempoScore,
+      harmonicScore: harmonicScore,
+      genreBonus: genreBonus,
+      varietyScore: varietyScore,
+      aggressionScore: aggressionScore,
+      recencyPenalty: recencyPenalty,
+      tempoVerdict: tempoVerdict,
+      harmonicVerdict: harmonicVerdict,
+      energyVerdict: energyVerdict,
+      rotationVerdict: rotationVerdict,
+      primaryReason: primaryReason,
+    );
+  }
+
   int _findBestSmartMatchIndex() {
     if (_queue.length <= 1) return _currentQueueIndex;
     final current = currentTrack;
     if (current == null) return (_currentQueueIndex + 1) % _queue.length;
 
-    final List<({int index, double score})> scored = [];
+    final List<SmartShuffleCandidateMatch> evaluated = [];
 
     for (int i = 0; i < _queue.length; i++) {
       if (i == _currentQueueIndex) continue;
-      final candidate = _queue[i];
+      evaluated.add(_evaluateCandidate(
+        current: current,
+        candidate: _queue[i],
+        candidateIndex: i,
+      ));
+    }
 
-      // 1. Recency Penalty (Heavy penalty for recently played songs to eliminate repetitive bias)
-      double recencyPenalty = 0.0;
-      final historyIdx = _recentTrackIds.lastIndexOf(candidate.id);
-      if (historyIdx != -1) {
-        final recencyRank = _recentTrackIds.length - 1 - historyIdx;
-        if (recencyRank == 0) {
-          recencyPenalty = -6.0; // The song that just played
-        } else if (recencyRank <= 2) {
-          recencyPenalty = -4.0;
-        } else if (recencyRank <= 5) {
-          recencyPenalty = -2.5;
-        } else if (recencyRank <= 10) {
-          recencyPenalty = -1.0;
-        } else {
-          recencyPenalty = -0.5;
+    if (evaluated.isEmpty) return (_currentQueueIndex + 1) % _queue.length;
+
+    evaluated.sort((a, b) => b.totalScore.compareTo(a.totalScore));
+    _lastEvaluatedCandidates = List.from(evaluated);
+
+    // Top-K Weighted Probabilistic Selection (Prevents index 0 deterministic tie-breaking)
+    final topScore = evaluated.first.totalScore;
+    final pool = evaluated.take(6).where((c) => c.totalScore >= topScore - 0.40).toList();
+
+    int chosenIndex = evaluated.first.queueIndex;
+    if (pool.isNotEmpty) {
+      final minScore = pool.map((c) => c.totalScore).reduce(min);
+      final weights = pool.map((c) => max(0.1, c.totalScore - minScore + 0.5)).toList();
+      final totalWeight = weights.reduce((a, b) => a + b);
+      double randVal = Random().nextDouble() * totalWeight;
+
+      for (int k = 0; k < pool.length; k++) {
+        randVal -= weights[k];
+        if (randVal <= 0) {
+          chosenIndex = pool[k].queueIndex;
+          break;
         }
       }
+    }
 
-      // 2. Tempo compatibility
-      double tempoScore = 0.0;
-      final isCurrentDefault = current.bpm <= 0 || (current.bpm == 120.0 && current.tapProfile == null);
-      final isCandidateDefault = candidate.bpm <= 0 || (candidate.bpm == 120.0 && candidate.tapProfile == null);
-      if (isCurrentDefault || isCandidateDefault) {
-        tempoScore = 0.35; // Neutral baseline for unprofiled tracks
-      } else {
-        final bpmDelta = (current.bpm - candidate.bpm).abs();
-        if (bpmDelta <= 5) {
-          tempoScore = 1.0;
-        } else if (bpmDelta <= 12) {
-          tempoScore = 0.8;
-        } else if (bpmDelta <= 20) {
-          tempoScore = 0.55;
-        } else {
-          final ratio = candidate.bpm / current.bpm;
-          if ((ratio - 1.0).abs() < 0.12 || (ratio - 0.5).abs() < 0.08 || (ratio - 2.0).abs() < 0.08) {
-            tempoScore = 0.75;
-          } else {
-            tempoScore = (0.5 - (bpmDelta / 200.0)).clamp(0.0, 0.45);
+    final winnerMatch = evaluated.firstWhere(
+      (m) => m.queueIndex == chosenIndex,
+      orElse: () => evaluated.first,
+    );
+    final alternatives = evaluated.where((m) => m.queueIndex != chosenIndex).take(4).toList();
+
+    _latestSmartShuffleVerdict = SmartShuffleVerdict(
+      currentTrack: current,
+      winner: winnerMatch,
+      alternatives: alternatives,
+      summaryHeadline: '${winnerMatch.track.title} chosen over ${evaluated.length - 1} candidates',
+      detailedRationale: 'Selected for ${winnerMatch.primaryReason} (${winnerMatch.matchPercentage}% compatibility) while keeping fresh rotation.',
+      timestamp: DateTime.now(),
+    );
+
+    return chosenIndex;
+  }
+
+  /// Returns the current verdict or dynamically computes one on-demand for the current queue state
+  SmartShuffleVerdict getOrComputeSmartShuffleVerdict() {
+    final current = currentTrack;
+    final upNext = upNextTrack;
+
+    if (_latestSmartShuffleVerdict != null &&
+        _latestSmartShuffleVerdict!.currentTrack.id == current?.id &&
+        _latestSmartShuffleVerdict!.winner.track.id == upNext?.id) {
+      return _latestSmartShuffleVerdict!;
+    }
+
+    if (current == null) {
+      const placeholderTrack = TrackItem(
+        id: 'none',
+        title: 'No Track Loaded',
+        artist: 'Attune Engine',
+        album: 'Attune',
+        filePath: '',
+        duration: Duration.zero,
+        bpm: 120.0,
+        musicalKey: '8B',
+      );
+      const placeholderMatch = SmartShuffleCandidateMatch(
+        track: placeholderTrack,
+        queueIndex: 0,
+        totalScore: 1.0,
+        matchPercentage: 90,
+        tempoScore: 1.0,
+        harmonicScore: 0.4,
+        genreBonus: 0.0,
+        varietyScore: 0.2,
+        aggressionScore: 0.2,
+        recencyPenalty: 0.0,
+        tempoVerdict: 'Baseline BPM alignment',
+        harmonicVerdict: 'Standard key transition',
+        energyVerdict: 'Consistent dynamic energy',
+        rotationVerdict: 'Standard rotation',
+        primaryReason: 'Queue progression',
+      );
+      return SmartShuffleVerdict(
+        currentTrack: placeholderTrack,
+        winner: placeholderMatch,
+        alternatives: const [],
+        summaryHeadline: 'Queue in linear order',
+        detailedRationale: 'No current track is loaded to compute transition analytics.',
+        timestamp: DateTime.now(),
+      );
+    }
+
+    final List<SmartShuffleCandidateMatch> evaluated = [];
+    for (int i = 0; i < _queue.length; i++) {
+      if (i == _currentQueueIndex) continue;
+      evaluated.add(_evaluateCandidate(
+        current: current,
+        candidate: _queue[i],
+        candidateIndex: i,
+      ));
+    }
+
+    if (evaluated.isEmpty) {
+      final winnerTrack = upNext ?? current;
+      final winnerMatch = _evaluateCandidate(
+        current: current,
+        candidate: winnerTrack,
+        candidateIndex: _upNextQueueIndex,
+      );
+      final verdict = SmartShuffleVerdict(
+        currentTrack: current,
+        winner: winnerMatch,
+        alternatives: const [],
+        summaryHeadline: '${winnerMatch.track.title} is queued Next',
+        detailedRationale: 'Only one track in queue progression.',
+        timestamp: DateTime.now(),
+      );
+      _latestSmartShuffleVerdict = verdict;
+      return verdict;
+    }
+
+    evaluated.sort((a, b) => b.totalScore.compareTo(a.totalScore));
+    _lastEvaluatedCandidates = List.from(evaluated);
+
+    final winnerMatch = evaluated.firstWhere(
+      (m) => m.queueIndex == _upNextQueueIndex,
+      orElse: () => evaluated.first,
+    );
+    final alternatives = evaluated.where((m) => m.queueIndex != winnerMatch.queueIndex).take(4).toList();
+
+    final verdict = SmartShuffleVerdict(
+      currentTrack: current,
+      winner: winnerMatch,
+      alternatives: alternatives,
+      summaryHeadline: '${winnerMatch.track.title} chosen over ${evaluated.length - 1} candidates',
+      detailedRationale: 'Selected for ${winnerMatch.primaryReason} (${winnerMatch.matchPercentage}% compatibility) while keeping fresh rotation.',
+      timestamp: DateTime.now(),
+    );
+    _latestSmartShuffleVerdict = verdict;
+    return verdict;
+  }
+
+  /// Promotes a runner-up candidate to Up Next directly from the Smart Shuffle Verdict inspector
+  void selectAlternativeAsUpNext(SmartShuffleCandidateMatch candidate) {
+    if (candidate.queueIndex < 0 || candidate.queueIndex >= _queue.length) return;
+    _upNextQueueIndex = candidate.queueIndex;
+
+    final current = currentTrack;
+    if (current != null) {
+      final oldWinner = _latestSmartShuffleVerdict?.winner ??
+          _evaluateCandidate(
+            current: current,
+            candidate: _queue[_currentQueueIndex],
+            candidateIndex: _currentQueueIndex,
+          );
+      final updatedAlternatives = <SmartShuffleCandidateMatch>[];
+      if (oldWinner.queueIndex != candidate.queueIndex) {
+        updatedAlternatives.add(oldWinner);
+      }
+      if (_latestSmartShuffleVerdict != null) {
+        for (final alt in _latestSmartShuffleVerdict!.alternatives) {
+          if (alt.queueIndex != candidate.queueIndex &&
+              !updatedAlternatives.any((a) => a.queueIndex == alt.queueIndex)) {
+            updatedAlternatives.add(alt);
           }
         }
       }
 
-      // 3. Harmonic Key Alignment (Camelot Wheel / Circle of Fifths)
-      final harmonicScore = _calculateHarmonicScore(current.musicalKey, candidate.musicalKey);
-
-      // 4. Genre alignment bonus
-      final genreBonus = (candidate.genre.isNotEmpty &&
-              current.genre.isNotEmpty &&
-              candidate.genre.toLowerCase() == current.genre.toLowerCase())
-          ? 0.35
-          : 0.0;
-
-      // 5. Artist variety preference
-      final varietyScore = (candidate.artist != current.artist) ? 0.20 : 0.0;
-
-      // 6. Aggression / Dynamic energy similarity (if TAP profiles exist)
-      double aggressionScore = 0.0;
-      if (current.tapProfile != null && candidate.tapProfile != null) {
-        final aAgg = (current.tapProfile!['global_summary']?['aggression_index'] as num?)?.toDouble() ?? 0.5;
-        final bAgg = (candidate.tapProfile!['global_summary']?['aggression_index'] as num?)?.toDouble() ?? 0.5;
-        aggressionScore = (1.0 - (aAgg - bAgg).abs()) * 0.25;
-      }
-
-      final totalScore = tempoScore + harmonicScore + genreBonus + varietyScore + aggressionScore + recencyPenalty;
-      scored.add((index: i, score: totalScore));
+      _latestSmartShuffleVerdict = SmartShuffleVerdict(
+        currentTrack: current,
+        winner: candidate,
+        alternatives: updatedAlternatives,
+        summaryHeadline: '${candidate.track.title} promoted as Up Next',
+        detailedRationale: 'Promoted candidate (${candidate.matchPercentage}% match) for ${candidate.primaryReason}.',
+        timestamp: DateTime.now(),
+      );
     }
 
-    if (scored.isEmpty) return (_currentQueueIndex + 1) % _queue.length;
-
-    // Top-K Weighted Probabilistic Selection (Prevents index 0 deterministic tie-breaking)
-    scored.sort((a, b) => b.score.compareTo(a.score));
-    final topScore = scored.first.score;
-
-    final pool = scored.take(6).where((c) => c.score >= topScore - 0.40).toList();
-    if (pool.isEmpty) return scored.first.index;
-
-    final minScore = pool.map((c) => c.score).reduce(min);
-    final weights = pool.map((c) => max(0.1, c.score - minScore + 0.5)).toList();
-    final totalWeight = weights.reduce((a, b) => a + b);
-    double randVal = Random().nextDouble() * totalWeight;
-
-    for (int k = 0; k < pool.length; k++) {
-      randVal -= weights[k];
-      if (randVal <= 0) {
-        return pool[k].index;
-      }
+    final next = upNextTrack;
+    if (next != null) {
+      _bridge.playerLoadTrack(1, next.filePath);
     }
-    return pool.first.index;
+    _preparePendingRecipe();
+    notifyListeners();
   }
 
   void skipPrevious() {
