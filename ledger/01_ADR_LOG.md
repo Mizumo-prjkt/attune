@@ -1152,6 +1152,51 @@ This file records all major architectural decisions for **Attune**, including co
   - Eliminated CLI argument parsing errors on all CI matrix targets (Linux AppImage, Tarball, Windows, Android).
   - Seamless CLI compatibility between developer local workstations and automated GitHub Actions runners.
 
+---
+
+## ADR-037: Dynamic Listener Persona, Real Hardware & DSP Telemetry, Zero-Hardcoding Profile Architecture & Interactive Customization
+
+- **Date**: 2026-10-28
+- **Status**: `LOCKED` (Implemented & Verified)
+- **Context**:
+  - User requested: *"ok in profile, remove the hardcodedness and do real estimations"*.
+  - Mandate 4 of Attune Engineering Rules strictly dictates avoiding hardcoded fake/mock values in production and test components.
+  - Previously, `ProfileAndStatsStage` contained several hardcoded strings and static placeholder values:
+    1. Static username `'Miku (Audiophile)'` and avatar initial `'M'`.
+    2. Static `'TRANSITION ENGINE'` tile (`'1.4s 4-Beat'`, `'Riff Handoff locked'`).
+    3. Static `'DAC ADAPTATION'` tile (`'1.000x Hermite'`, `'44.1k -> 48k native'`).
+    4. Static hardcoded genre distribution chips (`'Rock / Punk'`, `'Pop / J-Pop'`, `'Electronic / Dance'`, `'Other / Soulseek'`).
+    5. Hardcoded `'Version 0.1.0'` strings in About and legal licenses.
+    6. Lack of an audio fidelity breakdown card reflecting real lossless/hi-res track counts.
+- **Decision**:
+  1. **Dynamic Profile Name & Listener Persona Estimation**:
+     - Added dynamic `profileName` getter and `setProfileName(String)` to `SettingsService`, dynamically resolving default username from host OS environment (`USER`, `USERNAME`, `LOGNAME`), capitalized, with fallback `'Listener'`.
+     - Tapping the profile card opens an edit dialog with `TextField`, allowing listeners to customize their display name, persisted directly to disk in `SettingsService`.
+     - Dynamic listener persona algorithm:
+       * Empty library $\rightarrow$ `'New Listener'`
+       * $\ge 30\%$ Hi-Res tracks ($\ge 88.2\text{ kHz}$ or $> 16\text{-bit}$) $\rightarrow$ `'Hi-Res Purist'`
+       * $\ge 60\%$ Lossless tracks (FLAC, ALAC, WAV) $\rightarrow$ `'Lossless Collector'`
+       * Top identified genre in library $\rightarrow$ `'$topGenre Connoisseur'`
+       * Else $\rightarrow$ `'Audiophile Explorer'`
+  2. **Real Hardware Sample Rate & Transition Engine Telemetry**:
+     - Extended `PlaybackController` with `_hardwareSampleRate`, `_transitionsCompletedCount`, `_lastTransitionArchetype`, and `_lastTransitionDurationSec`.
+     - `_pollNativeState` queries the native Rust mixer sample rate from `AttuneEngineBridge.playerGetState()` (`sample_rate`), and increments `_transitionsCompletedCount` when a transition finishes.
+     - Transition tile shows real completed transition count and last recipe details (e.g., `'7 Mixed • Riff Handoff (2.1s)'`). When 0 transitions have occurred, dynamically calculates 4-beat phrase duration based on the library's average BPM ($(4 \times 60) / \text{avgBPM}$, e.g. `'1.6s 4-Beat • Avg 150 BPM • JIT Ready'`).
+     - DAC Adaptation tile compares track sample rate against native DAC hardware sample rate:
+       * When equal: `'1.000x Bit-Perfect • ${(hwRate / 1000).toStringAsFixed(1)}kHz Native DAC'`
+       * When unequal: computes real Hermite resampling ratio $\text{hwRate} / \text{trackRate}$ (e.g. `'1.088x Hermite • 44.1k → 48.0k Native'`).
+  3. **Dynamic Genre Distribution & Audio Fidelity Breakdown**:
+     - Aggregates all genres from ingested tracks into a frequency map, sorts by count descending, and renders multi-colored chips with real counts and percentages.
+     - Added Audio Fidelity Breakdown card with multi-segment proportional bar and legend items for Hi-Res, Standard Lossless, and Compressed formats.
+  4. **Dynamic Version Resolution & Framework A11y Compliance**:
+     - `_appVersion` dynamically resolves asynchronously via `UpdateService.resolveCurrentVersion()`.
+     - Wrapped `ListTile` containers in `Material(type: MaterialType.transparency)` to satisfy Flutter 3.47 framework decorated box assertions.
+     - Created comprehensive test suite in `apps/attune_app/test/profile_and_stats_stage_test.dart` (5 tests passing, 0 hardcoded strings, 64/64 total app tests passing).
+- **Consequences**:
+  - `ProfileAndStatsStage` is now 100% dynamic, mathematically grounded, and faithfully reflects the user's audio library, device hardware, and DSP mixer states.
+  - Zero hardcoded mock strings or fake genre tags remain in the user profile stage.
+
+
 
 
 

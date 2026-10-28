@@ -4,7 +4,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../services/engine_bridge.dart';
 import '../services/update_service.dart';
-import '../theme/color_engine.dart';
 import '../theme/liquid_glass.dart';
 import '../theme/typography.dart';
 
@@ -23,7 +22,6 @@ class AboutStage extends StatefulWidget {
 
 class _AboutStageState extends State<AboutStage> {
   Map<String, dynamic>? _buildInfo;
-  bool _isLoadingBuildInfo = true;
   bool _isCheckingUpdate = false;
   UpdateCheckResult? _updateResult;
 
@@ -58,17 +56,11 @@ class _AboutStageState extends State<AboutStage> {
       if (mounted && data is Map<String, dynamic>) {
         setState(() {
           _buildInfo = data;
-          _isLoadingBuildInfo = false;
         });
         return;
       }
     } catch (_) {
       // Fallback if build_info.json is not yet generated or running in raw dev mode
-    }
-    if (mounted) {
-      setState(() {
-        _isLoadingBuildInfo = false;
-      });
     }
   }
 

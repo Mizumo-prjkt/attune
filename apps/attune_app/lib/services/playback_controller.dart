@@ -82,35 +82,6 @@ class PlaybackController extends ChangeNotifier {
     return _standardKeyToCamelot[simplified];
   }
 
-  static double _calculateHarmonicScore(String keyA, String keyB) {
-    final camA = _normalizeToCamelot(keyA);
-    final camB = _normalizeToCamelot(keyB);
-    if (camA == null || camB == null) return 0.15;
-
-    final numA = int.tryParse(camA.substring(0, camA.length - 1));
-    final modeA = camA.substring(camA.length - 1);
-    final numB = int.tryParse(camB.substring(0, camB.length - 1));
-    final modeB = camB.substring(camB.length - 1);
-
-    if (numA == null || numB == null) return 0.15;
-
-    final diff = (numA - numB).abs();
-    final circleDist = min(diff, 12 - diff);
-
-    if (circleDist == 0 && modeA == modeB) {
-      return 0.40; // Exact harmonic key match
-    } else if (circleDist == 0 && modeA != modeB) {
-      return 0.35; // Relative major/minor
-    } else if (circleDist == 1 && modeA == modeB) {
-      return 0.30; // Adjacent Camelot harmonic blend
-    } else if (circleDist == 2 && modeA == modeB) {
-      return 0.20; // 2-step energy boost
-    } else if (circleDist == 1 && modeA != modeB) {
-      return 0.25; // Diagonal harmonic step
-    } else {
-      return 0.05; // Distant harmonic relationship
-    }
-  }
 
   // Playback Metrics
   double _positionSec = 0.0;
@@ -131,11 +102,19 @@ class PlaybackController extends ChangeNotifier {
   double _deckBEqHigh = 0.0;
   double _reverbFreezeSend = 0.0;
 
+  // Hardware Audio Telemetry & Transition Statistics
+  int _hardwareSampleRate = 44100;
+  int _transitionsCompletedCount = 0;
+  String? _lastTransitionArchetype;
+  double? _lastTransitionDurationSec;
+
   Timer? _pollingTimer;
 
   PlaybackController._init() {
     _initEngine();
-    scanLocalAudioDirectories();
+    if (!Platform.environment.containsKey('FLUTTER_TEST')) {
+      scanLocalAudioDirectories();
+    }
   }
 
   // Getters
@@ -177,6 +156,11 @@ class PlaybackController extends ChangeNotifier {
   double get deckBEqMid => _deckBEqMid;
   double get deckBEqHigh => _deckBEqHigh;
   double get reverbFreezeSend => _reverbFreezeSend;
+
+  int get hardwareSampleRate => _hardwareSampleRate;
+  int get transitionsCompletedCount => _transitionsCompletedCount;
+  String? get lastTransitionArchetype => _lastTransitionArchetype;
+  double? get lastTransitionDurationSec => _lastTransitionDurationSec;
 
   void cycleShuffleMode() {
     switch (_shuffleMode) {
@@ -232,6 +216,24 @@ class PlaybackController extends ChangeNotifier {
       _currentQueueIndex = 0;
       _upNextQueueIndex = 0;
     }
+    notifyListeners();
+  }
+
+  @visibleForTesting
+  void setTracksForTesting(
+    List<TrackItem> tracks, {
+    int? hardwareSampleRate,
+    int? transitionsCount,
+    String? lastArch,
+    double? lastDur,
+  }) {
+    _rawScannedTracks.clear();
+    _rawScannedTracks.addAll(tracks);
+    applyLibraryFilters();
+    if (hardwareSampleRate != null) _hardwareSampleRate = hardwareSampleRate;
+    if (transitionsCount != null) _transitionsCompletedCount = transitionsCount;
+    if (lastArch != null) _lastTransitionArchetype = lastArch;
+    if (lastDur != null) _lastTransitionDurationSec = lastDur;
     notifyListeners();
   }
 
@@ -369,6 +371,11 @@ class PlaybackController extends ChangeNotifier {
         _deckBEqHigh = (deckB['eq_high_db'] as num? ?? 0.0).toDouble();
       }
 
+      final hwSr = state['sample_rate'] as int?;
+      if (hwSr != null && hwSr > 0) {
+        _hardwareSampleRate = hwSr;
+      }
+
       final trans = state['transition'] as Map<String, dynamic>?;
       if (trans != null && trans['in_progress'] == true) {
         _isTransitioning = true;
@@ -378,6 +385,7 @@ class PlaybackController extends ChangeNotifier {
       } else {
         if (_isTransitioning) {
           // Transition finished in native mixer: advance queue and update active deck
+          _transitionsCompletedCount++;
           _isTransitioning = false;
           _transitionProgress = 0.0;
           _pendingRecipe = null;
@@ -423,6 +431,13 @@ class PlaybackController extends ChangeNotifier {
     _isTransitioning = true;
     _activeArchetype =
         (recipe['archetype'] as String? ?? 'Riff Handoff').replaceAll('ARCHETYPE_', '').replaceAll('_', ' ');
+    _lastTransitionArchetype = _activeArchetype;
+    final timing = recipe['timing'] as Map<String, dynamic>?;
+    if (timing != null) {
+      final startMs = (timing['track_a_transition_start_ms'] as num?)?.toDouble() ?? 0.0;
+      final endMs = (timing['track_a_exit_end_ms'] as num?)?.toDouble() ?? 1400.0;
+      _lastTransitionDurationSec = ((endMs - startMs).abs() / 1000.0);
+    }
     _bridge.playerTriggerTransition(recipe);
     notifyListeners();
   }
@@ -931,6 +946,13 @@ class PlaybackController extends ChangeNotifier {
       _isTransitioning = true;
       _activeArchetype =
           (recipe['archetype'] as String? ?? 'Riff Handoff').replaceAll('ARCHETYPE_', '').replaceAll('_', ' ');
+      _lastTransitionArchetype = _activeArchetype;
+      final timing = recipe['timing'] as Map<String, dynamic>?;
+      if (timing != null) {
+        final startMs = (timing['track_a_transition_start_ms'] as num?)?.toDouble() ?? 0.0;
+        final endMs = (timing['track_a_exit_end_ms'] as num?)?.toDouble() ?? 1400.0;
+        _lastTransitionDurationSec = ((endMs - startMs).abs() / 1000.0);
+      }
       _bridge.playerTriggerTransition(recipe);
       notifyListeners();
     } finally {

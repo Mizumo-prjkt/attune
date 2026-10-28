@@ -136,8 +136,23 @@ class SettingsService extends ChangeNotifier {
   final Set<String> _excludedSongIds = {};
   int _minSongDurationSec = 60;
 
+  // Profile
+  String _profileName = '';
+
   // Getters
   String get language => _language;
+  String get profileName {
+    if (_profileName.trim().isNotEmpty) return _profileName.trim();
+    final envUser = Platform.environment['USER'] ??
+        Platform.environment['USERNAME'] ??
+        Platform.environment['LOGNAME'];
+    if (envUser != null && envUser.trim().isNotEmpty) {
+      final u = envUser.trim();
+      return u[0].toUpperCase() + u.substring(1);
+    }
+    return 'Listener';
+  }
+
   bool get wakelockHeld => _wakelockHeld;
   bool get notificationsAllowed => _notificationsAllowed;
 
@@ -159,6 +174,13 @@ class SettingsService extends ChangeNotifier {
   int get minSongDurationSec => _minSongDurationSec;
 
   // Setters & Modifiers
+  void setProfileName(String name) {
+    if (_profileName == name.trim()) return;
+    _profileName = name.trim();
+    notifyListeners();
+    _saveToDisk();
+  }
+
   void setLanguage(String lang) {
     if (_language == lang) return;
     _language = lang;
@@ -358,6 +380,7 @@ class SettingsService extends ChangeNotifier {
           }
 
           _minSongDurationSec = map['min_song_duration_sec'] as int? ?? _minSongDurationSec;
+          _profileName = map['profile_name'] as String? ?? _profileName;
         }
       }
     } catch (e) {
@@ -369,6 +392,7 @@ class SettingsService extends ChangeNotifier {
     try {
       final file = _settingsFile;
       final map = {
+        'profile_name': _profileName,
         'language': _language,
         'wakelock_held': _wakelockHeld,
         'notifications_allowed': _notificationsAllowed,

@@ -1088,40 +1088,6 @@ class _SettingsAndAudioStageState extends State<SettingsAndAudioStage> with Widg
     );
   }
 
-  Widget _buildEqBandRow({
-    required String title,
-    required double value,
-    required ColorScheme colorScheme,
-    required ValueChanged<double> onChanged,
-  }) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            Text(title, style: AttuneTypography.soraTitleSmall(color: Colors.white)),
-            Text(
-              '${value >= 0 ? '+${value.toStringAsFixed(1)}' : value.toStringAsFixed(1)} dB',
-              style: AttuneTypography.soraMetric(
-                color: value.abs() > 0.05 ? colorScheme.primary : Colors.white60,
-                fontSize: 12,
-              ),
-            ),
-          ],
-        ),
-        Slider(
-          value: value,
-          min: -12.0,
-          max: 12.0,
-          divisions: 48,
-          activeColor: colorScheme.primary,
-          inactiveColor: Colors.white12,
-          onChanged: onChanged,
-        ),
-      ],
-    );
-  }
 
   void _openGlassTweaksDialog(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
