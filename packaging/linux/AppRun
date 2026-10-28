@@ -1,0 +1,21 @@
+#!/bin/sh
+# Portable AppRun for Attune Linux AppImage
+# Ensures relative .so dynamic library resolution without binding to host paths
+
+set -e
+
+SELF=$(readlink -f "$0")
+APPDIR=$(dirname "$SELF")
+
+export APPDIR
+export PATH="${APPDIR}/usr/bin:${PATH}"
+# Ensure dynamic linker resolves libraries relative to AppDir /lib and /usr/lib
+export LD_LIBRARY_PATH="${APPDIR}/usr/lib:${APPDIR}/lib:${APPDIR}/usr/bin/lib:${LD_LIBRARY_PATH}"
+
+# Forward working directory if unlinked
+if [ ! -d "$(pwd 2>/dev/null)" ]; then
+    cd "${HOME:-/tmp}" 2>/dev/null || true
+fi
+
+# Launch application
+exec "${APPDIR}/usr/bin/attune_app" "$@"

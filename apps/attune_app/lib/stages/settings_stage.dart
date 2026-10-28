@@ -10,6 +10,7 @@ import '../services/playback_controller.dart';
 import '../services/equalizer_service.dart';
 import '../services/platform_navigation.dart';
 import '../services/settings_service.dart';
+import 'about_stage.dart';
 import 'equalizer_stage.dart';
 import 'song_exclusion_stage.dart';
 import '../theme/liquid_glass.dart';
@@ -287,6 +288,21 @@ class _SettingsAndAudioStageState extends State<SettingsAndAudioStage> with Widg
                                         await _refreshPermissions();
                                       }
                                     : null,
+                              ),
+                              const Divider(height: 1, color: Colors.white10),
+                              _buildSettingTile(
+                                icon: Icons.info_outline_rounded,
+                                title: 'About Attune',
+                                subtitle: 'Credits, AI pair programming, donation status & open-source licenses',
+                                trailing: const Icon(Icons.chevron_right_rounded, color: Colors.white38, size: 20),
+                                onTap: () {
+                                  Navigator.of(context).push(
+                                    MaterialPageRoute(
+                                      builder: (_) => const AboutStage(),
+                                    ),
+                                  );
+                                },
+                                onLongPress: () => showAttuneAboutDialog(context),
                               ),
                             ],
                           ),

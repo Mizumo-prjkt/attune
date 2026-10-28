@@ -1,9 +1,8 @@
 # 00 — Attune Master Knowledge Ledger
 
 - **Project Name**: Attune
-- **Current Phase**: `Phase 5 COMPLETED -> All Core MVP Milestones Achieved (Ready for Packaging & Deployment)`
-- **Active Coding Status**: Completed ADR-032: Implemented Smart Shuffle Verdict Engine with multi-dimensional candidate evaluations (`SmartShuffleCandidateMatch` & `SmartShuffleVerdict`). Upgraded Now Playing Transition Details dialog with dual segmented tabs (`[✦ Smart Shuffle Verdict]` & `[∿ Transition DSP Recipe]`), showing winner selection, percentage match, dynamic Camelot/BPM/Aggression/Rotation breakdowns, top evaluated runner-up candidates, and 1-tap candidate promotion. Hardened layouts against RenderFlex overflows and added complete test suite `test/smart_shuffle_verdict_test.dart`. All 28 workspace Rust tests and 52 Flutter unit/widget tests pass with 0 errors and 0 warnings. Linux debug bundle recompiled.
-
+- **Current Phase**: `Phase 6 IN PROGRESS -> Multi-Platform Packaging, Installer Scripting & Distribution Orchestration`
+- **Active Coding Status**: Completed ADR-033: Built full-screen Liquid Material Glass `AboutStage` (`/about`) and companion floating dialog `showAttuneAboutDialog`. Transparently codified project credits (Mizumo-prjkt, core DSP engine, open-source libraries), AI pair programming involvement with Google DeepMind Antigravity, community donation status ("Coming Soon"), and MIT license distribution notice with third-party software disclosures. Sanitized dynamic library resolution in `engine_bridge.dart` to strictly use executable-relative `lib/` and dev paths with zero hardcoded developer paths. Built Windows Inno Setup script (`packaging/windows/attune_installer.iss`) embedding commit patch notes. Configured Linux AppImage hierarchy (`packaging/linux/build_appimage.sh`, `AppRun`, `attune.desktop`). Engineered standalone Python build orchestrator (`tools/builder.py`) featuring toolchain assessment, compiler/env metadata etching into `build_info.json`, git commit patch notes generation, Linux kernel-style `localversion` string configuration, cargo/flutter compilation, and dark-themed interactive Tkinter desktop GUI. Created GitHub Actions workflow (`.github/workflows/build_and_release.yml`) matrix-building Linux and Windows debug/release artifacts. All 28 Rust tests and 54 Flutter tests pass with 0 errors.
 
 ---
 
@@ -67,22 +66,21 @@ Furthermore, Attune decouples **Audio Profiling / Transition Planning** from **R
 | **ADR-030** | Attune Studio Master FX DSP Rack (`MasterFxRack`), 10-Band EQ, Psychoacoustic Bass & Clarity, Mid-Side Stereo Expander, Brickwall Soft Limiter & External DSP Active Detection | Implemented sequential 6-stage mastering rack directly in process f32 audio pipeline right after dual-deck crossfade; 10 cascaded DirectForm2Transposed IIR biquads at ISO frequencies; Attune Pure Bass+ sub-harmonic waveshaping (<100 Hz isolation, tanh + quadratic overtones, 180 Hz smoothing); Attune Clarity high-shelf exciter (>3.5 kHz); Mid-Side Stereo Expander with 150 Hz mono sub-bass protection; master brickwall limiter with 1ms attack / 50ms release and -0.1 dBFS ceiling; 1-pole per-frame coefficient smoothing eliminating zipper noise; cross-platform external DSP detector; dedicated full-screen `EqualizerStage` UI with dynamic cubic bezier curve and zero hardcoding. | **LOCKED** |
 | **ADR-031** | Native DSP Rebranding to Attune (Pure Bass+ & Clarity), Zero-Overlap ViperFX Detection, Omnipresent Equalizer Navigation & Bundle Compilation | Rebranded user-facing and architectural mastering DSP nomenclature from ViPER to Attune ("Attune Studio Master FX Rack", "Attune Pure Bass+", "Attune Clarity & Vocal Air") while strictly preserving external detection of third-party ViPER4Android / ViperFX APKs and `.so` libraries in `external_dsp.rs`; integrated dynamic `EqualizerService` telemetry into `SettingsAndAudioStage` subtitle; modernized floating quick dialog with Wrap layout; added 1-click Equalizer buttons to `NowPlayingStage` and Desktop navigation rail; verified 100% tests and recompiled Linux debug bundle. | **LOCKED** |
 | **ADR-032** | Smart Shuffle Verdict Engine, Multi-Dimensional Candidate Breakdown & Interactive Runner-Up Promotion | Created `SmartShuffleCandidateMatch` and `SmartShuffleVerdict` models; refactored `PlaybackController._findBestSmartMatchIndex` to calculate 6 multi-dimensional factors, retain sorted candidate alternatives, and provide `selectAlternativeAsUpNext`; upgraded Now Playing dialog with dual segmented tabs (`[✦ Smart Shuffle Verdict]` & `[∿ Transition DSP Recipe]`) displaying winning match, Camelot/BPM/Aggression/Rotation breakdowns, top runner-ups, and 1-tap promotion; verified with zero hardcoding across 52 Flutter tests and 28 Rust tests. | **LOCKED** |
-
-
-
+| **ADR-033** | Liquid Material Glass About UI, AI Collaboration Disclosure, Windows Inno Setup & Linux AppImage Packaging, and Unified Python Build Orchestrator (`tools/builder.py`) | Created `/about` route and full-screen `AboutStage` + quick `showAttuneAboutDialog`; credited project author (Mizumo-prjkt), core engine & DSP libraries; transparently disclosed AI pair programming with Google DeepMind Antigravity AI assistant under the Knowledge Ledger protocol; added donation status ("Coming Soon"); articulated MIT license with third-party license disclaimers (BSD, GPL, LGPL, Apache); sanitized `engine_bridge.dart` dynamic library paths to relative `lib/` and dev paths with 0 hardcoded developer paths; built Windows Inno Setup script (`attune_installer.iss`) embedding commit patch notes; created Linux AppImage hierarchy (`packaging/linux/build_appimage.sh`, `AppRun`, `attune.desktop`); engineered standalone Python orchestrator (`tools/builder.py`) with toolchain assessment, compiler/env metadata etching into `build_info.json`, commit patch notes generator, Linux kernel-style `localversion` support, cargo/flutter builds, and Tkinter GUI; created GitHub Actions CI workflow (`build_and_release.yml`) matrix-building Linux & Windows debug/release. | **LOCKED** |
 
 ---
 
-## 4. Session Handoff Checklist (For Next AI Session — Production Release & Platform Packaging)
+## 4. Session Handoff Checklist (For Next AI Session — Distribution & Release Verification)
 
 1. **Review Current Codebase**:
    - Flutter app in `apps/attune_app/` with complete "Liquid Material Glass" design system, responsive scaffold, multi-activity Android declarations, and centralized `AudioStorageService`.
    - Rust crates in `crates/` (`attune-core`, `attune-cli`, `attune-dsp-ffi`, `attune-ffi`).
-   - Dart FFI engine bridge and `PlaybackController` managing dual decks, queue, and real-time transition triggers.
-2. **Next Steps (Phase 6 / Packaging & Distribution)**:
-   - Linux packaging: AppImage / Flatpak bundle with compiled `libattune_engine.so`.
+   - Dart FFI engine bridge and `PlaybackController` managing dual decks, queue, real-time transitions, and master FX rack.
+   - Packaging toolchains: `tools/builder.py`, `packaging/windows/attune_installer.iss`, `packaging/linux/build_appimage.sh`, `.github/workflows/build_and_release.yml`.
+2. **Next Steps (Phase 6 / Production Distribution & Release Polish)**:
    - Android release: Gradle build verification for APK/AAB with NDK toolchain bundling native libraries for `arm64-v8a` and `x86_64`.
-   - Automated integration tests across full playlists and simulated background playback.
+   - macOS / iOS packaging: Bundle notarization and dylib embedding.
+   - Automated end-to-end integration tests across full playlists and simulated background playback.
 3. Keep updating [`00_MASTER_LEDGER.md`](file:///home/miku/Documents/attune/ledger/00_MASTER_LEDGER.md), [`01_ADR_LOG.md`](file:///home/miku/Documents/attune/ledger/01_ADR_LOG.md), and [`04_TRANSITION_LAB_LOG.md`](file:///home/miku/Documents/attune/ledger/04_TRANSITION_LAB_LOG.md).
 
 

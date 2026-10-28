@@ -1,0 +1,134 @@
+name: Attune Build & Release
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      build_mode:
+        description: 'Compilation Mode (release or debug)'
+        required: true
+        default: 'release'
+        type: choice
+        options:
+          - release
+          - debug
+      localversion:
+        description: 'Kernel-style localversion suffix (e.g., -rc1, -beta)'
+        required: false
+        default: ''
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build (${{ matrix.os }} - ${{ matrix.mode }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        mode: [release, debug]
+        exclude:
+          # On pull requests, only build release to preserve runner minutes
+          - mode: debug
+            is_pr: ${{ github.event_name == 'pull_request' }}
+
+    steps:
+      - name: Checkout Code Repository (Full History for Patch Notes)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Setup Rust Stable Toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Setup Flutter SDK
+        uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+          cache: true
+
+      - name: Install Linux Build Dependencies (Ubuntu)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            clang \
+            cmake \
+            ninja-build \
+            pkg-config \
+            libgtk-3-dev \
+            liblzma-dev \
+            libasound2-dev \
+            libpulse-dev \
+            libayatana-appindicator3-dev \
+            file
+
+      - name: Setup Inno Setup (Windows)
+        if: runner.os == 'Windows'
+        uses: crazy-max/ghaction-innosetup@v3
+
+      - name: Run Attune Unified Build & Packaging Orchestrator
+        shell: bash
+        run: |
+          TARGET_OS=$(echo "${{ runner.os }}" | tr '[:upper:]' '[:lower:]')
+          LOCAL_VER="${{ github.event.inputs.localversion || '' }}"
+          python tools/builder.py \
+            --no-gui \
+            --target "${TARGET_OS}" \
+            --mode "${{ matrix.mode }}" \
+            --localversion "${LOCAL_VER}" \
+            --step all
+
+      - name: Upload Build Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: attune-${{ runner.os }}-${{ matrix.mode }}
+          path: |
+            dist/**/*
+            patch_notes.txt
+          if-no-files-found: warn
+
+  release:
+    name: Publish GitHub Release Draft
+    needs: [build]
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Generate Release Patch Notes
+        run: |
+          python tools/builder.py --no-gui --step patchnotes
+
+      - name: Download Built Artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release-artifacts
+
+      - name: Create GitHub Release Draft
+        uses: softprops/action-gh-release@v2
+        with:
+          body_path: patch_notes.txt
+          draft: true
+          prerelease: false
+          files: release-artifacts/**/*

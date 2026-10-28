@@ -1,0 +1,43 @@
+MIT License
+
+Copyright (c) 2026 Mizumo-prjkt and Attune contributors
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+==============================================================================
+THIRD-PARTY OPEN-SOURCE SOFTWARE NOTICES
+==============================================================================
+Attune incorporates, links against, or bundles various open-source third-party
+components, crates, and DSP algorithms. Each third-party library is distributed
+under its own license terms, including but not limited to:
+
+- Signalsmith Stretch: MIT License (Signalsmith Audio)
+- Symphonia Multimedia Framework: MPL-2.0 (Mozilla Public License 2.0)
+- Hound WAV Library: Apache-2.0 / MIT
+- CPAL (Cross-Platform Audio Library): Apache-2.0
+- RealFFT & RustFFT: MIT / Apache-2.0
+- Rubato Resampling Library: MIT
+- Biquad Filter Engine: MIT
+- Flutter SDK & Engine: BSD-3-Clause (Google LLC)
+- Google Fonts: SIL Open Font License 1.1 / Apache-2.0
+
+Additional bundled dependencies may be licensed under BSD-2-Clause, BSD-3-Clause,
+Apache-2.0, MIT, MPL-2.0, LGPL, or GPL. Complete license texts and attributions
+for all compiled packages are available in the application under 'About Attune' ->
+'View Complete Open-Source Licenses' and in the source tree.

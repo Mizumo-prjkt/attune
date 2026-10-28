@@ -2,6 +2,7 @@ import 'dart:io';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'shell/responsive_glass_scaffold.dart';
+import 'stages/about_stage.dart';
 import 'stages/equalizer_stage.dart';
 import 'stages/settings_stage.dart';
 import 'stages/song_exclusion_stage.dart';
@@ -48,6 +49,13 @@ void transitionInspectorMain() {
   runApp(const AttuneApp(initialRoute: '/transition_inspector'));
 }
 
+/// Standalone Entrypoint for AboutActivity
+@pragma('vm:entry-point')
+void aboutMain() {
+  _ensureValidCurrentDirectory();
+  runApp(const AttuneApp(initialRoute: '/about'));
+}
+
 class AttuneApp extends StatelessWidget {
   final String initialRoute;
 
@@ -83,6 +91,7 @@ class AttuneApp extends StatelessWidget {
         '/transition_inspector': (context) => const TransitionInspectorStage(isStandaloneActivity: true),
         '/song_exclusion': (context) => const SongExclusionStage(),
         '/equalizer': (context) => const EqualizerStage(),
+        '/about': (context) => const AboutStage(),
       },
     );
   }

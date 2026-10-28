@@ -980,6 +980,60 @@ This file records all major architectural decisions for **Attune**, including co
   - Interactive curation: users can promote any runner-up candidate to "Up Next" with a single tap.
   - Zero hardcoding throughout: all scores, reasons, and chips derive directly from genuine track audio profiles and library metadata.
 
+---
+
+## ADR-033: Liquid Material Glass About UI, AI Collaboration Disclosure, Windows Inno Setup & Linux AppImage Packaging, and Unified Python Build Orchestrator (`tools/builder.py`)
+- **Date**: 2026-10-28
+- **Status**: `LOCKED`
+- **Context**:
+  - Attune reached feature readiness across real-time playback, DSP mastering, lyrics sync, and transition planning.
+  - A comprehensive, elegant About screen was needed to credit the project creator, core DSP engine, and third-party libraries, transparently disclose AI pair programming collaboration with Google DeepMind Antigravity under the Knowledge Ledger protocol, present donation status ("Coming Soon"), and provide clear MIT licensing and third-party open-source disclaimers.
+  - Hardcoded local paths (e.g. `/home/miku/...`) in `engine_bridge.dart` needed elimination to ensure dynamic libraries (`.so` / `.dll`) resolve strictly relative to the executable (`lib/` or application directory) across Linux, Windows, macOS, and Android.
+  - Packaging solutions were required for 64-bit Windows (Inno Setup) and Linux (AppImage), including automatic commit patch notes generation embedded directly into installers.
+  - A clean, standalone Python build orchestrator was required to avoid convoluted GitHub Actions YAML, provide toolchain assessment, compiler/environment metadata etching into `build_info.json`, Linux kernel-style `localversion` string configuration, cargo/flutter builds, and an interactive dark-themed Tkinter desktop GUI for developers.
+- **Decision**:
+  1. **Liquid Material Glass About Stage & Floating Dialog**:
+     - Built `apps/attune_app/lib/stages/about_stage.dart` featuring `AboutStage` (`/about`) and `showAttuneAboutDialog(context)`.
+     - Integrated circular glass disc logo (`assets/icon/icon_transparent.png`), dynamic version badges, creator credits (Mizumo-prjkt), core DSP engine architecture (5-layer profiling, dual decks, master FX), and open-source foundations (Signalsmith, Symphonia, Hound, Cpal, RealFFT, Rubato).
+     - Transparently disclosed AI pair programming with Google DeepMind Antigravity AI assistant under the Knowledge Ledger protocol (ADRs 001–033, zero hardcoding rule, empirical transition testing).
+     - Added community sponsorship card marked as "Coming Soon".
+     - Codified MIT License with explicit notice that bundled third-party libraries carry varied licenses (BSD, GPL, LGPL, Apache) and wired "View Complete Open-Source Licenses" (`showLicensePage`).
+     - Displayed dynamic compiler and target architecture metadata etched from `build_info.json`.
+     - Wired navigation from `settings_stage.dart` (General list), `profile_and_stats_stage.dart`, and `main.dart`.
+  2. **Sanitized Dynamic Library Loading (`engine_bridge.dart`)**:
+     - Removed hardcoded developer host paths (`/home/miku/...`).
+     - Implemented dynamic relative candidate paths checking executable-relative `lib/` directory (`File(Platform.resolvedExecutable).parent.path + '/lib/'`), current working directory `lib/`, dev targets (`target/release/`, `target/debug/`), and standard system loader fallbacks across Linux, Windows, macOS, and Android.
+  3. **Windows Inno Setup Packaging (`packaging/windows/attune_installer.iss`)**:
+     - Configured 64-bit modern Inno Setup installer script for Windows x64.
+     - Embedded auto-generated `patch_notes.txt` via `InfoBeforeFile`.
+     - Bundled `attune_engine.dll` in both `{app}\lib` and `{app}` root.
+     - Provided desktop icon task, Start Menu shortcuts, and uninstaller.
+  4. **Linux AppImage Packaging (`packaging/linux/build_appimage.sh`, `AppRun`, `attune.desktop`)**:
+     - Assembled standard AppDir hierarchy (`usr/bin`, `usr/lib`, `lib/`, `usr/share/applications`, `usr/share/icons`).
+     - Packaged `AppRun` establishing relative `LD_LIBRARY_PATH="$APPDIR/usr/lib:$APPDIR/lib:$APPDIR/usr/bin/lib:$LD_LIBRARY_PATH"`.
+     - Bundled `libattune_engine.so` and Flutter runtime libraries into AppDir with automatic `appimagetool` execution.
+  5. **Unified Python Build Orchestrator (`tools/builder.py`)**:
+     - Built self-contained Python 3 script with dual CLI and interactive Tkinter GUI modes.
+     - Environment assessment checking Python, Rustc, Cargo, Flutter, Dart, CMake, C/C++ compiler, ISCC, and AppImage tools.
+     - Compiler/environment metadata etching into `apps/attune_app/assets/build_info.json`.
+     - Automatic `patch_notes.txt` generation querying recent git commits.
+     - Linux kernel-style `localversion` support (`--localversion -custom`).
+     - Standalone packaging generation for Linux (`.tar.gz`, `.AppImage`) and Windows (`.zip`, Inno Setup `.exe`).
+     - Tkinter GUI with dark-themed cards, component version ID editors, action toolbar, and real-time scrolled log output.
+  6. **GitHub Actions Matrix Workflow (`.github/workflows/build_and_release.yml`)**:
+     - Non-convoluted workflow delegating to `python tools/builder.py`.
+     - Matrix builds for Ubuntu and Windows across Release and Debug configurations.
+     - Artifact archiving and automatic release draft creation for git tags.
+  7. **Testing & Verification**:
+     - Added test suite `apps/attune_app/test/about_stage_test.dart`.
+     - 100% verified all 54 Flutter unit/widget tests and all 28 Rust workspace tests pass.
+     - Recompiled Linux debug bundle on disk.
+- **Consequences**:
+  - Complete, professional about & legal presentation honoring the author, AI pair programming assistant, and open-source ecosystem.
+  - Zero hardcoding of library paths; application can be cleanly installed and relocated on any Linux or Windows system.
+  - Streamlined, reproducible build and packaging pipeline runnable locally via CLI or GUI and in GitHub Actions CI.
+
+
 
 
 

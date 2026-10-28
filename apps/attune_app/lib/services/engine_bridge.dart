@@ -123,14 +123,18 @@ class AttuneEngineBridge {
 
   void _loadLibrary() {
     try {
+      final exeDir = File(Platform.resolvedExecutable).parent.path;
+
       if (Platform.isLinux) {
-        // Search workspace build targets first during development (favoring release)
         final candidatePaths = [
+          '$exeDir/lib/libattune_engine.so',
+          '$exeDir/libattune_engine.so',
+          '$exeDir/../lib/libattune_engine.so',
+          'lib/libattune_engine.so',
           '../../target/release/libattune_engine.so',
           '../../target/debug/libattune_engine.so',
-          '/home/miku/Documents/attune/target/release/libattune_engine.so',
-          '/home/miku/Documents/attune/target/debug/libattune_engine.so',
-          'lib/libattune_engine.so',
+          'target/release/libattune_engine.so',
+          'target/debug/libattune_engine.so',
           'libattune_engine.so',
         ];
         for (final path in candidatePaths) {
@@ -148,11 +152,51 @@ class AttuneEngineBridge {
         _resolvedLibraryPath = 'libattune_engine.so';
         _lib = DynamicLibrary.open('libattune_engine.so');
       } else if (Platform.isMacOS) {
-        _resolvedLibraryPath = 'libattune_engine.dylib';
-        _lib = DynamicLibrary.open('libattune_engine.dylib');
+        final candidatePaths = [
+          '$exeDir/../Frameworks/libattune_engine.dylib',
+          '$exeDir/lib/libattune_engine.dylib',
+          '$exeDir/libattune_engine.dylib',
+          'lib/libattune_engine.dylib',
+          '../../target/release/libattune_engine.dylib',
+          '../../target/debug/libattune_engine.dylib',
+          'target/release/libattune_engine.dylib',
+          'target/debug/libattune_engine.dylib',
+          'libattune_engine.dylib',
+        ];
+        for (final path in candidatePaths) {
+          if (File(path).existsSync()) {
+            _resolvedLibraryPath = path;
+            _lib = DynamicLibrary.open(path);
+            break;
+          }
+        }
+        if (_lib == null) {
+          _resolvedLibraryPath = 'libattune_engine.dylib';
+          _lib = DynamicLibrary.open('libattune_engine.dylib');
+        }
       } else if (Platform.isWindows) {
-        _resolvedLibraryPath = 'attune_engine.dll';
-        _lib = DynamicLibrary.open('attune_engine.dll');
+        final candidatePaths = [
+          '$exeDir\\lib\\attune_engine.dll',
+          '$exeDir\\attune_engine.dll',
+          'lib/attune_engine.dll',
+          'lib\\attune_engine.dll',
+          '../../target/release/attune_engine.dll',
+          '../../target/debug/attune_engine.dll',
+          'target/release/attune_engine.dll',
+          'target/debug/attune_engine.dll',
+          'attune_engine.dll',
+        ];
+        for (final path in candidatePaths) {
+          if (File(path).existsSync()) {
+            _resolvedLibraryPath = path;
+            _lib = DynamicLibrary.open(path);
+            break;
+          }
+        }
+        if (_lib == null) {
+          _resolvedLibraryPath = 'attune_engine.dll';
+          _lib = DynamicLibrary.open('attune_engine.dll');
+        }
       }
 
       if (_lib != null) {

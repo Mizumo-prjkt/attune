@@ -1,0 +1,23 @@
+{
+  "application_name": "Attune",
+  "version": "0.1.0",
+  "build_number": "1",
+  "localversion": "-miku-rc1",
+  "full_version": "0.1.0-miku-rc1",
+  "rust_ffi_version": "0.1.0",
+  "git_commit": "ed1061b",
+  "git_commit_full": "ed1061bdb178db6a979cd749f61efe4133f2a932",
+  "git_branch": "main",
+  "git_dirty": true,
+  "build_mode": "Release",
+  "build_timestamp": "2026-10-28T00:12:45.153269+00:00",
+  "target_os": "linux",
+  "target_arch": "x86_64",
+  "python_version": "3.14.8",
+  "compiler_rustc": "rustc 1.96.0 (ac68faa20 2026-05-25)",
+  "compiler_cargo": "cargo 1.96.0 (30a34c682 2026-05-25)",
+  "compiler_flutter": "Flutter 3.47.7 \u2022 channel stable \u2022 https://github.com/flutter/flutter.git",
+  "compiler_dart": "Dart SDK version: 3.13.5 (stable) (Tue Sep 29 01:00:52 2026 -0700) on \"linux_x64\"",
+  "license": "MIT License",
+  "license_disclaimer": "Distributed under the MIT License. Third-party components and DSP libraries are licensed under BSD-2-Clause, BSD-3-Clause, Apache-2.0, MIT, MPL-2.0, LGPL, and GPL."
+}

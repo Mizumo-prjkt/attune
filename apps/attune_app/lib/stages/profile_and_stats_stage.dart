@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'about_stage.dart';
 import '../services/audio_storage_service.dart';
 import '../services/engine_bridge.dart';
 import '../services/playback_controller.dart';
@@ -307,28 +308,13 @@ class ProfileAndStatsStage extends StatelessWidget {
                     ),
                     trailing: const Icon(Icons.chevron_right_rounded),
                     onTap: () {
-                      showAboutDialog(
-                        context: context,
-                        applicationName: 'Attune',
-                        applicationVersion: 'v0.1.0',
-                        applicationIcon: Container(
-                          width: 48,
-                          height: 48,
-                          padding: const EdgeInsets.all(6),
-                          decoration: BoxDecoration(color: colorScheme.primary.withValues(alpha: 0.15), shape: BoxShape.circle),
-                          child: Image.asset(
-                            'assets/icon/icon_transparent.png',
-                            fit: BoxFit.contain,
-                          ),
+                      Navigator.of(context).push(
+                        MaterialPageRoute(
+                          builder: (_) => const AboutStage(),
                         ),
-                        children: [
-                          const SizedBox(height: 12),
-                          const Text(
-                            'Attune is an open-source, intelligent music player with a DJ-grade, audio-profile-driven transition and remixing engine.\n\nBuilt with Rust, Signalsmith Stretch, Symphonia, Hound, Cpal, and Flutter Liquid Material Glass.',
-                          ),
-                        ],
                       );
                     },
+                    onLongPress: () => showAttuneAboutDialog(context),
                   ),
                   Divider(color: Colors.white.withValues(alpha: 0.08), height: 1),
                   ListTile(
