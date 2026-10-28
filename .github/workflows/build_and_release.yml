@@ -202,23 +202,23 @@ jobs:
         env:
           APPIMAGE_EXTRACT_AND_RUN: 1
         run: |
-          python3 tools/builder.py --target appimage --build-type "${{ matrix.build_type }}" --version-id "${{ needs.meta.outputs.version }}" --localversion "${{ inputs.localversion || '' }}" --download-tools --test
+          python3 tools/builder.py --target appimage --build-type "${{ matrix.build_type }}" --version-id "${{ needs.meta.outputs.version }}" --download-tools --test
 
       - name: Build, Test & Package (Linux Tarball)
         if: steps.check_variant.outputs.should_run == 'true' && runner.os == 'Linux' && matrix.target == 'linux'
         run: |
-          python3 tools/builder.py --target linux --bundle zip --build-type "${{ matrix.build_type }}" --version-id "${{ needs.meta.outputs.version }}" --localversion "${{ inputs.localversion || '' }}" --package --test
+          python3 tools/builder.py --target linux --bundle zip --build-type "${{ matrix.build_type }}" --version-id "${{ needs.meta.outputs.version }}" --package --test
 
       - name: Build, Test & Package (Windows)
         if: steps.check_variant.outputs.should_run == 'true' && runner.os == 'Windows'
         shell: pwsh
         run: |
-          python tools/builder.py --target windows --build-type "${{ matrix.build_type }}" --version-id "${{ needs.meta.outputs.version }}" --localversion "${{ inputs.localversion || '' }}" --package --installer --test
+          python tools/builder.py --target windows --build-type "${{ matrix.build_type }}" --version-id "${{ needs.meta.outputs.version }}" --package --installer --test
 
       - name: Build, Test & Package (Android)
         if: steps.check_variant.outputs.should_run == 'true' && matrix.target == 'android'
         run: |
-          python3 tools/builder.py --target android --build-type "${{ matrix.build_type }}" --version-id "${{ needs.meta.outputs.version }}" --localversion "${{ inputs.localversion || '' }}" --package
+          python3 tools/builder.py --target android --build-type "${{ matrix.build_type }}" --version-id "${{ needs.meta.outputs.version }}" --package
 
       # ---------------- Stage and Upload Artifacts ----------------
       - name: Stage Artifacts (Linux & Android)

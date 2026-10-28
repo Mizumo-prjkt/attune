@@ -1139,6 +1139,9 @@ This file records all major architectural decisions for **Attune**, including co
      - Added `--build-type` as an alias for `--mode`, accepting case-insensitive values (`Release`, `Debug`, `Both`).
      - Added `--version-id` as an alias for `--version`.
      - Added `--package`, `--installer`, `--download-tools`, and `--test` flags.
+     - Implemented `preprocess_argv` to normalize command-line arguments: Python's `argparse` treats option values starting with a dash (e.g., `--localversion -rc1`) as unknown options and throws `argument --localversion: expected one argument`. `preprocess_argv` joins known value flags with `=` syntax (`--localversion=-rc1`), guaranteeing that leading dashes in suffixes or versions never cause argparse syntax errors.
+     - Guarded `effective_ver` to prevent duplicate suffix appending if `effective_ver` already contains `localversion` (`effective_ver.endswith(local_sfx)`).
+     - Cleaned up `.github/workflows/build_and_release.yml` matrix step invocations to match Ensemble convention, passing `--version-id "${{ needs.meta.outputs.version }}"` directly without redundant `--localversion` parameters.
      - Implemented automatic download of `appimagetool` when `--download-tools` is passed on Linux, and set `APPIMAGE_EXTRACT_AND_RUN: 1` in CI environment to avoid FUSE dependency issues on Ubuntu 24.04 runners.
   3. **Release Note Generation & Tag Management**:
      - In the `deploy` job, automated the aggregation of Git commit patch notes and comparative diff links.
@@ -1146,6 +1149,7 @@ This file records all major architectural decisions for **Attune**, including co
      - Refreshed/overrode release tags and published via `softprops/action-gh-release@v3`.
 - **Consequences**:
   - The GitHub Actions build and release process is robust, transparent, resilient to individual target hiccups (`continue-on-error: true`), and produces automated patch notes and checksums.
+  - Eliminated CLI argument parsing errors on all CI matrix targets (Linux AppImage, Tarball, Windows, Android).
   - Seamless CLI compatibility between developer local workstations and automated GitHub Actions runners.
 
 

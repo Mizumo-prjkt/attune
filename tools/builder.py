@@ -948,6 +948,53 @@ def launch_gui():
 # CLI Entrypoint
 # ==============================================================================
 
+def preprocess_argv(argv):
+    """Normalizes CLI arguments so flags whose values start with '-' (e.g. --localversion -rc1)
+    are joined with '=' syntax (e.g. --localversion=-rc1), preventing argparse from
+    misinterpreting the value as an option flag.
+    """
+    known_val_flags = {
+        "--target",
+        "--mode",
+        "--build-type",
+        "--version",
+        "--version-id",
+        "--rust-version",
+        "--localversion",
+        "--step",
+        "--bundle",
+    }
+    known_boolean_flags = {
+        "--gui",
+        "--no-gui",
+        "--set-tag",
+        "--package",
+        "--installer",
+        "--download-tools",
+        "--test",
+        "-h",
+        "--help",
+    }
+    new_argv = []
+    i = 0
+    while i < len(argv):
+        arg = argv[i]
+        if arg in known_val_flags:
+            if i + 1 < len(argv):
+                next_arg = argv[i + 1]
+                if (
+                    next_arg not in known_boolean_flags
+                    and next_arg not in known_val_flags
+                    and not any(next_arg.startswith(f + "=") for f in known_val_flags)
+                ):
+                    new_argv.append(f"{arg}={next_arg}")
+                    i += 2
+                    continue
+        new_argv.append(arg)
+        i += 1
+    return new_argv
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Attune Unified Build & Packaging Orchestrator (CLI and GUI)"
@@ -1031,7 +1078,7 @@ def main():
         help="Run verification test suite before building/packaging",
     )
 
-    args = parser.parse_args()
+    args = parser.parse_args(preprocess_argv(sys.argv[1:]))
 
     # Determine whether to launch GUI:
     # If explicitly requested with --gui, or if no CLI step flags were passed AND DISPLAY is present and not --no-gui
@@ -1092,14 +1139,18 @@ def main():
     # CLI Pipeline Execution
     pub_ver, _ = get_pubspec_version()
     effective_ver = args.version if args.version else pub_ver
+    local_sfx = args.localversion or ""
+    if local_sfx and effective_ver.endswith(local_sfx):
+        effective_ver = effective_ver[:-len(local_sfx)]
+
     print("==============================================================================")
     print(" Attune Build & Packaging Orchestrator (Headless CLI)")
-    print(f" Target: {args.target} (effective: {target_os}) | Mode: {display_mode} | Version: '{effective_ver}' | Suffix: '{args.localversion}'")
+    print(f" Target: {args.target} (effective: {target_os}) | Mode: {display_mode} | Version: '{effective_ver}' | Suffix: '{local_sfx}'")
     print(" Distributed under the MIT License")
     print("==============================================================================")
 
     if args.set_tag:
-        apply_git_tag(effective_ver, args.localversion)
+        apply_git_tag(effective_ver, local_sfx)
 
     step = args.step
     if args.package and step != "all":
@@ -1116,8 +1167,8 @@ def main():
         print("\n--- [Step: Generate Patch Notes from Git Commits] ---")
         generate_patch_notes(
             max_commits=30,
-            localversion=args.localversion,
-            version_override=args.version,
+            localversion=local_sfx,
+            version_override=effective_ver,
         )
 
     all_artifacts = []
@@ -1132,8 +1183,8 @@ def main():
             etch_build_info(
                 target_os=target_os,
                 mode=cur_mode,
-                localversion=args.localversion,
-                version_override=args.version,
+                localversion=local_sfx,
+                version_override=effective_ver,
                 rust_version_override=args.rust_version,
             )
 
@@ -1151,9 +1202,9 @@ def main():
             artifacts = package_bundle(
                 target_os=target_os,
                 mode=cur_mode,
-                localversion=args.localversion,
+                localversion=local_sfx,
                 bundle_types=bundles,
-                version_override=args.version,
+                version_override=effective_ver,
             )
             all_artifacts.extend(artifacts)
 
