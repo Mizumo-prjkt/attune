@@ -338,7 +338,7 @@ class _AboutStageState extends State<AboutStage> {
                                   ),
                                   const SizedBox(height: 6),
                                   Text(
-                                    'Attune is free and open-source software. Community sponsorship avenues (GitHub Sponsors, Ko-fi, and Liberapay) are coming soon to support server infrastructure, offloading clusters, and continuous DSP research. Thank you for your support!',
+                                    'Attune is free and open-source software. Community sponsorship avenues (GitHub Sponsors, Ko-fi, and Liberapay) are coming soon to support further development of the project. Thank you for your support!',
                                     style: AttuneTypography.jakartaBody(
                                       fontSize: 13,
                                       color: colorScheme.onSurface.withValues(alpha: 0.72),

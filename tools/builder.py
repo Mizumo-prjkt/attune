@@ -108,6 +108,71 @@ def query_command(cmd):
         return None
 
 
+def find_android_sdk():
+    """Detects Android SDK path dynamically without hardcoding."""
+    for env_var in ["ANDROID_HOME", "ANDROID_SDK_ROOT"]:
+        val = os.environ.get(env_var)
+        if val and Path(val).exists():
+            return Path(val)
+    home = Path.home()
+    candidates = [
+        home / ".local" / "android" / "sdk",
+        home / "Android" / "Sdk",
+        home / "Library" / "Android" / "sdk",
+        Path("/usr/lib/android-sdk"),
+    ]
+    for c in candidates:
+        if c.exists():
+            return c
+    return None
+
+
+def find_android_ndk():
+    """Detects Android NDK installation path dynamically without hardcoding."""
+    candidates = []
+    for env_var in ["ANDROID_NDK_HOME", "NDK_HOME", "ANDROID_NDK_ROOT", "NDK_ROOT", "ANDROID_SDK_ROOT", "ANDROID_HOME"]:
+        val = os.environ.get(env_var)
+        if val:
+            candidates.append(Path(val))
+    home = Path.home()
+    candidates.extend([
+        home / ".local" / "android" / "sdk",
+        home / "Android" / "Sdk",
+        home / ".android-sdk",
+        Path("/opt/android-sdk"),
+        Path("/opt/android-ndk"),
+        home / "Library" / "Android" / "sdk",
+        Path("/usr/lib/android-sdk"),
+    ])
+    for c in candidates:
+        if not c.exists():
+            continue
+        if (c / "toolchains" / "llvm").exists():
+            return c
+        ndk_dir = c / "ndk"
+        if ndk_dir.exists() and ndk_dir.is_dir():
+            versions = sorted([p for p in ndk_dir.iterdir() if p.is_dir()], reverse=True)
+            for v in versions:
+                if (v / "toolchains" / "llvm").exists():
+                    return v
+    return None
+
+
+def get_ndk_llvm_bin(ndk_path):
+    """Returns the prebuilt LLVM bin directory inside the NDK."""
+    if not ndk_path:
+        return None
+    prebuilt_dir = ndk_path / "toolchains" / "llvm" / "prebuilt"
+    if not prebuilt_dir.exists():
+        return None
+    for host_dir in prebuilt_dir.iterdir():
+        bin_dir = host_dir / "bin"
+        if bin_dir.exists():
+            return bin_dir
+    return None
+
+
+
 def assess_toolchains():
     """Assesses host environment and required compilation toolchains."""
     results = {}
@@ -142,6 +207,27 @@ def assess_toolchains():
     results["dart"] = {
         "version": dart_ver or "Not Found",
         "status": dart_ver is not None,
+    }
+
+    # Java / JDK
+    java_ver = query_command(["javac", "-version"]) or query_command(["java", "-version"])
+    results["java"] = {
+        "version": java_ver or "Not Found",
+        "status": java_ver is not None,
+    }
+
+    # Android SDK & NDK
+    android_sdk = find_android_sdk()
+    results["android_sdk"] = {
+        "version": str(android_sdk) if android_sdk else "Not Found",
+        "status": android_sdk is not None,
+    }
+
+    android_ndk = find_android_ndk()
+    results["android_ndk"] = {
+        "version": str(android_ndk.name) if android_ndk else "Not Found",
+        "path": str(android_ndk) if android_ndk else None,
+        "status": android_ndk is not None,
     }
 
     # CMake & C/C++ Compiler
@@ -180,7 +266,7 @@ def assess_toolchains():
     return results
 
 
-def etch_build_info(mode="release", localversion="", version_override="", rust_version_override=""):
+def etch_build_info(target_os=None, mode="release", localversion="", version_override="", rust_version_override=""):
     """
     Etches compiler versions, environment variables, build flags, commit hash,
     and MIT licensing into apps/attune_app/assets/build_info.json.
@@ -190,6 +276,7 @@ def etch_build_info(mode="release", localversion="", version_override="", rust_v
     version = version_override if version_override else pub_ver
     rust_ffi_version = rust_version_override if rust_version_override else get_rust_crate_version("attune-ffi")
 
+    effective_target_os = (target_os or platform.system()).lower()
     toolchains = assess_toolchains()
 
     build_info = {
@@ -205,13 +292,15 @@ def etch_build_info(mode="release", localversion="", version_override="", rust_v
         "git_dirty": git_info["git_dirty"],
         "build_mode": mode.capitalize(),
         "build_timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
-        "target_os": platform.system().lower(),
-        "target_arch": platform.machine(),
+        "target_os": effective_target_os,
+        "target_arch": "universal (arm64/x86_64)" if effective_target_os == "android" else platform.machine(),
         "python_version": toolchains["python"]["version"],
         "compiler_rustc": toolchains["rustc"]["version"],
         "compiler_cargo": toolchains["cargo"]["version"],
         "compiler_flutter": toolchains["flutter"]["version"],
         "compiler_dart": toolchains["dart"]["version"],
+        "compiler_java": toolchains["java"]["version"],
+        "android_ndk": toolchains["android_ndk"]["version"],
         "ai_credits": "Gemini 3.8 Flash (Google Antigravity) & Claude Opus 5",
         "license": "MIT License",
         "license_disclaimer": (
@@ -264,7 +353,7 @@ def generate_patch_notes(max_commits=30, localversion="", version_override=""):
     return patch_notes_content
 
 
-def compile_rust(mode="release", log_callback=None):
+def compile_rust(mode="release", target_os=None, log_callback=None):
     """Compiles the native Rust DSP engine crate (attune-ffi)."""
     def log(msg):
         if log_callback:
@@ -272,7 +361,81 @@ def compile_rust(mode="release", log_callback=None):
         else:
             print(msg)
 
-    log(f"[Rust] Compiling attune-ffi in {mode} mode...")
+    effective_target_os = (target_os or platform.system()).lower()
+    log(f"[Rust] Compiling attune-ffi for {effective_target_os} in {mode} mode...")
+
+    if effective_target_os == "android":
+        ndk = find_android_ndk()
+        if not ndk:
+            raise RuntimeError("Android NDK not found. Set ANDROID_NDK_HOME, NDK_HOME, or install NDK via Android SDK manager.")
+        llvm_bin = get_ndk_llvm_bin(ndk)
+        if not llvm_bin:
+            raise RuntimeError(f"Could not locate LLVM toolchain binaries in NDK: {ndk}")
+
+        is_windows = platform.system() == "Windows"
+        ext = ".cmd" if is_windows else ""
+        ar_ext = ".exe" if is_windows else ""
+
+        # Android targets to cross-compile (API 26 is minimum required for AAudio / -laaudio support)
+        android_targets = [
+            ("aarch64-linux-android", "arm64-v8a", f"aarch64-linux-android26-clang{ext}", f"aarch64-linux-android26-clang++{ext}"),
+            ("x86_64-linux-android", "x86_64", f"x86_64-linux-android26-clang{ext}", f"x86_64-linux-android26-clang++{ext}"),
+        ]
+
+        produced = []
+        for rust_target, jni_abi, clang_name, clangpp_name in android_targets:
+            log(f"[Rust] Building Android target {rust_target} ({jni_abi})...")
+            clang_bin = llvm_bin / clang_name
+            clangpp_bin = llvm_bin / clangpp_name
+            ar_bin = llvm_bin / f"llvm-ar{ar_ext}"
+
+            if not clang_bin.exists():
+                raise FileNotFoundError(f"NDK clang tool not found: {clang_bin}")
+
+            target_snake = rust_target.replace("-", "_")
+            env = os.environ.copy()
+            env[f"CC_{target_snake}"] = str(clang_bin)
+            env[f"CXX_{target_snake}"] = str(clangpp_bin)
+            env[f"AR_{target_snake}"] = str(ar_bin)
+            env[f"CARGO_TARGET_{target_snake.upper()}_LINKER"] = str(clang_bin)
+
+            cmd = ["cargo", "build", "-p", "attune-ffi", "--target", rust_target]
+            if mode.lower() == "release":
+                cmd.append("--release")
+
+            proc = subprocess.Popen(
+                cmd,
+                cwd=REPO_ROOT,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                env=env,
+            )
+            for line in proc.stdout:
+                log(f"  [cargo-{jni_abi}] {line.rstrip()}")
+            proc.wait()
+            if proc.returncode != 0:
+                raise RuntimeError(f"Cargo build failed for {rust_target} with exit code {proc.returncode}")
+
+            so_path = REPO_ROOT / "target" / rust_target / mode.lower() / "libattune_engine.so"
+            if not so_path.exists():
+                raise FileNotFoundError(f"Android native library not produced at: {so_path}")
+
+            # Place in apps/attune_app/android/app/src/main/jniLibs/<jni_abi>/libattune_engine.so
+            jni_dir = REPO_ROOT / "apps" / "attune_app" / "android" / "app" / "src" / "main" / "jniLibs" / jni_abi
+            jni_dir.mkdir(parents=True, exist_ok=True)
+            dest_so = jni_dir / "libattune_engine.so"
+            shutil.copy2(so_path, dest_so)
+            log(f"[Rust] Copied {jni_abi} native library to: {dest_so}")
+            produced.append(dest_so)
+
+        # Also copy arm64-v8a to apps/attune_app/lib/ for generic fallback
+        dest_lib_dir = REPO_ROOT / "apps" / "attune_app" / "lib"
+        dest_lib_dir.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(produced[0], dest_lib_dir / "libattune_engine.so")
+        return produced[0]
+
+    # Host desktop build (linux, windows, macos)
     cmd = ["cargo", "build", "-p", "attune-ffi"]
     if mode.lower() == "release":
         cmd.append("--release")
@@ -297,9 +460,9 @@ def compile_rust(mode="release", log_callback=None):
     target_dir = REPO_ROOT / "target" / mode.lower()
     system = platform.system()
 
-    if system == "Linux":
+    if effective_target_os == "linux" or system == "Linux":
         lib_name = "libattune_engine.so"
-    elif system == "Windows":
+    elif effective_target_os == "windows" or system == "Windows":
         lib_name = "attune_engine.dll"
     elif system == "Darwin":
         lib_name = "libattune_engine.dylib"
@@ -320,17 +483,22 @@ def compile_rust(mode="release", log_callback=None):
 
 
 def compile_flutter(target_os="linux", mode="release", log_callback=None):
-    """Compiles Flutter desktop application."""
+    """Compiles Flutter application (desktop or Android APK)."""
     def log(msg):
         if log_callback:
             log_callback(msg)
         else:
             print(msg)
 
-    log(f"[Flutter] Compiling Flutter app for {target_os} in {mode} mode...")
+    effective_target_os = (target_os or platform.system()).lower()
+    log(f"[Flutter] Compiling Flutter app for {effective_target_os} in {mode} mode...")
     flutter_dir = REPO_ROOT / "apps" / "attune_app"
 
-    cmd = ["flutter", "build", target_os.lower(), f"--{mode.lower()}"]
+    if effective_target_os == "android":
+        cmd = ["flutter", "build", "apk", f"--{mode.lower()}"]
+    else:
+        cmd = ["flutter", "build", effective_target_os, f"--{mode.lower()}"]
+
     proc = subprocess.Popen(
         cmd,
         cwd=flutter_dir,
@@ -347,7 +515,7 @@ def compile_flutter(target_os="linux", mode="release", log_callback=None):
         raise RuntimeError(f"Flutter build failed with exit code {proc.returncode}")
 
     # After Flutter compilation, guarantee native library is bundled inside the bundle's lib/ directory
-    if target_os.lower() == "linux":
+    if effective_target_os == "linux":
         bundle_dir = flutter_dir / "build" / "linux" / "x64" / mode.lower() / "bundle"
         rust_lib = REPO_ROOT / "target" / mode.lower() / "libattune_engine.so"
         if bundle_dir.exists() and rust_lib.exists():
@@ -355,7 +523,7 @@ def compile_flutter(target_os="linux", mode="release", log_callback=None):
             bundle_lib_dir.mkdir(parents=True, exist_ok=True)
             shutil.copy2(rust_lib, bundle_lib_dir / "libattune_engine.so")
             log(f"[Flutter] Bundled {rust_lib.name} into {bundle_lib_dir}")
-    elif target_os.lower() == "windows":
+    elif effective_target_os == "windows":
         runner_dir = flutter_dir / "build" / "windows" / "x64" / "runner" / mode.capitalize()
         rust_dll = REPO_ROOT / "target" / mode.lower() / "attune_engine.dll"
         if runner_dir.exists() and rust_dll.exists():
@@ -364,8 +532,11 @@ def compile_flutter(target_os="linux", mode="release", log_callback=None):
             shutil.copy2(rust_dll, runner_lib_dir / "attune_engine.dll")
             shutil.copy2(rust_dll, runner_dir / "attune_engine.dll")
             log(f"[Flutter] Bundled {rust_dll.name} into {runner_dir}")
+    elif effective_target_os == "android":
+        apk_path = flutter_dir / "build" / "app" / "outputs" / "flutter-apk" / f"app-{mode.lower()}.apk"
+        log(f"[Flutter] Built Android APK at: {apk_path}")
 
-    log(f"[Flutter] Build completed successfully for {target_os}.")
+    log(f"[Flutter] Build completed successfully for {effective_target_os}.")
 
 
 def package_bundle(target_os="linux", mode="release", localversion="", bundle_types=None, version_override="", log_callback=None):
@@ -464,6 +635,26 @@ def package_bundle(target_os="linux", mode="release", localversion="", bundle_ty
                 proc.wait()
             else:
                 log("[Package] ISCC compiler not found; skipping Windows setup creation.")
+
+    elif target_os.lower() == "android":
+        flutter_dir = REPO_ROOT / "apps" / "attune_app"
+        apk_candidates = [
+            flutter_dir / "build" / "app" / "outputs" / "flutter-apk" / f"app-{mode.lower()}.apk",
+            flutter_dir / "build" / "app" / "outputs" / "flutter-apk" / "app-release.apk",
+            flutter_dir / "build" / "app" / "outputs" / "flutter-apk" / "app-debug.apk",
+        ]
+        found_apk = None
+        for apk in apk_candidates:
+            if apk.exists():
+                found_apk = apk
+                break
+        if found_apk:
+            dest_apk = dist_dir / f"Attune-{full_ver}-Android-{mode.capitalize()}.apk"
+            shutil.copy2(found_apk, dest_apk)
+            log(f"[Package] Copied Android APK: {dest_apk}")
+            artifacts.append(dest_apk)
+        else:
+            log(f"[Package] Warning: No compiled APK found at {apk_candidates[0]}")
 
     log(f"[Package] Completed packaging. Artifacts in {dist_dir}")
     return artifacts
@@ -576,7 +767,7 @@ def launch_gui():
     mode_var = tk.StringVar(value="release")
 
     tk.Label(target_card, text="Target OS:", bg=card_color, fg=fg_color).grid(row=0, column=0, sticky="w", pady=2)
-    cb_target = ttk.Combobox(target_card, textvariable=target_os_var, values=["linux", "windows"], width=10, state="readonly")
+    cb_target = ttk.Combobox(target_card, textvariable=target_os_var, values=["linux", "windows", "android"], width=10, state="readonly")
     cb_target.grid(row=0, column=1, sticky="w", padx=6, pady=2)
 
     tk.Label(target_card, text="Build Mode:", bg=card_color, fg=fg_color).grid(row=0, column=2, sticky="w", padx=(16, 0), pady=2)
@@ -607,8 +798,9 @@ def launch_gui():
         ver = ent_flutter_ver.get().strip()
         rver = ent_rust_ver.get().strip()
         m = mode_var.get()
-        info = etch_build_info(mode=m, localversion=loc, version_override=ver, rust_version_override=rver)
-        gui_log(f"Etched build info: v{info['full_version']} ({info['build_mode']}) commit {info['git_commit']}")
+        t = target_os_var.get()
+        info = etch_build_info(target_os=t, mode=m, localversion=loc, version_override=ver, rust_version_override=rver)
+        gui_log(f"Etched build info: v{info['full_version']} ({info['build_mode']}) target {t} commit {info['git_commit']}")
 
     def on_patch_notes():
         loc = ent_localver.get().strip()
@@ -618,9 +810,10 @@ def launch_gui():
 
     def on_compile_rust():
         m = mode_var.get()
+        t = target_os_var.get()
         try:
-            lib = compile_rust(mode=m, log_callback=gui_log)
-            gui_log(f"✓ Rust build succeeded: {lib}")
+            lib = compile_rust(mode=m, target_os=t, log_callback=gui_log)
+            gui_log(f"✓ Rust build succeeded for {t}: {lib}")
         except Exception as e:
             gui_log(f"✗ Rust build error: {e}")
 
@@ -643,9 +836,9 @@ def launch_gui():
         gui_log(f"Starting Full Attune Build: {t} {m} v{ver}{loc}")
         gui_log("==================================================")
         try:
-            etch_build_info(mode=m, localversion=loc, version_override=ver, rust_version_override=rver)
+            etch_build_info(target_os=t, mode=m, localversion=loc, version_override=ver, rust_version_override=rver)
             generate_patch_notes(max_commits=25, localversion=loc, version_override=ver)
-            compile_rust(mode=m, log_callback=gui_log)
+            compile_rust(mode=m, target_os=t, log_callback=gui_log)
             compile_flutter(target_os=t, mode=m, log_callback=gui_log)
             artifacts = package_bundle(target_os=t, mode=m, localversion=loc, version_override=ver, log_callback=gui_log)
             gui_log(f"🎉 Full build & packaging completed! Artifacts: {artifacts}")
@@ -718,7 +911,7 @@ def main():
     )
     parser.add_argument(
         "--target",
-        choices=["linux", "windows", "all"],
+        choices=["linux", "windows", "android", "all"],
         default=platform.system().lower(),
         help="Target platform operating system (default: current host OS)",
     )
@@ -788,6 +981,7 @@ def main():
     if step in ("all", "etch"):
         print("\n--- [Step: Etch Compiler Metadata into build_info.json] ---")
         etch_build_info(
+            target_os=args.target,
             mode=args.mode,
             localversion=args.localversion,
             version_override=args.version,
@@ -804,7 +998,7 @@ def main():
 
     if step in ("all", "rust"):
         print("\n--- [Step: Compile Native Rust DSP Engine] ---")
-        compile_rust(mode=args.mode)
+        compile_rust(mode=args.mode, target_os=args.target)
 
     if step in ("all", "flutter"):
         print("\n--- [Step: Compile Flutter Application] ---")

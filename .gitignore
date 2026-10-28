@@ -23,3 +23,11 @@ music/
 .idea/
 .vscode/
 *.swp
+
+# Build artifacts & Python cache
+dist/
+__pycache__/
+*.pyc
+tools/__pycache__/
+images/
+

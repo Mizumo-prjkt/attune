@@ -37,17 +37,22 @@ permissions:
 
 jobs:
   build:
-    name: Build (${{ matrix.os }} - ${{ matrix.mode }})
+    name: Build (${{ matrix.target }} - ${{ matrix.mode }})
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest]
+        target: [linux, windows, android]
         mode: [release, debug]
+        include:
+          - target: linux
+            os: ubuntu-latest
+          - target: windows
+            os: windows-latest
+          - target: android
+            os: ubuntu-latest
         exclude:
-          # On pull requests, only build release to preserve runner minutes
-          - mode: debug
-            is_pr: ${{ github.event_name == 'pull_request' }}
+          - mode: ${{ github.event_name == 'pull_request' && 'debug' || 'none' }}
 
     steps:
       - name: Checkout Code Repository (Full History for Patch Notes)
@@ -62,6 +67,8 @@ jobs:
 
       - name: Setup Rust Stable Toolchain
         uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target == 'android' && 'aarch64-linux-android,x86_64-linux-android' || '' }}
 
       - name: Setup Flutter SDK
         uses: subosito/flutter-action@v2
@@ -69,8 +76,21 @@ jobs:
           channel: 'stable'
           cache: true
 
+      - name: Setup Java (Android)
+        if: matrix.target == 'android'
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+
+      - name: Setup Android NDK
+        if: matrix.target == 'android'
+        run: |
+          echo "y" | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager "ndk;27.0.12077973"
+          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/27.0.12077973" >> $GITHUB_ENV
+
       - name: Install Linux Build Dependencies (Ubuntu)
-        if: runner.os == 'Linux'
+        if: runner.os == 'Linux' && matrix.target == 'linux'
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
@@ -92,13 +112,12 @@ jobs:
       - name: Run Attune Unified Build & Packaging Orchestrator
         shell: bash
         run: |
-          TARGET_OS=$(echo "${{ runner.os }}" | tr '[:upper:]' '[:lower:]')
           LOCAL_VER="${{ github.event.inputs.localversion || '' }}"
           VER_OVERRIDE="${{ github.event.inputs.version_override || '' }}"
           RUST_VER_OVERRIDE="${{ github.event.inputs.rust_version_override || '' }}"
           python tools/builder.py \
             --no-gui \
-            --target "${TARGET_OS}" \
+            --target "${{ matrix.target }}" \
             --mode "${{ matrix.mode }}" \
             --version "${VER_OVERRIDE}" \
             --rust-version "${RUST_VER_OVERRIDE}" \
@@ -108,7 +127,7 @@ jobs:
       - name: Upload Build Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: attune-${{ runner.os }}-${{ matrix.mode }}
+          name: attune-${{ matrix.target }}-${{ matrix.mode }}
           path: |
             dist/**/*
             patch_notes.txt

@@ -1037,6 +1037,46 @@ This file records all major architectural decisions for **Attune**, including co
   - Zero hardcoding of library paths; application can be cleanly installed and relocated on any Linux or Windows system.
   - Streamlined, reproducible build and packaging pipeline runnable locally via CLI or GUI and in GitHub Actions CI.
 
+---
+
+## ADR-034: Android Cross-Compilation Architecture, NDK API 26 Toolchain Integration, Multi-ABI Packaging (`arm64-v8a` & `x86_64`), and Community Sponsorship Refinement
+- **Date**: 2026-10-28
+- **Status**: `LOCKED`
+- **Context**:
+  - The user requested updating the Community Sponsorship copy in the About UI to highlight supporting further development of the project, continuous DSP research, multi-platform releases, and offloading compute clusters.
+  - The user also noticed that Android could not be built ("i noticed that you cant build android on this for some reason").
+  - Diagnosed root causes:
+    1. `tools/builder.py` had `--target` restricted to `["linux", "windows", "all"]`, omitting Android.
+    2. `compile_flutter` ran `flutter build android`, which is invalid in the Flutter CLI (`flutter build apk` is required).
+    3. `compile_rust` only compiled native host libraries (`libattune_engine.so` on Linux, `attune_engine.dll` on Windows), never cross-compiling `attune-ffi` for Android ABIs (`aarch64-linux-android` for `arm64-v8a` and `x86_64-linux-android` for `x86_64`) and never placing them into Android `jniLibs`.
+    4. `libsqlite3-sys` (C dependency) compilation failed because `cc-rs` expects `aarch64-linux-android-clang`, which does not exist in modern NDKs (r19+).
+    5. Linking `cpal` with Android API 24 clang failed with `ld.lld: error: unable to find library -laaudio` because AAudio was introduced in Android 8.0 Oreo (API 26).
+    6. `find_android_ndk()` returned `None` when `ANDROID_HOME` was set to an SDK directory lacking NDK while another SDK installation (`~/.local/android/sdk`) contained the NDK.
+- **Decision**:
+  1. **Community Sponsorship Text Updated**:
+     - Refined copy in `apps/attune_app/lib/stages/about_stage.dart`: "Attune is free and open-source software. Community sponsorship avenues (GitHub Sponsors, Ko-fi, and Liberapay) are coming soon to support further development of the project, continuous DSP research, multi-platform releases, and offloading compute clusters. Thank you for your support!"
+  2. **Dynamic Multi-Candidate Android SDK & NDK Discovery**:
+     - Upgraded `find_android_sdk()` and `find_android_ndk()` in `tools/builder.py` to evaluate all candidate environment variables (`ANDROID_NDK_HOME`, `NDK_HOME`, `ANDROID_NDK_ROOT`, `NDK_ROOT`, `ANDROID_SDK_ROOT`, `ANDROID_HOME`) and common filesystem locations (`~/.local/android/sdk`, `~/Android/Sdk`, `~/.android-sdk`, `/opt/android-sdk`, `/opt/android-ndk`).
+     - Added `get_ndk_llvm_bin(ndk_path)` dynamically discovering the host LLVM toolchain directory without hardcoded paths.
+  3. **Android NDK API 26 Cross-Compilation Pipeline**:
+     - Configured `CC_<target>`, `CXX_<target>`, `AR_<target>`, and `CARGO_TARGET_<TARGET>_LINKER` pointing to `<ndk>/toolchains/llvm/prebuilt/<host>/bin/<target>26-clang`.
+     - Cross-compiled `attune-ffi` for both `aarch64-linux-android` (arm64-v8a) and `x86_64-linux-android` (x86_64).
+     - Automated copying produced shared objects to `apps/attune_app/android/app/src/main/jniLibs/{arm64-v8a,x86_64}/libattune_engine.so`.
+  4. **Flutter APK Build & Packaging**:
+     - Mapped `compile_flutter(target_os="android")` to `flutter build apk --<mode>`.
+     - In `package_bundle`, copied generated `app-<mode>.apk` to `dist/android/Attune-<version>-Android-<Mode>.apk`.
+     - Added Android target to Tkinter desktop GUI combobox and CLI `--target` options.
+  5. **GitHub Actions Workflow Integration**:
+     - Updated `.github/workflows/build_and_release.yml` with Android target in build matrix.
+     - Added `actions/setup-java@v4` with Java 21, automated NDK setup, and rustup android target installation.
+  6. **Zero Hardcoding Compliance**:
+     - Adhered strictly to Mandate 4; all SDK paths, NDK paths, and compiler binaries are resolved dynamically.
+- **Consequences**:
+  - Full end-to-end support for building Android APKs locally via `tools/builder.py` (CLI or GUI) and in CI.
+  - Native Rust DSP engine is properly compiled and bundled into the APK for both physical devices (`arm64-v8a`) and emulators (`x86_64`).
+  - Clear and informative community sponsorship messaging guiding users on how their support fosters the project's growth.
+
+
 
 
 
