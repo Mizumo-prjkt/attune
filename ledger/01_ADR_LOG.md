@@ -1076,6 +1076,45 @@ This file records all major architectural decisions for **Attune**, including co
   - Native Rust DSP engine is properly compiled and bundled into the APK for both physical devices (`arm64-v8a`) and emulators (`x86_64`).
   - Clear and informative community sponsorship messaging guiding users on how their support fosters the project's growth.
 
+---
+
+## ADR-035: In-App GitHub Releases Update Architecture, Showcase Screenshot Integration, Grounded README Documentation, and Simultaneous Dual-Mode (Release & Debug) Distribution Pipeline
+- **Date**: 2026-10-28
+- **Status**: `LOCKED`
+- **Context**:
+  - Community contributors and users requested simultaneous availability of both `release` and `debug` targets during a single build session or GitHub release (`--mode both`). Debug builds provide unstripped symbols, assertion tracing, and verbose logging, allowing active users to test bleeding-edge branches, diagnose DSP playback issues, and contribute bug reports.
+  - An in-app update fetch mechanism was needed to query GitHub Releases API (`/repos/Mizumo-prjkt/attune/releases/latest`), parse semantic version tags, compare them against the locally etched `build_info.json` metadata, and surface release notes alongside direct asset downloads (for both release packages and contributor debug packages).
+  - The user created `screenshot_showcase/` containing five screenshots of the running application and requested crafting a complete `README.md` that does not oversell the project and accurately reflects its capabilities.
+- **Decision**:
+  1. **Simultaneous Dual-Mode Pipeline in `tools/builder.py`**:
+     - Extended `--mode` argument to accept `["release", "debug", "both"]`.
+     - In both the headless CLI and Tkinter GUI studio (`launch_gui`), selecting `both` iterates sequentially through `["debug", "release"]`, etching mode-specific metadata into `build_info.json`, compiling Rust FFI libraries, compiling Flutter targets, and generating standalone distribution packages into `dist/<target_os>/`.
+     - Updated `.github/workflows/build_and_release.yml` with `both` as default workflow dispatch input and matrix handling.
+  2. **In-App Update Service (`UpdateService`)**:
+     - Engineered `apps/attune_app/lib/services/update_service.dart` utilizing Dart's standard library `dart:io` `HttpClient`, avoiding third-party dependency conflicts or bloat.
+     - Implemented `compareSemanticVersions(current, remote)` supporting semantic versioning comparison and pre-release tag parsing.
+     - Implemented `ReleaseAsset.fromJson` and `UpdateInfo.fromJson` to automatically categorize assets into host platform targets (`linux`, `windows`, `android`) and identify debug vs. release binaries (`asset.isDebug`).
+     - Added native OS URL launcher fallback (`xdg-open` on Linux, `start` on Windows, `open` on macOS, and `am start` on Android).
+     - Verified with comprehensive unit test suite in `apps/attune_app/test/update_service_test.dart`.
+  3. **GitHub Releases & Updates Card in `AboutStage`**:
+     - Integrated `_buildUpdateCard` into `apps/attune_app/lib/stages/about_stage.dart`.
+     - Displays installed version status, "Check for Updates" trigger with spinner, expandable changelog, and one-click download chips categorized into production releases and contributor debug packages.
+  4. **Grounded Project Documentation (`README.md`)**:
+     - Crafted an honest, non-overselling `README.md` incorporating the screenshots from `screenshot_showcase/`:
+       * `image_1.png`: Library & Multi-Deck Transition Queue
+       * `image_2.png`: Now Playing Stage & Liquid Glass Visuals
+       * `image_3.png`: Syllable-Synchronized Karaoke & LRC Lyrics Engine
+       * `image_4.png`: Albums & Artists Collection Browser
+       * `image_5.png`: Audiophile Telemetry & Transition Statistics
+     - Detailed the 5-layer DSP analysis pipeline, 10-band graphic EQ master rack, dual-mode build instructions, Knowledge Ledger protocol, and transparent AI collaboration disclosure.
+  5. **Zero Hardcoding Compliance**:
+     - All API endpoints, asset categorizations, system tools, and version strings are resolved dynamically.
+- **Consequences**:
+  - Contributors can easily build, distribute, and obtain debug builds for testing alongside optimized release packages.
+  - Users receive instant in-app awareness of new releases without needing external web scrapers or manual URL lookups.
+  - Documentation is professional, accurate, and completely grounded in verified codebase capabilities.
+
+
 
 
 

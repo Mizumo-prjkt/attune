@@ -1,9 +1,10 @@
 Attune Release Patch Notes - Version 0.1.0 (Tag: v0.1.0)
-Built on 2026-10-28 09:33:12 (Commit 8c88127 on branch main)
+Built on 2026-10-28 09:45:12 (Commit 4dc9777 on branch main)
 Distributed under the MIT License
 ==============================================================================
 
 Recent Git Commits:
+* feat(packaging): replace kernel terminology with suffix version ID, simplify GUI inputs, and configure tag setting (4dc9777) - Mizumo-prjkt, 2026-10-28
 * feat: add Android cross-compilation pipeline, NDK API 26 toolchain, and refine sponsorship copy (8c88127) - Mizumo-prjkt, 2026-10-28
 * feat(ci): add version ID and rust version overrides to workflow_dispatch and builder pipeline (fbbd72d) - Mizumo-prjkt, 2026-10-28
 * chore: synchronize build_info.json and patch_notes.txt with clean git history (2612258) - Mizumo-prjkt, 2026-10-28
@@ -33,5 +34,4 @@ Recent Git Commits:
 * feat(ui,ffi): implement Phase 4 Flutter frontend with Multi-Activity Android Predictive Back and Rust C-ABI engine bridge (54a9153) - Mizumo-prjkt, 2026-10-27
 * docs(ledger,ui): lock ADR-012 and Phase 4 Liquid Material Glass UI specification (f5f013d) - Mizumo-prjkt, 2026-10-27
 * feat(cache,node): implement Phase 3 portable cache, pack bundling, and external compute node sync (cfcb2e4) - Mizumo-prjkt, 2026-10-27
-* fix(planner,engine): vocal integrity protection, decaying reverb spillover, and multi-genre rock/pop verification (0980fa0) - Mizumo-prjkt, 2026-10-27
 

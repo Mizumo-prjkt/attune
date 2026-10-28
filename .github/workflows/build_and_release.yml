@@ -9,11 +9,12 @@ on:
   workflow_dispatch:
     inputs:
       build_mode:
-        description: 'Compilation Mode (release or debug)'
+        description: 'Compilation Mode (release, debug, or both)'
         required: true
-        default: 'release'
+        default: 'both'
         type: choice
         options:
+          - both
           - release
           - debug
       version_override:
@@ -52,7 +53,7 @@ jobs:
           - target: android
             os: ubuntu-latest
         exclude:
-          - mode: ${{ github.event_name == 'pull_request' && 'debug' || 'none' }}
+          - mode: ${{ github.event_name == 'pull_request' && 'debug' || (inputs.build_mode == 'release' && 'debug' || (inputs.build_mode == 'debug' && 'release' || 'none')) }}
 
     steps:
       - name: Checkout Code Repository (Full History for Patch Notes)

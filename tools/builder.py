@@ -812,6 +812,7 @@ def launch_gui():
     tk.Label(target_card, text="Build Mode:", bg=card_color, fg=fg_color).grid(row=0, column=2, sticky="w", padx=(16, 0), pady=2)
     tk.Radiobutton(target_card, text="Release", variable=mode_var, value="release", bg=card_color, fg=fg_color, selectcolor="#2D3748").grid(row=0, column=3, sticky="w", padx=4)
     tk.Radiobutton(target_card, text="Debug", variable=mode_var, value="debug", bg=card_color, fg=fg_color, selectcolor="#2D3748").grid(row=0, column=4, sticky="w", padx=4)
+    tk.Radiobutton(target_card, text="Both (Release & Debug)", variable=mode_var, value="both", bg=card_color, fg=fg_color, selectcolor="#2D3748").grid(row=0, column=5, sticky="w", padx=4)
 
     # Action Buttons Toolbar
     btn_frame = tk.Frame(main_frame, bg=bg_color)
@@ -837,8 +838,10 @@ def launch_gui():
         ver = ent_override_ver.get().strip()
         m = mode_var.get()
         t = target_os_var.get()
-        info = etch_build_info(target_os=t, mode=m, localversion=loc, version_override=ver, rust_version_override=ver)
-        gui_log(f"Etched build info: v{info['full_version']} ({info['build_mode']}) target {t} commit {info['git_commit']}")
+        modes = ["debug", "release"] if m == "both" else [m]
+        for sub_m in modes:
+            info = etch_build_info(target_os=t, mode=sub_m, localversion=loc, version_override=ver, rust_version_override=ver)
+            gui_log(f"Etched build info ({sub_m}): v{info['full_version']} target {t} commit {info['git_commit']}")
 
     def on_patch_notes():
         loc = ent_suffix_ver.get().strip()
@@ -851,18 +854,22 @@ def launch_gui():
     def on_compile_rust():
         m = mode_var.get()
         t = target_os_var.get()
+        modes = ["debug", "release"] if m == "both" else [m]
         try:
-            lib = compile_rust(mode=m, target_os=t, log_callback=gui_log)
-            gui_log(f"✓ Rust build succeeded for {t}: {lib}")
+            for sub_m in modes:
+                lib = compile_rust(mode=sub_m, target_os=t, log_callback=gui_log)
+                gui_log(f"✓ Rust build succeeded for {t} ({sub_m}): {lib}")
         except Exception as e:
             gui_log(f"✗ Rust build error: {e}")
 
     def on_compile_flutter():
         m = mode_var.get()
         t = target_os_var.get()
+        modes = ["debug", "release"] if m == "both" else [m]
         try:
-            compile_flutter(target_os=t, mode=m, log_callback=gui_log)
-            gui_log(f"✓ Flutter build succeeded for {t} ({m}).")
+            for sub_m in modes:
+                compile_flutter(target_os=t, mode=sub_m, log_callback=gui_log)
+                gui_log(f"✓ Flutter build succeeded for {t} ({sub_m}).")
         except Exception as e:
             gui_log(f"✗ Flutter build error: {e}")
 
@@ -871,18 +878,23 @@ def launch_gui():
         ver = ent_override_ver.get().strip()
         m = mode_var.get()
         t = target_os_var.get()
+        modes = ["debug", "release"] if m == "both" else [m]
         gui_log("==================================================")
         gui_log(f"Starting Full Attune Build: {t} {m} v{ver}{loc}")
         gui_log("==================================================")
         try:
-            etch_build_info(target_os=t, mode=m, localversion=loc, version_override=ver, rust_version_override=ver)
             generate_patch_notes(max_commits=25, localversion=loc, version_override=ver)
             if set_tag_var.get() and ver:
                 apply_git_tag(ver, loc, log_func=gui_log)
-            compile_rust(mode=m, target_os=t, log_callback=gui_log)
-            compile_flutter(target_os=t, mode=m, log_callback=gui_log)
-            artifacts = package_bundle(target_os=t, mode=m, localversion=loc, version_override=ver, log_callback=gui_log)
-            gui_log(f"🎉 Full build & packaging completed! Artifacts: {artifacts}")
+            all_artifacts = []
+            for sub_m in modes:
+                gui_log(f"\n--- [Pipeline Mode: {sub_m.upper()}] ---")
+                etch_build_info(target_os=t, mode=sub_m, localversion=loc, version_override=ver, rust_version_override=ver)
+                compile_rust(mode=sub_m, target_os=t, log_callback=gui_log)
+                compile_flutter(target_os=t, mode=sub_m, log_callback=gui_log)
+                artifacts = package_bundle(target_os=t, mode=sub_m, localversion=loc, version_override=ver, log_callback=gui_log)
+                all_artifacts.extend(artifacts)
+            gui_log(f"\n🎉 Full build & packaging completed! Artifacts ({len(all_artifacts)}): {all_artifacts}")
         except Exception as e:
             gui_log(f"❌ Build failed: {e}")
 
@@ -958,9 +970,9 @@ def main():
     )
     parser.add_argument(
         "--mode",
-        choices=["release", "debug"],
+        choices=["release", "debug", "both"],
         default="release",
-        help="Compilation mode (default: release)",
+        help="Compilation mode (release, debug, or both; default: release)",
     )
     parser.add_argument(
         "--version",
@@ -1019,6 +1031,7 @@ def main():
         apply_git_tag(effective_ver, args.localversion)
 
     step = args.step
+    modes = ["debug", "release"] if args.mode == "both" else [args.mode]
 
     if step in ("all", "assess"):
         print("\n--- [Step: Assess Toolchains] ---")
@@ -1026,16 +1039,6 @@ def main():
         for k, v in toolchains.items():
             status = "✓ OK" if v.get("status") else "✗ MISSING"
             print(f"  [{status}] {k:15}: {v.get('version')}")
-
-    if step in ("all", "etch"):
-        print("\n--- [Step: Etch Compiler Metadata into build_info.json] ---")
-        etch_build_info(
-            target_os=args.target,
-            mode=args.mode,
-            localversion=args.localversion,
-            version_override=args.version,
-            rust_version_override=args.rust_version,
-        )
 
     if step in ("all", "patchnotes"):
         print("\n--- [Step: Generate Patch Notes from Git Commits] ---")
@@ -1045,26 +1048,46 @@ def main():
             version_override=args.version,
         )
 
-    if step in ("all", "rust"):
-        print("\n--- [Step: Compile Native Rust DSP Engine] ---")
-        compile_rust(mode=args.mode, target_os=args.target)
+    all_artifacts = []
+    for cur_mode in modes:
+        if len(modes) > 1:
+            print("\n==============================================================================")
+            print(f" Executing Pipeline Phase: Mode = {cur_mode.upper()} | Target = {args.target}")
+            print("==============================================================================")
 
-    if step in ("all", "flutter"):
-        print("\n--- [Step: Compile Flutter Application] ---")
-        compile_flutter(target_os=args.target, mode=args.mode)
+        if step in ("all", "etch"):
+            print(f"\n--- [Step: Etch Compiler Metadata into build_info.json ({cur_mode})] ---")
+            etch_build_info(
+                target_os=args.target,
+                mode=cur_mode,
+                localversion=args.localversion,
+                version_override=args.version,
+                rust_version_override=args.rust_version,
+            )
+
+        if step in ("all", "rust"):
+            print(f"\n--- [Step: Compile Native Rust DSP Engine ({cur_mode})] ---")
+            compile_rust(mode=cur_mode, target_os=args.target)
+
+        if step in ("all", "flutter"):
+            print(f"\n--- [Step: Compile Flutter Application ({cur_mode})] ---")
+            compile_flutter(target_os=args.target, mode=cur_mode)
+
+        if step in ("all", "package"):
+            print(f"\n--- [Step: Package Standalone Bundles ({cur_mode})] ---")
+            bundles = [args.bundle] if args.bundle != "all" else ["all"]
+            artifacts = package_bundle(
+                target_os=args.target,
+                mode=cur_mode,
+                localversion=args.localversion,
+                bundle_types=bundles,
+                version_override=args.version,
+            )
+            all_artifacts.extend(artifacts)
 
     if step in ("all", "package"):
-        print("\n--- [Step: Package Standalone Bundles] ---")
-        bundles = [args.bundle] if args.bundle != "all" else ["all"]
-        artifacts = package_bundle(
-            target_os=args.target,
-            mode=args.mode,
-            localversion=args.localversion,
-            bundle_types=bundles,
-            version_override=args.version,
-        )
-        print(f"\nSuccessfully generated {len(artifacts)} build artifact(s):")
-        for art in artifacts:
+        print(f"\nSuccessfully generated {len(all_artifacts)} build artifact(s):")
+        for art in all_artifacts:
             print(f"  -> {art}")
 
     print("\n[Done] Attune pipeline completed successfully.")

@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../services/engine_bridge.dart';
+import '../services/update_service.dart';
 import '../theme/color_engine.dart';
 import '../theme/liquid_glass.dart';
 import '../theme/typography.dart';
@@ -23,11 +24,31 @@ class AboutStage extends StatefulWidget {
 class _AboutStageState extends State<AboutStage> {
   Map<String, dynamic>? _buildInfo;
   bool _isLoadingBuildInfo = true;
+  bool _isCheckingUpdate = false;
+  UpdateCheckResult? _updateResult;
 
   @override
   void initState() {
     super.initState();
     _loadBuildInfo();
+  }
+
+  Future<void> _checkForUpdates(String currentVersion, String currentSuffix) async {
+    setState(() {
+      _isCheckingUpdate = true;
+    });
+
+    final res = await UpdateService.instance.checkForUpdates(
+      currentVersion: currentVersion,
+      currentSuffix: currentSuffix,
+    );
+
+    if (mounted) {
+      setState(() {
+        _isCheckingUpdate = false;
+        _updateResult = res;
+      });
+    }
   }
 
   Future<void> _loadBuildInfo() async {
@@ -185,6 +206,12 @@ class _AboutStageState extends State<AboutStage> {
                           ],
                         ),
                       ),
+
+                      const SizedBox(height: 24),
+
+                      // SECTION 0: GITHUB RELEASES & IN-APP UPDATES
+                      _buildSectionTitle('GITHUB RELEASES & UPDATES', colorScheme),
+                      _buildUpdateCard(colorScheme, fullVersionString, appVersion, localVersion),
 
                       const SizedBox(height: 24),
 
@@ -572,6 +599,213 @@ class _AboutStageState extends State<AboutStage> {
           ),
         ),
       ],
+    );
+  }
+
+  Widget _buildUpdateCard(ColorScheme colorScheme, String fullVersionString, String appVersion, String localVersion) {
+    final status = _updateResult?.status ?? UpdateStatus.idle;
+    final info = _updateResult?.updateInfo;
+
+    return LiquidGlassContainer(
+      borderRadius: 22,
+      surfaceAlpha: 0.14,
+      padding: const EdgeInsets.all(18.0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: (status == UpdateStatus.updateAvailable
+                          ? colorScheme.primary
+                          : colorScheme.secondary)
+                      .withValues(alpha: 0.2),
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(
+                  status == UpdateStatus.updateAvailable
+                      ? Icons.system_update_rounded
+                      : Icons.cloud_sync_rounded,
+                  color: status == UpdateStatus.updateAvailable
+                      ? colorScheme.primary
+                      : colorScheme.secondary,
+                  size: 20,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'App Updates & Releases',
+                      style: AttuneTypography.soraSubheading(
+                        fontSize: 14,
+                        color: colorScheme.onSurface,
+                      ),
+                    ),
+                    Text(
+                      'Currently on $fullVersionString',
+                      style: AttuneTypography.jakartaBody(
+                        fontSize: 12,
+                        color: colorScheme.onSurface.withValues(alpha: 0.6),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              if (_isCheckingUpdate)
+                const SizedBox(
+                  width: 20,
+                  height: 20,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              else
+                OutlinedButton.icon(
+                  style: OutlinedButton.styleFrom(
+                    side: BorderSide(color: colorScheme.primary.withValues(alpha: 0.5)),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  ),
+                  icon: const Icon(Icons.refresh_rounded, size: 16),
+                  label: Text('Check', style: AttuneTypography.soraTitleSmall(fontSize: 12, color: colorScheme.primary)),
+                  onPressed: () => _checkForUpdates(appVersion, localVersion),
+                ),
+            ],
+          ),
+          if (_updateResult != null) ...[
+            const SizedBox(height: 14),
+            const Divider(height: 1, color: Colors.white10),
+            const SizedBox(height: 14),
+            if (status == UpdateStatus.updateAvailable && info != null) ...[
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: colorScheme.primary.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(color: colorScheme.primary.withValues(alpha: 0.3)),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Icon(Icons.new_releases_rounded, color: colorScheme.primary, size: 18),
+                        const SizedBox(width: 8),
+                        Text(
+                          'New Release Available: ${info.tagName}',
+                          style: AttuneTypography.soraTitleSmall(
+                            fontSize: 13,
+                            color: colorScheme.primary,
+                          ),
+                        ),
+                      ],
+                    ),
+                    if (info.releaseNotes.isNotEmpty) ...[
+                      const SizedBox(height: 6),
+                      Text(
+                        info.releaseNotes,
+                        maxLines: 4,
+                        overflow: TextOverflow.ellipsis,
+                        style: AttuneTypography.jakartaBody(
+                          fontSize: 12,
+                          color: colorScheme.onSurface.withValues(alpha: 0.8),
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+              const SizedBox(height: 12),
+              // Downloadable Assets List (Release + Debug for contributors)
+              if (info.hostPlatformAssets.isNotEmpty) ...[
+                Text(
+                  'Available Downloads for your OS (Release & Debug for Contributors):',
+                  style: AttuneTypography.jakartaBodySmall(
+                    fontSize: 11,
+                    color: colorScheme.onSurface.withValues(alpha: 0.7),
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: info.hostPlatformAssets.map((asset) {
+                    return ActionChip(
+                      avatar: Icon(
+                        asset.isDebug ? Icons.bug_report_outlined : Icons.download_rounded,
+                        size: 16,
+                        color: asset.isDebug ? Colors.orangeAccent : colorScheme.primary,
+                      ),
+                      label: Text(
+                        '${asset.name} (${asset.formattedSize})',
+                        style: AttuneTypography.jakartaBody(
+                          fontSize: 11,
+                          color: Colors.white,
+                        ),
+                      ),
+                      backgroundColor: Colors.white.withValues(alpha: 0.08),
+                      side: BorderSide(
+                        color: asset.isDebug
+                            ? Colors.orangeAccent.withValues(alpha: 0.4)
+                            : colorScheme.primary.withValues(alpha: 0.4),
+                      ),
+                      onPressed: () => UpdateService.openReleaseUrl(asset.downloadUrl),
+                    );
+                  }).toList(),
+                ),
+                const SizedBox(height: 10),
+              ],
+              TextButton.icon(
+                icon: const Icon(Icons.open_in_browser_rounded, size: 16),
+                label: const Text('Open Release on GitHub'),
+                onPressed: () => UpdateService.openReleaseUrl(info.htmlUrl),
+              ),
+            ] else if (status == UpdateStatus.upToDate) ...[
+              Row(
+                children: [
+                  const Icon(Icons.check_circle_rounded, color: Colors.greenAccent, size: 18),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      _updateResult?.message ?? 'Attune is up to date.',
+                      style: AttuneTypography.jakartaBody(fontSize: 12, color: Colors.greenAccent),
+                    ),
+                  ),
+                ],
+              ),
+            ] else if (status == UpdateStatus.noReleasesFound) ...[
+              Row(
+                children: [
+                  const Icon(Icons.info_outline_rounded, color: Colors.white70, size: 18),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'No GitHub releases have been published yet for this repository.',
+                      style: AttuneTypography.jakartaBody(fontSize: 12, color: Colors.white70),
+                    ),
+                  ),
+                ],
+              ),
+            ] else if (status == UpdateStatus.error) ...[
+              Row(
+                children: [
+                  const Icon(Icons.error_outline_rounded, color: Colors.redAccent, size: 18),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      _updateResult?.message ?? 'Failed to check updates.',
+                      style: AttuneTypography.jakartaBody(fontSize: 12, color: Colors.redAccent),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ],
+        ],
+      ),
     );
   }
 }
