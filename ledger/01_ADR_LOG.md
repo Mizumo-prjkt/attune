@@ -1266,6 +1266,45 @@ This file records all major architectural decisions for **Attune**, including co
   - Clean separation of concerns: `AppEnvironmentDelegator` manages platform/OS filesystem semantics, while `AudioStorageService` focuses purely on audio metadata parsing and library caching.
   - Deterministic and hermetic testing via injectable delegator instances.
 
+---
+
+## ADR-040: C-ABI FFI Panic Protection, Native Android Logcat Logging, AAudio Buffer Adaptation & Non-Blocking Startup Architecture
+
+- **Date**: 2026-10-28
+- **Status**: `LOCKED` (Implemented & Verified)
+- **Context**:
+  - The Android app previously crashed during launch on physical devices with a logcat dump showing recursive 511+ frame call loops culminating in `signal 6 (Aborted)`:
+    `pc 000000000056eee0 /data/app/~~.../org.mizproject.attune-.../base.apk (BuildId: 4fdb9115d022abcf18cada65de0e3460)`
+  - Root cause analysis identified multiple failure vectors during Android cold-boot:
+    1. **Rust FFI Panic Propagation**: In Rust, unwinding a panic across an `extern "C"` boundary without `catch_unwind` triggers an immediate `std::process::abort()` (SIGABRT). Any failure inside `AudioOutputDriver::new(...)` (e.g. audio device initialization failure, permission issues, or unsupported hardware buffer sizes) crashed the host process instantly.
+    2. **Rigid AAudio Buffer Size**: `crates/attune-core/src/engine/driver.rs` hardcoded `cpal::BufferSize::Fixed(2048)`. On Android AAudio backends, requesting fixed non-native buffer sizes can cause stream initialization rejection or severe underruns.
+    3. **Android Logcat Blindness**: Rust `log` macros (`log::info!`, `log::warn!`, `log::error!`) wrote to standard output/error, which are invisible or suppressed in Android logcat, preventing real-time device debugging.
+    4. **Synchronous Blocking Startup & Permission Race**: `PlaybackController` ran synchronous filesystem scans of `/storage/emulated/0` during singleton construction before Android runtime storage permissions were requested or granted.
+    5. **Minimum SDK Symbol Parity**: `minSdk = 24` was below Android 8.0 (API 26), where AAudio became standard and fully supported.
+- **Decision**:
+  1. **Comprehensive C-ABI Panic Guards (`crates/attune-ffi/src/lib.rs`)**:
+     - Enclosed all exported `pub extern "C"` functions (`attune_init`, `attune_player_start`, `attune_player_load_track`, `attune_player_play`, `attune_player_pause`, `attune_player_seek`, `attune_player_trigger_transition`, `attune_player_get_state`, `attune_player_stop`, `attune_profile_file`, `attune_plan_transition`, `attune_cache_stats`, `attune_master_fx_*`, `attune_probe_external_dsp`) in `std::panic::catch_unwind`.
+     - In `attune_player_start()`, wrapped audio driver instantiation in `catch_unwind`. If hardware audio initialization fails, it logs an error and falls back gracefully to headless mixer mode (`return 1`) rather than aborting the process.
+  2. **Zero-Dependency Native Android Logcat Logger**:
+     - Implemented `android_log` inside `crates/attune-ffi/src/lib.rs` binding directly to `__android_log_write` from Android's native `liblog.so`.
+     - Automatically initialized during `attune_init()` when `target_os = "android"`.
+     - Directs all Rust engine logs to logcat under the tag `AttuneEngine` (`adb logcat -s AttuneEngine:V`).
+  3. **Adaptive AAudio Buffer Sizing (`crates/attune-core/src/engine/driver.rs`)**:
+     - Added `#[cfg(not(target_os = "android"))]` to the fixed 2048-frame buffer override. On Android, AAudio uses its default low-latency burst size (`cpal::BufferSize::Default`), preventing device stream rejections.
+  4. **Non-Blocking Startup & Permission Safety (`apps/attune_app/lib/services/`)**:
+     - Split `PlaybackController` initialization into synchronous immediate cache loading (`_loadCachedTracksImmediately()`) and deferred background scanning (`_initialStartupScan()`) scheduled via `Future.microtask`.
+     - On Android, `_initialStartupScan()` checks `PlatformPermissionService.instance.isStorageGranted()` before accessing external storage paths, preventing cold-boot permission crashes.
+     - Added try-catch guards around all FFI bridge calls in `EngineBridge` and `PlaybackController._pollNativeState()`.
+  5. **Android Platform Alignment & Build Packaging**:
+     - Updated `minSdk = 26` in `apps/attune_app/android/app/build.gradle.kts`.
+     - Added `android:usesCleartextTraffic="true"` for LAN worker sync.
+     - Updated `tools/builder.py` to strictly match build-mode APK filenames (`app-{mode}.apk`), ensuring release builds package the exact release APK output.
+- **Consequences**:
+  - Unhandled native exceptions in audio hardware, codecs, or FFI calls cannot crash or abort the Android process.
+  - Full visibility into native Rust DSP engine lifecycle on physical Android devices via `adb logcat -s AttuneEngine:V`.
+  - Android application launches smoothly, non-blocking, and safely awaits storage permissions.
+
+
 
 
 

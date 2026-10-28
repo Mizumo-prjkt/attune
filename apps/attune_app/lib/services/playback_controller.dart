@@ -6,6 +6,7 @@ import '../models/track_item.dart';
 import '../models/smart_shuffle_verdict.dart';
 import 'audio_storage_service.dart';
 import 'engine_bridge.dart';
+import 'permission_service.dart';
 import 'settings_service.dart';
 
 /// Shuffle playback mode
@@ -113,8 +114,43 @@ class PlaybackController extends ChangeNotifier {
   PlaybackController._init() {
     _initEngine();
     if (!Platform.environment.containsKey('FLUTTER_TEST')) {
-      scanLocalAudioDirectories();
+      _loadCachedTracksImmediately();
+      Future.microtask(() {
+        _initialStartupScan();
+      });
     }
+  }
+
+  void _loadCachedTracksImmediately() {
+    try {
+      final cached = AudioStorageService.instance.loadCachedTracks();
+      if (cached.isNotEmpty && _rawScannedTracks.isEmpty) {
+        _rawScannedTracks.clear();
+        _rawScannedTracks.addAll(cached);
+        applyLibraryFilters();
+        if (_queue.isNotEmpty) {
+          _loadCurrentTrackToEngine();
+        }
+        debugPrint('[PlaybackController] Initialized with ${cached.length} cached tracks.');
+      }
+    } catch (e) {
+      debugPrint('[PlaybackController] Immediate cache load notice: $e');
+    }
+  }
+
+  Future<void> _initialStartupScan() async {
+    if (Platform.isAndroid) {
+      try {
+        final hasPermission = await PlatformPermissionService.instance.isStorageGranted();
+        if (!hasPermission) {
+          debugPrint('[PlaybackController] Storage permission not yet granted on Android; deferring filesystem scan.');
+          return;
+        }
+      } catch (e) {
+        debugPrint('[PlaybackController] Permission query notice: $e');
+      }
+    }
+    await scanLocalAudioDirectories();
   }
 
   // Getters
@@ -327,7 +363,11 @@ class PlaybackController extends ChangeNotifier {
   }
 
   void _initEngine() {
-    _bridge.playerStart();
+    try {
+      _bridge.playerStart();
+    } catch (e) {
+      debugPrint('[PlaybackController] Native playerStart notice: $e');
+    }
     _startPolling();
   }
 
@@ -340,89 +380,93 @@ class PlaybackController extends ChangeNotifier {
   }
 
   void _pollNativeState() {
-    final state = _bridge.playerGetState();
+    try {
+      final state = _bridge.playerGetState();
 
-    if (state != null && state['initialized'] == true) {
-      final nativeIsPlaying = state['is_playing'] as bool? ?? false;
-      final activeDeck = state['active_deck'] as String? ?? 'DeckA';
-      final deckA = state['deck_a'] as Map<String, dynamic>?;
-      final deckB = state['deck_b'] as Map<String, dynamic>?;
+      if (state != null && state['initialized'] == true) {
+        final nativeIsPlaying = state['is_playing'] as bool? ?? false;
+        final activeDeck = state['active_deck'] as String? ?? 'DeckA';
+        final deckA = state['deck_a'] as Map<String, dynamic>?;
+        final deckB = state['deck_b'] as Map<String, dynamic>?;
 
-      if (activeDeck == 'DeckA' && deckA != null) {
-        _positionSec = (deckA['position_ms'] as num? ?? 0) / 1000.0;
-        final dur = (deckA['duration_ms'] as num? ?? 0) / 1000.0;
-        if (dur > 0) _durationSec = dur;
-      } else if (activeDeck == 'DeckB' && deckB != null) {
-        _positionSec = (deckB['position_ms'] as num? ?? 0) / 1000.0;
-        final dur = (deckB['duration_ms'] as num? ?? 0) / 1000.0;
-        if (dur > 0) _durationSec = dur;
-      }
+        if (activeDeck == 'DeckA' && deckA != null) {
+          _positionSec = (deckA['position_ms'] as num? ?? 0) / 1000.0;
+          final dur = (deckA['duration_ms'] as num? ?? 0) / 1000.0;
+          if (dur > 0) _durationSec = dur;
+        } else if (activeDeck == 'DeckB' && deckB != null) {
+          _positionSec = (deckB['position_ms'] as num? ?? 0) / 1000.0;
+          final dur = (deckB['duration_ms'] as num? ?? 0) / 1000.0;
+          if (dur > 0) _durationSec = dur;
+        }
 
-      // Read DSP automation values
-      if (deckA != null) {
-        _deckAEqLow = (deckA['eq_low_db'] as num? ?? 0.0).toDouble();
-        _deckAEqMid = (deckA['eq_mid_db'] as num? ?? 0.0).toDouble();
-        _deckAEqHigh = (deckA['eq_high_db'] as num? ?? 0.0).toDouble();
-        _reverbFreezeSend = (deckA['reverb_freeze_send'] as num? ?? 0.0).toDouble();
-      }
-      if (deckB != null) {
-        _deckBEqLow = (deckB['eq_low_db'] as num? ?? 0.0).toDouble();
-        _deckBEqMid = (deckB['eq_mid_db'] as num? ?? 0.0).toDouble();
-        _deckBEqHigh = (deckB['eq_high_db'] as num? ?? 0.0).toDouble();
-      }
+        // Read DSP automation values
+        if (deckA != null) {
+          _deckAEqLow = (deckA['eq_low_db'] as num? ?? 0.0).toDouble();
+          _deckAEqMid = (deckA['eq_mid_db'] as num? ?? 0.0).toDouble();
+          _deckAEqHigh = (deckA['eq_high_db'] as num? ?? 0.0).toDouble();
+          _reverbFreezeSend = (deckA['reverb_freeze_send'] as num? ?? 0.0).toDouble();
+        }
+        if (deckB != null) {
+          _deckBEqLow = (deckB['eq_low_db'] as num? ?? 0.0).toDouble();
+          _deckBEqMid = (deckB['eq_mid_db'] as num? ?? 0.0).toDouble();
+          _deckBEqHigh = (deckB['eq_high_db'] as num? ?? 0.0).toDouble();
+        }
 
-      final hwSr = state['sample_rate'] as int?;
-      if (hwSr != null && hwSr > 0) {
-        _hardwareSampleRate = hwSr;
-      }
+        final hwSr = state['sample_rate'] as int?;
+        if (hwSr != null && hwSr > 0) {
+          _hardwareSampleRate = hwSr;
+        }
 
-      final trans = state['transition'] as Map<String, dynamic>?;
-      if (trans != null && trans['in_progress'] == true) {
-        _isTransitioning = true;
-        _transitionProgress = (trans['progress'] as num? ?? 0.0).toDouble();
-        _activeArchetype =
-            (trans['archetype'] as String? ?? 'Eq Swap').replaceAll('ARCHETYPE_', '').replaceAll('_', ' ');
-      } else {
-        if (_isTransitioning) {
-          // Transition finished in native mixer: advance queue and update active deck
-          _transitionsCompletedCount++;
-          _isTransitioning = false;
-          _transitionProgress = 0.0;
-          _pendingRecipe = null;
-          _advanceQueue();
-        } else if (_durationSec > 5.0) {
-          final activeDeckJson = activeDeck == 'DeckA' ? deckA : deckB;
-          final deckState = activeDeckJson?['state'] as String?;
-          final isAudibleFinished = activeDeckJson?['is_audible_finished'] == true;
-          final audibleEndMs = ((activeDeckJson?['audible_end_ms'] as num?)?.toDouble() ?? 0.0);
-          final isNearAudibleEnd = audibleEndMs > 0 && (_positionSec * 1000 >= audibleEndMs - 250);
-          final isTrackEnded = deckState == 'Finished' || isAudibleFinished || isNearAudibleEnd || _positionSec >= _durationSec - 0.3;
+        final trans = state['transition'] as Map<String, dynamic>?;
+        if (trans != null && trans['in_progress'] == true) {
+          _isTransitioning = true;
+          _transitionProgress = (trans['progress'] as num? ?? 0.0).toDouble();
+          _activeArchetype =
+              (trans['archetype'] as String? ?? 'Eq Swap').replaceAll('ARCHETYPE_', '').replaceAll('_', ' ');
+        } else {
+          if (_isTransitioning) {
+            // Transition finished in native mixer: advance queue and update active deck
+            _transitionsCompletedCount++;
+            _isTransitioning = false;
+            _transitionProgress = 0.0;
+            _pendingRecipe = null;
+            _advanceQueue();
+          } else if (_durationSec > 5.0) {
+            final activeDeckJson = activeDeck == 'DeckA' ? deckA : deckB;
+            final deckState = activeDeckJson?['state'] as String?;
+            final isAudibleFinished = activeDeckJson?['is_audible_finished'] == true;
+            final audibleEndMs = ((activeDeckJson?['audible_end_ms'] as num?)?.toDouble() ?? 0.0);
+            final isNearAudibleEnd = audibleEndMs > 0 && (_positionSec * 1000 >= audibleEndMs - 250);
+            final isTrackEnded = deckState == 'Finished' || isAudibleFinished || isNearAudibleEnd || _positionSec >= _durationSec - 0.3;
 
-          if (isTrackEnded && (_isPlaying || deckState == 'Finished' || isAudibleFinished)) {
-            if (_shuffleMode == ShuffleMode.smart && _pendingRecipe != null && !_isTransitionPlanning) {
-              _executeAutoTransition(_pendingRecipe!);
-            } else {
-              skipNext(autoPlay: true);
-            }
-          } else if (_isPlaying && _shuffleMode == ShuffleMode.smart && _pendingRecipe != null && !_isTransitionPlanning) {
-            // Smart Algorithmic Transition: trigger at genuine recipe start time
-            final timing = _pendingRecipe!['timing'] as Map<String, dynamic>?;
-            final startMs = (timing?['track_a_transition_start_ms'] as num?)?.toDouble();
-            if (startMs != null && _positionSec * 1000 >= startMs) {
-              _executeAutoTransition(_pendingRecipe!);
+            if (isTrackEnded && (_isPlaying || deckState == 'Finished' || isAudibleFinished)) {
+              if (_shuffleMode == ShuffleMode.smart && _pendingRecipe != null && !_isTransitionPlanning) {
+                _executeAutoTransition(_pendingRecipe!);
+              } else {
+                skipNext(autoPlay: true);
+              }
+            } else if (_isPlaying && _shuffleMode == ShuffleMode.smart && _pendingRecipe != null && !_isTransitionPlanning) {
+              // Smart Algorithmic Transition: trigger at genuine recipe start time
+              final timing = _pendingRecipe!['timing'] as Map<String, dynamic>?;
+              final startMs = (timing?['track_a_transition_start_ms'] as num?)?.toDouble();
+              if (startMs != null && _positionSec * 1000 >= startMs) {
+                _executeAutoTransition(_pendingRecipe!);
+              }
             }
           }
         }
+        _isPlaying = nativeIsPlaying;
+        notifyListeners();
+      } else if (_isPlaying) {
+        // Fallback/Simulated progression when audio hardware is not attached
+        _positionSec += 0.05;
+        if (_positionSec >= _durationSec) {
+          skipNext();
+        }
+        notifyListeners();
       }
-      _isPlaying = nativeIsPlaying;
-      notifyListeners();
-    } else if (_isPlaying) {
-      // Fallback/Simulated progression when audio hardware is not attached
-      _positionSec += 0.05;
-      if (_positionSec >= _durationSec) {
-        skipNext();
-      }
-      notifyListeners();
+    } catch (e) {
+      debugPrint('[PlaybackController] State polling notice: $e');
     }
   }
 

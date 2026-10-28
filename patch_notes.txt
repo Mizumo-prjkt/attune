@@ -1,9 +1,11 @@
 Attune Release Patch Notes - Version 0.1.0 (Tag: v0.1.0)
-Built on 2026-10-28 18:20:26 (Commit 3c4e586 on branch main)
+Built on 2026-10-28 21:56:18 (Commit ede1bdf on branch main)
 Distributed under the MIT License
 ==============================================================================
 
 Recent Git Commits:
+* feat(storage): implement AppEnvironmentDelegator and eliminate hardcoded paths (ede1bdf) - Mizumo-prjkt, 2026-10-28
+* fix(ci/android): resolve Windows test subprocess WinError 2 and harden Android storage/multi-ABI launch resilience (7cd1fac) - Mizumo-prjkt, 2026-10-28
 * feat(profile): eliminate hardcoded values with real estimations, telemetry, and dynamic persona (ADR-037) (3c4e586) - Mizumo-prjkt, 2026-10-28
 * fix(ci): resolve argparse leading dash option error and normalize builder CLI invocation (1c24999) - Mizumo-prjkt, 2026-10-28
 * feat(ci): adapt proven 3-phase GitHub Actions workflow with KEYS secret and builder CLI compatibility (2a826f5) - Mizumo-prjkt, 2026-10-28
@@ -32,6 +34,4 @@ Recent Git Commits:
 * feat(ui): real lyrics engine, beat-swaying liquid glass & collapsible desktop shell (ADR-023) (3c2a56b) - Mizumo-prjkt, 2026-10-27
 * feat(branding,packaging): integrate official brand assets and migrate application package ID to org.mizproject.attune (4dfac85) - Mizumo-prjkt, 2026-10-27
 * fix(engine, app): unfreeze track-end auto-advance, offload FFI profiling to worker isolates, and fix backdrop ghosting (5ac3986) - Mizumo-prjkt, 2026-10-27
-* feat(dsp,planner): scrap procedural chiptune fill and implement walled garden music algorithm 4-stage DSP lookahead pipeline (f9fd01a) - Mizumo-prjkt, 2026-10-27
-* feat(core, dsp): implement Archetype 6 Generative Melodic Bridge Fill with PolyBLEP SuperSaw and TPT SVF stabilization (b5d397a) - Mizumo-prjkt, 2026-10-27
 

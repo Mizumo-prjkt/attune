@@ -346,7 +346,12 @@ class AttuneEngineBridge {
 
   int playerStart() {
     if (!isAvailable || _attunePlayerStart == null) return -1;
-    return _attunePlayerStart!();
+    try {
+      return _attunePlayerStart!();
+    } catch (e) {
+      debugPrint('[AttuneEngineBridge] playerStart error: $e');
+      return -1;
+    }
   }
 
   int playerLoadTrack(int deckId, String filePath) {
@@ -354,6 +359,9 @@ class AttuneEngineBridge {
     final pathPtr = filePath.toNativeUtf8();
     try {
       return _attunePlayerLoadTrack!(deckId, pathPtr);
+    } catch (e) {
+      debugPrint('[AttuneEngineBridge] playerLoadTrack error: $e');
+      return -1;
     } finally {
       calloc.free(pathPtr);
     }
@@ -361,17 +369,32 @@ class AttuneEngineBridge {
 
   int playerPlay() {
     if (!isAvailable || _attunePlayerPlay == null) return -1;
-    return _attunePlayerPlay!();
+    try {
+      return _attunePlayerPlay!();
+    } catch (e) {
+      debugPrint('[AttuneEngineBridge] playerPlay error: $e');
+      return -1;
+    }
   }
 
   int playerPause() {
     if (!isAvailable || _attunePlayerPause == null) return -1;
-    return _attunePlayerPause!();
+    try {
+      return _attunePlayerPause!();
+    } catch (e) {
+      debugPrint('[AttuneEngineBridge] playerPause error: $e');
+      return -1;
+    }
   }
 
   int playerSeek(int deckId, int positionMs) {
     if (!isAvailable || _attunePlayerSeek == null) return -1;
-    return _attunePlayerSeek!(deckId, positionMs);
+    try {
+      return _attunePlayerSeek!(deckId, positionMs);
+    } catch (e) {
+      debugPrint('[AttuneEngineBridge] playerSeek error: $e');
+      return -1;
+    }
   }
 
   int playerTriggerTransition(Map<String, dynamic> recipe) {
@@ -379,6 +402,9 @@ class AttuneEngineBridge {
     final jsonPtr = jsonEncode(recipe).toNativeUtf8();
     try {
       return _attunePlayerTriggerTransition!(jsonPtr);
+    } catch (e) {
+      debugPrint('[AttuneEngineBridge] playerTriggerTransition error: $e');
+      return -1;
     } finally {
       calloc.free(jsonPtr);
     }
@@ -388,13 +414,14 @@ class AttuneEngineBridge {
     if (!isAvailable || _attunePlayerGetState == null || _attuneFreeString == null) {
       return null;
     }
-    final ptr = _attunePlayerGetState!();
-    if (ptr.address == 0) return null;
-    final str = ptr.toDartString();
-    _attuneFreeString!(ptr);
     try {
+      final ptr = _attunePlayerGetState!();
+      if (ptr.address == 0) return null;
+      final str = ptr.toDartString();
+      _attuneFreeString!(ptr);
       return jsonDecode(str) as Map<String, dynamic>;
-    } catch (_) {
+    } catch (e) {
+      debugPrint('[AttuneEngineBridge] playerGetState notice: $e');
       return null;
     }
   }

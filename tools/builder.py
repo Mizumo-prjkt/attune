@@ -694,8 +694,7 @@ def package_bundle(target_os="linux", mode="release", localversion="", bundle_ty
         flutter_dir = REPO_ROOT / "apps" / "attune_app"
         apk_candidates = [
             flutter_dir / "build" / "app" / "outputs" / "flutter-apk" / f"app-{mode.lower()}.apk",
-            flutter_dir / "build" / "app" / "outputs" / "flutter-apk" / "app-release.apk",
-            flutter_dir / "build" / "app" / "outputs" / "flutter-apk" / "app-debug.apk",
+            flutter_dir / "build" / "app" / "outputs" / "apk" / mode.lower() / f"app-{mode.lower()}.apk",
         ]
         found_apk = None
         for apk in apk_candidates:
@@ -708,7 +707,7 @@ def package_bundle(target_os="linux", mode="release", localversion="", bundle_ty
             log(f"[Package] Copied Android APK: {dest_apk}")
             artifacts.append(dest_apk)
         else:
-            log(f"[Package] Warning: No compiled APK found at {apk_candidates[0]}")
+            log(f"[Package] Warning: No compiled APK found matching mode '{mode.lower()}' at {apk_candidates}")
 
     log(f"[Package] Completed packaging. Artifacts in {dist_dir}")
     return artifacts
