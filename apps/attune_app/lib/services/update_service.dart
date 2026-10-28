@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'package:flutter/services.dart' show rootBundle;
 
 /// State of the GitHub release update check.
 enum UpdateStatus {
@@ -190,9 +191,27 @@ class UpdateService {
     return 0;
   }
 
+  /// Resolves the current application version dynamically from assets/build_info.json.
+  /// Returns null if the build information is missing or cannot be loaded.
+  static Future<String?> resolveCurrentVersion() async {
+    try {
+      final jsonString = await rootBundle.loadString('assets/build_info.json');
+      final data = json.decode(jsonString);
+      if (data is Map<String, dynamic>) {
+        final version = data['version'] as String?;
+        if (version != null && version.trim().isNotEmpty) {
+          return version.trim();
+        }
+      }
+    } catch (_) {}
+    return null;
+  }
+
   /// Queries GitHub Releases API and evaluates version differences.
+  /// If [currentVersion] is not explicitly provided, it resolves dynamically
+  /// from the app bundle's etched build_info.json metadata.
   Future<UpdateCheckResult> checkForUpdates({
-    String currentVersion = '0.1.0',
+    String? currentVersion,
     String? currentSuffix,
     String endpointUrl = defaultApiUrl,
     HttpClient? customHttpClient,
@@ -200,13 +219,25 @@ class UpdateService {
     _status = UpdateStatus.checking;
     _lastError = null;
 
+    final effectiveVersion = (currentVersion != null && currentVersion.trim().isNotEmpty)
+        ? currentVersion.trim()
+        : await resolveCurrentVersion();
+
+    if (effectiveVersion == null || effectiveVersion.isEmpty) {
+      final err = 'Unable to determine current application version dynamically (missing build_info.json).';
+      _status = UpdateStatus.error;
+      _lastError = err;
+      _lastCheckedTime = DateTime.now();
+      return UpdateCheckResult(status: UpdateStatus.error, message: err);
+    }
+
     final client = customHttpClient ?? HttpClient();
     client.connectionTimeout = const Duration(seconds: 8);
 
     try {
       final uri = Uri.parse(endpointUrl);
       final request = await client.getUrl(uri);
-      request.headers.set('User-Agent', 'Attune-App/$currentVersion');
+      request.headers.set('User-Agent', 'Attune-App/$effectiveVersion');
       request.headers.set('Accept', 'application/vnd.github.v3+json');
 
       final response = await request.close().timeout(const Duration(seconds: 8));
@@ -235,8 +266,8 @@ class UpdateService {
         throw const FormatException('Invalid JSON payload from GitHub API');
       }
 
-      final remoteTag = decoded['tag_name'] as String? ?? '0.0.0';
-      final cmp = compareSemanticVersions(currentVersion, remoteTag);
+      final remoteTag = decoded['tag_name'] as String? ?? '';
+      final cmp = compareSemanticVersions(effectiveVersion, remoteTag);
       final isNewer = cmp < 0;
 
       final info = UpdateInfo.fromJson(decoded, isNewer: isNewer);

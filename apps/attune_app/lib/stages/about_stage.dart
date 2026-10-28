@@ -78,9 +78,11 @@ class _AboutStageState extends State<AboutStage> {
     final colorScheme = theme.colorScheme;
     final engineVersion = AttuneEngineBridge.instance.version;
 
-    final appVersion = _buildInfo?['version'] as String? ?? '0.1.0';
+    final appVersion = _buildInfo?['version'] as String? ?? '';
     final localVersion = _buildInfo?['localversion'] as String? ?? '';
-    final fullVersionString = localVersion.isNotEmpty ? 'v$appVersion$localVersion' : 'v$appVersion';
+    final fullVersionString = appVersion.isNotEmpty
+        ? (localVersion.isNotEmpty ? 'v$appVersion$localVersion' : 'v$appVersion')
+        : (localVersion.isNotEmpty ? 'Dev ($localVersion)' : 'Development Build');
     final gitCommit = _buildInfo?['git_commit'] as String? ?? 'dev';
     final buildTimestamp = _buildInfo?['build_timestamp'] as String? ?? '';
     final compilerRust = _buildInfo?['compiler_rustc'] as String? ?? '';
@@ -811,53 +813,63 @@ class _AboutStageState extends State<AboutStage> {
 }
 
 /// Floating Liquid Material Glass dialog variant for quick invocation
-void showAttuneAboutDialog(BuildContext context) {
+void showAttuneAboutDialog(BuildContext context, {String? appVersion}) {
   final colorScheme = Theme.of(context).colorScheme;
   final engineVersion = AttuneEngineBridge.instance.version;
 
   showDialog(
     context: context,
     builder: (dialogContext) {
-      return Dialog(
-        backgroundColor: Colors.transparent,
-        insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 480),
-          child: LiquidGlassContainer(
-            borderRadius: 28,
-            surfaceAlpha: 0.18,
-            padding: const EdgeInsets.all(24.0),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Container(
-                  width: 64,
-                  height: 64,
-                  padding: const EdgeInsets.all(8),
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    color: colorScheme.primary.withValues(alpha: 0.15),
-                    border: Border.all(color: colorScheme.primary.withValues(alpha: 0.35)),
-                  ),
-                  child: Image.asset('assets/icon/icon_transparent.png', fit: BoxFit.contain),
-                ),
-                const SizedBox(height: 12),
-                Text(
-                  'Attune',
-                  style: AttuneTypography.soraHeading(color: colorScheme.onSurface),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  'Version 0.1.0 • Native Core v$engineVersion',
-                  style: AttuneTypography.jakartaBody(fontSize: 12, color: colorScheme.primary),
-                ),
-                const SizedBox(height: 14),
-                Text(
-                  'Open-source, intelligent music player with a DJ-grade, audio-profile-driven transition and remixing engine.\n\n'
-                  'Developed by Mizumo-prjkt in collaborative pair programming with Gemini 3.8 Flash (Google Antigravity) & Claude.',
-                  textAlign: TextAlign.center,
-                  style: AttuneTypography.jakartaBody(fontSize: 13, color: colorScheme.onSurface.withValues(alpha: 0.8)),
-                ),
+      return FutureBuilder<String?>(
+        future: (appVersion != null && appVersion.isNotEmpty)
+            ? Future.value(appVersion)
+            : UpdateService.resolveCurrentVersion(),
+        builder: (context, snapshot) {
+          final ver = snapshot.data;
+          final versionText = (ver != null && ver.isNotEmpty)
+              ? 'Version v$ver'
+              : 'Development Build';
+
+          return Dialog(
+            backgroundColor: Colors.transparent,
+            insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 480),
+              child: LiquidGlassContainer(
+                borderRadius: 28,
+                surfaceAlpha: 0.18,
+                padding: const EdgeInsets.all(24.0),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Container(
+                      width: 64,
+                      height: 64,
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: colorScheme.primary.withValues(alpha: 0.15),
+                        border: Border.all(color: colorScheme.primary.withValues(alpha: 0.35)),
+                      ),
+                      child: Image.asset('assets/icon/icon_transparent.png', fit: BoxFit.contain),
+                    ),
+                    const SizedBox(height: 12),
+                    Text(
+                      'Attune',
+                      style: AttuneTypography.soraHeading(color: colorScheme.onSurface),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      '$versionText • Native Core v$engineVersion',
+                      style: AttuneTypography.jakartaBody(fontSize: 12, color: colorScheme.primary),
+                    ),
+                    const SizedBox(height: 14),
+                    Text(
+                      'Open-source, intelligent music player with a DJ-grade, audio-profile-driven transition and remixing engine.\n\n'
+                      'Developed by Mizumo-prjkt in collaborative pair programming with Gemini 3.8 Flash (Google Antigravity) & Claude.',
+                      textAlign: TextAlign.center,
+                      style: AttuneTypography.jakartaBody(fontSize: 13, color: colorScheme.onSurface.withValues(alpha: 0.8)),
+                    ),
                 const SizedBox(height: 20),
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -898,4 +910,7 @@ void showAttuneAboutDialog(BuildContext context) {
       );
     },
   );
+},
+);
 }
+
