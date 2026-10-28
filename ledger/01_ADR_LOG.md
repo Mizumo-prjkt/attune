@@ -995,7 +995,8 @@ This file records all major architectural decisions for **Attune**, including co
   1. **Liquid Material Glass About Stage & Floating Dialog**:
      - Built `apps/attune_app/lib/stages/about_stage.dart` featuring `AboutStage` (`/about`) and `showAttuneAboutDialog(context)`.
      - Integrated circular glass disc logo (`assets/icon/icon_transparent.png`), dynamic version badges, creator credits (Mizumo-prjkt), core DSP engine architecture (5-layer profiling, dual decks, master FX), and open-source foundations (Signalsmith, Symphonia, Hound, Cpal, RealFFT, Rubato).
-     - Transparently disclosed AI pair programming with Google DeepMind Antigravity AI assistant under the Knowledge Ledger protocol (ADRs 001–033, zero hardcoding rule, empirical transition testing).
+     - Transparently credited AI pair programming with **Gemini 3.8 Flash (Google Antigravity)** alongside Claude Opus 5 under the Knowledge Ledger protocol (ADRs 001–033, zero hardcoding rule, empirical transition testing).
+     - Resolved GitHub repository contributor misattribution where commits using `antigravity@google.com` were mapped by GitHub to third-party Googler account `shimonenator` (Shimon Schwartz). Switched git attribution to `gemini-code-assist@google.com` and `noreply@anthropic.com`.
      - Added community sponsorship card marked as "Coming Soon".
      - Codified MIT License with explicit notice that bundled third-party libraries carry varied licenses (BSD, GPL, LGPL, Apache) and wired "View Complete Open-Source Licenses" (`showLicensePage`).
      - Displayed dynamic compiler and target architecture metadata etched from `build_info.json`.
