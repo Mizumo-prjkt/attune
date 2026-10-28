@@ -284,6 +284,8 @@ def etch_build_info(target_os=None, mode="release", localversion="", version_ove
         "version": version,
         "build_number": build_num,
         "localversion": localversion,
+        "suffix_version": localversion,
+        "release_tag": f"v{version}{localversion}",
         "full_version": f"{version}{localversion}",
         "rust_ffi_version": rust_ffi_version,
         "git_commit": git_info["git_commit"],
@@ -317,6 +319,33 @@ def etch_build_info(target_os=None, mode="release", localversion="", version_ove
     return build_info
 
 
+def apply_git_tag(version, suffix="", log_func=None):
+    """Sets/updates the git release tag v{version}{suffix} on the current commit."""
+    def log(msg):
+        if log_func:
+            log_func(msg)
+        else:
+            print(msg)
+
+    tag_name = f"v{version}{suffix}"
+    try:
+        existing_tags = subprocess.check_output(
+            ["git", "tag", "-l", tag_name], cwd=REPO_ROOT, text=True, stderr=subprocess.DEVNULL
+        ).strip()
+        if existing_tags:
+            cmd = ["git", "tag", "-f", tag_name, "-m", f"Release {tag_name}"]
+            log(f"[Git] Updating existing release git tag: {tag_name}")
+        else:
+            cmd = ["git", "tag", "-a", tag_name, "-m", f"Release {tag_name}"]
+            log(f"[Git] Creating release git tag: {tag_name}")
+        subprocess.check_call(cmd, cwd=REPO_ROOT, stderr=subprocess.DEVNULL)
+        log(f"[Git] Successfully set release git tag: {tag_name}")
+        return tag_name
+    except Exception as e:
+        log(f"[Git] Warning: Could not set git tag {tag_name}: {e}")
+        return None
+
+
 def generate_patch_notes(max_commits=30, localversion="", version_override=""):
     """
     Generates patch_notes.txt from git commit history to embed into Inno Setup
@@ -329,7 +358,7 @@ def generate_patch_notes(max_commits=30, localversion="", version_override=""):
     timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
     header = (
-        f"Attune Release Patch Notes - Version {full_ver}\n"
+        f"Attune Release Patch Notes - Version {full_ver} (Tag: v{full_ver})\n"
         f"Built on {timestamp} (Commit {git_info['git_commit']} on branch {git_info['git_branch']})\n"
         f"Distributed under the MIT License\n"
         f"{'=' * 78}\n\n"
@@ -718,10 +747,10 @@ def launch_gui():
     )
     lbl_sub.pack(side=tk.RIGHT, pady=(6, 0))
 
-    # Version IDs & Configuration Card
+    # Version Override & Suffix Configuration Card
     config_card = tk.LabelFrame(
         main_frame,
-        text=" Component Version IDs & Kernel-Style Localversion ",
+        text=" Version Override & Suffix Version ID ",
         bg=card_color,
         fg=accent_color,
         font=("Segoe UI", 10, "bold"),
@@ -730,26 +759,36 @@ def launch_gui():
     )
     config_card.pack(fill=tk.X, pady=(0, 10))
 
-    cur_pub_ver, cur_pub_build = get_pubspec_version()
-    cur_rust_ver = get_rust_crate_version("attune-ffi")
+    cur_pub_ver, _ = get_pubspec_version()
 
-    # Grid rows
-    tk.Label(config_card, text="Flutter App Version:", bg=card_color, fg=fg_color).grid(row=0, column=0, sticky="w", pady=4)
-    ent_flutter_ver = tk.Entry(config_card, width=12, bg="#2D3748", fg=fg_color, insertbackground=fg_color)
-    ent_flutter_ver.insert(0, cur_pub_ver)
-    ent_flutter_ver.grid(row=0, column=1, sticky="w", padx=6, pady=4)
+    # Grid rows: only show option for override version id and suffix/localversion input
+    tk.Label(config_card, text="Override Version ID:", bg=card_color, fg=fg_color).grid(row=0, column=0, sticky="w", pady=4)
+    ent_override_ver = tk.Entry(config_card, width=16, bg="#2D3748", fg=fg_color, insertbackground=fg_color)
+    ent_override_ver.insert(0, cur_pub_ver)
+    ent_override_ver.grid(row=0, column=1, sticky="w", padx=6, pady=4)
 
-    tk.Label(config_card, text="Rust Crate Version:", bg=card_color, fg=fg_color).grid(row=0, column=2, sticky="w", padx=(16, 0), pady=4)
-    ent_rust_ver = tk.Entry(config_card, width=12, bg="#2D3748", fg=fg_color, insertbackground=fg_color)
-    ent_rust_ver.insert(0, cur_rust_ver)
-    ent_rust_ver.grid(row=0, column=3, sticky="w", padx=6, pady=4)
+    tk.Label(config_card, text="(Sets base version ID & release tags, e.g. 0.1.0, 1.0.0)", bg=card_color, fg="#718096", font=("Segoe UI", 8)).grid(row=0, column=2, sticky="w", padx=(10, 0))
 
-    tk.Label(config_card, text="Localversion String:", bg=card_color, fg=fg_color).grid(row=1, column=0, sticky="w", pady=4)
-    ent_localver = tk.Entry(config_card, width=20, bg="#2D3748", fg=fg_color, insertbackground=fg_color)
-    ent_localver.insert(0, "-rc1")
-    ent_localver.grid(row=1, column=1, columnspan=2, sticky="w", padx=6, pady=4)
+    tk.Label(config_card, text="Suffix Version ID:", bg=card_color, fg=fg_color).grid(row=1, column=0, sticky="w", pady=4)
+    ent_suffix_ver = tk.Entry(config_card, width=16, bg="#2D3748", fg=fg_color, insertbackground=fg_color)
+    ent_suffix_ver.insert(0, "")
+    ent_suffix_ver.grid(row=1, column=1, sticky="w", padx=6, pady=4)
 
-    tk.Label(config_card, text="(e.g., -git, -custom, -beta like Linux CONFIG_LOCALVERSION)", bg=card_color, fg="#718096", font=("Segoe UI", 8)).grid(row=1, column=2, columnspan=2, sticky="w", padx=(10, 0))
+    tk.Label(config_card, text="(Optional suffix appended to version, e.g. -rc1, -beta, -git)", bg=card_color, fg="#718096", font=("Segoe UI", 8)).grid(row=1, column=2, sticky="w", padx=(10, 0))
+
+    set_tag_var = tk.BooleanVar(value=True)
+    chk_set_tag = tk.Checkbutton(
+        config_card,
+        text="Apply as Git Release Tag (v<version><suffix>)",
+        variable=set_tag_var,
+        bg=card_color,
+        fg=accent_color,
+        selectcolor="#2D3748",
+        activebackground=card_color,
+        activeforeground=accent_color,
+        font=("Segoe UI", 9),
+    )
+    chk_set_tag.grid(row=2, column=0, columnspan=3, sticky="w", pady=(4, 0))
 
     # Build Mode & Target OS Selection Card
     target_card = tk.LabelFrame(
@@ -794,18 +833,19 @@ def launch_gui():
             gui_log(f"  [{st}] {k:15}: {ver}")
 
     def on_etch():
-        loc = ent_localver.get().strip()
-        ver = ent_flutter_ver.get().strip()
-        rver = ent_rust_ver.get().strip()
+        loc = ent_suffix_ver.get().strip()
+        ver = ent_override_ver.get().strip()
         m = mode_var.get()
         t = target_os_var.get()
-        info = etch_build_info(target_os=t, mode=m, localversion=loc, version_override=ver, rust_version_override=rver)
+        info = etch_build_info(target_os=t, mode=m, localversion=loc, version_override=ver, rust_version_override=ver)
         gui_log(f"Etched build info: v{info['full_version']} ({info['build_mode']}) target {t} commit {info['git_commit']}")
 
     def on_patch_notes():
-        loc = ent_localver.get().strip()
-        ver = ent_flutter_ver.get().strip()
+        loc = ent_suffix_ver.get().strip()
+        ver = ent_override_ver.get().strip()
         notes = generate_patch_notes(max_commits=25, localversion=loc, version_override=ver)
+        if set_tag_var.get() and ver:
+            apply_git_tag(ver, loc, log_func=gui_log)
         gui_log(f"Generated patch_notes.txt with {len(notes.splitlines())} lines.")
 
     def on_compile_rust():
@@ -827,17 +867,18 @@ def launch_gui():
             gui_log(f"✗ Flutter build error: {e}")
 
     def on_full_build():
-        loc = ent_localver.get().strip()
-        ver = ent_flutter_ver.get().strip()
-        rver = ent_rust_ver.get().strip()
+        loc = ent_suffix_ver.get().strip()
+        ver = ent_override_ver.get().strip()
         m = mode_var.get()
         t = target_os_var.get()
         gui_log("==================================================")
         gui_log(f"Starting Full Attune Build: {t} {m} v{ver}{loc}")
         gui_log("==================================================")
         try:
-            etch_build_info(target_os=t, mode=m, localversion=loc, version_override=ver, rust_version_override=rver)
+            etch_build_info(target_os=t, mode=m, localversion=loc, version_override=ver, rust_version_override=ver)
             generate_patch_notes(max_commits=25, localversion=loc, version_override=ver)
+            if set_tag_var.get() and ver:
+                apply_git_tag(ver, loc, log_func=gui_log)
             compile_rust(mode=m, target_os=t, log_callback=gui_log)
             compile_flutter(target_os=t, mode=m, log_callback=gui_log)
             artifacts = package_bundle(target_os=t, mode=m, localversion=loc, version_override=ver, log_callback=gui_log)
@@ -936,7 +977,12 @@ def main():
     parser.add_argument(
         "--localversion",
         default="",
-        help="Kernel-style localversion suffix string (e.g. -git, -rc1, -miku)",
+        help="Suffix version ID (e.g. -git, -rc1, -miku)",
+    )
+    parser.add_argument(
+        "--set-tag",
+        action="store_true",
+        help="Apply git release tag v<version><suffix> to current commit",
     )
     parser.add_argument(
         "--step",
@@ -965,9 +1011,12 @@ def main():
     effective_ver = args.version if args.version else pub_ver
     print("==============================================================================")
     print(" Attune Build & Packaging Orchestrator (Headless CLI)")
-    print(f" Target: {args.target} | Mode: {args.mode} | Version: '{effective_ver}' | Localversion: '{args.localversion}'")
+    print(f" Target: {args.target} | Mode: {args.mode} | Version: '{effective_ver}' | Suffix: '{args.localversion}'")
     print(" Distributed under the MIT License")
     print("==============================================================================")
+
+    if args.set_tag:
+        apply_git_tag(effective_ver, args.localversion)
 
     step = args.step
 

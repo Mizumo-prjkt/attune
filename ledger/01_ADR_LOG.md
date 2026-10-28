@@ -990,7 +990,7 @@ This file records all major architectural decisions for **Attune**, including co
   - A comprehensive, elegant About screen was needed to credit the project creator, core DSP engine, and third-party libraries, transparently disclose AI pair programming collaboration with Google DeepMind Antigravity under the Knowledge Ledger protocol, present donation status ("Coming Soon"), and provide clear MIT licensing and third-party open-source disclaimers.
   - Hardcoded local paths (e.g. `/home/miku/...`) in `engine_bridge.dart` needed elimination to ensure dynamic libraries (`.so` / `.dll`) resolve strictly relative to the executable (`lib/` or application directory) across Linux, Windows, macOS, and Android.
   - Packaging solutions were required for 64-bit Windows (Inno Setup) and Linux (AppImage), including automatic commit patch notes generation embedded directly into installers.
-  - A clean, standalone Python build orchestrator was required to avoid convoluted GitHub Actions YAML, provide toolchain assessment, compiler/environment metadata etching into `build_info.json`, Linux kernel-style `localversion` string configuration, cargo/flutter builds, and an interactive dark-themed Tkinter desktop GUI for developers.
+  - A clean, standalone Python build orchestrator was required to avoid convoluted GitHub Actions YAML, provide toolchain assessment, compiler/environment metadata etching into `build_info.json`, suffix version ID (`localversion`) string configuration, cargo/flutter builds, and an interactive dark-themed Tkinter desktop GUI for developers.
 - **Decision**:
   1. **Liquid Material Glass About Stage & Floating Dialog**:
      - Built `apps/attune_app/lib/stages/about_stage.dart` featuring `AboutStage` (`/about`) and `showAttuneAboutDialog(context)`.
@@ -1018,7 +1018,7 @@ This file records all major architectural decisions for **Attune**, including co
      - Environment assessment checking Python, Rustc, Cargo, Flutter, Dart, CMake, C/C++ compiler, ISCC, and AppImage tools.
      - Compiler/environment metadata etching into `apps/attune_app/assets/build_info.json`.
      - Automatic `patch_notes.txt` generation querying recent git commits.
-     - Linux kernel-style `localversion` support (`--localversion -custom`).
+     - Suffix version ID (`localversion`) support (`--localversion -custom`).
      - Standalone packaging generation for Linux (`.tar.gz`, `.AppImage`) and Windows (`.zip`, Inno Setup `.exe`).
      - Tkinter GUI with dark-themed cards, component version ID editors, action toolbar, and real-time scrolled log output.
   6. **GitHub Actions Matrix Workflow & Version ID Overrides (`.github/workflows/build_and_release.yml`, `tools/builder.py`, `packaging/linux/build_appimage.sh`)**:

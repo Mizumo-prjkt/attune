@@ -26,8 +26,11 @@ music/
 
 # Build artifacts & Python cache
 dist/
+build/
+screenshot_showcase/
 __pycache__/
 *.pyc
 tools/__pycache__/
 images/
+
 

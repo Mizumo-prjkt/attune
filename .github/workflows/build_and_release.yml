@@ -27,7 +27,7 @@ on:
         default: ''
         type: string
       localversion:
-        description: 'Kernel-style localversion suffix (e.g., -rc1, -beta)'
+        description: 'Suffix version ID (e.g., -rc1, -beta)'
         required: false
         default: ''
         type: string
@@ -136,7 +136,7 @@ jobs:
   release:
     name: Publish GitHub Release Draft
     needs: [build]
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && github.event.inputs.version_override != '')
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Code
@@ -165,6 +165,7 @@ jobs:
       - name: Create GitHub Release Draft
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ github.event.inputs.version_override != '' && format('v{0}{1}', github.event.inputs.version_override, github.event.inputs.localversion) || github.ref_name }}
           body_path: patch_notes.txt
           draft: true
           prerelease: false

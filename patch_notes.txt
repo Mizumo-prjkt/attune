@@ -1,9 +1,12 @@
-Attune Release Patch Notes - Version 0.1.0
-Built on 2026-10-28 08:27:39 (Commit 643d2f2 on branch main)
+Attune Release Patch Notes - Version 0.1.0 (Tag: v0.1.0)
+Built on 2026-10-28 09:33:12 (Commit 8c88127 on branch main)
 Distributed under the MIT License
 ==============================================================================
 
 Recent Git Commits:
+* feat: add Android cross-compilation pipeline, NDK API 26 toolchain, and refine sponsorship copy (8c88127) - Mizumo-prjkt, 2026-10-28
+* feat(ci): add version ID and rust version overrides to workflow_dispatch and builder pipeline (fbbd72d) - Mizumo-prjkt, 2026-10-28
+* chore: synchronize build_info.json and patch_notes.txt with clean git history (2612258) - Mizumo-prjkt, 2026-10-28
 * docs(ledger): update ADR-033 with Gemini credits and contributor attribution resolution (643d2f2) - Mizumo-prjkt, 2026-10-28
 * feat(about): credit Gemini 3.8 Flash & Claude in About UI and update git attribution (86e3aa1) - Mizumo-prjkt, 2026-10-28
 * feat(packaging): implement Liquid Glass About stage, Windows Inno Setup, Linux AppImage & Python builder studio (ADR-033) (26739c0) - Mizumo-prjkt, 2026-10-28
@@ -31,7 +34,4 @@ Recent Git Commits:
 * docs(ledger,ui): lock ADR-012 and Phase 4 Liquid Material Glass UI specification (f5f013d) - Mizumo-prjkt, 2026-10-27
 * feat(cache,node): implement Phase 3 portable cache, pack bundling, and external compute node sync (cfcb2e4) - Mizumo-prjkt, 2026-10-27
 * fix(planner,engine): vocal integrity protection, decaying reverb spillover, and multi-genre rock/pop verification (0980fa0) - Mizumo-prjkt, 2026-10-27
-* fix(engine,dsp): adapt to hardware output sample rate and refine 1-bar transition phrasing (1cc80af) - Mizumo-prjkt, 2026-10-27
-* feat(engine,dsp): implement Phase 2 real-time dual-deck native mixer and cpal audio driver (e4ab8da) - Mizumo-prjkt, 2026-10-27
-* feat(dsp,profiler): dynamic silence gating and dead-air elimination in transitions (539e8eb) - Mizumo-prjkt, 2026-10-27
 
