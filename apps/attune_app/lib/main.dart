@@ -11,6 +11,7 @@ import 'theme/color_engine.dart';
 
 /// Recovers the process working directory if launched from a stale/unlinked inode
 void _ensureValidCurrentDirectory() {
+  if (Platform.isAndroid || Platform.isIOS) return;
   try {
     Directory.current;
   } catch (_) {
@@ -28,6 +29,7 @@ void _ensureValidCurrentDirectory() {
     } catch (_) {}
   }
 }
+
 
 /// Standard Main Entrypoint (Player & Library Shell)
 void main() {

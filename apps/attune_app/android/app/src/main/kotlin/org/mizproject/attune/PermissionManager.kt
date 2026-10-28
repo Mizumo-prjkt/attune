@@ -78,7 +78,29 @@ object PermissionManager {
                         }
                     }
                 }
+                "isStoragePermissionGranted" -> {
+                    val isGranted = if (Build.VERSION.SDK_INT >= 33) {
+                        activity.checkSelfPermission("android.permission.READ_MEDIA_AUDIO") == PackageManager.PERMISSION_GRANTED
+                    } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                        activity.checkSelfPermission("android.permission.READ_EXTERNAL_STORAGE") == PackageManager.PERMISSION_GRANTED
+                    } else {
+                        true
+                    }
+                    result.success(isGranted)
+                }
+                "requestStoragePermission" -> {
+                    if (Build.VERSION.SDK_INT >= 33) {
+                        activity.requestPermissions(arrayOf("android.permission.READ_MEDIA_AUDIO"), 1003)
+                        result.success(true)
+                    } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                        activity.requestPermissions(arrayOf("android.permission.READ_EXTERNAL_STORAGE"), 1003)
+                        result.success(true)
+                    } else {
+                        result.success(true)
+                    }
+                }
                 else -> result.notImplemented()
+
             }
         }
     }

@@ -312,15 +312,10 @@ class SettingsService extends ChangeNotifier {
   }
 
   File get _settingsFile {
-    final home = Platform.environment['HOME'] ?? Platform.environment['USERPROFILE'] ?? '.';
-    final dir = Directory('$home/.config/attune');
-    if (!dir.existsSync()) {
-      try {
-        dir.createSync(recursive: true);
-      } catch (_) {}
-    }
+    final dir = AudioStorageService.instance.getAppDataDirectory();
     return File('${dir.path}/app_settings.json');
   }
+
 
   void _loadFromDisk() {
     try {

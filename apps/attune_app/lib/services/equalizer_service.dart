@@ -1,7 +1,9 @@
 import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'audio_storage_service.dart';
 import 'engine_bridge.dart';
+
 
 const List<double> kEqualizerFrequencies = [
   31.0, 62.0, 125.0, 250.0, 500.0, 1000.0, 2000.0, 4000.0, 8000.0, 16000.0
@@ -76,15 +78,10 @@ class EqualizerService extends ChangeNotifier {
   bool get bypassExternalDspWarning => _bypassExternalDspWarning;
 
   File get _configFile {
-    final home = Platform.environment['HOME'] ?? Platform.environment['USERPROFILE'] ?? '.';
-    final dir = Directory('$home/.config/attune');
-    if (!dir.existsSync()) {
-      try {
-        dir.createSync(recursive: true);
-      } catch (_) {}
-    }
+    final dir = AudioStorageService.instance.getAppDataDirectory();
     return File('${dir.path}/equalizer_profile.json');
   }
+
 
   void init() {
     if (_initialized) return;

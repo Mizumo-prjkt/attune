@@ -28,6 +28,7 @@ class AudioStorageService {
 
   /// Safely ensures the working directory is valid
   static void _ensureValidDirectory() {
+    if (Platform.isAndroid || Platform.isIOS) return;
     try {
       Directory.current;
     } catch (_) {
@@ -55,25 +56,28 @@ class AudioStorageService {
       roots.addAll(additionalRoots);
     }
 
-    // 1. Workspace absolute dev paths (for pair-programming and live desktop builds)
-    const primaryDevMusic = '/home/miku/Documents/attune/music';
-    roots.add(primaryDevMusic);
+    // 1. Workspace absolute dev paths (for desktop live development and test suites)
+    if (!Platform.isAndroid && !Platform.isIOS) {
+      const primaryDevMusic = '/home/miku/Documents/attune/music';
+      roots.add(primaryDevMusic);
 
-    try {
-      final cwd = Directory.current.path;
-      for (final rel in ['music', '../music', '../../music', '../../../music']) {
-        final abs = Directory('$cwd/$rel').path;
-        if (!roots.contains(abs)) roots.add(abs);
-      }
-    } catch (_) {}
+      try {
+        final cwd = Directory.current.path;
+        for (final rel in ['music', '../music', '../../music', '../../../music']) {
+          final abs = Directory('$cwd/$rel').path;
+          if (!roots.contains(abs)) roots.add(abs);
+        }
+      } catch (_) {}
 
-    try {
-      final exe = File(Platform.resolvedExecutable).parent.path;
-      for (final rel in ['music', '../music', '../../music', '../../../music', '../../../../music']) {
-        final abs = Directory('$exe/$rel').path;
-        if (!roots.contains(abs)) roots.add(abs);
-      }
-    } catch (_) {}
+      try {
+        final exe = File(Platform.resolvedExecutable).parent.path;
+        for (final rel in ['music', '../music', '../../music', '../../../music', '../../../../music']) {
+          final abs = Directory('$exe/$rel').path;
+          if (!roots.contains(abs)) roots.add(abs);
+        }
+      } catch (_) {}
+    }
+
 
     // 2. Platform-specific root paths
     if (Platform.isAndroid) {
@@ -301,27 +305,75 @@ class AudioStorageService {
     );
   }
 
-  File get _cacheFile {
-    final home = Platform.environment['HOME'] ?? Platform.environment['USERPROFILE'] ?? '.';
-    final dir = Directory('$home/.config/attune');
-    if (!dir.existsSync()) {
+  /// Safely resolves the application configuration and data directory across
+  /// Android (app internal sandbox), Linux ($XDG_CONFIG_HOME or $HOME/.config),
+  /// Windows (%APPDATA% or %USERPROFILE%/.config), and macOS (~/Library/Application Support).
+  Directory getAppDataDirectory() {
+    if (Platform.isAndroid) {
+      final candidates = [
+        '/data/user/0/org.mizproject.attune/files',
+        '/data/data/org.mizproject.attune/files',
+        '/data/user/0/org.mizproject.attune/cache',
+        '/data/data/org.mizproject.attune/cache',
+        '${Directory.systemTemp.path}/attune',
+      ];
+      for (final candidate in candidates) {
+        try {
+          final dir = Directory(candidate);
+          if (!dir.existsSync()) {
+            dir.createSync(recursive: true);
+          }
+          final probe = File('${dir.path}/.probe');
+          probe.writeAsStringSync('1');
+          probe.deleteSync();
+          return dir;
+        } catch (_) {
+          continue;
+        }
+      }
+      return Directory.systemTemp;
+    }
+
+    if (Platform.isWindows) {
+      final appData = Platform.environment['APPDATA'] ?? Platform.environment['USERPROFILE'];
+      if (appData != null && appData.isNotEmpty) {
+        final dir = Directory('$appData/attune');
+        try {
+          if (!dir.existsSync()) dir.createSync(recursive: true);
+          return dir;
+        } catch (_) {}
+      }
+    }
+
+    final xdg = Platform.environment['XDG_CONFIG_HOME'];
+    if (xdg != null && xdg.isNotEmpty) {
+      final dir = Directory('$xdg/attune');
       try {
-        dir.createSync(recursive: true);
+        if (!dir.existsSync()) dir.createSync(recursive: true);
+        return dir;
       } catch (_) {}
     }
+
+    final home = Platform.environment['HOME'] ?? Platform.environment['USERPROFILE'] ?? '.';
+    final dir = Directory('$home/.config/attune');
+    try {
+      if (!dir.existsSync()) dir.createSync(recursive: true);
+      return dir;
+    } catch (_) {
+      return Directory.systemTemp;
+    }
+  }
+
+  File get _cacheFile {
+    final dir = getAppDataDirectory();
     return File('${dir.path}/library_cache.json');
   }
 
   File get _configFile {
-    final home = Platform.environment['HOME'] ?? Platform.environment['USERPROFILE'] ?? '.';
-    final dir = Directory('$home/.config/attune');
-    if (!dir.existsSync()) {
-      try {
-        dir.createSync(recursive: true);
-      } catch (_) {}
-    }
+    final dir = getAppDataDirectory();
     return File('${dir.path}/config.json');
   }
+
 
   /// Loads cached track metadata from local disk for instant (< 5ms) startup.
   List<TrackItem> loadCachedTracks() {

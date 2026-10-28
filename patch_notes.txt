@@ -1,9 +1,17 @@
 Attune Release Patch Notes - Version 0.1.0 (Tag: v0.1.0)
-Built on 2026-10-28 09:45:12 (Commit 4dc9777 on branch main)
+Built on 2026-10-28 18:20:26 (Commit 3c4e586 on branch main)
 Distributed under the MIT License
 ==============================================================================
 
 Recent Git Commits:
+* feat(profile): eliminate hardcoded values with real estimations, telemetry, and dynamic persona (ADR-037) (3c4e586) - Mizumo-prjkt, 2026-10-28
+* fix(ci): resolve argparse leading dash option error and normalize builder CLI invocation (1c24999) - Mizumo-prjkt, 2026-10-28
+* feat(ci): adapt proven 3-phase GitHub Actions workflow with KEYS secret and builder CLI compatibility (2a826f5) - Mizumo-prjkt, 2026-10-28
+* feat: add showcase screenshots and update gitignore to track them (3207ada) - Mizumo-prjkt, 2026-10-28
+* Revert "docs: update screenshot image tags with standard markdown syntax in README" (791f552) - Mizumo-prjkt, 2026-10-28
+* docs: update screenshot image tags with standard markdown syntax in README (6c31b8e) - Mizumo-prjkt, 2026-10-28
+* fix(services): eliminate hardcoded version fallback in UpdateService and AboutStage (bb5c30a) - Mizumo-prjkt, 2026-10-28
+* feat(distribution): implement dual-mode builds, in-app update checker, and grounded README showcase (0e4d6d4) - Mizumo-prjkt, 2026-10-28
 * feat(packaging): replace kernel terminology with suffix version ID, simplify GUI inputs, and configure tag setting (4dc9777) - Mizumo-prjkt, 2026-10-28
 * feat: add Android cross-compilation pipeline, NDK API 26 toolchain, and refine sponsorship copy (8c88127) - Mizumo-prjkt, 2026-10-28
 * feat(ci): add version ID and rust version overrides to workflow_dispatch and builder pipeline (fbbd72d) - Mizumo-prjkt, 2026-10-28
@@ -26,12 +34,4 @@ Recent Git Commits:
 * fix(engine, app): unfreeze track-end auto-advance, offload FFI profiling to worker isolates, and fix backdrop ghosting (5ac3986) - Mizumo-prjkt, 2026-10-27
 * feat(dsp,planner): scrap procedural chiptune fill and implement walled garden music algorithm 4-stage DSP lookahead pipeline (f9fd01a) - Mizumo-prjkt, 2026-10-27
 * feat(core, dsp): implement Archetype 6 Generative Melodic Bridge Fill with PolyBLEP SuperSaw and TPT SVF stabilization (b5d397a) - Mizumo-prjkt, 2026-10-27
-* fix(ffi, app): eliminate shuffle button UI freeze via decoupled session mutex and non-blocking microtasks (89ea7ad) - Mizumo-prjkt, 2026-10-27
-* fix(engine, app): resolve 1-track audio/UI desync and preserve vocal phrase completion (fc34e49) - Mizumo-prjkt, 2026-10-27
-* fix(engine,ui): resolve buffer underruns, deck loop desync, multi-core offloading, and add mid-animation liquid glass morph (516d042) - Mizumo-prjkt, 2026-10-27
-* feat(ui, engine): non-blocking audio profiling, library caching, stage overhaul, and floating neon mini-player (8ae0c72) - Mizumo-prjkt, 2026-10-27
-* feat(integration): implement Phase 5 dynamic library scanning, live dual-deck FFI playback, and cross-platform storage service (bb83217) - Mizumo-prjkt, 2026-10-27
-* feat(ui,ffi): implement Phase 4 Flutter frontend with Multi-Activity Android Predictive Back and Rust C-ABI engine bridge (54a9153) - Mizumo-prjkt, 2026-10-27
-* docs(ledger,ui): lock ADR-012 and Phase 4 Liquid Material Glass UI specification (f5f013d) - Mizumo-prjkt, 2026-10-27
-* feat(cache,node): implement Phase 3 portable cache, pack bundling, and external compute node sync (cfcb2e4) - Mizumo-prjkt, 2026-10-27
 

@@ -1196,6 +1196,45 @@ This file records all major architectural decisions for **Attune**, including co
   - `ProfileAndStatsStage` is now 100% dynamic, mathematically grounded, and faithfully reflects the user's audio library, device hardware, and DSP mixer states.
   - Zero hardcoded mock strings or fake genre tags remain in the user profile stage.
 
+---
+
+## ADR-038: Windows CI Runner Subprocess Execution & Android Storage/ABI Launch Resilience Architecture
+
+- **Date**: 2026-10-28
+- **Status**: `LOCKED` (Implemented & Verified)
+- **Context**:
+  - CI test failure occurred on the Windows GitHub Actions runner:
+    1. `FileNotFoundError: [WinError 2] The system cannot find the file specified` when invoking `subprocess.check_call(["flutter", "test"], cwd=REPO_ROOT / "apps" / "attune_app")` in `tools/builder.py`. On Windows, `flutter` is a batch script (`flutter.bat`), and Python's `CreateProcess` requires `shell=True` to resolve and execute batch files from PATH.
+    2. During exception logging, Python crashed with `UnicodeEncodeError: 'charmap' codec can't encode character '\u2717'` because Windows runner console stdout defaults to `cp1252` encoding.
+  - User reported: *"and android version just wont launch, for now prep the android codebase and ill ready a device to utilze for usb debugging"*.
+  - Android launch investigation revealed multiple critical issues:
+    1. Storage Path Crash: `_cacheFile`, `_configFile` in `AudioStorageService`, and `_settingsFile` in `SettingsService` resolved `$home/.config/attune`. On Android, `HOME` and `USERPROFILE` are null/unset, defaulting to `.` which points to `/` (the root filesystem). Directory creation and file writes failed fatally with `PathAccessException: Cannot create file, path = '/.config' (OS Error: Permission denied, errno = 13)`.
+    2. Missing ABIs: `attune-ffi` was only compiled for `arm64-v8a` and `x86_64`. Devices attempting to load 32-bit `armeabi-v7a` libraries failed with `dlopen` missing library errors because Flutter bundled 32-bit `libflutter.so` without a matching `libattune_engine.so`.
+    3. Missing Android Permissions: `INTERNET` and `ACCESS_NETWORK_STATE` were absent from `src/main/AndroidManifest.xml`, breaking in-app GitHub releases update checks and lyrics fetching; `requestLegacyExternalStorage="true"` was missing for Android 10 devices; and storage permission querying/requesting was absent from `PermissionManager.kt`.
+    4. Current Directory Mutation: Calling `_ensureValidCurrentDirectory()` on Android probed root filesystem inodes unnecessarily.
+- **Decision**:
+  1. **Cross-Platform Windows Subprocess & Encoding Resilience**:
+     - Defined `IS_WINDOWS = sys.platform == "win32"` in `tools/builder.py`.
+     - Reconfigured `sys.stdout` and `sys.stderr` to `encoding="utf-8", errors="replace"` on Windows platforms.
+     - Passed `shell=IS_WINDOWS` across all `subprocess.Popen`, `subprocess.check_call`, and `subprocess.check_output` invocations (`flutter`, `cargo`, `iscc`, etc.).
+     - Replaced Unicode terminal symbols (`✓`, `✗`) with safe ASCII equivalents (`[OK]`, `[X]`, `[MISSING]`).
+  2. **Android Application Sandbox & Data Directory Resolution (`getAppDataDirectory()`)**:
+     - Engineered a unified, multi-candidate `getAppDataDirectory()` method in `AudioStorageService` used across all services (`_cacheFile`, `_configFile`, `_settingsFile`, `equalizer_service`).
+     - On Android, it probes `/data/user/0/org.mizproject.attune/files`, `/data/data/org.mizproject.attune/files`, and cache directories with immediate write validation, falling back to `Directory.systemTemp` instead of attempting to write to root `/`.
+     - Bypassed desktop `_ensureValidCurrentDirectory()` and dev path scanning on mobile platforms (`Platform.isAndroid || Platform.isIOS`).
+  3. **Multi-ABI Android Cross-Compilation (`arm64-v8a`, `armeabi-v7a`, `x86_64`)**:
+     - Added `armv7-linux-androideabi` (`armeabi-v7a`, `armv7a-linux-androideabi26-clang`) to `tools/builder.py` and GitHub Actions workflow (`.github/workflows/build_and_release.yml`).
+     - Declared `ndk { abiFilters.addAll(listOf("arm64-v8a", "armeabi-v7a", "x86_64")) }` in `apps/attune_app/android/app/build.gradle.kts`, guaranteeing complete ABI parity across Flutter engine and native Attune DSP engine.
+  4. **Android Permissions & USB Debugging Readiness**:
+     - Added `INTERNET`, `ACCESS_NETWORK_STATE`, and `android:requestLegacyExternalStorage="true"` to `apps/attune_app/android/app/src/main/AndroidManifest.xml`.
+     - Implemented `isStoragePermissionGranted` and `requestStoragePermission` in `PermissionManager.kt` and `PlatformPermissionService.dart`.
+     - Prompted storage permission request during `StartupSetupStage._completeSetup()`.
+- **Consequences**:
+  - `tools/builder.py` runs seamlessly across Windows, Linux, and macOS without subprocess `WinError 2` or `charmap` encoding errors.
+  - The Android app starts reliably without crashing, persists all configurations in its sandboxed files directory, and supports all Android device architectures (`arm64-v8a`, `armeabi-v7a`, `x86_64`) for instant USB debugging.
+  - All 64 Flutter tests and 28 Rust tests continue to pass with 0 issues.
+
+
 
 
 

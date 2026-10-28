@@ -61,4 +61,29 @@ class PlatformPermissionService {
       return false;
     }
   }
+
+  Future<bool> isStorageGranted() async {
+    if (isDesktop) return true;
+    if (!isAndroid) return true;
+    try {
+      final res = await _channel.invokeMethod<bool>('isStoragePermissionGranted');
+      return res ?? true;
+    } catch (e) {
+      debugPrint('[PermissionService] isStorageGranted error: $e');
+      return true;
+    }
+  }
+
+  Future<bool> requestStorage() async {
+    if (isDesktop) return true;
+    if (!isAndroid) return true;
+    try {
+      final res = await _channel.invokeMethod<bool>('requestStoragePermission');
+      return res ?? false;
+    } catch (e) {
+      debugPrint('[PermissionService] requestStorage error: $e');
+      return false;
+    }
+  }
 }
+

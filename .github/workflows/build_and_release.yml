@@ -152,7 +152,8 @@ jobs:
         if: steps.check_variant.outputs.should_run == 'true'
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: ${{ matrix.target == 'android' && 'aarch64-linux-android,x86_64-linux-android' || '' }}
+          targets: ${{ matrix.target == 'android' && 'aarch64-linux-android,armv7-linux-androideabi,x86_64-linux-android' || '' }}
+
 
       - name: Setup Flutter SDK
         if: steps.check_variant.outputs.should_run == 'true'

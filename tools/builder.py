@@ -25,6 +25,22 @@ from pathlib import Path
 # Repository root directory
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
+IS_WINDOWS = sys.platform == "win32"
+
+# Ensure UTF-8 output on Windows console avoiding cp1252 charmap exceptions
+if IS_WINDOWS:
+    if hasattr(sys.stdout, "reconfigure"):
+        try:
+            sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+        except Exception:
+            pass
+    if hasattr(sys.stderr, "reconfigure"):
+        try:
+            sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+        except Exception:
+            pass
+
+
 
 def get_git_info():
     """Extracts git commit hash, branch, and status."""
@@ -102,10 +118,11 @@ def get_rust_crate_version(crate_name="attune-ffi"):
 def query_command(cmd):
     """Executes a command and returns the first line of output, or None if failed."""
     try:
-        res = subprocess.check_output(cmd, text=True, stderr=subprocess.DEVNULL).strip()
+        res = subprocess.check_output(cmd, text=True, stderr=subprocess.DEVNULL, shell=IS_WINDOWS).strip()
         return res.splitlines()[0] if res else None
     except Exception:
         return None
+
 
 
 def find_android_sdk():
@@ -408,6 +425,7 @@ def compile_rust(mode="release", target_os=None, log_callback=None):
         # Android targets to cross-compile (API 26 is minimum required for AAudio / -laaudio support)
         android_targets = [
             ("aarch64-linux-android", "arm64-v8a", f"aarch64-linux-android26-clang{ext}", f"aarch64-linux-android26-clang++{ext}"),
+            ("armv7-linux-androideabi", "armeabi-v7a", f"armv7a-linux-androideabi26-clang{ext}", f"armv7a-linux-androideabi26-clang++{ext}"),
             ("x86_64-linux-android", "x86_64", f"x86_64-linux-android26-clang{ext}", f"x86_64-linux-android26-clang++{ext}"),
         ]
 
@@ -439,6 +457,7 @@ def compile_rust(mode="release", target_os=None, log_callback=None):
                 stderr=subprocess.STDOUT,
                 text=True,
                 env=env,
+                shell=IS_WINDOWS,
             )
             for line in proc.stdout:
                 log(f"  [cargo-{jni_abi}] {line.rstrip()}")
@@ -477,6 +496,7 @@ def compile_rust(mode="release", target_os=None, log_callback=None):
         stderr=subprocess.STDOUT,
         text=True,
         env=env,
+        shell=IS_WINDOWS,
     )
 
     for line in proc.stdout:
@@ -485,6 +505,7 @@ def compile_rust(mode="release", target_os=None, log_callback=None):
     proc.wait()
     if proc.returncode != 0:
         raise RuntimeError(f"Cargo build failed with exit code {proc.returncode}")
+
 
     target_dir = REPO_ROOT / "target" / mode.lower()
     system = platform.system()
@@ -534,7 +555,9 @@ def compile_flutter(target_os="linux", mode="release", log_callback=None):
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
         text=True,
+        shell=IS_WINDOWS,
     )
+
 
     for line in proc.stdout:
         log(f"  [flutter] {line.rstrip()}")
@@ -658,7 +681,9 @@ def package_bundle(target_os="linux", mode="release", localversion="", bundle_ty
                     stdout=subprocess.PIPE,
                     stderr=subprocess.STDOUT,
                     text=True,
+                    shell=IS_WINDOWS,
                 )
+
                 for line in proc.stdout:
                     log(f"  [iscc] {line.rstrip()}")
                 proc.wait()
@@ -1129,12 +1154,13 @@ def main():
         print("\n--- [Step: Verification Test Suite] ---")
         try:
             print("[Test] Running Rust test suite...")
-            subprocess.check_call(["cargo", "test"], cwd=REPO_ROOT)
+            subprocess.check_call(["cargo", "test"], cwd=REPO_ROOT, shell=IS_WINDOWS)
             print("[Test] Running Flutter widget & algorithm test suite...")
-            subprocess.check_call(["flutter", "test"], cwd=REPO_ROOT / "apps" / "attune_app")
-            print("  ✓ All test suites passed successfully.")
+            subprocess.check_call(["flutter", "test"], cwd=REPO_ROOT / "apps" / "attune_app", shell=IS_WINDOWS)
+            print("  [OK] All test suites passed successfully.")
         except Exception as e:
-            print(f"  ✗ Test execution note: {e}")
+            print(f"  [X] Test execution note: {e}")
+
 
     # CLI Pipeline Execution
     pub_ver, _ = get_pubspec_version()
@@ -1160,8 +1186,9 @@ def main():
         print("\n--- [Step: Assess Toolchains] ---")
         toolchains = assess_toolchains()
         for k, v in toolchains.items():
-            status = "✓ OK" if v.get("status") else "✗ MISSING"
-            print(f"  [{status}] {k:15}: {v.get('version')}")
+            status = "OK" if v.get("status") else "MISSING"
+            print(f"  [{status:7}] {k:15}: {v.get('version')}")
+
 
     if step in ("all", "patchnotes"):
         print("\n--- [Step: Generate Patch Notes from Git Commits] ---")

@@ -1,8 +1,10 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
 import '../services/audio_storage_service.dart';
+import '../services/permission_service.dart';
 import '../services/playback_controller.dart';
 import '../theme/liquid_glass.dart';
+
 import '../theme/typography.dart';
 
 /// StartupSetupStage: First-run setup and directory configuration welcome screen.
@@ -51,6 +53,10 @@ class _StartupSetupStageState extends State<StartupSetupStage> {
     setState(() => _isIngesting = true);
 
     try {
+      if (Platform.isAndroid) {
+        await PlatformPermissionService.instance.requestStorage();
+      }
+
       // 1. Mark setup as completed in config
       AudioStorageService.instance.setSetupCompleted(true, selectedRoots: _selectedRoots.toList());
 
@@ -61,6 +67,7 @@ class _StartupSetupStageState extends State<StartupSetupStage> {
       widget.onSetupComplete();
     }
   }
+
 
   @override
   Widget build(BuildContext context) {
