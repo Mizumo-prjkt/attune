@@ -252,14 +252,14 @@ class _AboutStageState extends State<AboutStage> {
                                     crossAxisAlignment: CrossAxisAlignment.start,
                                     children: [
                                       Text(
-                                        'Google DeepMind Antigravity AI Assistant',
+                                        'Gemini 3.8 Flash & Claude (Google Antigravity)',
                                         style: AttuneTypography.soraSubheading(
                                           fontSize: 14,
                                           color: colorScheme.onSurface,
                                         ),
                                       ),
                                       Text(
-                                        'Autonomous Coding & Mathematical Pair Programming',
+                                        'Autonomous Coding, Mathematical Derivation & DSP Design',
                                         style: AttuneTypography.jakartaBody(
                                           fontSize: 12,
                                           color: colorScheme.primary.withValues(alpha: 0.8),
@@ -272,7 +272,7 @@ class _AboutStageState extends State<AboutStage> {
                             ),
                             const SizedBox(height: 12),
                             Text(
-                              'Attune is engineered through transparent pair programming with Google DeepMind’s Antigravity advanced AI assistant under the Knowledge Ledger Protocol.\n\n'
+                              'Attune is engineered through transparent pair programming with Google DeepMind’s Gemini (Gemini 3.8 Flash in Google Antigravity) alongside Claude under the Knowledge Ledger Protocol.\n\n'
                               '• Knowledge Ledgering: Every architectural decision is recorded in Architecture Decision Records (ADRs 001–033 in ledger/01_ADR_LOG.md).\n'
                               '• Zero Hardcoding Mandate: Algorithmic parameters, DSP lookahead gates, and hardware bounds derive from real audio analysis and live OS measurements rather than arbitrary constant tables.\n'
                               '• Empirical Transition Lab: Benchmark song pairs and tuning observations are logged continuously in ledger/04_TRANSITION_LAB_LOG.md.',
@@ -620,7 +620,7 @@ void showAttuneAboutDialog(BuildContext context) {
                 const SizedBox(height: 14),
                 Text(
                   'Open-source, intelligent music player with a DJ-grade, audio-profile-driven transition and remixing engine.\n\n'
-                  'Developed by Mizumo-prjkt in collaborative pair programming with Google DeepMind Antigravity AI assistant.',
+                  'Developed by Mizumo-prjkt in collaborative pair programming with Gemini 3.8 Flash (Google Antigravity) & Claude.',
                   textAlign: TextAlign.center,
                   style: AttuneTypography.jakartaBody(fontSize: 13, color: colorScheme.onSurface.withValues(alpha: 0.8)),
                 ),

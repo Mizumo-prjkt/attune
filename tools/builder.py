@@ -211,6 +211,7 @@ def etch_build_info(mode="release", localversion=""):
         "compiler_cargo": toolchains["cargo"]["version"],
         "compiler_flutter": toolchains["flutter"]["version"],
         "compiler_dart": toolchains["dart"]["version"],
+        "ai_credits": "Gemini 3.8 Flash (Google Antigravity) & Claude Opus 5",
         "license": "MIT License",
         "license_disclaimer": (
             "Distributed under the MIT License. Third-party components and DSP libraries "

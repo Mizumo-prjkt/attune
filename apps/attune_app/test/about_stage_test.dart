@@ -26,7 +26,7 @@ void main() {
 
     // Verify AI Involvement Section
     expect(find.text('AI PAIR PROGRAMMING INVOLVEMENT'), findsOneWidget);
-    expect(find.text('Google DeepMind Antigravity AI Assistant'), findsOneWidget);
+    expect(find.textContaining('Gemini 3.8 Flash'), findsWidgets);
     expect(find.textContaining('Knowledge Ledgering: Every architectural decision is recorded'), findsOneWidget);
 
     // Verify Donation Section
