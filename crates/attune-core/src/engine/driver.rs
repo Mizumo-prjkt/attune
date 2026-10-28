@@ -56,6 +56,16 @@ impl AudioOutputDriver {
             m.set_output_sample_rate(sample_rate);
         }
 
+        let device_name = device.to_string();
+        log::info!(
+            "AudioOutputDriver: host={}, device={}, sample_rate={} Hz, channels={}, format={:?}",
+            host.id().name(),
+            device_name,
+            sample_rate,
+            channels,
+            sample_format
+        );
+
         let mixer_cb = Arc::clone(&mixer);
         let err_fn = |err| log::warn!("Audio output stream notice: {}", err);
 

@@ -15,6 +15,7 @@ import 'equalizer_stage.dart';
 import 'song_exclusion_stage.dart';
 import '../theme/liquid_glass.dart';
 import '../theme/typography.dart';
+import '../widgets/directory_picker_dialog.dart';
 
 /// Clean SettingsStage implementing the 6 categorized lists with floating liquid glass dialogs:
 /// 1. General (Language, Wakelock held, Notifications)
@@ -1243,8 +1244,43 @@ class _SettingsAndAudioStageState extends State<SettingsAndAudioStage> with Widg
               const Divider(height: 1, color: Colors.white12),
               const SizedBox(height: 12),
 
-              Text('Add Custom Folder', style: AttuneTypography.soraTitleSmall(color: Colors.white)),
+              Text('Add Music Directory', style: AttuneTypography.soraTitleSmall(color: Colors.white)),
               const SizedBox(height: 8),
+
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton.icon(
+                  style: OutlinedButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 14),
+                    side: BorderSide(color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.5)),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    backgroundColor: Theme.of(context).colorScheme.primary.withValues(alpha: 0.08),
+                  ),
+                  icon: Icon(Icons.folder_open_rounded, color: Theme.of(context).colorScheme.primary, size: 18),
+                  label: Text(
+                    'Browse Device Folders / Scoped Storage',
+                    style: AttuneTypography.soraSubheading(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                      color: Theme.of(context).colorScheme.primary,
+                    ),
+                  ),
+                  onPressed: () async {
+                    final selected = await DirectoryPickerDialog.show(context);
+                    if (selected != null && selected.isNotEmpty) {
+                      setDialogState(() {
+                        _settings.addCustomDirectory(selected);
+                        if (!realExistingRoots.contains(selected)) {
+                          realExistingRoots.add(selected);
+                        }
+                      });
+                    }
+                  },
+                ),
+              ),
+
+              const SizedBox(height: 10),
+
               Row(
                 children: [
                   Expanded(
@@ -1252,8 +1288,8 @@ class _SettingsAndAudioStageState extends State<SettingsAndAudioStage> with Widg
                       controller: customFolderController,
                       style: const TextStyle(color: Colors.white, fontSize: 13),
                       decoration: InputDecoration(
-                        hintText: '/path/to/music',
-                        hintStyle: const TextStyle(color: Colors.white38),
+                        hintText: 'Or enter path manually...',
+                        hintStyle: const TextStyle(color: Colors.white38, fontSize: 12),
                         isDense: true,
                         filled: true,
                         fillColor: Colors.white.withValues(alpha: 0.06),

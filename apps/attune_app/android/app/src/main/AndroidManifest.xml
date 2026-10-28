@@ -19,7 +19,7 @@
 
     <application
         android:label="Attune"
-        android:name="${applicationName}"
+        android:name=".AttuneApplication"
         android:icon="@mipmap/ic_launcher"
         android:enableOnBackInvokedCallback="true"
         android:requestLegacyExternalStorage="true"

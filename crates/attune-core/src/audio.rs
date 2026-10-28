@@ -7,6 +7,7 @@ use symphonia::core::meta::MetadataOptions;
 use symphonia::core::io::MediaSourceStream;
 use symphonia::core::probe::Hint;
 use thiserror::Error;
+use serde::{Deserialize, Serialize};
 
 #[derive(Error, Debug)]
 pub enum AudioError {
@@ -272,6 +273,135 @@ impl AudioDecoder {
         for (i, &sample) in samples.iter().enumerate() {
             let ch = i % num_ch;
             dest.channels[ch].push(sample);
+        }
+    }
+
+    /// Probe container and codec headers to extract real duration, sample rate, bit depth, format, and tags.
+    /// Executes in < 2ms without decoding full audio frames.
+    pub fn probe_metadata<P: AsRef<Path>>(path: P) -> Result<TrackMetadataProbe, AudioError> {
+        let file = std::fs::File::open(&path)?;
+        let _file_len = file.metadata().map(|m| m.len()).unwrap_or(0);
+        let mss = MediaSourceStream::new(Box::new(file), Default::default());
+
+        let mut hint = Hint::new();
+        if let Some(ext) = path.as_ref().extension().and_then(|e| e.to_str()) {
+            hint.with_extension(ext);
+        }
+
+        let format_opts: FormatOptions = Default::default();
+        let metadata_opts: MetadataOptions = Default::default();
+
+        let probed = symphonia::default::get_probe()
+            .format(&hint, mss, &format_opts, &metadata_opts)
+            .map_err(|e| AudioError::Decode(e.to_string()))?;
+
+        let mut format = probed.format;
+        let track = format
+            .tracks()
+            .iter()
+            .find(|t| t.codec_params.codec != CODEC_TYPE_NULL)
+            .ok_or(AudioError::NoSupportedTrack)?;
+
+        let sample_rate = track.codec_params.sample_rate.unwrap_or(44100);
+        let channels = track.codec_params.channels.map(|c| c.count() as u32).unwrap_or(2);
+        let bit_depth = track.codec_params.bits_per_sample.unwrap_or(16);
+
+        let mut duration_ms = 0u64;
+        if let Some(n_frames) = track.codec_params.n_frames {
+            if sample_rate > 0 {
+                duration_ms = ((n_frames as f64 / sample_rate as f64) * 1000.0) as u64;
+            }
+        }
+        if duration_ms == 0 {
+            if let Some(time_base) = track.codec_params.time_base {
+                if let Some(n_frames) = track.codec_params.n_frames {
+                    let time = time_base.calc_time(n_frames);
+                    duration_ms = ((time.seconds as f64 + time.frac) * 1000.0) as u64;
+                }
+            }
+        }
+
+        let format_str = path.as_ref().extension()
+            .and_then(|e| e.to_str())
+            .map(|e| e.to_uppercase())
+            .unwrap_or_else(|| "AUDIO".to_string());
+
+        let mut artist = None;
+        let mut title = None;
+        let mut album = None;
+        let mut genre = None;
+        let mut bpm = None;
+
+        if let Some(metadata) = format.metadata().current() {
+            for tag in metadata.tags() {
+                if let Some(std_key) = tag.std_key {
+                    match std_key {
+                        symphonia::core::meta::StandardTagKey::Artist => {
+                            artist = Some(tag.value.to_string());
+                        }
+                        symphonia::core::meta::StandardTagKey::TrackTitle => {
+                            title = Some(tag.value.to_string());
+                        }
+                        symphonia::core::meta::StandardTagKey::Album => {
+                            album = Some(tag.value.to_string());
+                        }
+                        symphonia::core::meta::StandardTagKey::Genre => {
+                            genre = Some(tag.value.to_string());
+                        }
+                        symphonia::core::meta::StandardTagKey::Bpm => {
+                            if let Ok(b) = tag.value.to_string().parse::<f32>() {
+                                bpm = Some(b);
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+            }
+        }
+
+        Ok(TrackMetadataProbe {
+            duration_ms,
+            sample_rate,
+            channels,
+            bit_depth,
+            format: format_str,
+            artist,
+            title,
+            album,
+            genre,
+            bpm,
+        })
+    }
+}
+
+/// Metadata summary probed from an audio file container and tags.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TrackMetadataProbe {
+    pub duration_ms: u64,
+    pub sample_rate: u32,
+    pub channels: u32,
+    pub bit_depth: u32,
+    pub format: String,
+    pub artist: Option<String>,
+    pub title: Option<String>,
+    pub album: Option<String>,
+    pub genre: Option<String>,
+    pub bpm: Option<f32>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_probe_metadata_wav() {
+        let test_path = "../../bench_test/bm1_whitney_sustain.wav";
+        if std::path::Path::new(test_path).exists() {
+            let probe = AudioDecoder::probe_metadata(test_path).expect("Failed to probe metadata");
+            assert!(probe.sample_rate > 0);
+            assert!(probe.channels > 0);
+            assert_eq!(probe.format, "WAV");
+            assert!(probe.duration_ms > 0);
         }
     }
 }

@@ -4,6 +4,7 @@ import 'dart:isolate';
 import 'package:flutter/material.dart';
 import '../models/track_item.dart';
 import 'environment_delegator.dart';
+import 'engine_bridge.dart';
 
 /// Centralized filesystem & storage path resolution service.
 /// In charge of all cross-platform file system calls, supporting:
@@ -98,18 +99,74 @@ class AudioStorageService {
     String title = baseName;
     String album = 'Local Library';
     String genre = 'Pop';
-    Duration duration = const Duration(minutes: 3);
+    int durationMs = 0;
+    int sampleRate = 44100;
+    int bitDepth = 16;
+    double bpm = 0.0;
+    String musicalKey = 'Pending Profile';
 
-    // Parent directory clues
+    final isLossless = extension == 'flac' || extension == 'wav' || extension == 'alac' || extension == 'aiff';
+    var formatStr = extension.toUpperCase();
+
+    // 1. Probe via native Attune Engine in < 2ms (extracts real duration, specs, and tags)
+    final probe = AttuneEngineBridge.instance.probeAudioFile(file.path);
+    if (probe != null) {
+      durationMs = (probe['duration_ms'] as num?)?.toInt() ?? 0;
+      sampleRate = (probe['sample_rate'] as num?)?.toInt() ?? 44100;
+      bitDepth = (probe['bit_depth'] as num?)?.toInt() ?? 16;
+      if (probe['format'] != null && probe['format'].toString().isNotEmpty) {
+        formatStr = probe['format'].toString().toUpperCase();
+      }
+      if (probe['artist'] != null && probe['artist'].toString().trim().isNotEmpty) {
+        artist = probe['artist'].toString().trim();
+      }
+      if (probe['title'] != null && probe['title'].toString().trim().isNotEmpty) {
+        title = probe['title'].toString().trim();
+      }
+      if (probe['album'] != null && probe['album'].toString().trim().isNotEmpty) {
+        album = probe['album'].toString().trim();
+      }
+      if (probe['genre'] != null && probe['genre'].toString().trim().isNotEmpty) {
+        genre = _normalizeGenre(probe['genre'].toString().trim());
+      }
+      if (probe['bpm'] != null && (probe['bpm'] as num) > 0) {
+        bpm = (probe['bpm'] as num).toDouble();
+      }
+    }
+
+    // 2. Pure Dart container header parser fallback (used in unit tests / mock mode)
+    if (durationMs == 0) {
+      final header = _readAudioHeaderInDart(file, extension);
+      if (header.containsKey('durationMs')) {
+        durationMs = header['durationMs'] as int;
+        sampleRate = header['sampleRate'] as int? ?? sampleRate;
+        bitDepth = header['bitDepth'] as int? ?? bitDepth;
+      }
+    }
+
+    // 3. Fallback estimate from file byte size (if container header lacked frame count, e.g. raw stream)
+    if (durationMs == 0) {
+      try {
+        final fileLen = file.lengthSync();
+        if (fileLen > 0) {
+          final bytesPerSec = isLossless ? (sampleRate * 2 * (bitDepth / 8) * 0.6) : (320000 / 8);
+          final estSec = fileLen / bytesPerSec;
+          durationMs = (estSec * 1000).toInt();
+        }
+      } catch (_) {}
+    }
+
+    // Parent directory clues (generic system folder filtering, zero hardcoded path assumptions)
     if (segments.length >= 2) {
       album = segments[segments.length - 2];
     }
     if (segments.length >= 3) {
       final potentialArtist = segments[segments.length - 3];
-      if (potentialArtist != 'music' &&
-          potentialArtist != 'Soulseek Complete' &&
-          potentialArtist != 'Documents' &&
-          potentialArtist != 'Music') {
+      const ignoredFolders = {
+        'music', 'documents', 'download', 'audiobooks', 'podcasts',
+        'ringtones', 'media', 'files', 'sdcard', 'storage', 'emulated', '0'
+      };
+      if (!ignoredFolders.contains(potentialArtist.toLowerCase()) && artist == 'Unknown Artist') {
         artist = potentialArtist;
       }
     }
@@ -121,11 +178,11 @@ class AudioStorageService {
       try {
         final content = nfoFile.readAsStringSync();
         final artistMatch = RegExp(r'<artist>(.*?)</artist>').firstMatch(content);
-        if (artistMatch != null && artistMatch.group(1)!.trim().isNotEmpty) {
+        if (artistMatch != null && artistMatch.group(1)!.trim().isNotEmpty && artist == 'Unknown Artist') {
           artist = artistMatch.group(1)!.trim();
         }
         final albumMatch = RegExp(r'<title>(.*?)</title>').firstMatch(content);
-        if (albumMatch != null && albumMatch.group(1)!.trim().isNotEmpty) {
+        if (albumMatch != null && albumMatch.group(1)!.trim().isNotEmpty && album == 'Local Library') {
           album = albumMatch.group(1)!.trim();
         }
         final genreMatch = RegExp(r'<genre>(.*?)</genre>').firstMatch(content);
@@ -133,16 +190,16 @@ class AudioStorageService {
           genre = _normalizeGenre(genreMatch.group(1)!.trim());
         }
         final durMatch = RegExp(r'<duration>(\d+):(\d+)</duration>').firstMatch(content);
-        if (durMatch != null) {
-          final m = int.tryParse(durMatch.group(1)!) ?? 3;
+        if (durMatch != null && durationMs == 0) {
+          final m = int.tryParse(durMatch.group(1)!) ?? 0;
           final s = int.tryParse(durMatch.group(2)!) ?? 0;
-          duration = Duration(minutes: m, seconds: s);
+          durationMs = (m * 60 + s) * 1000;
         }
       } catch (_) {}
     }
 
     // Parse "Artist - Title" filename format
-    if (baseName.contains(' - ')) {
+    if (baseName.contains(' - ') && artist == 'Unknown Artist') {
       final parts = baseName.split(' - ');
       if (parts.length >= 2) {
         artist = parts[0].trim();
@@ -152,8 +209,8 @@ class AudioStorageService {
 
     // Format disc compilations (e.g. Project Mirai / Diva OSTs)
     if (album.startsWith('Disc ')) {
-      album = 'Project Mirai / Diva ($album)';
-      if (artist == 'Unknown Artist') artist = 'Vocaloid';
+      album = 'Compilation ($album)';
+      if (artist == 'Unknown Artist') artist = 'Various Artists';
     }
 
     // Infer genre if still default
@@ -186,9 +243,6 @@ class AudioStorageService {
       Color(0xFF14B8A6), // Teal
     ];
     final seedColor = palette[title.hashCode.abs() % palette.length];
-
-    final isLossless = extension == 'flac' || extension == 'wav' || extension == 'alac' || extension == 'aiff';
-    final formatStr = extension.toUpperCase();
     final trackId = '${title.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]'), '_')}_${title.hashCode.abs()}';
 
     return TrackItem(
@@ -197,18 +251,79 @@ class AudioStorageService {
       artist: artist,
       album: album,
       filePath: file.path,
-      duration: duration,
-      bpm: 120.0,
-      musicalKey: '8B (C Major)',
+      duration: Duration(milliseconds: durationMs),
+      bpm: bpm,
+      musicalKey: musicalKey,
       format: formatStr,
       genre: genre,
-      sampleRate: 44100,
-      bitDepth: 16,
+      sampleRate: sampleRate,
+      bitDepth: bitDepth,
       isLossless: isLossless,
       isProprietary: false,
       seedColor: seedColor,
       artworkFile: artworkPath,
     );
+  }
+
+  /// Pure Dart header parser extracting exact audio specifications for FLAC and WAV files.
+  static Map<String, dynamic> _readAudioHeaderInDart(File file, String extension) {
+    try {
+      final raf = file.openSync(mode: FileMode.read);
+      try {
+        final length = file.lengthSync();
+        if (extension == 'flac' && length >= 42) {
+          final header = raf.readSync(42);
+          if (header.length >= 42 &&
+              header[0] == 0x66 && // 'f'
+              header[1] == 0x4C && // 'L'
+              header[2] == 0x61 && // 'a'
+              header[3] == 0x43) { // 'C'
+            final b18 = header[18];
+            final b19 = header[19];
+            final b20 = header[20];
+            final sampleRate = (b18 << 12) | (b19 << 4) | (b20 >> 4);
+            final channels = ((b20 >> 1) & 0x07) + 1;
+            final bitDepth = (((b20 & 0x01) << 4) | (header[21] >> 4)) + 1;
+            final b21 = header[21] & 0x0F;
+            final b22 = header[22];
+            final b23 = header[23];
+            final b24 = header[24];
+            final b25 = header[25];
+            final totalSamples = (b21 * 4294967296) + (b22 << 24) + (b23 << 16) + (b24 << 8) + b25;
+            if (sampleRate > 0 && totalSamples > 0) {
+              final durationMs = (totalSamples * 1000) ~/ sampleRate;
+              return {
+                'durationMs': durationMs,
+                'sampleRate': sampleRate,
+                'channels': channels,
+                'bitDepth': bitDepth,
+              };
+            }
+          }
+        } else if (extension == 'wav' && length >= 44) {
+          final header = raf.readSync(44);
+          if (header.length >= 44 &&
+              header[0] == 0x52 && header[1] == 0x49 && header[2] == 0x46 && header[3] == 0x46) {
+            final channels = header[22] | (header[23] << 8);
+            final sampleRate = header[24] | (header[25] << 8) | (header[26] << 16) | (header[27] << 24);
+            final byteRate = header[28] | (header[29] << 8) | (header[30] << 16) | (header[31] << 24);
+            final bitDepth = header[34] | (header[35] << 8);
+            if (byteRate > 0 && length > 44) {
+              final durationMs = ((length - 44) * 1000) ~/ byteRate;
+              return {
+                'durationMs': durationMs,
+                'sampleRate': sampleRate,
+                'channels': channels,
+                'bitDepth': bitDepth,
+              };
+            }
+          }
+        }
+      } finally {
+        raf.closeSync();
+      }
+    } catch (_) {}
+    return {};
   }
 
   /// Safely resolves the application configuration and data directory across platforms

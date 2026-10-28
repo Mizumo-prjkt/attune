@@ -156,21 +156,16 @@ class AndroidEnvironmentDelegator extends AppEnvironmentDelegator {
       roots.add(envMusic);
     }
 
-    const androidRoots = [
+    // Standard Android public media directories & app scoped storage candidates
+    for (final dir in [
       '/storage/emulated/0/Music',
-      '/storage/emulated/0/Download',
-      '/storage/emulated/0/Audiobooks',
-      '/storage/emulated/0/Podcasts',
-      '/storage/emulated/0/Ringtones',
       '/sdcard/Music',
-      '/sdcard/Download',
+      '/storage/emulated/0/Download',
       '/storage/emulated/0/Android/media/org.mizproject.attune',
-      '/storage/emulated/0/Android/data/org.mizproject.attune/files/Music',
-      '/storage/emulated/0/Android/media/com.attune.app',
-      '/storage/emulated/0/Android/data/com.attune.app/files/Music',
-    ];
-    for (final r in androidRoots) {
-      if (!roots.contains(r)) roots.add(r);
+    ]) {
+      if (!roots.contains(dir)) {
+        roots.add(dir);
+      }
     }
     return roots;
   }

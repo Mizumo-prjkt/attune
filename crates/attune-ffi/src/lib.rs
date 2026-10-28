@@ -106,6 +106,93 @@ pub extern "C" fn attune_free_string(ptr: *mut c_char) {
 /// `tier_code`: 0 = JitOnDemand, 1 = FullLocal, 2 = HeavyComputeNode.
 /// The caller must free the returned string using `attune_free_string`.
 #[no_mangle]
+pub extern "C" fn attune_probe_audio_file(path_ptr: *const c_char) -> *mut c_char {
+    let res = std::panic::catch_unwind(|| {
+        if path_ptr.is_null() {
+            return std::ptr::null_mut();
+        }
+        let c_str = unsafe { CStr::from_ptr(path_ptr) };
+        let path_str = match c_str.to_str() {
+            Ok(s) => s,
+            Err(_) => return std::ptr::null_mut(),
+        };
+
+        match AudioDecoder::probe_metadata(path_str) {
+            Ok(probe) => match serde_json::to_string(&probe) {
+                Ok(json) => CString::new(json).unwrap().into_raw(),
+                Err(e) => {
+                    let err_json = serde_json::json!({ "error": format!("Serialization failed: {}", e) });
+                    CString::new(err_json.to_string()).unwrap().into_raw()
+                }
+            },
+            Err(e) => {
+                let err_json = serde_json::json!({ "error": format!("Audio probe failed: {}", e) });
+                CString::new(err_json.to_string()).unwrap().into_raw()
+            }
+        }
+    });
+
+    res.unwrap_or_else(|_| {
+        let err_json = serde_json::json!({ "error": "Native audio probing panic caught" });
+        CString::new(err_json.to_string()).unwrap().into_raw()
+    })
+}
+
+#[cfg(target_os = "android")]
+static ANDROID_VM: std::sync::atomic::AtomicPtr<std::ffi::c_void> =
+    std::sync::atomic::AtomicPtr::new(std::ptr::null_mut());
+
+#[cfg(target_os = "android")]
+#[no_mangle]
+pub unsafe extern "C" fn JNI_OnLoad(vm: *mut std::ffi::c_void, _reserved: *mut std::ffi::c_void) -> i32 {
+    ANDROID_VM.store(vm, std::sync::atomic::Ordering::SeqCst);
+    log::info!("JNI_OnLoad: JavaVM registered at {:?}", vm);
+    0x00010006 // JNI_VERSION_1_6
+}
+
+#[cfg(target_os = "android")]
+unsafe fn init_android_ndk_context(env: *mut jni::sys::JNIEnv, context: jni::sys::jobject) {
+    let mut vm: *mut jni::sys::JavaVM = std::ptr::null_mut();
+    let _ = ((**env).v1_2.GetJavaVM)(env, &mut vm);
+
+    let vm_ptr = if !vm.is_null() {
+        vm as *mut std::ffi::c_void
+    } else {
+        ANDROID_VM.load(std::sync::atomic::Ordering::SeqCst)
+    };
+
+    let global_context = ((**env).v1_2.NewGlobalRef)(env, context) as *mut std::ffi::c_void;
+
+    log::info!("init_android_ndk_context: vm={:?}, context={:?}", vm_ptr, global_context);
+    if !vm_ptr.is_null() && !global_context.is_null() {
+        let _ = std::panic::catch_unwind(|| {
+            ndk_context::initialize_android_context(vm_ptr, global_context);
+        });
+        log::info!("ndk_context initialized successfully");
+    }
+}
+
+#[cfg(target_os = "android")]
+#[no_mangle]
+pub unsafe extern "C" fn Java_org_mizproject_attune_AttuneApplication_initNativeContext(
+    env: *mut jni::sys::JNIEnv,
+    _class: jni::sys::jclass,
+    context: jni::sys::jobject,
+) {
+    init_android_ndk_context(env, context);
+}
+
+#[cfg(target_os = "android")]
+#[no_mangle]
+pub unsafe extern "C" fn Java_org_mizproject_attune_MainActivity_initNativeContext(
+    env: *mut jni::sys::JNIEnv,
+    _class: jni::sys::jclass,
+    context: jni::sys::jobject,
+) {
+    init_android_ndk_context(env, context);
+}
+
+#[no_mangle]
 pub extern "C" fn attune_profile_file(path_ptr: *const c_char, tier_code: i32) -> *mut c_char {
     let res = std::panic::catch_unwind(|| {
         if path_ptr.is_null() {
@@ -315,8 +402,17 @@ pub extern "C" fn attune_player_start() -> i32 {
 
         // Attempt to start hardware output stream (gracefully fallback if headless)
         let driver = std::panic::catch_unwind(|| {
-            AudioOutputDriver::new(Arc::clone(&mixer)).ok()
-        }).unwrap_or(None);
+            match AudioOutputDriver::new(Arc::clone(&mixer)) {
+                Ok(d) => Some(d),
+                Err(e) => {
+                    log::error!("attune_player_start: AudioOutputDriver::new error: {:?}", e);
+                    None
+                }
+            }
+        }).unwrap_or_else(|panic_err| {
+            log::error!("attune_player_start: AudioOutputDriver::new panicked: {:?}", panic_err);
+            None
+        });
 
         let has_driver = driver.is_some();
         log::info!(

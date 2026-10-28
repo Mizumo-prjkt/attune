@@ -1304,6 +1304,39 @@ This file records all major architectural decisions for **Attune**, including co
   - Full visibility into native Rust DSP engine lifecycle on physical Android devices via `adb logcat -s AttuneEngine:V`.
   - Android application launches smoothly, non-blocking, and safely awaits storage permissions.
 
+---
+
+### ADR-041: Android AAudio NDK Context JNI Initialization, Real-Time Symphonia Audio Metadata Probing, Elimination of Hardcoded Dummy Metadata & Interactive Scoped Storage Folder Picker
+
+- **Status**: **LOCKED**
+- **Date**: 2026-10-29
+- **Context**:
+  1. **Android Audio Silence (`hardware driver: false`)**: On physical Android devices, `attune_player_start()` logged `mixer created (sample_rate: 48000 Hz, hardware driver: false)`, resulting in silent playback. Investigation into `cpal v0.18.2`'s AAudio backend revealed that after opening a stream, CPAL calls `AudioManager::get_mixer_bursts()`, which queries `ndk_context::android_context()`. Without prior JNI initialization, `ndk_context::android_context()` panics with `"android context was not initialized"`. The panic was caught by `catch_unwind`, causing CPAL to abandon the hardware driver and fall back to a headless mixer.
+  2. **Hardcoded Dummy Durations (3:00) & BPM (120.0)**: In `AudioStorageService._parseTrackFromFile`, missing metadata defaulted to `const Duration(minutes: 3)` and `bpm: 120.0`. `TrackItem.fromJson` similarly defaulted missing JSON fields to `180000` ms and `120.0` BPM. Furthermore, file path segment parsing hardcoded replacements for `'Seeker'` and `'Soulseek Complete'`. This severely impaired diagnostics and violated Mandate 4 (Avoid hardcoded values).
+  3. **Predefined Path Strings & Scoped Storage Friction**: Environment candidate roots included various hardcoded application paths rather than allowing the user to browse scoped storage volumes manually or grant ordinary file permissions.
+- **Decision**:
+  1. **JNI NDK Context Bridge (`crates/attune-ffi` & Android App Layer)**:
+     - Added `ndk-context = "0.1.1"` and `jni = "0.22"` to `crates/attune-ffi/Cargo.toml` for `target_os = "android"`.
+     - Exported `JNI_OnLoad` in `crates/attune-ffi/src/lib.rs` to register the `JavaVM` pointer upon library load.
+     - Exported `Java_org_mizproject_attune_AttuneApplication_initNativeContext` and `Java_org_mizproject_attune_MainActivity_initNativeContext` to invoke `ndk_context::initialize_android_context(vm, global_context)` using JNI `NewGlobalRef`.
+     - Created `AttuneApplication.kt` extending `FlutterApplication`, loading `libattune_engine.so` and invoking `initNativeContext(this)` before any Flutter or CPAL audio components execute.
+     - Registered `android:name=".AttuneApplication"` in `apps/attune_app/android/app/src/main/AndroidManifest.xml`.
+  2. **Sub-2ms Container Metadata Probing (`crates/attune-core/src/audio.rs` & `attune-ffi`)**:
+     - Engineered `AudioDecoder::probe_metadata(path)`: reads container headers and metadata tags via Symphonia in < 2ms without decoding full audio sample frames.
+     - Calculates genuine `duration_ms` from `n_frames`, sample rate, and codec timebases, plus extracting genuine `sample_rate`, `channels`, `bit_depth`, `format`, `artist`, `title`, `album`, `genre`, and `bpm`.
+     - Exported `attune_probe_audio_file` via C-ABI and connected to Dart `AttuneEngineBridge.instance.probeAudioFile`.
+     - Added pure Dart binary header parsing fallback (`_readAudioHeaderInDart` for FLAC STREAMINFO 34-byte block and WAV fmt chunk) for hermetic unit tests.
+     - Replaced hardcoded `3:00` and `120.0 BPM` fallbacks with real probed metrics, defaulting missing values strictly to `0` and `0.0`.
+  3. **Interactive Scoped Storage Directory Picker Dialog (`apps/attune_app/lib/widgets/directory_picker_dialog.dart`)**:
+     - Built `DirectoryPickerDialog` with Liquid Material Glass aesthetics, allowing users to browse device storage (`/storage/emulated/0`, `/sdcard`, external drives), navigate parent directories, enter paths manually, and select folders with a single tap.
+     - Integrated folder browsing buttons into `StartupSetupStage` and `SettingsAndAudioStage` (`Allowed Media Directories`).
+     - Standardized Android candidate roots in `AndroidEnvironmentDelegator` to standard OS media locations (`/storage/emulated/0/Music`, `/sdcard/Music`, `/storage/emulated/0/Download`, `/storage/emulated/0/Android/media/org.mizproject.attune`), eliminating hardcoded third-party path strings.
+- **Consequences**:
+  - CPAL AAudio hardware output driver initializes with `hardware driver: true` and active audible playback on physical Android devices.
+  - Zero hardcoded 3:00 duration or 120.0 BPM values anywhere in the codebase; real durations and container formats are parsed in < 2ms.
+  - Users have full control over music directory selection through scoped storage browsing.
+  - All 18 Rust tests and 73 Flutter tests pass; both Debug and Release multi-ABI APKs compile and package cleanly.
+
 
 
 

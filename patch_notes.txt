@@ -1,9 +1,10 @@
 Attune Release Patch Notes - Version 0.1.0 (Tag: v0.1.0)
-Built on 2026-10-28 21:56:18 (Commit ede1bdf on branch main)
+Built on 2026-10-29 05:42:26 (Commit 5abb2b1 on branch main)
 Distributed under the MIT License
 ==============================================================================
 
 Recent Git Commits:
+* fix(android): eliminate cold-boot launch crash with C-ABI panic isolation, logcat bridge, and adaptive AAudio buffering (ADR-040) (5abb2b1) - Mizumo-prjkt, 2026-10-28
 * feat(storage): implement AppEnvironmentDelegator and eliminate hardcoded paths (ede1bdf) - Mizumo-prjkt, 2026-10-28
 * fix(ci/android): resolve Windows test subprocess WinError 2 and harden Android storage/multi-ABI launch resilience (7cd1fac) - Mizumo-prjkt, 2026-10-28
 * feat(profile): eliminate hardcoded values with real estimations, telemetry, and dynamic persona (ADR-037) (3c4e586) - Mizumo-prjkt, 2026-10-28
@@ -33,5 +34,4 @@ Recent Git Commits:
 * feat(ui): implement living beat toggle, lavalamp fluid physics & precision lyrics lock mode (ADR-024) (c52ec80) - Mizumo-prjkt, 2026-10-27
 * feat(ui): real lyrics engine, beat-swaying liquid glass & collapsible desktop shell (ADR-023) (3c2a56b) - Mizumo-prjkt, 2026-10-27
 * feat(branding,packaging): integrate official brand assets and migrate application package ID to org.mizproject.attune (4dfac85) - Mizumo-prjkt, 2026-10-27
-* fix(engine, app): unfreeze track-end auto-advance, offload FFI profiling to worker isolates, and fix backdrop ghosting (5ac3986) - Mizumo-prjkt, 2026-10-27
 

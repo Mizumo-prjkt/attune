@@ -4,8 +4,8 @@ import '../services/audio_storage_service.dart';
 import '../services/permission_service.dart';
 import '../services/playback_controller.dart';
 import '../theme/liquid_glass.dart';
-
 import '../theme/typography.dart';
+import '../widgets/directory_picker_dialog.dart';
 
 /// StartupSetupStage: First-run setup and directory configuration welcome screen.
 /// Allows the user to verify music directories, review playback engine options,
@@ -201,6 +201,41 @@ class _StartupSetupStageState extends State<StartupSetupStage> {
 
                   const SizedBox(height: 14),
 
+                  // Browse Scoped Storage / Device Directories
+                  SizedBox(
+                    width: double.infinity,
+                    child: OutlinedButton.icon(
+                      style: OutlinedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+                        side: BorderSide(color: colorScheme.primary.withValues(alpha: 0.5)),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                        backgroundColor: colorScheme.primary.withValues(alpha: 0.08),
+                      ),
+                      icon: Icon(Icons.folder_open_rounded, color: colorScheme.primary, size: 20),
+                      label: Text(
+                        'Browse Folders / Scoped Storage',
+                        style: AttuneTypography.soraSubheading(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                          color: colorScheme.primary,
+                        ),
+                      ),
+                      onPressed: () async {
+                        final selected = await DirectoryPickerDialog.show(context);
+                        if (selected != null && selected.isNotEmpty) {
+                          setState(() {
+                            if (!_detectedRoots.contains(selected)) {
+                              _detectedRoots.add(selected);
+                            }
+                            _selectedRoots.add(selected);
+                          });
+                        }
+                      },
+                    ),
+                  ),
+
+                  const SizedBox(height: 10),
+
                   // Custom Directory Input
                   Row(
                     children: [
@@ -209,7 +244,7 @@ class _StartupSetupStageState extends State<StartupSetupStage> {
                           controller: _customDirController,
                           style: AttuneTypography.jakartaBody(color: colorScheme.onSurface),
                           decoration: InputDecoration(
-                            hintText: 'Enter custom music path...',
+                            hintText: 'Or enter custom path...',
                             hintStyle: AttuneTypography.jakartaBody(color: Colors.white38),
                             isDense: true,
                             filled: true,
@@ -232,7 +267,9 @@ class _StartupSetupStageState extends State<StartupSetupStage> {
                           final path = _customDirController.text.trim();
                           if (path.isNotEmpty && Directory(path).existsSync()) {
                             setState(() {
-                              _detectedRoots.add(path);
+                              if (!_detectedRoots.contains(path)) {
+                                _detectedRoots.add(path);
+                              }
                               _selectedRoots.add(path);
                               _customDirController.clear();
                             });

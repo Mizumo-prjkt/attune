@@ -18,6 +18,9 @@ typedef AttuneFreeStringDart = void Function(Pointer<Utf8>);
 typedef AttuneProfileFileC = Pointer<Utf8> Function(Pointer<Utf8>, Int32);
 typedef AttuneProfileFileDart = Pointer<Utf8> Function(Pointer<Utf8>, int);
 
+typedef AttuneProbeAudioFileC = Pointer<Utf8> Function(Pointer<Utf8>);
+typedef AttuneProbeAudioFileDart = Pointer<Utf8> Function(Pointer<Utf8>);
+
 typedef AttunePlanTransitionC = Pointer<Utf8> Function(Pointer<Utf8>, Pointer<Utf8>);
 typedef AttunePlanTransitionDart = Pointer<Utf8> Function(Pointer<Utf8>, Pointer<Utf8>);
 
@@ -94,6 +97,7 @@ class AttuneEngineBridge {
   AttuneVersionDart? _attuneVersion;
   AttuneFreeStringDart? _attuneFreeString;
   AttuneCacheStatsDart? _attuneCacheStats;
+  AttuneProbeAudioFileDart? _attuneProbeAudioFile;
 
   AttunePlayerStartDart? _attunePlayerStart;
   AttunePlayerLoadTrackDart? _attunePlayerLoadTrack;
@@ -204,6 +208,8 @@ class AttuneEngineBridge {
         _attuneVersion = _lib!.lookupFunction<AttuneVersionC, AttuneVersionDart>('attune_version');
         _attuneFreeString = _lib!.lookupFunction<AttuneFreeStringC, AttuneFreeStringDart>('attune_free_string');
         _attuneCacheStats = _lib!.lookupFunction<AttuneCacheStatsC, AttuneCacheStatsDart>('attune_cache_stats');
+        _attuneProbeAudioFile =
+            _lib!.lookupFunction<AttuneProbeAudioFileC, AttuneProbeAudioFileDart>('attune_probe_audio_file');
 
         _attunePlayerStart = _lib!.lookupFunction<AttunePlayerStartC, AttunePlayerStartDart>('attune_player_start');
         _attunePlayerLoadTrack =
@@ -337,6 +343,32 @@ class AttuneEngineBridge {
       final jsonStr = resPtr.toDartString();
       _attuneFreeString!(resPtr);
       return jsonDecode(jsonStr) as Map<String, dynamic>;
+    } finally {
+      calloc.free(pathPtr);
+    }
+  }
+
+  /// Probes container and codec headers in < 2ms without decoding full audio frames.
+  /// Returns exact duration_ms, sample_rate, channels, bit_depth, format, and tags.
+  Map<String, dynamic>? probeAudioFile(String filePath) {
+    if (!isAvailable || _attuneProbeAudioFile == null || _attuneFreeString == null) {
+      return null;
+    }
+    final pathPtr = filePath.toNativeUtf8();
+    try {
+      final resPtr = _attuneProbeAudioFile!(pathPtr);
+      if (resPtr.address == 0) return null;
+      try {
+        final jsonStr = resPtr.toDartString();
+        final map = jsonDecode(jsonStr) as Map<String, dynamic>;
+        if (map.containsKey('error')) return null;
+        return map;
+      } finally {
+        _attuneFreeString!(resPtr);
+      }
+    } catch (e) {
+      debugPrint('[AttuneEngineBridge] probeAudioFile error: $e');
+      return null;
     } finally {
       calloc.free(pathPtr);
     }
