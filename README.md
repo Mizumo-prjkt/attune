@@ -33,7 +33,8 @@ Attune includes an integrated 10-band master equalizer, audio focus ducking, syl
 ### Now Playing Stage & Liquid Glass Visuals
 *Dynamic ambient glassmorphism with album art glow, track controls, and live transition preview badges.*
 <br/>
-![image](screenshot_showcase/image_2.png)
+<img src="screenshot_showcase/image_2.png" alt="Attune Now Playing Stage" width="92%" />
+
 <br/><br/>
 
 ### Interactive Music Library & Multi-Deck Queue
@@ -46,21 +47,21 @@ Attune includes an integrated 10-band master equalizer, audio focus ducking, syl
 ### Syllable-Synchronized Karaoke & LRC Lyrics Engine
 *Synchronized lyrics rendering with real-time glowing progress, syllable alignment, and source toggling.*
 <br/>
-![image](screenshot_showcase/image_3.png)
+<img src="screenshot_showcase/image_3.png" alt="Attune Synced Lyrics" width="92%" />
 
 <br/><br/>
 
 ### Visual Albums & Artists Browser
 *Rich grid browsing of albums and artists across the local music library.*
 <br/>
-![image](screenshot_showcase/image_4.png)
+<img src="screenshot_showcase/image_4.png" alt="Attune Album Browser" width="92%" />
 
 <br/><br/>
 
 ### Audiophile Telemetry & Transition Engine Statistics
 *DAC adaptation monitoring (Hermite resampling, native sample rates), playback metrics, and genre distribution.*
 <br/>
-![image](screenshot_showcase/image_5.png)
+<img src="screenshot_showcase/image_5.png" alt="Attune DAC & Transition Telemetry" width="92%" />
 
 </div>
 
