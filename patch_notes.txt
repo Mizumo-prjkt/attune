@@ -1,36 +1,37 @@
 Attune Release Patch Notes - Version 0.1.0
-Built on 2026-10-28 08:12:51 (Commit ed1061b on branch main)
+Built on 2026-10-28 08:27:39 (Commit 643d2f2 on branch main)
 Distributed under the MIT License
 ==============================================================================
 
 Recent Git Commits:
-* fix(ui): separate 'Open DSP Diagnostics' and 'Got it' dialog buttons across full width (ed1061b) - Mizumo-prjkt, 2026-10-28
-* feat(shuffle): implement Smart Shuffle Verdict engine, multi-dimensional candidate breakdown & interactive runner-up promotion (ADR-032) (84b1bf0) - Mizumo-prjkt, 2026-10-28
-* feat(dsp): rebrand master FX to Attune native, integrate omnipresent navigation & refresh bundle (ADR-031) (67b7e68) - Mizumo-prjkt, 2026-10-28
-* feat(dsp): implement ViPER-grade Master FX rack, EqualizerService & EqualizerStage (ADR-030) (773e6f0) - Mizumo-prjkt, 2026-10-28
-* feat(ui): implement dedicated SongExclusionStage, real-time search filtering & zero-hardcoded testing (ADR-029) (6908823) - Mizumo-prjkt, 2026-10-28
-* fix(core): resolve working directory ENOENT crash, adapt decoder label & implement native Android/Desktop permissions (ADR-028) (3c9e10b) - Mizumo-prjkt, 2026-10-28
-* feat(ui): modernize settings stage with 6 lists, floating liquid glass dialogs, and zero-hardcoding (ADR-027) (1cc6c9e) - Mizumo-prjkt, 2026-10-28
-* feat(lyrics): implement syllable-synchronized lyrics engine, open-source multi-format waterfall (.ttml/.elrc/.yrc), intra-word sweeping gradient shader & aligned phonetic transliteration (ADR-026) (86ef3aa) - Mizumo-prjkt, 2026-10-27
-* feat(lyrics): static lyrics sheet mode, smart source timing priority, strict .mls Ultra-Sync & animation performance fix (ADR-025) (f5f2574) - Mizumo-prjkt, 2026-10-27
-* feat(ui): implement living beat toggle, lavalamp fluid physics & precision lyrics lock mode (ADR-024) (9fba029) - Mizumo-prjkt, 2026-10-27
-* feat(ui): real lyrics engine, beat-swaying liquid glass & collapsible desktop shell (ADR-023) (432398f) - Mizumo-prjkt, 2026-10-27
-* feat(branding,packaging): integrate official brand assets and migrate application package ID to org.mizproject.attune (3ab52e2) - Mizumo-prjkt, 2026-10-27
-* fix(engine, app): unfreeze track-end auto-advance, offload FFI profiling to worker isolates, and fix backdrop ghosting (1788eb9) - Mizumo-prjkt, 2026-10-27
-* feat(dsp,planner): scrap procedural chiptune fill and implement walled garden music algorithm 4-stage DSP lookahead pipeline (79a7ab5) - Mizumo-prjkt, 2026-10-27
-* feat(core, dsp): implement Archetype 6 Generative Melodic Bridge Fill with PolyBLEP SuperSaw and TPT SVF stabilization (55bce3c) - Mizumo-prjkt, 2026-10-27
-* fix(ffi, app): eliminate shuffle button UI freeze via decoupled session mutex and non-blocking microtasks (af0e920) - Mizumo-prjkt, 2026-10-27
-* fix(engine, app): resolve 1-track audio/UI desync and preserve vocal phrase completion (a9a1963) - Mizumo-prjkt, 2026-10-27
-* fix(engine,ui): resolve buffer underruns, deck loop desync, multi-core offloading, and add mid-animation liquid glass morph (bd7691f) - Mizumo-prjkt, 2026-10-27
-* feat(ui, engine): non-blocking audio profiling, library caching, stage overhaul, and floating neon mini-player (15aff6d) - Mizumo-prjkt, 2026-10-27
-* feat(integration): implement Phase 5 dynamic library scanning, live dual-deck FFI playback, and cross-platform storage service (2c3b756) - Mizumo-prjkt, 2026-10-27
-* feat(ui,ffi): implement Phase 4 Flutter frontend with Multi-Activity Android Predictive Back and Rust C-ABI engine bridge (1ac2d3e) - Mizumo-prjkt, 2026-10-27
-* docs(ledger,ui): lock ADR-012 and Phase 4 Liquid Material Glass UI specification (4b7da16) - Mizumo-prjkt, 2026-10-27
-* feat(cache,node): implement Phase 3 portable cache, pack bundling, and external compute node sync (956e626) - Mizumo-prjkt, 2026-10-27
-* fix(planner,engine): vocal integrity protection, decaying reverb spillover, and multi-genre rock/pop verification (5e393bd) - Mizumo-prjkt, 2026-10-27
-* fix(engine,dsp): adapt to hardware output sample rate and refine 1-bar transition phrasing (a994278) - Mizumo-prjkt, 2026-10-27
-* feat(engine,dsp): implement Phase 2 real-time dual-deck native mixer and cpal audio driver (75f2a77) - Mizumo-prjkt, 2026-10-27
-* feat(dsp,profiler): dynamic silence gating and dead-air elimination in transitions (5a36044) - Mizumo-prjkt, 2026-10-27
-* feat(core,renderer): add musical context rendering and validate on real FLAC tracks (1817013) - Mizumo-prjkt, 2026-10-27
-* feat(core,cli): scaffold workspace and complete Phase 1 headless DSP engine & CLI benchmarks (f81b54c) - Mizumo-prjkt, 2026-10-27
+* docs(ledger): update ADR-033 with Gemini credits and contributor attribution resolution (643d2f2) - Mizumo-prjkt, 2026-10-28
+* feat(about): credit Gemini 3.8 Flash & Claude in About UI and update git attribution (86e3aa1) - Mizumo-prjkt, 2026-10-28
+* feat(packaging): implement Liquid Glass About stage, Windows Inno Setup, Linux AppImage & Python builder studio (ADR-033) (26739c0) - Mizumo-prjkt, 2026-10-28
+* fix(ui): separate 'Open DSP Diagnostics' and 'Got it' dialog buttons across full width (17fd6ff) - Mizumo-prjkt, 2026-10-28
+* feat(shuffle): implement Smart Shuffle Verdict engine, multi-dimensional candidate breakdown & interactive runner-up promotion (ADR-032) (fe56f7a) - Mizumo-prjkt, 2026-10-28
+* feat(dsp): rebrand master FX to Attune native, integrate omnipresent navigation & refresh bundle (ADR-031) (0842ea2) - Mizumo-prjkt, 2026-10-28
+* feat(dsp): implement ViPER-grade Master FX rack, EqualizerService & EqualizerStage (ADR-030) (7b2f8ca) - Mizumo-prjkt, 2026-10-28
+* feat(ui): implement dedicated SongExclusionStage, real-time search filtering & zero-hardcoded testing (ADR-029) (3ce82eb) - Mizumo-prjkt, 2026-10-28
+* fix(core): resolve working directory ENOENT crash, adapt decoder label & implement native Android/Desktop permissions (ADR-028) (144512d) - Mizumo-prjkt, 2026-10-28
+* feat(ui): modernize settings stage with 6 lists, floating liquid glass dialogs, and zero-hardcoding (ADR-027) (e5d5480) - Mizumo-prjkt, 2026-10-28
+* feat(lyrics): implement syllable-synchronized lyrics engine, open-source multi-format waterfall (.ttml/.elrc/.yrc), intra-word sweeping gradient shader & aligned phonetic transliteration (ADR-026) (9493123) - Mizumo-prjkt, 2026-10-27
+* feat(lyrics): static lyrics sheet mode, smart source timing priority, strict .mls Ultra-Sync & animation performance fix (ADR-025) (d8f2cc5) - Mizumo-prjkt, 2026-10-27
+* feat(ui): implement living beat toggle, lavalamp fluid physics & precision lyrics lock mode (ADR-024) (c52ec80) - Mizumo-prjkt, 2026-10-27
+* feat(ui): real lyrics engine, beat-swaying liquid glass & collapsible desktop shell (ADR-023) (3c2a56b) - Mizumo-prjkt, 2026-10-27
+* feat(branding,packaging): integrate official brand assets and migrate application package ID to org.mizproject.attune (4dfac85) - Mizumo-prjkt, 2026-10-27
+* fix(engine, app): unfreeze track-end auto-advance, offload FFI profiling to worker isolates, and fix backdrop ghosting (5ac3986) - Mizumo-prjkt, 2026-10-27
+* feat(dsp,planner): scrap procedural chiptune fill and implement walled garden music algorithm 4-stage DSP lookahead pipeline (f9fd01a) - Mizumo-prjkt, 2026-10-27
+* feat(core, dsp): implement Archetype 6 Generative Melodic Bridge Fill with PolyBLEP SuperSaw and TPT SVF stabilization (b5d397a) - Mizumo-prjkt, 2026-10-27
+* fix(ffi, app): eliminate shuffle button UI freeze via decoupled session mutex and non-blocking microtasks (89ea7ad) - Mizumo-prjkt, 2026-10-27
+* fix(engine, app): resolve 1-track audio/UI desync and preserve vocal phrase completion (fc34e49) - Mizumo-prjkt, 2026-10-27
+* fix(engine,ui): resolve buffer underruns, deck loop desync, multi-core offloading, and add mid-animation liquid glass morph (516d042) - Mizumo-prjkt, 2026-10-27
+* feat(ui, engine): non-blocking audio profiling, library caching, stage overhaul, and floating neon mini-player (8ae0c72) - Mizumo-prjkt, 2026-10-27
+* feat(integration): implement Phase 5 dynamic library scanning, live dual-deck FFI playback, and cross-platform storage service (bb83217) - Mizumo-prjkt, 2026-10-27
+* feat(ui,ffi): implement Phase 4 Flutter frontend with Multi-Activity Android Predictive Back and Rust C-ABI engine bridge (54a9153) - Mizumo-prjkt, 2026-10-27
+* docs(ledger,ui): lock ADR-012 and Phase 4 Liquid Material Glass UI specification (f5f013d) - Mizumo-prjkt, 2026-10-27
+* feat(cache,node): implement Phase 3 portable cache, pack bundling, and external compute node sync (cfcb2e4) - Mizumo-prjkt, 2026-10-27
+* fix(planner,engine): vocal integrity protection, decaying reverb spillover, and multi-genre rock/pop verification (0980fa0) - Mizumo-prjkt, 2026-10-27
+* fix(engine,dsp): adapt to hardware output sample rate and refine 1-bar transition phrasing (1cc80af) - Mizumo-prjkt, 2026-10-27
+* feat(engine,dsp): implement Phase 2 real-time dual-deck native mixer and cpal audio driver (e4ab8da) - Mizumo-prjkt, 2026-10-27
+* feat(dsp,profiler): dynamic silence gating and dead-air elimination in transitions (539e8eb) - Mizumo-prjkt, 2026-10-27
 
