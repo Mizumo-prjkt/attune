@@ -1,6 +1,6 @@
-import 'dart:io';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
+import 'services/environment_delegator.dart';
 import 'shell/responsive_glass_scaffold.dart';
 import 'stages/about_stage.dart';
 import 'stages/equalizer_stage.dart';
@@ -11,23 +11,7 @@ import 'theme/color_engine.dart';
 
 /// Recovers the process working directory if launched from a stale/unlinked inode
 void _ensureValidCurrentDirectory() {
-  if (Platform.isAndroid || Platform.isIOS) return;
-  try {
-    Directory.current;
-  } catch (_) {
-    try {
-      final home = Platform.environment['HOME'] ?? Platform.environment['USERPROFILE'];
-      if (home != null && Directory(home).existsSync()) {
-        Directory.current = home;
-      } else {
-        final exe = Platform.resolvedExecutable;
-        final dir = File(exe).parent;
-        if (dir.existsSync()) {
-          Directory.current = dir.path;
-        }
-      }
-    } catch (_) {}
-  }
+  AppEnvironmentDelegator.current.ensureValidWorkingDirectory();
 }
 
 

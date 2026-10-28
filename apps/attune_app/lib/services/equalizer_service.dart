@@ -1,7 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/material.dart';
-import 'audio_storage_service.dart';
+import 'environment_delegator.dart';
 import 'engine_bridge.dart';
 
 
@@ -78,7 +78,7 @@ class EqualizerService extends ChangeNotifier {
   bool get bypassExternalDspWarning => _bypassExternalDspWarning;
 
   File get _configFile {
-    final dir = AudioStorageService.instance.getAppDataDirectory();
+    final dir = AppEnvironmentDelegator.current.appDataDirectory;
     return File('${dir.path}/equalizer_profile.json');
   }
 

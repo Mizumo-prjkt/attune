@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:attune_app/models/track_item.dart';
+import 'package:attune_app/services/environment_delegator.dart';
 import 'package:attune_app/services/lyrics_service.dart';
 
 void main() {
@@ -186,7 +187,7 @@ Chorus line 2
         title: 'Rabbit Hole',
         artist: 'DECO*27',
         album: 'Rabbit Hole',
-        filePath: '/home/miku/Music/Soulseek Complete/Rabbit Hole/01 Rabbit Hole.flac',
+        filePath: '/tmp/test_rabbit_hole_01.flac',
         duration: Duration(minutes: 2, seconds: 39),
         bpm: 135.0,
         musicalKey: '11B',
@@ -199,21 +200,30 @@ Chorus line 2
     });
 
     test('determinePreferredSource prioritizes timed lyrics according to user matrix', () async {
-      // 1. Machine Love has timed companion .lrc
-      const machineLoveTrack = TrackItem(
-        id: 'machine_love_pref',
-        title: 'Machine Love',
-        artist: 'Jamie Paige',
-        album: 'Machine Love',
-        filePath: '/home/miku/Music/Soulseek Complete/Machine Love/01 Machine Love.flac',
-        duration: Duration(minutes: 3, seconds: 36),
-        bpm: 124.0,
-        musicalKey: '8B',
-      );
+      // 1. Dynamic probe for test track with companion .lrc
+      final roots = AppEnvironmentDelegator.current.getMusicCandidateRoots();
+      String? testFlacPath;
+      for (final root in roots) {
+        final p = '$root/Machine Love/01 Machine Love.flac';
+        if (File(p).existsSync()) {
+          testFlacPath = p;
+          break;
+        }
+      }
 
-      if (File(machineLoveTrack.filePath).existsSync()) {
+      if (testFlacPath != null) {
+        final machineLoveTrack = TrackItem(
+          id: 'machine_love_pref',
+          title: 'Machine Love',
+          artist: 'Jamie Paige',
+          album: 'Machine Love',
+          filePath: testFlacPath,
+          duration: const Duration(minutes: 3, seconds: 36),
+          bpm: 124.0,
+          musicalKey: '8B',
+        );
+
         final preferred = await LyricsService.instance.determinePreferredSource(machineLoveTrack);
-        // Has timed .lrc file, so it should resolve correctly
         expect(preferred, anyOf(LyricSourceType.lrcFile, LyricSourceType.embedded));
       }
 
@@ -234,20 +244,29 @@ Chorus line 2
     });
 
     test('Resolves real companion .lrc file if present on local disk', () async {
-      const realLrcPath = '/home/miku/Music/Soulseek Complete/Machine Love/01 Machine Love.lrc';
-      final file = File(realLrcPath);
-      if (!file.existsSync()) {
+      final roots = AppEnvironmentDelegator.current.getMusicCandidateRoots();
+      String? testFlacPath;
+      for (final root in roots) {
+        final p = '$root/Machine Love/01 Machine Love.flac';
+        final lrc = '$root/Machine Love/01 Machine Love.lrc';
+        if (File(p).existsSync() && File(lrc).existsSync()) {
+          testFlacPath = p;
+          break;
+        }
+      }
+
+      if (testFlacPath == null) {
         // Skip if running in environment without local music files
         return;
       }
 
-      const track = TrackItem(
+      final track = TrackItem(
         id: 'machine_love_test',
         title: 'Machine Love',
         artist: 'Jamie Paige',
         album: 'Machine Love',
-        filePath: '/home/miku/Music/Soulseek Complete/Machine Love/01 Machine Love.flac',
-        duration: Duration(minutes: 3, seconds: 36),
+        filePath: testFlacPath,
+        duration: const Duration(minutes: 3, seconds: 36),
         bpm: 124.0,
         musicalKey: '8B',
       );

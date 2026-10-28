@@ -1234,6 +1234,39 @@ This file records all major architectural decisions for **Attune**, including co
   - The Android app starts reliably without crashing, persists all configurations in its sandboxed files directory, and supports all Android device architectures (`arm64-v8a`, `armeabi-v7a`, `x86_64`) for instant USB debugging.
   - All 64 Flutter tests and 28 Rust tests continue to pass with 0 issues.
 
+---
+
+## ADR-039: Environment Path Delegator Architecture (`AppEnvironmentDelegator`), Dynamic Scoped Storage & Zero-Hardcoded Filesystem Resolution
+
+- **Date**: 2026-10-28
+- **Status**: `LOCKED`
+- **Context**:
+  - `AudioStorageService` previously mixed audio scanning with general application filesystem path management (`_ensureValidDirectory`, `getCandidateRoots`, `getAppDataDirectory`), creating architectural coupling where unrelated services (`SettingsService`, `EqualizerService`, `main.dart`) depended on `AudioStorageService.instance.getAppDataDirectory()`.
+  - `AudioStorageService.getCandidateRoots()` contained hardcoded user-specific developer paths (e.g. `/home/miku/Documents/attune/music`, `/home/miku/Music`, `/home/miku/Music/Soulseek Complete`), violating Mandate 4 (Avoid hardcoding values, usernames, or paths).
+  - The application needed a dedicated, platform-polymorphic environment delegator that encapsulates all OS/runtime environment path resolutions dynamically across Android, Linux, Windows, macOS, and automated Test environments.
+- **Decision**:
+  1. **Dedicated Environment Delegator Service (`AppEnvironmentDelegator`)**:
+     - Engineered `apps/attune_app/lib/services/environment_delegator.dart` defining an abstract base class `AppEnvironmentDelegator` and concrete platform delegators:
+       * `AndroidEnvironmentDelegator`: Resolves scoped storage (`/storage/emulated/0/Music`, `/sdcard/Music`, etc.), app internal sandboxes (`/data/user/0/...`), and environment variable overrides (`ATTUNE_DATA_DIR`, `ATTUNE_CACHE_DIR`, `ATTUNE_MUSIC_DIR`).
+       * `LinuxEnvironmentDelegator`: Resolves `$XDG_CONFIG_HOME`, `$XDG_CACHE_HOME`, `$XDG_MUSIC_DIR`, dynamic `$HOME/Music`, `/media/$USER/Music`, executable/workspace relative paths, and self-heals POSIX working directories.
+       * `WindowsEnvironmentDelegator`: Resolves `%APPDATA%`, `%LOCALAPPDATA%`, `%USERPROFILE%\Music`, `%MUSIC%`, and self-heals Windows working directories.
+       * `MacOsEnvironmentDelegator`: Resolves `~/Library/Application Support/attune`, `~/Library/Caches/attune`, and `~/Music`.
+       * `TestEnvironmentDelegator`: Hermetic test directories (`${Directory.systemTemp.path}/attune_test_$pid`) with zero host system side effects, supporting custom test directory injection.
+  2. **Decoupling and Complete Elimination of Hardcoded Paths**:
+     - Refactored `AudioStorageService` to query `AppEnvironmentDelegator.current` for candidate music roots, app data directory, cache directory, and CWD healing. Removed all `/home/miku/...` paths.
+     - Decoupled `SettingsService` and `EqualizerService` from `AudioStorageService.instance.getAppDataDirectory()`, routing them directly to `AppEnvironmentDelegator.current.appDataDirectory`.
+     - Standardized user profile default username resolution via `AppEnvironmentDelegator.current.defaultUsername`.
+     - Refactored `apps/attune_app/lib/main.dart` entrypoints to delegate working directory healing to `AppEnvironmentDelegator.current.ensureValidWorkingDirectory()`.
+     - Refactored `apps/attune_app/test/lyrics_service_test.dart` to dynamically query candidate roots instead of using static user paths.
+  3. **Verification**:
+     - Created a comprehensive test suite `apps/attune_app/test/environment_delegator_test.dart` testing each delegator, custom injection, scoped storage, and decoupled service integration.
+     - Verified with `flutter analyze` (0 issues) and `flutter test` (all 73 Flutter tests pass).
+- **Consequences**:
+  - Full compliance with Mandate 4: Zero hardcoded developer paths or assumptions anywhere in the codebase.
+  - Clean separation of concerns: `AppEnvironmentDelegator` manages platform/OS filesystem semantics, while `AudioStorageService` focuses purely on audio metadata parsing and library caching.
+  - Deterministic and hermetic testing via injectable delegator instances.
+
+
 
 
 

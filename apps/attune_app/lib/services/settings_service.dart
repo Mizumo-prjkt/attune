@@ -1,7 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/material.dart';
-import 'audio_storage_service.dart';
+import 'environment_delegator.dart';
 
 /// Audio focus hook sensitivity levels
 enum AudioFocusLevel {
@@ -143,12 +143,9 @@ class SettingsService extends ChangeNotifier {
   String get language => _language;
   String get profileName {
     if (_profileName.trim().isNotEmpty) return _profileName.trim();
-    final envUser = Platform.environment['USER'] ??
-        Platform.environment['USERNAME'] ??
-        Platform.environment['LOGNAME'];
-    if (envUser != null && envUser.trim().isNotEmpty) {
-      final u = envUser.trim();
-      return u[0].toUpperCase() + u.substring(1);
+    final envUser = AppEnvironmentDelegator.current.defaultUsername;
+    if (envUser.isNotEmpty) {
+      return envUser[0].toUpperCase() + envUser.substring(1);
     }
     return 'Listener';
   }
@@ -312,7 +309,7 @@ class SettingsService extends ChangeNotifier {
   }
 
   File get _settingsFile {
-    final dir = AudioStorageService.instance.getAppDataDirectory();
+    final dir = AppEnvironmentDelegator.current.appDataDirectory;
     return File('${dir.path}/app_settings.json');
   }
 
@@ -320,7 +317,7 @@ class SettingsService extends ChangeNotifier {
   void _loadFromDisk() {
     try {
       // Initialize allowed directories dynamically from real existing candidate roots
-      final candidates = AudioStorageService.instance.getCandidateRoots();
+      final candidates = AppEnvironmentDelegator.current.getMusicCandidateRoots();
       for (final root in candidates) {
         if (Directory(root).existsSync()) {
           _allowedDirectories.add(root);

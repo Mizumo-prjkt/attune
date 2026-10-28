@@ -3,6 +3,7 @@ import 'dart:io';
 import 'dart:isolate';
 import 'package:flutter/material.dart';
 import '../models/track_item.dart';
+import 'environment_delegator.dart';
 
 /// Centralized filesystem & storage path resolution service.
 /// In charge of all cross-platform file system calls, supporting:
@@ -28,107 +29,12 @@ class AudioStorageService {
 
   /// Safely ensures the working directory is valid
   static void _ensureValidDirectory() {
-    if (Platform.isAndroid || Platform.isIOS) return;
-    try {
-      Directory.current;
-    } catch (_) {
-      try {
-        final home = Platform.environment['HOME'] ?? Platform.environment['USERPROFILE'];
-        if (home != null && Directory(home).existsSync()) {
-          Directory.current = home;
-        } else {
-          final exe = Platform.resolvedExecutable;
-          final dir = File(exe).parent;
-          if (dir.existsSync()) {
-            Directory.current = dir.path;
-          }
-        }
-      } catch (_) {}
-    }
+    AppEnvironmentDelegator.current.ensureValidWorkingDirectory();
   }
 
-  /// Returns candidate directory paths based on the current operating system.
+  /// Returns candidate directory paths based on the current operating system environment.
   List<String> getCandidateRoots({List<String>? additionalRoots}) {
-    _ensureValidDirectory();
-    final roots = <String>[];
-
-    if (additionalRoots != null) {
-      roots.addAll(additionalRoots);
-    }
-
-    // 1. Workspace absolute dev paths (for desktop live development and test suites)
-    if (!Platform.isAndroid && !Platform.isIOS) {
-      const primaryDevMusic = '/home/miku/Documents/attune/music';
-      roots.add(primaryDevMusic);
-
-      try {
-        final cwd = Directory.current.path;
-        for (final rel in ['music', '../music', '../../music', '../../../music']) {
-          final abs = Directory('$cwd/$rel').path;
-          if (!roots.contains(abs)) roots.add(abs);
-        }
-      } catch (_) {}
-
-      try {
-        final exe = File(Platform.resolvedExecutable).parent.path;
-        for (final rel in ['music', '../music', '../../music', '../../../music', '../../../../music']) {
-          final abs = Directory('$exe/$rel').path;
-          if (!roots.contains(abs)) roots.add(abs);
-        }
-      } catch (_) {}
-    }
-
-
-    // 2. Platform-specific root paths
-    if (Platform.isAndroid) {
-      // Android 11+ Scoped Storage & standard external shared storage paths
-      roots.addAll([
-        '/storage/emulated/0/Music',
-        '/storage/emulated/0/Download',
-        '/storage/emulated/0/Audiobooks',
-        '/storage/emulated/0/Podcasts',
-        '/storage/emulated/0/Ringtones',
-        '/sdcard/Music',
-        '/sdcard/Download',
-        '/storage/emulated/0/Android/media/org.mizproject.attune',
-        '/storage/emulated/0/Android/data/org.mizproject.attune/files/Music',
-        '/storage/emulated/0/Android/media/com.attune.app',
-        '/storage/emulated/0/Android/data/com.attune.app/files/Music',
-      ]);
-    } else if (Platform.isLinux) {
-      final xdgMusic = Platform.environment['XDG_MUSIC_DIR'];
-      if (xdgMusic != null && xdgMusic.isNotEmpty) {
-        roots.add(xdgMusic);
-      }
-      final home = Platform.environment['HOME'];
-      if (home != null && home.isNotEmpty) {
-        roots.add('$home/Music');
-        roots.add('$home/Music/Soulseek Complete');
-      }
-      // Common fallback paths on linux
-      roots.addAll([
-        '/home/miku/Music/Soulseek Complete',
-        '/home/miku/Music',
-      ]);
-    } else if (Platform.isWindows) {
-      final userProfile = Platform.environment['USERPROFILE'];
-      if (userProfile != null && userProfile.isNotEmpty) {
-        roots.add('$userProfile\\Music');
-        roots.add('$userProfile\\Downloads');
-      }
-      final musicVar = Platform.environment['MUSIC'];
-      if (musicVar != null && musicVar.isNotEmpty) {
-        roots.add(musicVar);
-      }
-    } else if (Platform.isMacOS) {
-      final home = Platform.environment['HOME'];
-      if (home != null && home.isNotEmpty) {
-        roots.add('$home/Music');
-        roots.add('$home/Downloads');
-      }
-    }
-
-    return roots;
+    return AppEnvironmentDelegator.current.getMusicCandidateRoots(additionalRoots: additionalRoots);
   }
 
   /// Recursively discovers all audio files across all available candidate directories.
@@ -305,63 +211,16 @@ class AudioStorageService {
     );
   }
 
-  /// Safely resolves the application configuration and data directory across
-  /// Android (app internal sandbox), Linux ($XDG_CONFIG_HOME or $HOME/.config),
-  /// Windows (%APPDATA% or %USERPROFILE%/.config), and macOS (~/Library/Application Support).
+  /// Safely resolves the application configuration and data directory across platforms
+  /// via the active AppEnvironmentDelegator.
   Directory getAppDataDirectory() {
-    if (Platform.isAndroid) {
-      final candidates = [
-        '/data/user/0/org.mizproject.attune/files',
-        '/data/data/org.mizproject.attune/files',
-        '/data/user/0/org.mizproject.attune/cache',
-        '/data/data/org.mizproject.attune/cache',
-        '${Directory.systemTemp.path}/attune',
-      ];
-      for (final candidate in candidates) {
-        try {
-          final dir = Directory(candidate);
-          if (!dir.existsSync()) {
-            dir.createSync(recursive: true);
-          }
-          final probe = File('${dir.path}/.probe');
-          probe.writeAsStringSync('1');
-          probe.deleteSync();
-          return dir;
-        } catch (_) {
-          continue;
-        }
-      }
-      return Directory.systemTemp;
-    }
+    return AppEnvironmentDelegator.current.appDataDirectory;
+  }
 
-    if (Platform.isWindows) {
-      final appData = Platform.environment['APPDATA'] ?? Platform.environment['USERPROFILE'];
-      if (appData != null && appData.isNotEmpty) {
-        final dir = Directory('$appData/attune');
-        try {
-          if (!dir.existsSync()) dir.createSync(recursive: true);
-          return dir;
-        } catch (_) {}
-      }
-    }
-
-    final xdg = Platform.environment['XDG_CONFIG_HOME'];
-    if (xdg != null && xdg.isNotEmpty) {
-      final dir = Directory('$xdg/attune');
-      try {
-        if (!dir.existsSync()) dir.createSync(recursive: true);
-        return dir;
-      } catch (_) {}
-    }
-
-    final home = Platform.environment['HOME'] ?? Platform.environment['USERPROFILE'] ?? '.';
-    final dir = Directory('$home/.config/attune');
-    try {
-      if (!dir.existsSync()) dir.createSync(recursive: true);
-      return dir;
-    } catch (_) {
-      return Directory.systemTemp;
-    }
+  /// Safely resolves the application ephemeral cache directory across platforms
+  /// via the active AppEnvironmentDelegator.
+  Directory getCacheDirectory() {
+    return AppEnvironmentDelegator.current.cacheDirectory;
   }
 
   File get _cacheFile {
