@@ -180,14 +180,15 @@ def assess_toolchains():
     return results
 
 
-def etch_build_info(mode="release", localversion=""):
+def etch_build_info(mode="release", localversion="", version_override="", rust_version_override=""):
     """
     Etches compiler versions, environment variables, build flags, commit hash,
     and MIT licensing into apps/attune_app/assets/build_info.json.
     """
     git_info = get_git_info()
-    version, build_num = get_pubspec_version()
-    rust_ffi_version = get_rust_crate_version("attune-ffi")
+    pub_ver, build_num = get_pubspec_version()
+    version = version_override if version_override else pub_ver
+    rust_ffi_version = rust_version_override if rust_version_override else get_rust_crate_version("attune-ffi")
 
     toolchains = assess_toolchains()
 
@@ -223,16 +224,17 @@ def etch_build_info(mode="release", localversion=""):
     assets_dir.mkdir(parents=True, exist_ok=True)
     out_file = assets_dir / "build_info.json"
     out_file.write_text(json.dumps(build_info, indent=2), encoding="utf-8")
-    print(f"[Etch] Successfully etched compiler and build metadata into {out_file}")
+    print(f"[Etch] Successfully etched compiler and build metadata into {out_file} (v{version}{localversion})")
     return build_info
 
 
-def generate_patch_notes(max_commits=30, localversion=""):
+def generate_patch_notes(max_commits=30, localversion="", version_override=""):
     """
     Generates patch_notes.txt from git commit history to embed into Inno Setup
     and GitHub Actions release notes.
     """
-    version, _ = get_pubspec_version()
+    pub_ver, _ = get_pubspec_version()
+    version = version_override if version_override else pub_ver
     full_ver = f"{version}{localversion}"
     git_info = get_git_info()
     timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -366,7 +368,7 @@ def compile_flutter(target_os="linux", mode="release", log_callback=None):
     log(f"[Flutter] Build completed successfully for {target_os}.")
 
 
-def package_bundle(target_os="linux", mode="release", localversion="", bundle_types=None, log_callback=None):
+def package_bundle(target_os="linux", mode="release", localversion="", bundle_types=None, version_override="", log_callback=None):
     """Packages compiled binaries into Linux AppImage or Windows Inno Setup installer."""
     def log(msg):
         if log_callback:
@@ -377,7 +379,8 @@ def package_bundle(target_os="linux", mode="release", localversion="", bundle_ty
     if bundle_types is None:
         bundle_types = ["all"]
 
-    version, _ = get_pubspec_version()
+    pub_ver, _ = get_pubspec_version()
+    version = version_override if version_override else pub_ver
     full_ver = f"{version}{localversion}"
     dist_dir = REPO_ROOT / "dist" / target_os.lower()
     dist_dir.mkdir(parents=True, exist_ok=True)
@@ -402,7 +405,13 @@ def package_bundle(target_os="linux", mode="release", localversion="", bundle_ty
         if "all" in bundle_types or "appimage" in bundle_types:
             log("[Package] Assembling Linux AppImage...")
             script_path = REPO_ROOT / "packaging" / "linux" / "build_appimage.sh"
-            cmd = [str(script_path), "--mode", mode.lower(), "--localversion", localversion, "--output", str(dist_dir)]
+            cmd = [
+                str(script_path),
+                "--mode", mode.lower(),
+                "--version", version,
+                "--localversion", localversion,
+                "--output", str(dist_dir),
+            ]
             proc = subprocess.Popen(
                 cmd,
                 cwd=REPO_ROOT,
@@ -595,13 +604,16 @@ def launch_gui():
 
     def on_etch():
         loc = ent_localver.get().strip()
+        ver = ent_flutter_ver.get().strip()
+        rver = ent_rust_ver.get().strip()
         m = mode_var.get()
-        info = etch_build_info(mode=m, localversion=loc)
+        info = etch_build_info(mode=m, localversion=loc, version_override=ver, rust_version_override=rver)
         gui_log(f"Etched build info: v{info['full_version']} ({info['build_mode']}) commit {info['git_commit']}")
 
     def on_patch_notes():
         loc = ent_localver.get().strip()
-        notes = generate_patch_notes(max_commits=25, localversion=loc)
+        ver = ent_flutter_ver.get().strip()
+        notes = generate_patch_notes(max_commits=25, localversion=loc, version_override=ver)
         gui_log(f"Generated patch_notes.txt with {len(notes.splitlines())} lines.")
 
     def on_compile_rust():
@@ -623,17 +635,19 @@ def launch_gui():
 
     def on_full_build():
         loc = ent_localver.get().strip()
+        ver = ent_flutter_ver.get().strip()
+        rver = ent_rust_ver.get().strip()
         m = mode_var.get()
         t = target_os_var.get()
         gui_log("==================================================")
-        gui_log(f"Starting Full Attune Build: {t} {m} localver='{loc}'")
+        gui_log(f"Starting Full Attune Build: {t} {m} v{ver}{loc}")
         gui_log("==================================================")
         try:
-            etch_build_info(mode=m, localversion=loc)
-            generate_patch_notes(max_commits=25, localversion=loc)
+            etch_build_info(mode=m, localversion=loc, version_override=ver, rust_version_override=rver)
+            generate_patch_notes(max_commits=25, localversion=loc, version_override=ver)
             compile_rust(mode=m, log_callback=gui_log)
             compile_flutter(target_os=t, mode=m, log_callback=gui_log)
-            artifacts = package_bundle(target_os=t, mode=m, localversion=loc, log_callback=gui_log)
+            artifacts = package_bundle(target_os=t, mode=m, localversion=loc, version_override=ver, log_callback=gui_log)
             gui_log(f"🎉 Full build & packaging completed! Artifacts: {artifacts}")
         except Exception as e:
             gui_log(f"❌ Build failed: {e}")
@@ -715,6 +729,18 @@ def main():
         help="Compilation mode (default: release)",
     )
     parser.add_argument(
+        "--version",
+        dest="version",
+        default="",
+        help="Explicit version ID override (e.g. 0.1.0, 1.0.0; defaults to pubspec.yaml version)",
+    )
+    parser.add_argument(
+        "--rust-version",
+        dest="rust_version",
+        default="",
+        help="Explicit Rust crate version ID override (defaults to Cargo.toml version)",
+    )
+    parser.add_argument(
         "--localversion",
         default="",
         help="Kernel-style localversion suffix string (e.g. -git, -rc1, -miku)",
@@ -742,9 +768,11 @@ def main():
         return
 
     # CLI Pipeline Execution
+    pub_ver, _ = get_pubspec_version()
+    effective_ver = args.version if args.version else pub_ver
     print("==============================================================================")
     print(" Attune Build & Packaging Orchestrator (Headless CLI)")
-    print(f" Target: {args.target} | Mode: {args.mode} | Localversion: '{args.localversion}'")
+    print(f" Target: {args.target} | Mode: {args.mode} | Version: '{effective_ver}' | Localversion: '{args.localversion}'")
     print(" Distributed under the MIT License")
     print("==============================================================================")
 
@@ -759,11 +787,20 @@ def main():
 
     if step in ("all", "etch"):
         print("\n--- [Step: Etch Compiler Metadata into build_info.json] ---")
-        etch_build_info(mode=args.mode, localversion=args.localversion)
+        etch_build_info(
+            mode=args.mode,
+            localversion=args.localversion,
+            version_override=args.version,
+            rust_version_override=args.rust_version,
+        )
 
     if step in ("all", "patchnotes"):
         print("\n--- [Step: Generate Patch Notes from Git Commits] ---")
-        generate_patch_notes(max_commits=30, localversion=args.localversion)
+        generate_patch_notes(
+            max_commits=30,
+            localversion=args.localversion,
+            version_override=args.version,
+        )
 
     if step in ("all", "rust"):
         print("\n--- [Step: Compile Native Rust DSP Engine] ---")
@@ -781,6 +818,7 @@ def main():
             mode=args.mode,
             localversion=args.localversion,
             bundle_types=bundles,
+            version_override=args.version,
         )
         print(f"\nSuccessfully generated {len(artifacts)} build artifact(s):")
         for art in artifacts:

@@ -1021,9 +1021,12 @@ This file records all major architectural decisions for **Attune**, including co
      - Linux kernel-style `localversion` support (`--localversion -custom`).
      - Standalone packaging generation for Linux (`.tar.gz`, `.AppImage`) and Windows (`.zip`, Inno Setup `.exe`).
      - Tkinter GUI with dark-themed cards, component version ID editors, action toolbar, and real-time scrolled log output.
-  6. **GitHub Actions Matrix Workflow (`.github/workflows/build_and_release.yml`)**:
+  6. **GitHub Actions Matrix Workflow & Version ID Overrides (`.github/workflows/build_and_release.yml`, `tools/builder.py`, `packaging/linux/build_appimage.sh`)**:
      - Non-convoluted workflow delegating to `python tools/builder.py`.
      - Matrix builds for Ubuntu and Windows across Release and Debug configurations.
+     - Added dynamic `version_override` and `rust_version_override` string inputs to GitHub Actions `workflow_dispatch` manual trigger, enabling ad-hoc tagged or custom version release builds directly from the GitHub Actions UI without editing `pubspec.yaml` or `Cargo.toml`.
+     - Extended `tools/builder.py` with CLI flags `--version` and `--rust-version`, and hooked the Tkinter desktop GUI version text boxes to propagate version overrides across metadata etching, patch notes generation, and packaging.
+     - Extended `packaging/linux/build_appimage.sh` with `--version` flag to accept external version overrides.
      - Artifact archiving and automatic release draft creation for git tags.
   7. **Testing & Verification**:
      - Added test suite `apps/attune_app/test/about_stage_test.dart`.

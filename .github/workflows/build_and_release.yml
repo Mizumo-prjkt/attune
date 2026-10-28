@@ -16,6 +16,16 @@ on:
         options:
           - release
           - debug
+      version_override:
+        description: 'Version ID Override (e.g., 0.1.0, 1.0.0; leave blank for pubspec.yaml default)'
+        required: false
+        default: ''
+        type: string
+      rust_version_override:
+        description: 'Rust Crate Version ID Override (leave blank for Cargo.toml default)'
+        required: false
+        default: ''
+        type: string
       localversion:
         description: 'Kernel-style localversion suffix (e.g., -rc1, -beta)'
         required: false
@@ -84,10 +94,14 @@ jobs:
         run: |
           TARGET_OS=$(echo "${{ runner.os }}" | tr '[:upper:]' '[:lower:]')
           LOCAL_VER="${{ github.event.inputs.localversion || '' }}"
+          VER_OVERRIDE="${{ github.event.inputs.version_override || '' }}"
+          RUST_VER_OVERRIDE="${{ github.event.inputs.rust_version_override || '' }}"
           python tools/builder.py \
             --no-gui \
             --target "${TARGET_OS}" \
             --mode "${{ matrix.mode }}" \
+            --version "${VER_OVERRIDE}" \
+            --rust-version "${RUST_VER_OVERRIDE}" \
             --localversion "${LOCAL_VER}" \
             --step all
 
@@ -118,7 +132,11 @@ jobs:
 
       - name: Generate Release Patch Notes
         run: |
-          python tools/builder.py --no-gui --step patchnotes
+          python tools/builder.py \
+            --no-gui \
+            --step patchnotes \
+            --version "${{ github.event.inputs.version_override || '' }}" \
+            --localversion "${{ github.event.inputs.localversion || '' }}"
 
       - name: Download Built Artifacts
         uses: actions/download-artifact@v4

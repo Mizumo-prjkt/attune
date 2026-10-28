@@ -5,6 +5,7 @@
 set -euo pipefail
 
 MODE="release"
+VERSION=""
 LOCALVERSION=""
 OUTPUT_DIR="dist/linux"
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -13,6 +14,10 @@ while [[ $# -gt 0 ]]; do
     case "$1" in
         --mode)
             MODE="$2"
+            shift 2
+            ;;
+        --version)
+            VERSION="$2"
             shift 2
             ;;
         --localversion)
@@ -32,8 +37,10 @@ done
 
 cd "$REPO_ROOT"
 
-# Determine app version from pubspec.yaml
-VERSION=$(grep '^version:' apps/attune_app/pubspec.yaml | head -n 1 | awk '{print $2}' | cut -d'+' -f1)
+# Determine app version from pubspec.yaml if not explicitly supplied
+if [ -z "$VERSION" ]; then
+    VERSION=$(grep '^version:' apps/attune_app/pubspec.yaml | head -n 1 | awk '{print $2}' | cut -d'+' -f1)
+fi
 FULL_VERSION="${VERSION}${LOCALVERSION}"
 
 echo "=========================================================="
