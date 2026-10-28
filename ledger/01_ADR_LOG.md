@@ -1109,10 +1109,45 @@ This file records all major architectural decisions for **Attune**, including co
      - Detailed the 5-layer DSP analysis pipeline, 10-band graphic EQ master rack, dual-mode build instructions, Knowledge Ledger protocol, and transparent AI collaboration disclosure.
   5. **Zero Hardcoding Compliance**:
      - All API endpoints, asset categorizations, system tools, and version strings are resolved dynamically.
+---
+
+## ADR-036: Multi-Platform GitHub Actions Matrix Pipeline, Repository Secret Prioritization (`KEYS`), and Orchestrator CLI Option Compatibility
+
+- **Date**: 2026-10-28
+- **Status**: `LOCKED`
+- **Context**:
+  - The previous `.github/workflows/build_and_release.yml` encountered failures in GitHub Actions.
+  - The user provided a proven working CI/CD pattern from their production project (Ensemble), featuring a three-phase architecture:
+    1. `meta` job: Dynamically resolves version identifier (`inputs.version_id`, tag name, or default) and formats canonical tags (`v<version>`).
+    2. `build` matrix job: Human-readable matrix items covering Linux AppImage, Linux Tarball, Windows x64, and Android APK across Release and Debug modes, with `continue-on-error: true`, `check_variant` conditional filtering (`Both`, `Release`, `Debug`), and discrete `artifacts_out/` staging.
+    3. `deploy` job: Depends on `[meta, build]`, merges all uploaded artifacts into `dist/`, calculates `SHA256SUMS`, composes rich Markdown release notes with Git commit history and package tables, overrides/refreshes git tags, and publishes releases via `softprops/action-gh-release@v3`.
+  - The repository secret for release publishing is specifically named `KEYS`.
+  - The orchestrator `tools/builder.py` needed flag aliases (`--build-type`, `--version-id`, `--package`, `--installer`, `--test`, `--download-tools`, and `--target appimage`) to seamlessly handle the workflow's CLI invocations.
+- **Decision**:
+  1. **Three-Phase Workflow Architecture**:
+     - Rewrote `.github/workflows/build_and_release.yml` following the proven 3-stage model (`meta` -> `build` -> `deploy`).
+     - Prioritized the repository secret `KEYS` for authentication:
+       `${{ secrets.KEYS || secrets.RELEASE_TOKEN || secrets.GH_TOKEN || secrets.GITHUB_TOKEN }}`.
+     - Configured strategy matrix with 8 variants across Ubuntu 24.04 and Windows 2022 runners:
+       * Linux AppImage (Release & Debug)
+       * Linux Tarball (Release & Debug)
+       * Windows x64 (Release & Debug)
+       * Android APK (Release & Debug)
+     - Added `check_variant` step to allow user-selected variant filtering (`Both`, `Release`, or `Debug`).
+  2. **Orchestrator CLI Flag Normalization (`tools/builder.py`)**:
+     - Added `--target appimage` (mapping internally to `target_os = "linux"` and `bundle = "appimage"`).
+     - Added `--build-type` as an alias for `--mode`, accepting case-insensitive values (`Release`, `Debug`, `Both`).
+     - Added `--version-id` as an alias for `--version`.
+     - Added `--package`, `--installer`, `--download-tools`, and `--test` flags.
+     - Implemented automatic download of `appimagetool` when `--download-tools` is passed on Linux, and set `APPIMAGE_EXTRACT_AND_RUN: 1` in CI environment to avoid FUSE dependency issues on Ubuntu 24.04 runners.
+  3. **Release Note Generation & Tag Management**:
+     - In the `deploy` job, automated the aggregation of Git commit patch notes and comparative diff links.
+     - Formatted binary distribution tables with human-readable file sizes and SHA256 verification blocks.
+     - Refreshed/overrode release tags and published via `softprops/action-gh-release@v3`.
 - **Consequences**:
-  - Contributors can easily build, distribute, and obtain debug builds for testing alongside optimized release packages.
-  - Users receive instant in-app awareness of new releases without needing external web scrapers or manual URL lookups.
-  - Documentation is professional, accurate, and completely grounded in verified codebase capabilities.
+  - The GitHub Actions build and release process is robust, transparent, resilient to individual target hiccups (`continue-on-error: true`), and produces automated patch notes and checksums.
+  - Seamless CLI compatibility between developer local workstations and automated GitHub Actions runners.
+
 
 
 

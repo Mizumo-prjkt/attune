@@ -1,173 +1,458 @@
-name: Attune Build & Release
+name: Build and Deploy
 
 on:
   push:
-    branches: [main]
-    tags: ['v*']
-  pull_request:
-    branches: [main]
+    tags:
+      - 'v*'
+      - '[0-9]+.[0-9]+.[0-9]+*'
   workflow_dispatch:
     inputs:
-      build_mode:
-        description: 'Compilation Mode (release, debug, or both)'
+      version_id:
+        description: "Version for release (e.g. 0.1.0)"
         required: true
-        default: 'both'
+        type: string
+        default: "0.1.0"
+      localversion:
+        description: "Suffix version ID (e.g. -rc1, -beta)"
+        required: false
+        type: string
+        default: ""
+      build_types:
+        description: "Build variant(s) to compile and package"
+        required: true
         type: choice
         options:
-          - both
-          - release
-          - debug
-      version_override:
-        description: 'Version ID Override (e.g., 0.1.0, 1.0.0; leave blank for pubspec.yaml default)'
-        required: false
-        default: ''
-        type: string
-      rust_version_override:
-        description: 'Rust Crate Version ID Override (leave blank for Cargo.toml default)'
-        required: false
-        default: ''
-        type: string
-      localversion:
-        description: 'Suffix version ID (e.g., -rc1, -beta)'
-        required: false
-        default: ''
-        type: string
+          - Both
+          - Release
+          - Debug
+        default: "Both"
+      overwrite_release:
+        description: "Overwrite/refresh existing tag and release"
+        required: true
+        type: boolean
+        default: true
+      deploy_release:
+        description: "Deploy to GitHub Releases"
+        required: true
+        type: boolean
+        default: true
 
 permissions:
   contents: write
+  packages: write
+  actions: write
 
 jobs:
+  meta:
+    name: "Resolve Release Metadata"
+    runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.resolve.outputs.version }}
+      tag_name: ${{ steps.resolve.outputs.tag_name }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Resolve Version and Tag
+        id: resolve
+        run: |
+          if [ -n "${{ inputs.version_id }}" ]; then
+            RAW_VER="${{ inputs.version_id }}"
+          elif [ "${{ github.ref_type }}" = "tag" ]; then
+            RAW_VER="${{ github.ref_name }}"
+          else
+            RAW_VER="0.1.0"
+          fi
+
+          # Strip leading 'v' for semantic versioning
+          CLEAN_VER="${RAW_VER#v}"
+          SUFFIX="${{ inputs.localversion || '' }}"
+          FINAL_VER="${CLEAN_VER}${SUFFIX}"
+          TAG_NAME="v${FINAL_VER}"
+
+          echo "version=${FINAL_VER}" >> $GITHUB_OUTPUT
+          echo "tag_name=${TAG_NAME}" >> $GITHUB_OUTPUT
+          echo "### 📦 Release Version: \`${FINAL_VER}\` (Tag: \`${TAG_NAME}\`)" >> $GITHUB_STEP_SUMMARY
+
   build:
-    name: Build (${{ matrix.target }} - ${{ matrix.mode }})
+    name: ${{ matrix.name }}
+    needs: [meta]
     runs-on: ${{ matrix.os }}
+    continue-on-error: true
     strategy:
       fail-fast: false
       matrix:
-        target: [linux, windows, android]
-        mode: [release, debug]
         include:
-          - target: linux
-            os: ubuntu-latest
-          - target: windows
-            os: windows-latest
-          - target: android
-            os: ubuntu-latest
-        exclude:
-          - mode: ${{ github.event_name == 'pull_request' && 'debug' || (inputs.build_mode == 'release' && 'debug' || (inputs.build_mode == 'debug' && 'release' || 'none')) }}
+          # Linux AppImage
+          - os: ubuntu-24.04
+            target: appimage
+            build_type: Release
+            name: "Linux AppImage (Release)"
+          - os: ubuntu-24.04
+            target: appimage
+            build_type: Debug
+            name: "Linux AppImage (Debug)"
+          # Linux ELF / Tarball
+          - os: ubuntu-24.04
+            target: linux
+            build_type: Release
+            name: "Linux Tarball (Release)"
+          - os: ubuntu-24.04
+            target: linux
+            build_type: Debug
+            name: "Linux Tarball (Debug)"
+          # Windows MSVC
+          - os: windows-2022
+            target: windows
+            build_type: Release
+            name: "Windows x64 (Release)"
+          - os: windows-2022
+            target: windows
+            build_type: Debug
+            name: "Windows x64 (Debug)"
+          # Android APK
+          - os: ubuntu-24.04
+            target: android
+            build_type: Release
+            name: "Android APK (Release)"
+          - os: ubuntu-24.04
+            target: android
+            build_type: Debug
+            name: "Android APK (Debug)"
 
     steps:
-      - name: Checkout Code Repository (Full History for Patch Notes)
+      - name: Check if variant should be built
+        id: check_variant
+        shell: bash
+        run: |
+          REQUESTED="${{ inputs.build_types }}"
+          CURRENT="${{ matrix.build_type }}"
+          if [ -n "$REQUESTED" ] && [ "$REQUESTED" != "Both" ] && [ "$REQUESTED" != "$CURRENT" ]; then
+            echo "should_run=false" >> $GITHUB_OUTPUT
+            echo "Skipping $CURRENT variant because user requested only $REQUESTED."
+          else
+            echo "should_run=true" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Checkout repository
+        if: steps.check_variant.outputs.should_run == 'true'
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
       - name: Setup Python
+        if: steps.check_variant.outputs.should_run == 'true'
         uses: actions/setup-python@v5
         with:
           python-version: '3.12'
 
       - name: Setup Rust Stable Toolchain
+        if: steps.check_variant.outputs.should_run == 'true'
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target == 'android' && 'aarch64-linux-android,x86_64-linux-android' || '' }}
 
       - name: Setup Flutter SDK
+        if: steps.check_variant.outputs.should_run == 'true'
         uses: subosito/flutter-action@v2
         with:
           channel: 'stable'
           cache: true
 
+      # ---------------- Android specific setup ----------------
       - name: Setup Java (Android)
-        if: matrix.target == 'android'
+        if: steps.check_variant.outputs.should_run == 'true' && matrix.target == 'android'
         uses: actions/setup-java@v4
         with:
           distribution: 'temurin'
           java-version: '21'
 
       - name: Setup Android NDK
-        if: matrix.target == 'android'
+        if: steps.check_variant.outputs.should_run == 'true' && matrix.target == 'android'
         run: |
           echo "y" | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager "ndk;27.0.12077973"
           echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/27.0.12077973" >> $GITHUB_ENV
 
-      - name: Install Linux Build Dependencies (Ubuntu)
-        if: runner.os == 'Linux' && matrix.target == 'linux'
+      # ---------------- Linux specific setup ----------------
+      - name: Install Linux Build Dependencies
+        if: steps.check_variant.outputs.should_run == 'true' && runner.os == 'Linux' && (matrix.target == 'linux' || matrix.target == 'appimage')
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            clang \
-            cmake \
-            ninja-build \
-            pkg-config \
-            libgtk-3-dev \
-            liblzma-dev \
-            libasound2-dev \
-            libpulse-dev \
-            libayatana-appindicator3-dev \
-            file
+          sudo apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev liblzma-dev libasound2-dev libpulse-dev libayatana-appindicator3-dev file
+          sudo apt-get install -y libfuse2t64 || sudo apt-get install -y libfuse2 || true
 
-      - name: Setup Inno Setup (Windows)
-        if: runner.os == 'Windows'
-        uses: crazy-max/ghaction-innosetup@v3
+      - name: Setup appimagetool (Linux AppImage)
+        if: steps.check_variant.outputs.should_run == 'true' && runner.os == 'Linux' && matrix.target == 'appimage'
+        run: |
+          sudo wget -q https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage -O /usr/local/bin/appimagetool
+          sudo chmod +x /usr/local/bin/appimagetool
 
-      - name: Run Attune Unified Build & Packaging Orchestrator
+      # ---------------- Windows specific setup ----------------
+      - name: Install Inno Setup (Windows)
+        if: steps.check_variant.outputs.should_run == 'true' && runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          choco install innosetup -y --no-progress
+
+      # ---------------- Build & Test & Package ----------------
+      - name: Build, Test & Package (Linux AppImage)
+        if: steps.check_variant.outputs.should_run == 'true' && runner.os == 'Linux' && matrix.target == 'appimage'
+        env:
+          APPIMAGE_EXTRACT_AND_RUN: 1
+        run: |
+          python3 tools/builder.py --target appimage --build-type "${{ matrix.build_type }}" --version-id "${{ needs.meta.outputs.version }}" --localversion "${{ inputs.localversion || '' }}" --download-tools --test
+
+      - name: Build, Test & Package (Linux Tarball)
+        if: steps.check_variant.outputs.should_run == 'true' && runner.os == 'Linux' && matrix.target == 'linux'
+        run: |
+          python3 tools/builder.py --target linux --bundle zip --build-type "${{ matrix.build_type }}" --version-id "${{ needs.meta.outputs.version }}" --localversion "${{ inputs.localversion || '' }}" --package --test
+
+      - name: Build, Test & Package (Windows)
+        if: steps.check_variant.outputs.should_run == 'true' && runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          python tools/builder.py --target windows --build-type "${{ matrix.build_type }}" --version-id "${{ needs.meta.outputs.version }}" --localversion "${{ inputs.localversion || '' }}" --package --installer --test
+
+      - name: Build, Test & Package (Android)
+        if: steps.check_variant.outputs.should_run == 'true' && matrix.target == 'android'
+        run: |
+          python3 tools/builder.py --target android --build-type "${{ matrix.build_type }}" --version-id "${{ needs.meta.outputs.version }}" --localversion "${{ inputs.localversion || '' }}" --package
+
+      # ---------------- Stage and Upload Artifacts ----------------
+      - name: Stage Artifacts (Linux & Android)
+        if: steps.check_variant.outputs.should_run == 'true' && runner.os == 'Linux'
+        run: |
+          mkdir -p artifacts_out
+          if [ "${{ matrix.target }}" = "appimage" ]; then
+            cp -f dist/linux/Attune-*.AppImage artifacts_out/ 2>/dev/null || true
+          elif [ "${{ matrix.target }}" = "linux" ]; then
+            cp -f dist/linux/Attune-*-Linux-*.tar.gz artifacts_out/ 2>/dev/null || true
+          elif [ "${{ matrix.target }}" = "android" ]; then
+            cp -f dist/android/Attune-*-Android-*.apk artifacts_out/ 2>/dev/null || true
+          fi
+          ls -la artifacts_out/
+
+      - name: Stage Artifacts (Windows)
+        if: steps.check_variant.outputs.should_run == 'true' && runner.os == 'Windows'
         shell: bash
         run: |
-          LOCAL_VER="${{ github.event.inputs.localversion || '' }}"
-          VER_OVERRIDE="${{ github.event.inputs.version_override || '' }}"
-          RUST_VER_OVERRIDE="${{ github.event.inputs.rust_version_override || '' }}"
-          python tools/builder.py \
-            --no-gui \
-            --target "${{ matrix.target }}" \
-            --mode "${{ matrix.mode }}" \
-            --version "${VER_OVERRIDE}" \
-            --rust-version "${RUST_VER_OVERRIDE}" \
-            --localversion "${LOCAL_VER}" \
-            --step all
+          mkdir -p artifacts_out
+          cp -f dist/windows/Attune-*-Windows-*.zip artifacts_out/ 2>/dev/null || true
+          cp -f dist/windows/Attune-*-Windows-*-Setup.exe artifacts_out/ 2>/dev/null || true
+          ls -la artifacts_out/
 
-      - name: Upload Build Artifacts
+      - name: Upload Artifacts
+        if: steps.check_variant.outputs.should_run == 'true'
         uses: actions/upload-artifact@v4
         with:
-          name: attune-${{ matrix.target }}-${{ matrix.mode }}
-          path: |
-            dist/**/*
-            patch_notes.txt
-          if-no-files-found: warn
+          name: artifacts-${{ matrix.target }}-${{ matrix.build_type }}
+          path: artifacts_out/*
+          if-no-files-found: ignore
 
-  release:
-    name: Publish GitHub Release Draft
-    needs: [build]
-    if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && github.event.inputs.version_override != '')
-    runs-on: ubuntu-latest
+      - name: Record Job Summary
+        if: steps.check_variant.outputs.should_run == 'true'
+        shell: bash
+        run: |
+          if [ -d artifacts_out ] && [ "$(find artifacts_out -type f | wc -l)" -gt 0 ]; then
+            echo "### ✅ ${{ matrix.name }}: Succeeded" >> $GITHUB_STEP_SUMMARY
+            echo "Artifacts produced:" >> $GITHUB_STEP_SUMMARY
+            for f in artifacts_out/*; do
+              [ -e "$f" ] && echo "- \`$(basename "$f")\` ($(du -h "$f" | cut -f1))" >> $GITHUB_STEP_SUMMARY
+            done
+          else
+            echo "### ⚠️ ${{ matrix.name }}: No artifacts staged (Build or Tests may have failed)" >> $GITHUB_STEP_SUMMARY
+          fi
+
+  deploy:
+    name: "Deploy GitHub Release"
+    needs: [meta, build]
+    if: always() && !cancelled() && needs.meta.result == 'success' && (github.event_name != 'workflow_dispatch' || inputs.deploy_release != false)
+    runs-on: ubuntu-24.04
     steps:
-      - name: Checkout Code
+      - name: Checkout repository
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          token: ${{ secrets.KEYS || secrets.RELEASE_TOKEN || secrets.GH_TOKEN || secrets.GITHUB_TOKEN }}
 
-      - name: Setup Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-
-      - name: Generate Release Patch Notes
+      - name: Fetch Git tags and notes
         run: |
-          python tools/builder.py \
-            --no-gui \
-            --step patchnotes \
-            --version "${{ github.event.inputs.version_override || '' }}" \
-            --localversion "${{ github.event.inputs.localversion || '' }}"
+          git fetch --tags --force || true
+          git fetch origin 'refs/notes/*:refs/notes/*' || true
 
-      - name: Download Built Artifacts
+      - name: Download all build artifacts
         uses: actions/download-artifact@v4
         with:
-          path: release-artifacts
+          pattern: 'artifacts-*'
+          merge-multiple: true
+          path: dist
 
-      - name: Create GitHub Release Draft
-        uses: softprops/action-gh-release@v2
+      - name: Validate artifacts
+        id: validate
+        run: |
+          mkdir -p dist
+          echo "Downloaded artifacts:"
+          ls -lh dist/
+          COUNT=$(find dist -maxdepth 1 -type f | wc -l)
+          echo "Found $COUNT artifact(s)."
+          if [ "$COUNT" -eq 0 ]; then
+            echo "::error::No build target produced release artifacts. Nothing to deploy."
+            exit 1
+          fi
+
+      - name: Generate Checksums & Release Body
+        id: release_notes
+        env:
+          GITHUB_REPO: ${{ github.repository }}
+          TAG_NAME: ${{ needs.meta.outputs.tag_name }}
+          VER: ${{ needs.meta.outputs.version }}
+          REF_NAME: ${{ github.ref_name }}
+          TARGET_SHA: ${{ github.sha }}
+        run: |
+          cd dist
+          sha256sum * > SHA256SUMS 2>/dev/null || true
+          cd ..
+
+          # Extract git tag notes/annotation or commit message
+          TAG_MSG=$(git tag -l --format='%(contents)' "$TAG_NAME" 2>/dev/null | sed -e :a -e '/^\n*$/{$d;N;};/\n$/ba')
+          if [ -z "$TAG_MSG" ] && [ -n "$REF_NAME" ]; then
+            TAG_MSG=$(git tag -l --format='%(contents)' "$REF_NAME" 2>/dev/null | sed -e :a -e '/^\n*$/{$d;N;};/\n$/ba')
+          fi
+          if [ -z "$TAG_MSG" ]; then
+            TAG_MSG=$(git notes show "$TAG_NAME" 2>/dev/null || git notes show HEAD 2>/dev/null || true)
+          fi
+          if [ -z "$TAG_MSG" ]; then
+            TAG_MSG=$(git log -1 --pretty=%B | sed -e :a -e '/^\n*$/{$d;N;};/\n$/ba')
+          fi
+          if [ -z "$TAG_MSG" ]; then
+            TAG_MSG="Attune Release ${VER}"
+          fi
+
+          # Determine target ref and previous tag for patch list
+          TARGET_REF="HEAD"
+          if git rev-parse -q --verify "refs/tags/${TAG_NAME}" >/dev/null 2>&1; then
+            TARGET_REF="refs/tags/${TAG_NAME}"
+          elif [ -n "$TARGET_SHA" ]; then
+            TARGET_REF="$TARGET_SHA"
+          fi
+
+          CURR_TAG=$(git describe --tags --exact-match "$TARGET_REF" 2>/dev/null || true)
+          if [ "$CURR_TAG" = "$TAG_NAME" ]; then
+            PREV_TAG=$(git describe --tags --abbrev=0 "${TARGET_REF}^" 2>/dev/null || true)
+          else
+            PREV_TAG=$(git describe --tags --abbrev=0 "$TARGET_REF" 2>/dev/null || true)
+          fi
+
+          # Extract list of patches applied on this tag
+          if [ -n "$PREV_TAG" ] && [ "$PREV_TAG" != "$TAG_NAME" ]; then
+            PATCH_HEADER="**Patches applied in \`${TAG_NAME}\` (since \`${PREV_TAG}\`):**"
+            DIFF_LINK="**Full Diff**: https://github.com/${GITHUB_REPO}/compare/${PREV_TAG}...${TAG_NAME}"
+            if [ -n "$GITHUB_REPO" ]; then
+              PATCH_LIST=$(git log "${PREV_TAG}..${TARGET_REF}" --pretty=format:"* [\`%h\`](https://github.com/${GITHUB_REPO}/commit/%H) - %s (%an)" 2>/dev/null || true)
+            else
+              PATCH_LIST=$(git log "${PREV_TAG}..${TARGET_REF}" --pretty=format:"* \`%h\` - %s (%an)" 2>/dev/null || true)
+            fi
+          else
+            PATCH_HEADER="**Patches applied in \`${TAG_NAME}\`:**"
+            DIFF_LINK=""
+            if [ -n "$GITHUB_REPO" ]; then
+              PATCH_LIST=$(git log "${TARGET_REF}" -n 50 --pretty=format:"* [\`%h\`](https://github.com/${GITHUB_REPO}/commit/%H) - %s (%an)" 2>/dev/null || true)
+            else
+              PATCH_LIST=$(git log "${TARGET_REF}" -n 50 --pretty=format:"* \`%h\` - %s (%an)" 2>/dev/null || true)
+            fi
+          fi
+
+          if [ -z "$PATCH_LIST" ]; then
+            if [ -n "$GITHUB_REPO" ]; then
+              PATCH_LIST=$(git log -1 "${TARGET_REF}" --pretty=format:"* [\`%h\`](https://github.com/${GITHUB_REPO}/commit/%H) - %s (%an)" 2>/dev/null || echo "* No patch records found.")
+            else
+              PATCH_LIST=$(git log -1 "${TARGET_REF}" --pretty=format:"* \`%h\` - %s (%an)" 2>/dev/null || echo "* No patch records found.")
+            fi
+          fi
+
+          cat << 'EOF' > release_body.md
+          ## Release Notes
+          EOF
+          printf "%s\n\n" "$TAG_MSG" >> release_body.md
+          cat << 'EOF' >> release_body.md
+          ---
+
+          ### 📝 Applied Patches & Commits
+          EOF
+          printf "%s\n\n" "$PATCH_HEADER" >> release_body.md
+          printf "%s\n\n" "$PATCH_LIST" >> release_body.md
+          if [ -n "$DIFF_LINK" ]; then
+            printf "%s\n\n" "$DIFF_LINK" >> release_body.md
+          fi
+          cat << 'EOF' >> release_body.md
+          ---
+
+          ### Available Binaries & Packages
+          | Package | File | Size |
+          | :--- | :--- | :--- |
+          EOF
+
+          for f in dist/*; do
+            if [ -f "$f" ]; then
+              FNAME=$(basename "$f")
+              FSIZE=$(du -h "$f" | cut -f1)
+              DESC="Release Asset"
+              case "$FNAME" in
+                *.AppImage) DESC="Linux AppImage (Standalone Executable)" ;;
+                *Linux*.tar.gz|*linux*.tar.gz) DESC="Linux Portable Archive" ;;
+                *Windows*.zip|*windows*.zip) DESC="Windows Portable Archive" ;;
+                *Setup*.exe|*setup*.exe) DESC="Windows Installer (Inno Setup)" ;;
+                *Android*.apk|*.apk) DESC="Android APK" ;;
+                SHA256SUMS) DESC="Verification Checksums" ;;
+              esac
+              echo "| $DESC | \`$FNAME\` | $FSIZE |" >> release_body.md
+            fi
+          done
+
+          cat << 'EOF' >> release_body.md
+
+          ### Verification (SHA256 Checksums)
+          ```text
+          EOF
+          cat dist/SHA256SUMS >> release_body.md
+          echo '```' >> release_body.md
+
+          cat << 'EOF' >> release_body.md
+
+          ---
+          *Automated multi-platform CI build for Attune.*
+          EOF
+
+          cat release_body.md >> $GITHUB_STEP_SUMMARY
+
+      - name: Refresh / Override Git Tag
+        run: |
+          TAG_NAME="${{ needs.meta.outputs.tag_name }}"
+          OVERWRITE="${{ inputs.overwrite_release }}"
+          TAG_EXISTS=false
+          if git rev-parse "$TAG_NAME" >/dev/null 2>&1; then
+            TAG_EXISTS=true
+          fi
+
+          if [ "$OVERWRITE" = "true" ] || [ "$TAG_EXISTS" = "false" ] || [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "Refreshing tag $TAG_NAME to point to commit ${GITHUB_SHA}..."
+            git config user.name "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+            git tag -a -f "$TAG_NAME" -m "Attune Release ${{ needs.meta.outputs.version }}"
+            git push -f origin "$TAG_NAME" || echo "Note: Git push tag returned non-zero (may be protected or handled by action)"
+          fi
+
+      - name: Publish to GitHub Releases
+        uses: softprops/action-gh-release@v3
         with:
-          tag_name: ${{ github.event.inputs.version_override != '' && format('v{0}{1}', github.event.inputs.version_override, github.event.inputs.localversion) || github.ref_name }}
-          body_path: patch_notes.txt
-          draft: true
-          prerelease: false
-          files: release-artifacts/**/*
+          tag_name: ${{ needs.meta.outputs.tag_name }}
+          name: Attune Release ${{ needs.meta.outputs.version }}
+          body_path: release_body.md
+          files: |
+            dist/*
+          overwrite: true
+          make_latest: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.KEYS || secrets.RELEASE_TOKEN || secrets.GH_TOKEN || secrets.GITHUB_TOKEN }}

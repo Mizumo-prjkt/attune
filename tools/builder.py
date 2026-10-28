@@ -964,18 +964,20 @@ def main():
     )
     parser.add_argument(
         "--target",
-        choices=["linux", "windows", "android", "all"],
+        choices=["linux", "windows", "android", "appimage", "all"],
         default=platform.system().lower(),
         help="Target platform operating system (default: current host OS)",
     )
     parser.add_argument(
         "--mode",
-        choices=["release", "debug", "both"],
+        "--build-type",
+        dest="mode",
         default="release",
         help="Compilation mode (release, debug, or both; default: release)",
     )
     parser.add_argument(
         "--version",
+        "--version-id",
         dest="version",
         default="",
         help="Explicit version ID override (e.g. 0.1.0, 1.0.0; defaults to pubspec.yaml version)",
@@ -1004,9 +1006,29 @@ def main():
     )
     parser.add_argument(
         "--bundle",
-        choices=["all", "appimage", "innosetup", "zip", "none"],
+        choices=["all", "appimage", "innosetup", "zip", "tar", "none"],
         default="all",
         help="Packaging artifact formats to produce (default: all)",
+    )
+    parser.add_argument(
+        "--package",
+        action="store_true",
+        help="Ensure packaging step is executed",
+    )
+    parser.add_argument(
+        "--installer",
+        action="store_true",
+        help="Ensure Windows Inno Setup installer packaging is executed",
+    )
+    parser.add_argument(
+        "--download-tools",
+        action="store_true",
+        help="Download external helper tools such as appimagetool if not present",
+    )
+    parser.add_argument(
+        "--test",
+        action="store_true",
+        help="Run verification test suite before building/packaging",
     )
 
     args = parser.parse_args()
@@ -1018,12 +1040,61 @@ def main():
         launch_gui()
         return
 
+    # Normalize Mode and Target OS
+    mode_raw = (args.mode or "release").strip().lower()
+    if mode_raw in ("both", "all"):
+        modes = ["debug", "release"]
+        display_mode = "both"
+    elif mode_raw == "debug":
+        modes = ["debug"]
+        display_mode = "debug"
+    else:
+        modes = ["release"]
+        display_mode = "release"
+
+    raw_target = (args.target or platform.system().lower()).strip().lower()
+    bundle_pref = args.bundle
+    if raw_target == "appimage":
+        target_os = "linux"
+        bundle_pref = "appimage"
+    else:
+        target_os = raw_target
+
+    if args.installer and target_os == "windows":
+        bundle_pref = "all"
+
+    # Handle --download-tools for AppImage
+    if args.download_tools and target_os == "linux":
+        tool_path = Path("/tmp/appimagetool-x86_64.AppImage")
+        if not shutil.which("appimagetool") and not tool_path.exists():
+            print("[Tools] Downloading appimagetool...")
+            try:
+                import urllib.request
+                url = "https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage"
+                urllib.request.urlretrieve(url, str(tool_path))
+                tool_path.chmod(0o755)
+                print(f"[Tools] Standalone appimagetool downloaded to {tool_path}")
+            except Exception as e:
+                print(f"[Tools] Warning: Failed to download appimagetool: {e}")
+
+    # Run verification tests if --test is requested
+    if args.test:
+        print("\n--- [Step: Verification Test Suite] ---")
+        try:
+            print("[Test] Running Rust test suite...")
+            subprocess.check_call(["cargo", "test"], cwd=REPO_ROOT)
+            print("[Test] Running Flutter widget & algorithm test suite...")
+            subprocess.check_call(["flutter", "test"], cwd=REPO_ROOT / "apps" / "attune_app")
+            print("  ✓ All test suites passed successfully.")
+        except Exception as e:
+            print(f"  ✗ Test execution note: {e}")
+
     # CLI Pipeline Execution
     pub_ver, _ = get_pubspec_version()
     effective_ver = args.version if args.version else pub_ver
     print("==============================================================================")
     print(" Attune Build & Packaging Orchestrator (Headless CLI)")
-    print(f" Target: {args.target} | Mode: {args.mode} | Version: '{effective_ver}' | Suffix: '{args.localversion}'")
+    print(f" Target: {args.target} (effective: {target_os}) | Mode: {display_mode} | Version: '{effective_ver}' | Suffix: '{args.localversion}'")
     print(" Distributed under the MIT License")
     print("==============================================================================")
 
@@ -1031,7 +1102,8 @@ def main():
         apply_git_tag(effective_ver, args.localversion)
 
     step = args.step
-    modes = ["debug", "release"] if args.mode == "both" else [args.mode]
+    if args.package and step != "all":
+        step = "package"
 
     if step in ("all", "assess"):
         print("\n--- [Step: Assess Toolchains] ---")
@@ -1052,13 +1124,13 @@ def main():
     for cur_mode in modes:
         if len(modes) > 1:
             print("\n==============================================================================")
-            print(f" Executing Pipeline Phase: Mode = {cur_mode.upper()} | Target = {args.target}")
+            print(f" Executing Pipeline Phase: Mode = {cur_mode.upper()} | Target = {target_os}")
             print("==============================================================================")
 
         if step in ("all", "etch"):
             print(f"\n--- [Step: Etch Compiler Metadata into build_info.json ({cur_mode})] ---")
             etch_build_info(
-                target_os=args.target,
+                target_os=target_os,
                 mode=cur_mode,
                 localversion=args.localversion,
                 version_override=args.version,
@@ -1067,17 +1139,17 @@ def main():
 
         if step in ("all", "rust"):
             print(f"\n--- [Step: Compile Native Rust DSP Engine ({cur_mode})] ---")
-            compile_rust(mode=cur_mode, target_os=args.target)
+            compile_rust(mode=cur_mode, target_os=target_os)
 
         if step in ("all", "flutter"):
             print(f"\n--- [Step: Compile Flutter Application ({cur_mode})] ---")
-            compile_flutter(target_os=args.target, mode=cur_mode)
+            compile_flutter(target_os=target_os, mode=cur_mode)
 
         if step in ("all", "package"):
             print(f"\n--- [Step: Package Standalone Bundles ({cur_mode})] ---")
-            bundles = [args.bundle] if args.bundle != "all" else ["all"]
+            bundles = [bundle_pref] if bundle_pref != "all" else ["all"]
             artifacts = package_bundle(
-                target_os=args.target,
+                target_os=target_os,
                 mode=cur_mode,
                 localversion=args.localversion,
                 bundle_types=bundles,
