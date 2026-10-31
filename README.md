@@ -16,8 +16,8 @@
 
 ---
 
->![NOTE]
->This Project is under development, and there are no stable builds yet. If you want to try them, i'd suggest you to build it yourself for now.
+> [!NOTE]
+> This Project is under development, and there are no stable builds yet. If you want to try them, i'd suggest you to build it yourself for now.
 
 ## Overview
 
