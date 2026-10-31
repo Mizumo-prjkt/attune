@@ -16,6 +16,9 @@
 
 ---
 
+>![NOTE]
+>This Project is under development, and there are no stable builds yet. If you want to try them, i'd suggest you to build it yourself for now.
+
 ## Overview
 
 **Attune** is a modern, open-source local music player engineered for seamless listening. Instead of relying solely on static metadata tags or primitive crossfaders, Attune couples a native Rust digital signal processing (DSP) core with a responsive Flutter user interface. 
