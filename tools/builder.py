@@ -24,6 +24,7 @@ from pathlib import Path
 
 # Repository root directory
 REPO_ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(REPO_ROOT))
 
 IS_WINDOWS = sys.platform == "win32"
 
@@ -278,6 +279,25 @@ def assess_toolchains():
     results["appimagetool"] = {
         "version": "appimagetool" if appimage_available else "Not Found (will auto-fetch)",
         "status": appimage_available or platform.system() == "Linux",
+    }
+
+    # Sigstore Cosign (Artifact signing)
+    cosign_ver = query_command(["cosign", "version"])
+    results["cosign"] = {
+        "version": cosign_ver or "Not Found (Optional for artifact signing)",
+        "status": cosign_ver is not None,
+    }
+
+    # Java keytool (Android Keystore generator)
+    keytool_bin = None
+    try:
+        from tools.generate_keystore import find_keytool
+        keytool_bin = find_keytool()
+    except Exception:
+        keytool_bin = shutil.which("keytool")
+    results["keytool"] = {
+        "version": keytool_bin or "Not Found (Optional for Android keystore generation)",
+        "status": keytool_bin is not None,
     }
 
     return results
@@ -544,6 +564,13 @@ def compile_flutter(target_os="linux", mode="release", log_callback=None):
     log(f"[Flutter] Compiling Flutter app for {effective_target_os} in {mode} mode...")
     flutter_dir = REPO_ROOT / "apps" / "attune_app"
 
+    if effective_target_os == "android" and mode.lower() == "release":
+        key_props = flutter_dir / "android" / "key.properties"
+        keystore_cand = flutter_dir / "android" / "app" / "attune_release.jks"
+        if not key_props.exists() and not keystore_cand.exists() and not os.environ.get("ATTUNE_KEYSTORE_PASSWORD"):
+            log("[Flutter] Note: Android release keystore/key.properties not detected. Gradle will build using debug signing.")
+            log("[Flutter] Note: Run 'python tools/generate_keystore.py' or 'python tools/builder.py --generate-keystore' to generate a release keystore.")
+
     if effective_target_os == "android":
         cmd = ["flutter", "build", "apk", f"--{mode.lower()}"]
     else:
@@ -591,7 +618,49 @@ def compile_flutter(target_os="linux", mode="release", log_callback=None):
     log(f"[Flutter] Build completed successfully for {effective_target_os}.")
 
 
-def package_bundle(target_os="linux", mode="release", localversion="", bundle_types=None, version_override="", log_callback=None):
+def sign_blob_with_cosign(blob_path, log_func=None):
+    """Signs a binary or archive blob using Sigstore Cosign, producing <blob>.bundle."""
+    def log(msg):
+        if log_func:
+            log_func(msg)
+        else:
+            print(msg)
+
+    cosign_bin = shutil.which("cosign")
+    if not cosign_bin:
+        log("[Cosign] Note: cosign binary not found in PATH; skipping artifact signing.")
+        return None
+
+    blob = Path(blob_path)
+    if not blob.exists():
+        log(f"[Cosign] Warning: Target blob not found for signing: {blob}")
+        return None
+
+    bundle_out = blob.with_name(f"{blob.name}.bundle")
+    log(f"[Cosign] Signing {blob.name} via Sigstore keyless workflow (output: {bundle_out.name})...")
+    cmd = [cosign_bin, "sign-blob", "--yes", "--bundle", str(bundle_out), str(blob)]
+    try:
+        proc = subprocess.run(
+            cmd,
+            cwd=blob.parent,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            shell=IS_WINDOWS,
+        )
+        if proc.returncode == 0 and bundle_out.exists():
+            log(f"[Cosign] Successfully generated Sigstore verification bundle: {bundle_out.name}")
+            return bundle_out
+        else:
+            err_msg = proc.stderr.strip() if proc.stderr else f"exit code {proc.returncode}"
+            log(f"[Cosign] Note: cosign sign-blob completed with note ({err_msg})")
+            return None
+    except Exception as e:
+        log(f"[Cosign] Warning: Failed to invoke cosign: {e}")
+        return None
+
+
+def package_bundle(target_os="linux", mode="release", localversion="", bundle_types=None, version_override="", sign=False, log_callback=None):
     """Packages compiled binaries into Linux AppImage or Windows Inno Setup installer."""
     def log(msg):
         if log_callback:
@@ -687,8 +756,21 @@ def package_bundle(target_os="linux", mode="release", localversion="", bundle_ty
                 for line in proc.stdout:
                     log(f"  [iscc] {line.rstrip()}")
                 proc.wait()
+                expected_setup = dist_dir / f"Attune-{full_ver}-Windows-{mode.capitalize()}-Setup.exe"
+                if expected_setup.exists() and expected_setup not in artifacts:
+                    log(f"[Package] Produced Windows Installer: {expected_setup}")
+                    artifacts.append(expected_setup)
             else:
                 log("[Package] ISCC compiler not found; skipping Windows setup creation.")
+
+        # 3. Sigstore / Cosign Signing for Windows blobs
+        should_sign = sign or os.environ.get("COSIGN_SIGN") == "1" or os.environ.get("GITHUB_ACTIONS") == "true"
+        if should_sign:
+            for art in list(artifacts):
+                if art.suffix.lower() in (".exe", ".zip"):
+                    bundle = sign_blob_with_cosign(art, log_func=log)
+                    if bundle and bundle.exists() and bundle not in artifacts:
+                        artifacts.append(bundle)
 
     elif target_os.lower() == "android":
         flutter_dir = REPO_ROOT / "apps" / "attune_app"
@@ -1101,6 +1183,18 @@ def main():
         action="store_true",
         help="Run verification test suite before building/packaging",
     )
+    parser.add_argument(
+        "--generate-keystore",
+        action="store_true",
+        help="Generate a persistent PKCS12 release keystore for Android (via tools/generate_keystore.py)",
+    )
+    parser.add_argument(
+        "--sign",
+        "--cosign",
+        dest="sign",
+        action="store_true",
+        help="Cryptographically sign release artifacts via Sigstore / Cosign",
+    )
 
     args = parser.parse_args(preprocess_argv(sys.argv[1:]))
 
@@ -1147,6 +1241,17 @@ def main():
                 print(f"[Tools] Standalone appimagetool downloaded to {tool_path}")
             except Exception as e:
                 print(f"[Tools] Warning: Failed to download appimagetool: {e}")
+
+    # Handle --generate-keystore for Android release signing
+    if args.generate_keystore:
+        print("\n--- [Step: Generate Android Release Keystore] ---")
+        try:
+            from tools.generate_keystore import generate_keystore
+            generate_keystore()
+            print("  [OK] Release keystore and companion configuration ready.")
+        except Exception as e:
+            print(f"  [X] Keystore generation failed: {e}")
+        return
 
     # Run verification tests if --test is requested
     if args.test:
@@ -1231,6 +1336,7 @@ def main():
                 localversion=local_sfx,
                 bundle_types=bundles,
                 version_override=effective_ver,
+                sign=args.sign,
             )
             all_artifacts.extend(artifacts)
 

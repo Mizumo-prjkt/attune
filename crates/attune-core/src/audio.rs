@@ -388,7 +388,12 @@ impl AudioDecoder {
                     .unwrap_or_else(|_| {
                         #[cfg(target_os = "android")]
                         {
-                            std::path::PathBuf::from("/data/user/0/org.mizproject.attune/cache")
+                            let debug_dir = std::path::PathBuf::from("/data/user/0/org.mizproject.attune.debug/cache");
+                            if debug_dir.exists() {
+                                debug_dir
+                            } else {
+                                std::path::PathBuf::from("/data/user/0/org.mizproject.attune/cache")
+                            }
                         }
                         #[cfg(not(target_os = "android"))]
                         {

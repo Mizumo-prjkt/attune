@@ -1,9 +1,13 @@
 Attune Release Patch Notes - Version 0.1.0 (Tag: v0.1.0)
-Built on 2026-10-29 05:42:26 (Commit 5abb2b1 on branch main)
+Built on 2026-11-02 06:30:56 (Commit 2daf2ea on branch main)
 Distributed under the MIT License
 ==============================================================================
 
 Recent Git Commits:
+* feat(ui, engine, dsp): optimize impeller shaders, add embedded artwork extraction, dynamic smart shuffle, and 3-step setup wizard (ADR-042) (2daf2ea) - Mizumo-prjkt, 2026-11-02
+* docs: fix markdown formatting for note callout in README (f57dd6e) - Mizumo-prjkt, 2026-10-31
+* docs: add development status notice to README (bb3c7e6) - Mizumo-prjkt, 2026-10-31
+* fix(android,audio): resolve AAudio NDK context initialization, sub-2ms metadata probing & scoped storage picker (ADR-041) (eb9b493) - Mizumo-prjkt, 2026-10-29
 * fix(android): eliminate cold-boot launch crash with C-ABI panic isolation, logcat bridge, and adaptive AAudio buffering (ADR-040) (5abb2b1) - Mizumo-prjkt, 2026-10-28
 * feat(storage): implement AppEnvironmentDelegator and eliminate hardcoded paths (ede1bdf) - Mizumo-prjkt, 2026-10-28
 * fix(ci/android): resolve Windows test subprocess WinError 2 and harden Android storage/multi-ABI launch resilience (7cd1fac) - Mizumo-prjkt, 2026-10-28
@@ -30,8 +34,4 @@ Recent Git Commits:
 * fix(core): resolve working directory ENOENT crash, adapt decoder label & implement native Android/Desktop permissions (ADR-028) (144512d) - Mizumo-prjkt, 2026-10-28
 * feat(ui): modernize settings stage with 6 lists, floating liquid glass dialogs, and zero-hardcoding (ADR-027) (e5d5480) - Mizumo-prjkt, 2026-10-28
 * feat(lyrics): implement syllable-synchronized lyrics engine, open-source multi-format waterfall (.ttml/.elrc/.yrc), intra-word sweeping gradient shader & aligned phonetic transliteration (ADR-026) (9493123) - Mizumo-prjkt, 2026-10-27
-* feat(lyrics): static lyrics sheet mode, smart source timing priority, strict .mls Ultra-Sync & animation performance fix (ADR-025) (d8f2cc5) - Mizumo-prjkt, 2026-10-27
-* feat(ui): implement living beat toggle, lavalamp fluid physics & precision lyrics lock mode (ADR-024) (c52ec80) - Mizumo-prjkt, 2026-10-27
-* feat(ui): real lyrics engine, beat-swaying liquid glass & collapsible desktop shell (ADR-023) (3c2a56b) - Mizumo-prjkt, 2026-10-27
-* feat(branding,packaging): integrate official brand assets and migrate application package ID to org.mizproject.attune (4dfac85) - Mizumo-prjkt, 2026-10-27
 

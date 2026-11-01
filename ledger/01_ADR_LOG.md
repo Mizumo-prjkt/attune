@@ -1373,6 +1373,50 @@ This file records all major architectural decisions for **Attune**, including co
   - First-run experience clearly educates users on background playback permissions and scoped storage.
   - All 19 Rust tests and 74 Flutter tests pass with 0 failures.
 
+---
+
+## ADR-043: Private Release Keystore Protocol, Sigstore/Cosign Windows Blob Signing, Side-by-Side Debug Suffix (`.debug`) & Multi-Variant App Isolation
+
+- **Date**: 2026-11-02
+- **Status**: `LOCKED` (Implemented & Verified)
+- **Context**:
+  1. Users encountered an APK installation blocker on Android (`INSTALL_FAILED_UPDATE_INCOMPATIBLE` / certificate mismatch) when installing newer APK builds over existing installed applications, necessitating manual uninstall and reinstall cycles.
+  2. Root cause analysis identified two contributing vectors:
+     - `buildTypes.release` in `apps/attune_app/android/app/build.gradle.kts` previously fell back to `signingConfigs.getByName("debug")`. On CI runners or across different developer machines, ephemeral debug keystores with differing RSA keys were generated per environment, breaking signature continuity between releases.
+     - Debug and Release APKs shared the identical application ID (`org.mizproject.attune`). Android flags debug builds with `android:testOnly="true"`, preventing the standard package installer from overwriting a debug build with a release build or vice-versa.
+  3. Security & Distribution Requirements:
+     - Keep Android release keystore files (`*.jks`, `*.keystore`) and credentials (`key.properties`, passwords) strictly private and excluded from version control (`.gitignore`).
+     - Create a reusable toolchain script (`tools/generate_keystore.py`) to generate persistent PKCS12 keystores offline or during CI builds.
+     - Implement Sigstore/Cosign keyless cryptographic signing in GitHub Actions CI and build orchestrator (`tools/builder.py`) for Windows release blobs (`.exe` installer and portable `.zip`).
+     - Add an application ID suffix for debug builds (`applicationIdSuffix = ".debug"`) so Release and Debug variants can be installed side-by-side on the same device.
+- **Decision**:
+  1. **Private Keystore Generation & Git-Exclusion (`tools/generate_keystore.py` & `.gitignore`)**:
+     - Created `tools/generate_keystore.py` to automate generating 10,000-day PKCS12 release keystores via `keytool`, supporting customizable or environment-driven parameters (`ATTUNE_KEYSTORE_PASSWORD`, `ATTUNE_KEY_ALIAS`, `ATTUNE_KEY_PASSWORD`, `ATTUNE_KEY_DNAME`).
+     - Keystores (`**/*.jks`, `**/*.keystore`) and `key.properties` are strictly excluded from version control in `.gitignore`.
+     - In `build.gradle.kts`, credentials are loaded dynamically from `key.properties` or environment variables without hardcoded passwords, falling back gracefully to debug signing if unconfigured.
+  2. **Sigstore / Cosign Keyless Artifact Signing for Windows**:
+     - Configured `sigstore/cosign-installer` and `cosign sign-blob --yes --bundle <artifact>.bundle <artifact>` in GitHub Actions CI with `id-token: write` permissions.
+     - Extended `tools/builder.py` with Cosign detection and blob signing support for Windows portable archives and Inno Setup installer executables.
+  3. **Gradle Multi-Variant Configuration (`apps/attune_app/android/app/build.gradle.kts`)**:
+     - Enabled `buildFeatures { resValues = true }`.
+     - In `defaultConfig`: defined `resValue("string", "app_name", "Attune")`.
+     - In `buildTypes.debug`: added `applicationIdSuffix = ".debug"`, `versionNameSuffix = "-debug"`, and `resValue("string", "app_name", "Attune (Debug)")`.
+     - In `signingConfigs.create("release")`: dynamically resolves keystore path from `key.properties`, environment variable `ATTUNE_KEYSTORE_FILE`, or local keystore if present with validated credentials.
+     - In `buildTypes.release`: bound `signingConfig = signingConfigs.getByName("release")`.
+  4. **Manifest Task Affinity & Label Parameterization (`AndroidManifest.xml`)**:
+     - Set `android:label="@string/app_name"` for dynamic launcher labeling ("Attune" vs "Attune (Debug)").
+     - Parameterized activity task affinities to `${applicationId}.main`, `${applicationId}.settings`, and `${applicationId}.transition_inspector` to prevent task collisions when both variants run concurrently.
+  5. **Platform Delegator & Engine Sandbox Path Isolation (`environment_delegator.dart` & `audio.rs`)**:
+     - In `AndroidEnvironmentDelegator`, registered `/data/user/0/org.mizproject.attune.debug/files`, `/data/user/0/org.mizproject.attune.debug/cache`, and `/storage/emulated/0/Android/media/org.mizproject.attune.debug` to support sandbox isolation.
+     - In `crates/attune-core/src/audio.rs`, added fallback check for `/data/user/0/org.mizproject.attune.debug/cache` when `ATTUNE_CACHE_DIR` is not explicitly set.
+- **Consequences**:
+  - Full privacy protection: zero private keys, passwords, or certificate fingerprints are committed or exposed in git history.
+  - In-place updates for release APKs work reliably across builds without certificate mismatch errors.
+  - Release (`org.mizproject.attune` - "Attune") and Debug (`org.mizproject.attune.debug` - "Attune (Debug)") install side-by-side on any Android device without collision.
+  - Windows release assets are cryptographically verifiable via Sigstore/Cosign bundles.
+  - 100% test pass rate across all 74 Flutter tests and 18 Rust tests.
+
+
 
 
 

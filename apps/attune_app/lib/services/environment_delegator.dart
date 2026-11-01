@@ -122,9 +122,13 @@ class AndroidEnvironmentDelegator extends AppEnvironmentDelegator {
     final candidates = <String>[
       if (envDir != null && envDir.isNotEmpty) envDir,
       '/data/user/0/org.mizproject.attune/files',
+      '/data/user/0/org.mizproject.attune.debug/files',
       '/data/data/org.mizproject.attune/files',
+      '/data/data/org.mizproject.attune.debug/files',
       '/data/user/0/org.mizproject.attune/cache',
+      '/data/user/0/org.mizproject.attune.debug/cache',
       '/data/data/org.mizproject.attune/cache',
+      '/data/data/org.mizproject.attune.debug/cache',
       '/data/user/0/com.attune.app/files',
       '/data/data/com.attune.app/files',
       '${Directory.systemTemp.path}/attune',
@@ -138,7 +142,9 @@ class AndroidEnvironmentDelegator extends AppEnvironmentDelegator {
     final candidates = <String>[
       if (envDir != null && envDir.isNotEmpty) envDir,
       '/data/user/0/org.mizproject.attune/cache',
+      '/data/user/0/org.mizproject.attune.debug/cache',
       '/data/data/org.mizproject.attune/cache',
+      '/data/data/org.mizproject.attune.debug/cache',
       '/data/user/0/com.attune.app/cache',
       '/data/data/com.attune.app/cache',
       '${Directory.systemTemp.path}/attune_cache',
@@ -162,6 +168,7 @@ class AndroidEnvironmentDelegator extends AppEnvironmentDelegator {
       '/sdcard/Music',
       '/storage/emulated/0/Download',
       '/storage/emulated/0/Android/media/org.mizproject.attune',
+      '/storage/emulated/0/Android/media/org.mizproject.attune.debug',
     ]) {
       if (!roots.contains(dir)) {
         roots.add(dir);

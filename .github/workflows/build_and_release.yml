@@ -41,6 +41,7 @@ permissions:
   contents: write
   packages: write
   actions: write
+  id-token: write
 
 jobs:
   meta:
@@ -197,6 +198,35 @@ jobs:
         run: |
           choco install innosetup -y --no-progress
 
+      - name: Install Cosign (Sigstore for Windows Signing)
+        if: steps.check_variant.outputs.should_run == 'true' && runner.os == 'Windows'
+        uses: sigstore/cosign-installer@v3.8.1
+
+      # ---------------- Android Keystore setup ----------------
+      - name: Prepare Android Keystore (Android)
+        if: steps.check_variant.outputs.should_run == 'true' && matrix.target == 'android' && matrix.build_type == 'Release'
+        shell: bash
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ATTUNE_KEYSTORE_BASE64 || secrets.ANDROID_KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.ATTUNE_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ATTUNE_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.ATTUNE_KEY_PASSWORD }}
+        run: |
+          if [ -n "$KEYSTORE_BASE64" ]; then
+            echo "Decoding release keystore from repository secrets..."
+            mkdir -p apps/attune_app/android/app
+            echo "$KEYSTORE_BASE64" | base64 --decode > apps/attune_app/android/app/attune_release.jks
+            cat << EOF > apps/attune_app/android/key.properties
+          storeFile=app/attune_release.jks
+          storePassword=${KEYSTORE_PASSWORD}
+          keyAlias=${KEY_ALIAS}
+          keyPassword=${KEY_PASSWORD:-$KEYSTORE_PASSWORD}
+          EOF
+          else
+            echo "No external release keystore secret configured. Generating build keystore..."
+            python3 tools/generate_keystore.py --force
+          fi
+
       # ---------------- Build & Test & Package ----------------
       - name: Build, Test & Package (Linux AppImage)
         if: steps.check_variant.outputs.should_run == 'true' && runner.os == 'Linux' && matrix.target == 'appimage'
@@ -214,7 +244,7 @@ jobs:
         if: steps.check_variant.outputs.should_run == 'true' && runner.os == 'Windows'
         shell: pwsh
         run: |
-          python tools/builder.py --target windows --build-type "${{ matrix.build_type }}" --version-id "${{ needs.meta.outputs.version }}" --package --installer --test
+          python tools/builder.py --target windows --build-type "${{ matrix.build_type }}" --version-id "${{ needs.meta.outputs.version }}" --package --installer --sign --test
 
       - name: Build, Test & Package (Android)
         if: steps.check_variant.outputs.should_run == 'true' && matrix.target == 'android'
@@ -242,6 +272,7 @@ jobs:
           mkdir -p artifacts_out
           cp -f dist/windows/Attune-*-Windows-*.zip artifacts_out/ 2>/dev/null || true
           cp -f dist/windows/Attune-*-Windows-*-Setup.exe artifacts_out/ 2>/dev/null || true
+          cp -f dist/windows/*.bundle artifacts_out/ 2>/dev/null || true
           ls -la artifacts_out/
 
       - name: Upload Artifacts
@@ -405,6 +436,7 @@ jobs:
                 *Linux*.tar.gz|*linux*.tar.gz) DESC="Linux Portable Archive" ;;
                 *Windows*.zip|*windows*.zip) DESC="Windows Portable Archive" ;;
                 *Setup*.exe|*setup*.exe) DESC="Windows Installer (Inno Setup)" ;;
+                *.bundle) DESC="Sigstore Cosign Verification Bundle (Cryptographic Signature)" ;;
                 *Android*.apk|*.apk) DESC="Android APK" ;;
                 SHA256SUMS) DESC="Verification Checksums" ;;
               esac
