@@ -21,7 +21,7 @@ import '../widgets/directory_picker_dialog.dart';
 /// 1. General (Language, Wakelock held, Notifications)
 /// 2. Audio (Rust Player version, Audio Focus Hook levels, Decoder, EQ mode, View Equalizer)
 /// 3. Lyrics (LRCLIB fetching switch)
-/// 4. Skin (Glass configurations, Glow Blob enable, Glow Blob follows rhythm)
+/// 4. Skin (Glass configurations & tweaks)
 /// 5. Files (Directory scan checkmarks, Song exclusion list, Song limit timer)
 /// 6. Developer Options (Transition tests lab, Hardware assessment checks with real data)
 class SettingsAndAudioStage extends StatefulWidget {
@@ -406,32 +406,6 @@ class _SettingsAndAudioStageState extends State<SettingsAndAudioStage> with Widg
                                 subtitle: 'Backdrop blur ${_settings.glassLensBlurSigma.toInt()}px • Surface opacity ${(_settings.glassSurfaceAlpha * 100).toInt()}%',
                                 trailing: const Icon(Icons.chevron_right_rounded, color: Colors.white38, size: 20),
                                 onTap: () => _openGlassTweaksDialog(context),
-                              ),
-                              const Divider(height: 1, color: Colors.white10),
-                              _buildSettingTile(
-                                icon: Icons.bubble_chart_rounded,
-                                title: 'Enable Glow Blob',
-                                subtitle: 'Fluid liquid light globs (recommended to disable on weak devices)',
-                                trailing: Switch(
-                                  value: _playback.livingBeatMeshEnabled,
-                                  activeThumbColor: colorScheme.primary,
-                                  onChanged: (v) => _playback.setLivingBeatMeshEnabled(v),
-                                ),
-                              ),
-                              const Divider(height: 1, color: Colors.white10),
-                              _buildSettingTile(
-                                icon: Icons.graphic_eq_rounded,
-                                title: 'Glow Blob Also Follows Rhythm',
-                                subtitle: _playback.livingBeatMeshEnabled
-                                    ? 'Sway and pulse fluid light globs with track BPM and kick dynamics'
-                                    : 'Requires Glow Blob to be enabled',
-                                trailing: Switch(
-                                  value: _playback.livingBeatMeshEnabled && _settings.glowBlobFollowsRhythm,
-                                  activeThumbColor: colorScheme.primary,
-                                  onChanged: _playback.livingBeatMeshEnabled
-                                      ? (v) => _settings.setGlowBlobFollowsRhythm(v)
-                                      : null,
-                                ),
                               ),
                             ],
                           ),

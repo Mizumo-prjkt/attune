@@ -143,7 +143,7 @@ class _AlbumsStageState extends State<AlbumsStage> {
                   ),
                   boxShadow: [
                     BoxShadow(
-                      color: leadTrack.seedColor.withValues(alpha: 0.25),
+                      color: Colors.black.withValues(alpha: 0.35),
                       blurRadius: 10,
                       offset: const Offset(0, 4),
                     ),
@@ -266,8 +266,9 @@ class _AlbumsStageState extends State<AlbumsStage> {
                   borderRadius: BorderRadius.circular(16),
                   boxShadow: [
                     BoxShadow(
-                      color: firstTrack.seedColor.withValues(alpha: 0.35),
-                      blurRadius: 14,
+                      color: Colors.black.withValues(alpha: 0.35),
+                      blurRadius: 12,
+                      offset: const Offset(0, 4),
                     ),
                   ],
                 ),

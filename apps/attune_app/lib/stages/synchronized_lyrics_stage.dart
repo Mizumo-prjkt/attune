@@ -172,11 +172,6 @@ class _SynchronizedLyricsStageState extends State<SynchronizedLyricsStage> {
               blurRadius: 18,
               offset: const Offset(0, 4),
             ),
-            BoxShadow(
-              color: colorScheme.primary.withValues(alpha: 0.28),
-              blurRadius: 12,
-              spreadRadius: 1,
-            ),
           ],
           child: Row(
             mainAxisSize: MainAxisSize.min,
@@ -320,14 +315,6 @@ class _SynchronizedLyricsStageState extends State<SynchronizedLyricsStage> {
                     ],
                   ),
                 ),
-                const SizedBox(width: 8),
-                if (track != null)
-                  AudioQualityBadge(
-                    format: track.format,
-                    sampleRate: track.sampleRate,
-                    bitDepth: track.bitDepth,
-                    isProprietary: track.isProprietary,
-                  ),
               ],
             ),
           ),
@@ -424,9 +411,9 @@ class _SynchronizedLyricsStageState extends State<SynchronizedLyricsStage> {
                             ),
                             boxShadow: [
                               BoxShadow(
-                                color: colorScheme.primary.withValues(alpha: 0.4),
-                                blurRadius: 18,
-                                spreadRadius: 1,
+                                color: Colors.black.withValues(alpha: 0.35),
+                                blurRadius: 12,
+                                offset: const Offset(0, 4),
                               ),
                             ],
                           ),

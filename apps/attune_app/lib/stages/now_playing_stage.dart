@@ -220,16 +220,6 @@ class _NowPlayingStageState extends State<NowPlayingStage> {
                     overflow: TextOverflow.ellipsis,
                   ),
 
-                  const SizedBox(height: 12),
-
-                  // 3. Human-Friendly Audio Quality Glass Badge (Section 3.1)
-                  AudioQualityBadge(
-                    format: track?.format ?? 'FLAC',
-                    sampleRate: track?.sampleRate ?? 44100,
-                    bitDepth: track?.bitDepth ?? 16,
-                    isProprietary: track?.isProprietary ?? false,
-                  ),
-
                   const SizedBox(height: 20),
 
                   // 4. Subtle Cue-Zone Wave Progress Bar

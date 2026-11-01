@@ -42,14 +42,14 @@ class FloatingMiniPlayer extends StatelessWidget {
                     borderRadius: BorderRadius.circular(14),
                     boxShadow: [
                       BoxShadow(
-                        color: accentColor.withValues(alpha: 0.45),
-                        blurRadius: 14,
-                        spreadRadius: 1,
+                        color: Colors.black.withValues(alpha: 0.3),
+                        blurRadius: 8,
+                        offset: const Offset(0, 2),
                       ),
                     ],
                     border: Border.all(
-                      color: accentColor.withValues(alpha: 0.8),
-                      width: 1.5,
+                      color: Colors.white.withValues(alpha: 0.15),
+                      width: 1.0,
                     ),
                   ),
                   child: ClipRRect(

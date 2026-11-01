@@ -600,9 +600,9 @@ class _ResponsiveGlassScaffoldState extends State<ResponsiveGlassScaffold>
                                 ),
                                 boxShadow: [
                                   BoxShadow(
-                                    color: colorScheme.primary.withValues(alpha: 0.35 * midPeak),
-                                    blurRadius: 40 * midPeak,
-                                    spreadRadius: 2 * midPeak,
+                                    color: Colors.black.withValues(alpha: 0.35 * midPeak),
+                                    blurRadius: 24 * midPeak,
+                                    offset: Offset(0, 8 * midPeak),
                                   ),
                                 ],
                               )

@@ -331,9 +331,12 @@ impl AudioDecoder {
         let mut album = None;
         let mut genre = None;
         let mut bpm = None;
+        let mut initial_key = None;
+        let mut artwork_path = None;
 
         if let Some(metadata) = format.metadata().current() {
             for tag in metadata.tags() {
+                let tag_key_str = tag.key.to_uppercase();
                 if let Some(std_key) = tag.std_key {
                     match std_key {
                         symphonia::core::meta::StandardTagKey::Artist => {
@@ -356,6 +359,53 @@ impl AudioDecoder {
                         _ => {}
                     }
                 }
+                // Custom or non-standard tag fallback
+                if bpm.is_none() && (tag_key_str == "BPM" || tag_key_str == "TBPM" || tag_key_str == "TEMPO") {
+                    if let Ok(b) = tag.value.to_string().parse::<f32>() {
+                        bpm = Some(b);
+                    }
+                }
+                if initial_key.is_none() && (tag_key_str == "INITIALKEY" || tag_key_str == "KEY" || tag_key_str == "TKEY") {
+                    let k = tag.value.to_string().trim().to_string();
+                    if !k.is_empty() {
+                        initial_key = Some(k);
+                    }
+                }
+            }
+
+            // Extract embedded visual if present
+            if let Some(visual) = metadata.visuals().first() {
+                let ext = if visual.media_type.contains("png") {
+                    "png"
+                } else if visual.media_type.contains("webp") {
+                    "webp"
+                } else {
+                    "jpg"
+                };
+
+                let cache_base = std::env::var("ATTUNE_CACHE_DIR")
+                    .map(std::path::PathBuf::from)
+                    .unwrap_or_else(|_| {
+                        #[cfg(target_os = "android")]
+                        {
+                            std::path::PathBuf::from("/data/user/0/org.mizproject.attune/cache")
+                        }
+                        #[cfg(not(target_os = "android"))]
+                        {
+                            std::env::temp_dir().join("attune_cache")
+                        }
+                    });
+                let art_dir = cache_base.join("artwork");
+                if std::fs::create_dir_all(&art_dir).is_ok() {
+                    let path_hash = blake3::hash(path.as_ref().to_string_lossy().as_bytes()).to_hex();
+                    let dest_file = art_dir.join(format!("{}.{}", path_hash, ext));
+                    if !dest_file.exists() && !visual.data.is_empty() {
+                        let _ = std::fs::write(&dest_file, &visual.data);
+                    }
+                    if dest_file.exists() {
+                        artwork_path = Some(dest_file.to_string_lossy().to_string());
+                    }
+                }
             }
         }
 
@@ -370,7 +420,41 @@ impl AudioDecoder {
             album,
             genre,
             bpm,
+            initial_key,
+            artwork_path,
         })
+    }
+
+    /// Extracts embedded artwork from an audio file and saves it to `dest_path`.
+    pub fn extract_artwork<P: AsRef<Path>, Q: AsRef<Path>>(audio_path: P, dest_path: Q) -> Result<bool, AudioError> {
+        let file = std::fs::File::open(&audio_path)?;
+        let mss = MediaSourceStream::new(Box::new(file), Default::default());
+
+        let mut hint = Hint::new();
+        if let Some(ext) = audio_path.as_ref().extension().and_then(|e| e.to_str()) {
+            hint.with_extension(ext);
+        }
+
+        let format_opts: FormatOptions = Default::default();
+        let metadata_opts: MetadataOptions = Default::default();
+
+        let probed = symphonia::default::get_probe()
+            .format(&hint, mss, &format_opts, &metadata_opts)
+            .map_err(|e| AudioError::Decode(e.to_string()))?;
+
+        let mut format = probed.format;
+        if let Some(metadata) = format.metadata().current() {
+            if let Some(visual) = metadata.visuals().first() {
+                if !visual.data.is_empty() {
+                    if let Some(parent) = dest_path.as_ref().parent() {
+                        let _ = std::fs::create_dir_all(parent);
+                    }
+                    std::fs::write(&dest_path, &visual.data)?;
+                    return Ok(true);
+                }
+            }
+        }
+        Ok(false)
     }
 }
 
@@ -387,6 +471,8 @@ pub struct TrackMetadataProbe {
     pub album: Option<String>,
     pub genre: Option<String>,
     pub bpm: Option<f32>,
+    pub initial_key: Option<String>,
+    pub artwork_path: Option<String>,
 }
 
 #[cfg(test)]

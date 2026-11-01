@@ -248,9 +248,9 @@ class _ProfileAndStatsStageState extends State<ProfileAndStatsStage> {
                         ),
                         boxShadow: [
                           BoxShadow(
-                            color: colorScheme.primary.withValues(alpha: 0.4),
-                            blurRadius: 16,
-                            spreadRadius: 1,
+                            color: Colors.black.withValues(alpha: 0.35),
+                            blurRadius: 12,
+                            offset: const Offset(0, 4),
                           ),
                         ],
                       ),

@@ -138,6 +138,36 @@ pub extern "C" fn attune_probe_audio_file(path_ptr: *const c_char) -> *mut c_cha
     })
 }
 
+/// Extracts embedded artwork from an audio file and saves it to dest_path.
+/// Returns 1 on success, 0 if no visual artwork found, -1 on error.
+#[no_mangle]
+pub extern "C" fn attune_extract_artwork(audio_path_ptr: *const c_char, dest_path_ptr: *const c_char) -> i32 {
+    let res = std::panic::catch_unwind(|| {
+        if audio_path_ptr.is_null() || dest_path_ptr.is_null() {
+            return -1;
+        }
+        let audio_path = match unsafe { CStr::from_ptr(audio_path_ptr) }.to_str() {
+            Ok(s) => s,
+            Err(_) => return -1,
+        };
+        let dest_path = match unsafe { CStr::from_ptr(dest_path_ptr) }.to_str() {
+            Ok(s) => s,
+            Err(_) => return -1,
+        };
+
+        match AudioDecoder::extract_artwork(audio_path, dest_path) {
+            Ok(true) => 1,
+            Ok(false) => 0,
+            Err(e) => {
+                log::warn!("attune_extract_artwork notice: {}", e);
+                -1
+            }
+        }
+    });
+
+    res.unwrap_or(-1)
+}
+
 #[cfg(target_os = "android")]
 static ANDROID_VM: std::sync::atomic::AtomicPtr<std::ffi::c_void> =
     std::sync::atomic::AtomicPtr::new(std::ptr::null_mut());

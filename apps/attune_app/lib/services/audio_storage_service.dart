@@ -104,6 +104,7 @@ class AudioStorageService {
     int bitDepth = 16;
     double bpm = 0.0;
     String musicalKey = 'Pending Profile';
+    String? artworkPath;
 
     final isLossless = extension == 'flac' || extension == 'wav' || extension == 'alac' || extension == 'aiff';
     var formatStr = extension.toUpperCase();
@@ -131,6 +132,15 @@ class AudioStorageService {
       }
       if (probe['bpm'] != null && (probe['bpm'] as num) > 0) {
         bpm = (probe['bpm'] as num).toDouble();
+      }
+      if (probe['initial_key'] != null && probe['initial_key'].toString().trim().isNotEmpty) {
+        musicalKey = probe['initial_key'].toString().trim();
+      }
+      if (probe['artwork_path'] != null && probe['artwork_path'].toString().isNotEmpty) {
+        final artP = probe['artwork_path'].toString();
+        if (File(artP).existsSync()) {
+          artworkPath = artP;
+        }
       }
     }
 
@@ -218,14 +228,41 @@ class AudioStorageService {
       genre = _inferGenre(title: title, artist: artist, album: album);
     }
 
-    // Detect album artwork file in same folder
-    String? artworkPath;
-    final artCandidates = ['cover.jpg', 'cover.png', 'Cover.jpg', 'Folder.jpg', 'AlbumArtSmall.jpg'];
-    for (final art in artCandidates) {
-      final artFile = File('${parent.path}/$art');
-      if (artFile.existsSync()) {
-        artworkPath = artFile.path;
-        break;
+    // Detect album artwork: 1. probe cache, 2. native extraction, 3. pure Dart fallback, 4. folder file
+    if (artworkPath == null) {
+      final cacheDir = AppEnvironmentDelegator.current.cacheDirectory;
+      final artCacheDir = Directory('${cacheDir.path}/artwork');
+      if (!artCacheDir.existsSync()) {
+        try {
+          artCacheDir.createSync(recursive: true);
+        } catch (_) {}
+      }
+      final safeTrackName = title.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]'), '_');
+      final cachedArtFile = File('${artCacheDir.path}/${safeTrackName}_${title.hashCode.abs()}.jpg');
+      if (cachedArtFile.existsSync()) {
+        artworkPath = cachedArtFile.path;
+      } else {
+        // Try native extraction
+        if (AttuneEngineBridge.instance.extractArtwork(file.path, cachedArtFile.path) && cachedArtFile.existsSync()) {
+          artworkPath = cachedArtFile.path;
+        } else {
+          // Pure Dart embedded artwork extractor fallback
+          final dartArtPath = _extractEmbeddedArtworkInDart(file, artCacheDir);
+          if (dartArtPath != null && File(dartArtPath).existsSync()) {
+            artworkPath = dartArtPath;
+          }
+        }
+      }
+    }
+
+    if (artworkPath == null) {
+      final artCandidates = ['cover.jpg', 'cover.png', 'Cover.jpg', 'Folder.jpg', 'folder.jpg', 'AlbumArtSmall.jpg'];
+      for (final art in artCandidates) {
+        final artFile = File('${parent.path}/$art');
+        if (artFile.existsSync()) {
+          artworkPath = artFile.path;
+          break;
+        }
       }
     }
 
@@ -263,6 +300,109 @@ class AudioStorageService {
       seedColor: seedColor,
       artworkFile: artworkPath,
     );
+  }
+
+  /// Pure Dart extractor for embedded artwork (FLAC METADATA_BLOCK_PICTURE & MP3 ID3v2 APIC).
+  static String? _extractEmbeddedArtworkInDart(File file, Directory destDir) {
+    try {
+      final ext = file.path.split('.').last.toLowerCase();
+      final raf = file.openSync(mode: FileMode.read);
+      try {
+        if (ext == 'flac') {
+          final header = raf.readSync(4);
+          if (header.length >= 4 &&
+              header[0] == 0x66 &&
+              header[1] == 0x4C &&
+              header[2] == 0x61 &&
+              header[3] == 0x43) {
+            bool isLast = false;
+            while (!isLast) {
+              final blockHeader = raf.readSync(4);
+              if (blockHeader.length < 4) break;
+              isLast = (blockHeader[0] & 0x80) != 0;
+              final blockType = blockHeader[0] & 0x7F;
+              final blockLen = (blockHeader[1] << 16) | (blockHeader[2] << 8) | blockHeader[3];
+
+              if (blockType == 6) {
+                // METADATA_BLOCK_PICTURE
+                final picData = raf.readSync(blockLen);
+                if (picData.length >= 32) {
+                  final mimeLen = (picData[4] << 24) | (picData[5] << 16) | (picData[6] << 8) | picData[7];
+                  var offset = 8 + mimeLen;
+                  if (offset + 4 <= picData.length) {
+                    final descLen = (picData[offset] << 24) | (picData[offset + 1] << 16) | (picData[offset + 2] << 8) | picData[offset + 3];
+                    offset += 4 + descLen + 16; // skip desc + 16 bytes dimensions/depth
+                    if (offset + 4 <= picData.length) {
+                      final dataLen = (picData[offset] << 24) | (picData[offset + 1] << 16) | (picData[offset + 2] << 8) | picData[offset + 3];
+                      offset += 4;
+                      if (offset + dataLen <= picData.length) {
+                        final imgBytes = picData.sublist(offset, offset + dataLen);
+                        final isPng = imgBytes.length > 8 && imgBytes[0] == 0x89 && imgBytes[1] == 0x50;
+                        final outExt = isPng ? 'png' : 'jpg';
+                        final outPath = '${destDir.path}/art_${file.path.hashCode.abs()}.$outExt';
+                        File(outPath).writeAsBytesSync(imgBytes);
+                        return outPath;
+                      }
+                    }
+                  }
+                }
+                break;
+              } else {
+                raf.setPositionSync(raf.positionSync() + blockLen);
+              }
+            }
+          }
+        } else if (ext == 'mp3') {
+          final id3Header = raf.readSync(10);
+          if (id3Header.length >= 10 &&
+              id3Header[0] == 0x49 &&
+              id3Header[1] == 0x44 &&
+              id3Header[2] == 0x33) {
+            final tagSize = ((id3Header[6] & 0x7F) << 21) |
+                ((id3Header[7] & 0x7F) << 14) |
+                ((id3Header[8] & 0x7F) << 7) |
+                (id3Header[9] & 0x7F);
+            final tagBytes = raf.readSync(tagSize);
+            var offset = 0;
+            while (offset + 10 < tagBytes.length) {
+              final frameId = String.fromCharCodes(tagBytes.sublist(offset, offset + 4));
+              if (frameId.codeUnitAt(0) == 0) break;
+              final b0 = tagBytes[offset + 4];
+              final b1 = tagBytes[offset + 5];
+              final b2 = tagBytes[offset + 6];
+              final b3 = tagBytes[offset + 7];
+              var frameSize = (b0 << 24) | (b1 << 16) | (b2 << 8) | b3;
+              if (frameSize > tagBytes.length - offset - 10) {
+                // Syncsafe integer fallback (ID3v2.4)
+                frameSize = ((b0 & 0x7F) << 21) | ((b1 & 0x7F) << 14) | ((b2 & 0x7F) << 7) | (b3 & 0x7F);
+              }
+              if (frameSize <= 0 || offset + 10 + frameSize > tagBytes.length) break;
+
+              if (frameId == 'APIC') {
+                final frameData = tagBytes.sublist(offset + 10, offset + 10 + frameSize);
+                // Locate image magic signature: JPEG (0xFF 0xD8 0xFF) or PNG (0x89 0x50 0x4E 0x47)
+                for (var i = 0; i < frameData.length - 4; i++) {
+                  final isJpg = frameData[i] == 0xFF && frameData[i + 1] == 0xD8 && frameData[i + 2] == 0xFF;
+                  final isPng = frameData[i] == 0x89 && frameData[i + 1] == 0x50 && frameData[i + 2] == 0x4E && frameData[i + 3] == 0x47;
+                  if (isJpg || isPng) {
+                    final imgBytes = frameData.sublist(i);
+                    final outExt = isPng ? 'png' : 'jpg';
+                    final outPath = '${destDir.path}/art_${file.path.hashCode.abs()}.$outExt';
+                    File(outPath).writeAsBytesSync(imgBytes);
+                    return outPath;
+                  }
+                }
+                break;
+              }
+              offset += 10 + frameSize;
+            }
+          }
+        }
+      } finally {
+        raf.closeSync();
+      }
+    } catch (_) {}
+    return null;
   }
 
   /// Pure Dart header parser extracting exact audio specifications for FLAC and WAV files.

@@ -21,6 +21,9 @@ typedef AttuneProfileFileDart = Pointer<Utf8> Function(Pointer<Utf8>, int);
 typedef AttuneProbeAudioFileC = Pointer<Utf8> Function(Pointer<Utf8>);
 typedef AttuneProbeAudioFileDart = Pointer<Utf8> Function(Pointer<Utf8>);
 
+typedef AttuneExtractArtworkC = Int32 Function(Pointer<Utf8>, Pointer<Utf8>);
+typedef AttuneExtractArtworkDart = int Function(Pointer<Utf8>, Pointer<Utf8>);
+
 typedef AttunePlanTransitionC = Pointer<Utf8> Function(Pointer<Utf8>, Pointer<Utf8>);
 typedef AttunePlanTransitionDart = Pointer<Utf8> Function(Pointer<Utf8>, Pointer<Utf8>);
 
@@ -98,6 +101,7 @@ class AttuneEngineBridge {
   AttuneFreeStringDart? _attuneFreeString;
   AttuneCacheStatsDart? _attuneCacheStats;
   AttuneProbeAudioFileDart? _attuneProbeAudioFile;
+  AttuneExtractArtworkDart? _attuneExtractArtwork;
 
   AttunePlayerStartDart? _attunePlayerStart;
   AttunePlayerLoadTrackDart? _attunePlayerLoadTrack;
@@ -210,6 +214,10 @@ class AttuneEngineBridge {
         _attuneCacheStats = _lib!.lookupFunction<AttuneCacheStatsC, AttuneCacheStatsDart>('attune_cache_stats');
         _attuneProbeAudioFile =
             _lib!.lookupFunction<AttuneProbeAudioFileC, AttuneProbeAudioFileDart>('attune_probe_audio_file');
+        try {
+          _attuneExtractArtwork =
+              _lib!.lookupFunction<AttuneExtractArtworkC, AttuneExtractArtworkDart>('attune_extract_artwork');
+        } catch (_) {}
 
         _attunePlayerStart = _lib!.lookupFunction<AttunePlayerStartC, AttunePlayerStartDart>('attune_player_start');
         _attunePlayerLoadTrack =
@@ -371,6 +379,24 @@ class AttuneEngineBridge {
       return null;
     } finally {
       calloc.free(pathPtr);
+    }
+  }
+
+  /// Extracts embedded artwork (FLAC PICTURE block, ID3v2 APIC, MP4 covr) and writes to destPath.
+  /// Returns true if visual artwork was found and saved.
+  bool extractArtwork(String audioPath, String destPath) {
+    if (!isAvailable || _attuneExtractArtwork == null) return false;
+    final audioPtr = audioPath.toNativeUtf8();
+    final destPtr = destPath.toNativeUtf8();
+    try {
+      final res = _attuneExtractArtwork!(audioPtr, destPtr);
+      return res == 1;
+    } catch (e) {
+      debugPrint('[AttuneEngineBridge] extractArtwork error: $e');
+      return false;
+    } finally {
+      calloc.free(audioPtr);
+      calloc.free(destPtr);
     }
   }
 
