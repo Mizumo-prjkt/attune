@@ -1019,6 +1019,16 @@ def launch_gui():
     btn_flutter = tk.Button(btn_frame, text="📱 Compile Flutter", bg="#2D3748", fg=fg_color, command=on_compile_flutter)
     btn_flutter.pack(side=tk.LEFT, padx=(0, 6))
 
+    def on_open_keystore_tool():
+        try:
+            from tools.generate_keystore import launch_gui as launch_keystore_gui
+            launch_keystore_gui()
+        except Exception as e:
+            gui_log(f"✗ Failed to open Keystore Studio: {e}")
+
+    btn_keystore = tk.Button(btn_frame, text="🔑 Keystore Tool", bg="#2D3748", fg=accent_color, command=on_open_keystore_tool)
+    btn_keystore.pack(side=tk.LEFT, padx=(0, 6))
+
     btn_full = tk.Button(btn_frame, text="🚀 Full Build & Package", bg="#38A169", fg="#FFFFFF", font=("Segoe UI", 9, "bold"), command=on_full_build)
     btn_full.pack(side=tk.RIGHT)
 
@@ -1244,6 +1254,14 @@ def main():
 
     # Handle --generate-keystore for Android release signing
     if args.generate_keystore:
+        if not args.no_gui and has_display:
+            try:
+                from tools.generate_keystore import launch_gui as launch_keystore_gui
+                launch_keystore_gui()
+                return
+            except Exception as e:
+                print(f"[Keystore] Note: Failed to launch Keystore GUI ({e}), falling back to CLI.")
+
         print("\n--- [Step: Generate Android Release Keystore] ---")
         try:
             from tools.generate_keystore import generate_keystore

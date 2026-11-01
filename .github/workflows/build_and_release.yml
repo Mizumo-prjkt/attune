@@ -203,28 +203,30 @@ jobs:
         uses: sigstore/cosign-installer@v3.8.1
 
       # ---------------- Android Keystore setup ----------------
-      - name: Prepare Android Keystore (Android)
+      - name: Translate Release Keystore from GitHub Secrets (Android)
         if: steps.check_variant.outputs.should_run == 'true' && matrix.target == 'android' && matrix.build_type == 'Release'
         shell: bash
         env:
-          KEYSTORE_BASE64: ${{ secrets.ATTUNE_KEYSTORE_BASE64 || secrets.ANDROID_KEYSTORE_BASE64 }}
-          KEYSTORE_PASSWORD: ${{ secrets.ATTUNE_KEYSTORE_PASSWORD }}
-          KEY_ALIAS: ${{ secrets.ATTUNE_KEY_ALIAS }}
-          KEY_PASSWORD: ${{ secrets.ATTUNE_KEY_PASSWORD }}
+          RELEASE_KEYSTORE_BASE64: ${{ secrets.RELEASE_KEYSTORE_BASE64 || secrets.ATTUNE_KEYSTORE_BASE64 || secrets.ANDROID_KEYSTORE_BASE64 }}
+          RELEASE_KEYSTORE_PASSWORD: ${{ secrets.RELEASE_KEYSTORE_PASSWORD || secrets.ATTUNE_KEYSTORE_PASSWORD }}
+          RELEASE_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS || secrets.ATTUNE_KEY_ALIAS }}
+          RELEASE_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD || secrets.ATTUNE_KEY_PASSWORD }}
         run: |
-          if [ -n "$KEYSTORE_BASE64" ]; then
-            echo "Decoding release keystore from repository secrets..."
+          if [ -n "$RELEASE_KEYSTORE_BASE64" ]; then
+            echo "Decoding RELEASE_KEYSTORE_BASE64 from GitHub Secrets..."
             mkdir -p apps/attune_app/android/app
-            echo "$KEYSTORE_BASE64" | base64 --decode > apps/attune_app/android/app/attune_release.jks
+            echo "$RELEASE_KEYSTORE_BASE64" | base64 --decode > apps/attune_app/android/app/attune_release.jks
             cat << EOF > apps/attune_app/android/key.properties
           storeFile=app/attune_release.jks
-          storePassword=${KEYSTORE_PASSWORD}
-          keyAlias=${KEY_ALIAS}
-          keyPassword=${KEY_PASSWORD:-$KEYSTORE_PASSWORD}
+          storePassword=${RELEASE_KEYSTORE_PASSWORD:-attunerelease}
+          keyAlias=${RELEASE_KEY_ALIAS:-attune}
+          keyPassword=${RELEASE_KEY_PASSWORD:-${RELEASE_KEYSTORE_PASSWORD:-attunerelease}}
           EOF
+            echo "Successfully applied release keystore and configured key.properties."
           else
-            echo "No external release keystore secret configured. Generating build keystore..."
-            python3 tools/generate_keystore.py --force
+            echo "Notice: RELEASE_KEYSTORE_BASE64 secret not found."
+            echo "Skipping ephemeral keystore generation on CI to avoid signature collisions across builds."
+            echo "Gradle will compile release APK using fallback debug signing config."
           fi
 
       # ---------------- Build & Test & Package ----------------

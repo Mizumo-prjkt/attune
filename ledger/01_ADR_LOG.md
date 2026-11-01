@@ -1391,9 +1391,11 @@ This file records all major architectural decisions for **Attune**, including co
      - Add an application ID suffix for debug builds (`applicationIdSuffix = ".debug"`) so Release and Debug variants can be installed side-by-side on the same device.
 - **Decision**:
   1. **Private Keystore Generation & Git-Exclusion (`tools/generate_keystore.py` & `.gitignore`)**:
-     - Created `tools/generate_keystore.py` to automate generating 10,000-day PKCS12 release keystores via `keytool`, supporting customizable or environment-driven parameters (`ATTUNE_KEYSTORE_PASSWORD`, `ATTUNE_KEY_ALIAS`, `ATTUNE_KEY_PASSWORD`, `ATTUNE_KEY_DNAME`).
+     - Built `tools/generate_keystore.py` with dual-mode support: an interactive Liquid Glass-themed Tkinter GUI Studio and a headless CLI.
+     - Features 1-click clipboard export for `RELEASE_KEYSTORE_BASE64`, allowing developers to generate their release keystore locally and directly configure GitHub Repository Secrets.
+     - Configured GitHub Actions CI (`.github/workflows/build_and_release.yml`) to decode and translate `RELEASE_KEYSTORE_BASE64` from secrets, eliminating ephemeral random key generation on CI/CD and ensuring reproducible signatures. If secrets are absent, CI safely builds with debug signing.
      - Keystores (`**/*.jks`, `**/*.keystore`) and `key.properties` are strictly excluded from version control in `.gitignore`.
-     - In `build.gradle.kts`, credentials are loaded dynamically from `key.properties` or environment variables without hardcoded passwords, falling back gracefully to debug signing if unconfigured.
+     - In `build.gradle.kts`, credentials load dynamically from `key.properties` or environment variables (`RELEASE_KEYSTORE_*` / `ATTUNE_KEYSTORE_*`) without hardcoded credentials, falling back gracefully to debug signing if unconfigured.
   2. **Sigstore / Cosign Keyless Artifact Signing for Windows**:
      - Configured `sigstore/cosign-installer` and `cosign sign-blob --yes --bundle <artifact>.bundle <artifact>` in GitHub Actions CI with `id-token: write` permissions.
      - Extended `tools/builder.py` with Cosign detection and blob signing support for Windows portable archives and Inno Setup installer executables.

@@ -44,6 +44,7 @@ android {
             }
 
             val keystorePath = keyProperties.getProperty("storeFile")
+                ?: System.getenv("RELEASE_KEYSTORE_FILE")
                 ?: System.getenv("ATTUNE_KEYSTORE_FILE")
                 ?: "attune_release.jks"
 
@@ -52,10 +53,13 @@ android {
                 ?: project.file("attune_release.jks").takeIf { it.exists() }
 
             val storePass = keyProperties.getProperty("storePassword")
+                ?: System.getenv("RELEASE_KEYSTORE_PASSWORD")
                 ?: System.getenv("ATTUNE_KEYSTORE_PASSWORD")
             val alias = keyProperties.getProperty("keyAlias")
+                ?: System.getenv("RELEASE_KEY_ALIAS")
                 ?: System.getenv("ATTUNE_KEY_ALIAS")
             val keyPass = keyProperties.getProperty("keyPassword")
+                ?: System.getenv("RELEASE_KEY_PASSWORD")
                 ?: System.getenv("ATTUNE_KEY_PASSWORD")
                 ?: storePass
 
