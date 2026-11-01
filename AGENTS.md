@@ -56,3 +56,14 @@ Before ending a work session or completing a milestone, the AI agent MUST:
 2. **Record New Architectural Decisions** in [`ledger/01_ADR_LOG.md`](file:///home/miku/Documents/attune/ledger/01_ADR_LOG.md) whenever a library, crate, schema, or algorithmic approach is chosen or changed.
 3. **Log All Algorithm Tuning Experiments** in [`ledger/04_TRANSITION_LAB_LOG.md`](file:///home/miku/Documents/attune/ledger/04_TRANSITION_LAB_LOG.md). Never overwrite previous test observations—append new dated entries so future AI sessions understand which parameter combinations failed and why.
 4. **Provide a very detailed Git Commit after changes were sucessfully was made**. Be extremely descriptive on the git logs on what issue did you tackle, any hiccups during build or tests, and also apply attribution to the Git as the agents and the author alongside.
+   - **Git Author & Co-Author Protocol**:
+     * Author: `Mizumo-prjkt <bluepearl394@gmail.com>`.
+     * **STRICT PRIVACY RULE**: NEVER use the local PC hostname or Linux username (e.g. `<miku@mikucentre>` or `$(whoami)@$(hostname)`) anywhere in git commit authors, messages, or trailers.
+     * **STRICT EMAIL ATTRIBUTION RULE**: NEVER use `antigravity@deepmind.google`, `antigravity@google.com`, or any email containing `antigravity@`—these are tied to individual people on GitHub/Google rather than service accounts. Only use the official service accounts:
+       - `Gemini Code Assist <gemini-code-assist@google.com>`
+       - `Claude <noreply@anthropic.com>` (if Claude pair-programmed on the task)
+     * Standard AI assistant trailers format:
+       ```text
+       Co-authored-by: Gemini Code Assist <gemini-code-assist@google.com>
+       Signed-off-by: Mizumo-prjkt <bluepearl394@gmail.com>
+       ```
