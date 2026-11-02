@@ -10,18 +10,9 @@ class PlatformNavigation {
   static const MethodChannel _channel = MethodChannel('org.mizproject.attune/navigation');
 
   /// Opens the Settings & Audio Configuration UI.
-  /// On Android, launches the independent `SettingsActivity` task window.
-  /// On Desktop / Linux / Web, navigates via Flutter Navigator.
+  /// Navigates cleanly within the active Flutter Engine so background audio playback
+  /// and live controllers remain uninterrupted, with smooth Predictive Back animations.
   static Future<void> openSettings(BuildContext context) async {
-    if (!kIsWeb && Platform.isAndroid) {
-      try {
-        await _channel.invokeMethod('openSettings');
-        return;
-      } catch (e) {
-        debugPrint('PlatformNavigation openSettings error: $e, falling back to Flutter route');
-      }
-    }
-
     if (context.mounted) {
       Navigator.of(context).pushNamed('/settings');
     }

@@ -1,12 +1,14 @@
 import 'package:flutter/material.dart';
 import '../services/playback_controller.dart';
 import '../services/settings_service.dart';
+import '../services/tilt_service.dart';
 
 /// The 4-Layer Liquid Material Glass Container adhering to Section 2.2 of 05_UI_DESIGN_SPEC.md:
-/// 1. Frosted Backdrop Blur (BackdropFilter with configurable sigma)
+/// 1. Frosted Backdrop Blur / Clean Translucent Surface
 /// 2. Tonal Glass Tint Fill (surfaceContainerHigh + surfaceTint)
 /// 3. Diagonal Specular Rim Lighting (1.0px gradient border from top-left catch light to shadow edge)
-class LiquidGlassContainer extends StatelessWidget {
+/// 4. Dynamic 3D Parallax Tilt (Hardware accelerometer on Android, mouse tracking on Desktop)
+class LiquidGlassContainer extends StatefulWidget {
   final Widget child;
   final double? width;
   final double? height;
@@ -19,6 +21,7 @@ class LiquidGlassContainer extends StatelessWidget {
   final Color? borderColor;
   final List<BoxShadow>? boxShadow;
   final VoidCallback? onTap;
+  final bool enableTilt;
 
   const LiquidGlassContainer({
     super.key,
@@ -34,63 +37,136 @@ class LiquidGlassContainer extends StatelessWidget {
     this.borderColor,
     this.boxShadow,
     this.onTap,
+    this.enableTilt = false,
   });
+
+  @override
+  State<LiquidGlassContainer> createState() => _LiquidGlassContainerState();
+}
+
+class _LiquidGlassContainerState extends State<LiquidGlassContainer> {
+  @override
+  void initState() {
+    super.initState();
+    if (widget.enableTilt) {
+      TiltService.instance.registerViewer();
+    }
+  }
+
+  @override
+  void didUpdateWidget(covariant LiquidGlassContainer oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.enableTilt != oldWidget.enableTilt) {
+      if (widget.enableTilt) {
+        TiltService.instance.registerViewer();
+      } else {
+        TiltService.instance.unregisterViewer();
+      }
+    }
+  }
+
+  @override
+  void dispose() {
+    if (widget.enableTilt) {
+      TiltService.instance.unregisterViewer();
+    }
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
-
-    Widget content = Container(
-      width: width,
-      height: height,
-      padding: padding,
-      decoration: BoxDecoration(
-        color: tintOverride ?? colorScheme.surfaceContainerHigh.withValues(alpha: surfaceAlpha),
-        borderRadius: BorderRadius.circular(borderRadius),
-        boxShadow: boxShadow,
-        border: Border.all(
-          width: 1.0,
-          color: borderColor ?? Colors.transparent, // Border painter handles diagonal specular gradient if not overridden
-        ),
-      ),
-      child: child,
-    );
-
     final is3dMirror = SettingsService.instance.liquidGlass3dMirror;
 
-    // Apply diagonal specular rim lighting gradient and optional 3D mirror sheen
-    content = CustomPaint(
-      foregroundPainter: _SpecularRimPainter(
-        borderRadius: borderRadius,
-        primaryTint: colorScheme.primary,
-        is3dMirror: is3dMirror,
-      ),
-      child: content,
-    );
+    Widget buildGlassBody({double tiltX = 0.0, double tiltY = 0.0}) {
+      Widget content = Container(
+        width: widget.width,
+        height: widget.height,
+        padding: widget.padding,
+        decoration: BoxDecoration(
+          color: widget.tintOverride ??
+              colorScheme.surfaceContainerHigh.withValues(alpha: widget.surfaceAlpha),
+          borderRadius: BorderRadius.circular(widget.borderRadius),
+          boxShadow: widget.boxShadow,
+          border: Border.all(
+            width: 1.0,
+            color: widget.borderColor ?? Colors.transparent,
+          ),
+        ),
+        child: widget.child,
+      );
 
-    // Clip to rounded border with clean, high-performance translucent tonal surface tint
-    content = ClipRRect(
-      borderRadius: BorderRadius.circular(borderRadius),
-      child: content,
-    );
-
-    if (onTap != null) {
-      content = GestureDetector(
-        onTap: onTap,
-        behavior: HitTestBehavior.opaque,
+      // Apply diagonal specular rim lighting gradient and optional 3D mirror sheen
+      content = CustomPaint(
+        foregroundPainter: _SpecularRimPainter(
+          borderRadius: widget.borderRadius,
+          primaryTint: colorScheme.primary,
+          is3dMirror: is3dMirror,
+          tiltX: tiltX,
+          tiltY: tiltY,
+        ),
         child: content,
       );
-    }
 
-    if (margin != EdgeInsets.zero) {
-      content = Padding(
-        padding: margin,
+      // Clip to rounded border with clean, high-performance translucent tonal surface tint
+      content = ClipRRect(
+        borderRadius: BorderRadius.circular(widget.borderRadius),
         child: content,
       );
+
+      if (widget.onTap != null) {
+        content = GestureDetector(
+          onTap: widget.onTap,
+          behavior: HitTestBehavior.opaque,
+          child: content,
+        );
+      }
+
+      if (widget.margin != EdgeInsets.zero) {
+        content = Padding(
+          padding: widget.margin,
+          child: content,
+        );
+      }
+
+      return content;
     }
 
-    return content;
+    if (!widget.enableTilt || !is3dMirror) {
+      return buildGlassBody();
+    }
+
+    // 3D Parallax Tilt Active:
+    // Listens to accelerometer on Android (auto-suspended when out of view) or cursor on Desktop
+    return ListenableBuilder(
+      listenable: TiltService.instance,
+      builder: (ctx, _) {
+        final tiltX = TiltService.instance.tiltX;
+        final tiltY = TiltService.instance.tiltY;
+
+        Widget tilted = Transform(
+          transform: Matrix4.identity()
+            ..setEntry(3, 2, 0.0012) // Perspective depth
+            ..rotateX(-tiltY * 0.12)  // Tilt on X axis from Y pitch
+            ..rotateY(tiltX * 0.12),  // Tilt on Y axis from X roll
+          alignment: Alignment.center,
+          child: buildGlassBody(tiltX: tiltX, tiltY: tiltY),
+        );
+
+        // Desktop mouse tracking
+        return MouseRegion(
+          onHover: (event) {
+            final box = ctx.findRenderObject() as RenderBox?;
+            if (box != null && box.hasSize) {
+              TiltService.instance.updatePointer(event.localPosition, box.size);
+            }
+          },
+          onExit: (_) => TiltService.instance.resetPointer(),
+          child: tilted,
+        );
+      },
+    );
   }
 }
 
@@ -99,11 +175,15 @@ class _SpecularRimPainter extends CustomPainter {
   final double borderRadius;
   final Color primaryTint;
   final bool is3dMirror;
+  final double tiltX;
+  final double tiltY;
 
   _SpecularRimPainter({
     required this.borderRadius,
     required this.primaryTint,
     this.is3dMirror = true,
+    this.tiltX = 0.0,
+    this.tiltY = 0.0,
   });
 
   @override
@@ -113,18 +193,21 @@ class _SpecularRimPainter extends CustomPainter {
 
     // Optional 3D Mirror Sheen & Depth Bevel
     if (is3dMirror) {
-      // 1. Diagonal mirror reflection sheen across upper face
+      // 1. Diagonal mirror reflection sheen across upper face (shifts with tilt)
+      final sheenStart = Alignment(-1.0 + (tiltX * 0.4), -1.0 + (tiltY * 0.4));
+      final sheenEnd = Alignment(1.0 + (tiltX * 0.4), 1.0 + (tiltY * 0.4));
+
       final sheenPaint = Paint()
         ..style = PaintingStyle.fill
         ..shader = LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
+          begin: sheenStart,
+          end: sheenEnd,
           colors: [
-            Colors.white.withValues(alpha: 0.12),
-            Colors.white.withValues(alpha: 0.03),
+            Colors.white.withValues(alpha: 0.14),
+            Colors.white.withValues(alpha: 0.04),
             Colors.transparent,
           ],
-          stops: const [0.0, 0.30, 0.65],
+          stops: const [0.0, 0.32, 0.70],
         ).createShader(rect);
       canvas.drawRRect(rrect, sheenPaint);
 
@@ -164,8 +247,8 @@ class _SpecularRimPainter extends CustomPainter {
       ..style = PaintingStyle.stroke
       ..strokeWidth = 1.0
       ..shader = LinearGradient(
-        begin: Alignment.topLeft,
-        end: Alignment.bottomRight,
+        begin: Alignment(-1.0 + (tiltX * 0.2), -1.0 + (tiltY * 0.2)),
+        end: Alignment(1.0 + (tiltX * 0.2), 1.0 + (tiltY * 0.2)),
         colors: [
           Colors.white.withValues(alpha: is3dMirror ? 0.24 : 0.14),
           primaryTint.withValues(alpha: is3dMirror ? 0.12 : 0.06),
@@ -181,7 +264,9 @@ class _SpecularRimPainter extends CustomPainter {
   bool shouldRepaint(covariant _SpecularRimPainter oldDelegate) {
     return oldDelegate.borderRadius != borderRadius ||
         oldDelegate.primaryTint != primaryTint ||
-        oldDelegate.is3dMirror != is3dMirror;
+        oldDelegate.is3dMirror != is3dMirror ||
+        oldDelegate.tiltX != tiltX ||
+        oldDelegate.tiltY != tiltY;
   }
 }
 

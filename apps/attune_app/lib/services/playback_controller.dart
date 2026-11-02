@@ -182,7 +182,15 @@ class PlaybackController extends ChangeNotifier {
         _rawScannedTracks.clear();
         _rawScannedTracks.addAll(cached);
         applyLibraryFilters();
-        if (_queue.isNotEmpty) {
+        // Check if native engine is already actively playing in this process
+        final nativeState = _bridge.playerGetState();
+        final isNativePlaying = nativeState?['is_playing'] as bool? ?? false;
+        final deckAPos = (nativeState?['deck_a'] as Map<String, dynamic>?)?['position_ms'] as num? ?? 0;
+        if (isNativePlaying) {
+          _isPlaying = true;
+          _positionSec = deckAPos / 1000.0;
+          debugPrint('[PlaybackController] Native engine is actively playing; adopted live state without clearing Deck A.');
+        } else if (_queue.isNotEmpty) {
           _loadCurrentTrackToEngine();
         }
         debugPrint('[PlaybackController] Initialized with ${cached.length} cached tracks.');
@@ -766,7 +774,7 @@ class PlaybackController extends ChangeNotifier {
     }
   }
 
-  void skipNext({bool autoPlay = false}) {
+  void skipNext({bool autoPlay = true}) {
     if (_queue.isEmpty) return;
     final wasPlaying = _isPlaying || autoPlay;
     _recordRecentTrack(currentTrack?.id);
@@ -1205,10 +1213,11 @@ class PlaybackController extends ChangeNotifier {
     notifyListeners();
   }
 
-  void skipPrevious() {
+  void skipPrevious({bool autoPlay = true}) {
     if (_positionSec > 3.0) {
       seek(0.0);
     } else if (_currentQueueIndex > 0) {
+      final wasPlaying = _isPlaying || autoPlay;
       _recordRecentTrack(currentTrack?.id);
       _currentQueueIndex--;
       _upNextQueueIndex = _pickNextQueueIndex();
@@ -1216,8 +1225,9 @@ class PlaybackController extends ChangeNotifier {
       _isTransitioning = false;
       _transitionProgress = 0.0;
       _pendingRecipe = null;
+      _isPlaying = wasPlaying;
       _loadCurrentTrackToEngine(force: true);
-      if (_isPlaying && SettingsService.instance.decoderMode != AudioDecoderMode.systemDefault) {
+      if (wasPlaying && SettingsService.instance.decoderMode != AudioDecoderMode.systemDefault) {
         _bridge.playerPlay();
       }
     }
@@ -1239,6 +1249,7 @@ class PlaybackController extends ChangeNotifier {
     _isTransitioning = false;
     _transitionProgress = 0.0;
     _pendingRecipe = null;
+    _isPlaying = true;
     _loadCurrentTrackToEngine(force: true);
     play();
   }

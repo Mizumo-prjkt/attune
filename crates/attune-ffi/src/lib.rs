@@ -510,10 +510,10 @@ pub extern "C" fn attune_player_load_track(deck_id: i32, path_ptr: *const c_char
 
         let path = path_str.to_string();
 
-        // Synchronously reset target deck under lock so polling state immediately sees
-        // position 0 and stopped state while the background worker decodes the audio.
-        if let Some(mixer) = get_session_mixer() {
+        // Capture whether mixer was playing prior to track load
+        let was_playing = if let Some(mixer) = get_session_mixer() {
             if let Ok(mut m) = mixer.lock() {
+                let playing = m.should_be_playing || m.is_playing();
                 if deck_id == 1 {
                     m.deck_b.clear();
                 } else {
@@ -521,8 +521,13 @@ pub extern "C" fn attune_player_load_track(deck_id: i32, path_ptr: *const c_char
                     m.deck_a.clear();
                     m.active_deck = DeckId::DeckA;
                 }
+                playing
+            } else {
+                false
             }
-        }
+        } else {
+            false
+        };
 
         // Spawn background worker thread for audio decoding to avoid freezing UI isolate
         std::thread::spawn(move || {
@@ -540,8 +545,12 @@ pub extern "C" fn attune_player_load_track(deck_id: i32, path_ptr: *const c_char
                                 m.deck_b.load_audio(buffer);
                                 log::info!("Loaded audio into Deck B: duration = {} ms", m.deck_b.duration_ms());
                             } else {
-                                m.deck_a.load_audio(buffer);
+                                m.load_track_a(buffer);
                                 log::info!("Loaded audio into Deck A: duration = {} ms", m.deck_a.duration_ms());
+                                if was_playing || m.should_be_playing {
+                                    m.play();
+                                    log::info!("Auto-started Deck A playback following background decode");
+                                }
                             }
                         }
                     }

@@ -5,6 +5,7 @@ import '../services/audio_storage_service.dart';
 import '../services/playback_controller.dart';
 import '../services/platform_navigation.dart';
 import '../services/settings_service.dart';
+import '../services/tilt_service.dart';
 import '../stages/albums_stage.dart';
 import '../stages/equalizer_stage.dart';
 import '../stages/for_you_stage.dart';
@@ -64,19 +65,24 @@ class _ResponsiveGlassScaffoldState extends State<ResponsiveGlassScaffold>
     } else {
       _isSetupDone = AudioStorageService.instance.isSetupCompleted();
     }
+    TiltService.instance.setStageInView(_isSetupDone);
   }
 
   @override
   void dispose() {
+    TiltService.instance.setStageInView(false);
     _nowPlayingController.dispose();
     super.dispose();
   }
 
   void _openNowPlaying() {
+    TiltService.instance.setStageInView(false);
     _nowPlayingController.forward();
   }
 
   void _closeNowPlaying() {
+    final isHomeOrForYou = _activeNavIndex <= 1;
+    TiltService.instance.setStageInView(isHomeOrForYou);
     _nowPlayingController.reverse();
   }
 
@@ -235,6 +241,7 @@ class _ResponsiveGlassScaffoldState extends State<ResponsiveGlassScaffold>
         setState(() {
           _activeNavIndex = index;
         });
+        TiltService.instance.setStageInView(index <= 1);
       },
       behavior: HitTestBehavior.opaque,
       child: AnimatedContainer(
@@ -517,6 +524,7 @@ class _ResponsiveGlassScaffoldState extends State<ResponsiveGlassScaffold>
         setState(() {
           _activeNavIndex = index;
         });
+        TiltService.instance.setStageInView(index <= 1);
       },
       behavior: HitTestBehavior.opaque,
       child: Tooltip(

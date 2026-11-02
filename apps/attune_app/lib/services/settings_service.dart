@@ -43,6 +43,20 @@ enum AudioFocusLevel {
 }
 
 /// Dynamic Home Section configuration model for non-hardcoded customization
+enum ForYouDesignMode {
+  m3Expressive,
+  betaCards;
+
+  String get label {
+    switch (this) {
+      case ForYouDesignMode.m3Expressive:
+        return 'M3 Expressive';
+      case ForYouDesignMode.betaCards:
+        return 'Beta Cards';
+    }
+  }
+}
+
 class HomeSectionConfig {
   final String id;
   final String titleKey;
@@ -167,6 +181,7 @@ class SettingsService extends ChangeNotifier {
 
   // Home Layout Customization
   List<HomeSectionConfig> _homeSections = [];
+  ForYouDesignMode _forYouDesignMode = ForYouDesignMode.m3Expressive;
 
   static List<HomeSectionConfig> get defaultHomeSections => [
     HomeSectionConfig(
@@ -252,12 +267,20 @@ class SettingsService extends ChangeNotifier {
   bool get restartRequiredForGlass => _pendingLiquidGlass3dMirror != _liquidGlass3dMirror;
 
   List<HomeSectionConfig> get homeSections => List.unmodifiable(_homeSections);
+  ForYouDesignMode get forYouDesignMode => _forYouDesignMode;
 
   Set<String> get allowedDirectories => Set.unmodifiable(_allowedDirectories);
   Set<String> get excludedSongIds => Set.unmodifiable(_excludedSongIds);
   int get minSongDurationSec => _minSongDurationSec;
 
   // Setters & Modifiers
+  void setForYouDesignMode(ForYouDesignMode mode) {
+    if (_forYouDesignMode == mode) return;
+    _forYouDesignMode = mode;
+    notifyListeners();
+    _saveToDisk();
+  }
+
   void setProfileName(String name) {
     if (_profileName == name.trim()) return;
     _profileName = name.trim();
@@ -501,6 +524,11 @@ class SettingsService extends ChangeNotifier {
           _liquidGlass3dMirror = map['liquid_glass_3d_mirror'] as bool? ?? _liquidGlass3dMirror;
           _pendingLiquidGlass3dMirror = _liquidGlass3dMirror;
 
+          final forYouIdx = map['for_you_design_mode'] as int?;
+          if (forYouIdx != null && forYouIdx >= 0 && forYouIdx < ForYouDesignMode.values.length) {
+            _forYouDesignMode = ForYouDesignMode.values[forYouIdx];
+          }
+
           if (map['home_sections'] is List) {
             final savedList = (map['home_sections'] as List).whereType<Map<String, dynamic>>().toList();
             final loaded = <HomeSectionConfig>[];
@@ -552,6 +580,7 @@ class SettingsService extends ChangeNotifier {
         'glass_surface_alpha': _glassSurfaceAlpha,
         'glow_blob_follows_rhythm': _glowBlobFollowsRhythm,
         'liquid_glass_3d_mirror': _pendingLiquidGlass3dMirror,
+        'for_you_design_mode': _forYouDesignMode.index,
         'home_sections': _homeSections.map((s) => s.toJson()).toList(),
         'allowed_directories': _allowedDirectories.toList(),
         'excluded_song_ids': _excludedSongIds.toList(),

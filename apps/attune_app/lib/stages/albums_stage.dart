@@ -10,8 +10,13 @@ import '../theme/typography.dart';
 /// artist names, and interactive album track inspection.
 class AlbumsStage extends StatefulWidget {
   final VoidCallback? onOpenNowPlaying;
+  final String? initialSelectedAlbum;
 
-  const AlbumsStage({super.key, this.onOpenNowPlaying});
+  const AlbumsStage({
+    super.key,
+    this.onOpenNowPlaying,
+    this.initialSelectedAlbum,
+  });
 
   @override
   State<AlbumsStage> createState() => _AlbumsStageState();
@@ -19,6 +24,12 @@ class AlbumsStage extends StatefulWidget {
 
 class _AlbumsStageState extends State<AlbumsStage> {
   String? _selectedAlbum;
+
+  @override
+  void initState() {
+    super.initState();
+    _selectedAlbum = widget.initialSelectedAlbum;
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -222,7 +233,13 @@ class _AlbumsStageState extends State<AlbumsStage> {
         Row(
           children: [
             GestureDetector(
-              onTap: () => setState(() => _selectedAlbum = null),
+              onTap: () {
+                if (widget.initialSelectedAlbum != null && Navigator.canPop(context)) {
+                  Navigator.of(context).pop();
+                } else {
+                  setState(() => _selectedAlbum = null);
+                }
+              },
               child: LiquidGlassContainer(
                 padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
                 borderRadius: 16,
