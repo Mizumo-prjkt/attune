@@ -75,15 +75,17 @@ class AttuneTypography {
       soraMetric(color: color, fontSize: fontSize, weight: weight);
 
   // Plus Jakarta Sans (Body, Subtitles, Lyrics, Queue, Search)
-  static TextStyle jakartaBody({Color? color, double? fontSize, FontWeight? fontWeight}) => GoogleFonts.plusJakartaSans(
+  static TextStyle jakartaBody({Color? color, double? fontSize, FontWeight? fontWeight, double? height}) => GoogleFonts.plusJakartaSans(
         fontSize: fontSize ?? 14,
         fontWeight: fontWeight ?? FontWeight.w400,
+        height: height,
         color: color,
       );
 
-  static TextStyle jakartaBodyLarge({Color? color, double? fontSize, FontWeight? fontWeight}) => GoogleFonts.plusJakartaSans(
+  static TextStyle jakartaBodyLarge({Color? color, double? fontSize, FontWeight? fontWeight, double? height}) => GoogleFonts.plusJakartaSans(
         fontSize: fontSize ?? 16,
         fontWeight: fontWeight ?? FontWeight.w400,
+        height: height,
         color: color,
       );
 

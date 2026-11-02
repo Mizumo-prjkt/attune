@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:attune_app/models/track_item.dart';
+import 'package:attune_app/models/for_you_mix.dart';
 import 'package:attune_app/services/playback_controller.dart';
 import 'package:attune_app/stages/albums_stage.dart';
+import 'package:attune_app/stages/autogen_mix_stage.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -98,6 +100,86 @@ void main() {
       final controller = PlaybackController.instance;
       final repeatTracks = controller.getRepeatHookTracks(limit: 5);
       expect(repeatTracks, isA<List<TrackItem>>());
+    });
+
+    test('PlaybackController addToQueue and addTracksToQueue appends properly', () {
+      final controller = PlaybackController.instance;
+      const track1 = TrackItem(
+        id: 'queue_track_1',
+        title: 'Queue 1',
+        artist: 'Artist 1',
+        album: 'Album 1',
+        filePath: '/tmp/q1.mp3',
+        duration: Duration(minutes: 2),
+        bpm: 120.0,
+        musicalKey: '8B',
+      );
+      const track2 = TrackItem(
+        id: 'queue_track_2',
+        title: 'Queue 2',
+        artist: 'Artist 2',
+        album: 'Album 2',
+        filePath: '/tmp/q2.mp3',
+        duration: Duration(minutes: 3),
+        bpm: 124.0,
+        musicalKey: '9B',
+      );
+
+      controller.addToQueue(track1);
+      expect(controller.queue.any((t) => t.id == 'queue_track_1'), isTrue);
+
+      controller.addTracksToQueue([track2]);
+      expect(controller.queue.any((t) => t.id == 'queue_track_2'), isTrue);
+    });
+
+    testWidgets('AutogenMixStage renders hero vector cover, rationale, and tracklist', (WidgetTester tester) async {
+      tester.view.physicalSize = const Size(1080, 2400);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(() {
+        tester.view.resetPhysicalSize();
+        tester.view.resetDevicePixelRatio();
+      });
+
+      const sampleTrack = TrackItem(
+        id: 'autogen_mix_sample_track',
+        title: 'Rabbit Hole',
+        artist: 'DECO*27',
+        album: 'Love Words',
+        filePath: '/tmp/rabbit.flac',
+        duration: Duration(minutes: 3, seconds: 5),
+        bpm: 140.0,
+        musicalKey: 'G Minor',
+        genre: 'Vocaloid',
+      );
+
+      const testMix = ForYouMix(
+        id: 'test_mix_autogen',
+        title: 'Vocaloid Drive Mix',
+        subtitle: 'High energy synthpop & rock',
+        vibeCategory: 'High Energy',
+        tracks: [sampleTrack],
+        artStyle: ForYouArtStyle.geometricPulse,
+        badge: 'CURATED',
+        primaryColor: Color(0xFF00E5FF),
+        secondaryColor: Color(0xFF7C4DFF),
+      );
+
+      await tester.pumpWidget(
+        const MaterialApp(
+          home: Scaffold(
+            body: AutogenMixStage(mix: testMix),
+          ),
+        ),
+      );
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 200));
+
+      expect(find.text('Vocaloid Drive Mix'), findsNWidgets(2));
+      expect(find.text('High energy synthpop & rock'), findsOneWidget);
+      expect(find.text('Play Mix'), findsOneWidget);
+      expect(find.text('WHY THIS PLAYLIST WAS CHOSEN'), findsOneWidget);
+      expect(find.textContaining('MIX TRACKLIST'), findsOneWidget);
+      expect(find.text('Rabbit Hole'), findsOneWidget);
     });
   });
 }

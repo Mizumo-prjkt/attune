@@ -255,6 +255,7 @@ class PlaybackController extends ChangeNotifier {
     String? title,
     String? artist,
     String? album,
+    String? filePath,
     double? bpm,
     String? musicalKey,
     String? genre,
@@ -265,6 +266,7 @@ class PlaybackController extends ChangeNotifier {
         title: title,
         artist: artist,
         album: album,
+        filePath: filePath,
         bpm: bpm,
         musicalKey: musicalKey,
         genre: genre,
@@ -277,6 +279,7 @@ class PlaybackController extends ChangeNotifier {
         title: title,
         artist: artist,
         album: album,
+        filePath: filePath,
         bpm: bpm,
         musicalKey: musicalKey,
         genre: genre,
@@ -289,6 +292,7 @@ class PlaybackController extends ChangeNotifier {
         title: title,
         artist: artist,
         album: album,
+        filePath: filePath,
         bpm: bpm,
         musicalKey: musicalKey,
         genre: genre,
@@ -1345,6 +1349,31 @@ class PlaybackController extends ChangeNotifier {
     _isPlaying = true;
     _loadCurrentTrackToEngine(force: true);
     play();
+  }
+
+  /// Appends a single track to the active playback queue
+  void addToQueue(TrackItem track) {
+    _queue.add(track);
+    if (_queue.length == 1) {
+      _currentQueueIndex = 0;
+      _upNextQueueIndex = 0;
+      _loadCurrentTrackToEngine(force: true);
+    } else if (_upNextQueueIndex == _currentQueueIndex) {
+      _upNextQueueIndex = _pickNextQueueIndex();
+    }
+    notifyListeners();
+  }
+
+  /// Appends multiple tracks to the active playback queue
+  void addTracksToQueue(List<TrackItem> tracks) {
+    if (tracks.isEmpty) return;
+    _queue.addAll(tracks);
+    if (_queue.length == tracks.length) {
+      _currentQueueIndex = 0;
+      _upNextQueueIndex = _pickNextQueueIndex();
+      _loadCurrentTrackToEngine(force: true);
+    }
+    notifyListeners();
   }
 
   Future<void> triggerTransitionNow() async {

@@ -741,6 +741,29 @@ class _BubbleNavigationStageState extends State<BubbleNavigationStage>
                   ),
                 ),
 
+                // 3.5 Bottom Gradient Scrim to ensure the floating card pops out with high contrast
+                Positioned(
+                  bottom: 0,
+                  left: 0,
+                  right: 0,
+                  height: 190,
+                  child: IgnorePointer(
+                    child: Container(
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          begin: Alignment.topCenter,
+                          end: Alignment.bottomCenter,
+                          colors: [
+                            Colors.transparent,
+                            Colors.black.withValues(alpha: 0.60),
+                            Colors.black.withValues(alpha: 0.92),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+
                 // 4. Bottom Floating Liquid Glass Highlight Card
                 if (highlightedItem != null)
                   Positioned(
@@ -751,9 +774,25 @@ class _BubbleNavigationStageState extends State<BubbleNavigationStage>
                       child: ConstrainedBox(
                         constraints: const BoxConstraints(maxWidth: 580),
                         child: LiquidGlassContainer(
-                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
                           borderRadius: 24,
-                          surfaceAlpha: 0.22,
+                          surfaceAlpha: 0.95,
+                          tintOverride: const Color(0xF4121722),
+                          borderColor: colorScheme.primary.withValues(alpha: 0.40),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withValues(alpha: 0.85),
+                              blurRadius: 32,
+                              spreadRadius: 4,
+                              offset: const Offset(0, 8),
+                            ),
+                            BoxShadow(
+                              color: colorScheme.primary.withValues(alpha: 0.20),
+                              blurRadius: 18,
+                              spreadRadius: 1,
+                              offset: const Offset(0, 2),
+                            ),
+                          ],
                           child: Row(
                             children: [
                               // Highlighted Thumbnail Bubble

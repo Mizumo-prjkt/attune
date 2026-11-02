@@ -17,12 +17,14 @@ class M3ExpressiveMixCollage extends StatelessWidget {
   final ForYouMix mix;
   final VoidCallback? onPlay;
   final VoidCallback? onOpenNowPlaying;
+  final VoidCallback? onOpenMixAlbum;
 
   const M3ExpressiveMixCollage({
     super.key,
     required this.mix,
     this.onPlay,
     this.onOpenNowPlaying,
+    this.onOpenMixAlbum,
   });
 
   void _navigateToAlbum(BuildContext context, TrackItem track) {
@@ -169,31 +171,48 @@ class M3ExpressiveMixCollage extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.center,
             children: [
               Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      mix.title,
-                      style: AttuneTypography.soraDisplayLarge(
-                        fontSize: 34,
-                        fontWeight: FontWeight.w800,
-                        color: colorScheme.onSurface,
+                child: GestureDetector(
+                  onTap: onOpenMixAlbum,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Flexible(
+                            child: Text(
+                              mix.title,
+                              style: AttuneTypography.soraDisplayLarge(
+                                fontSize: 34,
+                                fontWeight: FontWeight.w800,
+                                color: colorScheme.onSurface,
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                          if (onOpenMixAlbum != null) ...[
+                            const SizedBox(width: 8),
+                            Icon(
+                              Icons.arrow_forward_ios_rounded,
+                              size: 16,
+                              color: colorScheme.primary.withValues(alpha: 0.8),
+                            ),
+                          ],
+                        ],
                       ),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      subtitleText,
-                      style: AttuneTypography.jakartaBody(
-                        fontSize: 13,
-                        fontWeight: FontWeight.w500,
-                        color: colorScheme.onSurface.withValues(alpha: 0.65),
+                      const SizedBox(height: 4),
+                      Text(
+                        subtitleText,
+                        style: AttuneTypography.jakartaBody(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w500,
+                          color: colorScheme.onSurface.withValues(alpha: 0.65),
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
                       ),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
               ),
               const SizedBox(width: 14),
@@ -313,24 +332,64 @@ class M3ExpressiveMixCollage extends StatelessWidget {
 
           const SizedBox(height: 12),
 
-          // 3. Collage Navigation Hint
+          // 3. Collage Navigation Hint & Dedicated Mix Album Launcher
           Center(
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
+            child: Wrap(
+              alignment: WrapAlignment.center,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              spacing: 12,
+              runSpacing: 6,
               children: [
-                Icon(
-                  Icons.touch_app_rounded,
-                  size: 14,
-                  color: colorScheme.onSurface.withValues(alpha: 0.4),
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      Icons.touch_app_rounded,
+                      size: 14,
+                      color: colorScheme.onSurface.withValues(alpha: 0.4),
+                    ),
+                    const SizedBox(width: 6),
+                    Text(
+                      'Tap any artwork to open its album page',
+                      style: AttuneTypography.jakartaBodySmall(
+                        fontSize: 11,
+                        color: colorScheme.onSurface.withValues(alpha: 0.45),
+                      ),
+                    ),
+                  ],
                 ),
-                const SizedBox(width: 6),
-                Text(
-                  'Tap any artwork to open its album page',
-                  style: AttuneTypography.jakartaBodySmall(
-                    fontSize: 11,
-                    color: colorScheme.onSurface.withValues(alpha: 0.45),
+                if (onOpenMixAlbum != null)
+                  GestureDetector(
+                    onTap: onOpenMixAlbum,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
+                      decoration: BoxDecoration(
+                        color: colorScheme.primary.withValues(alpha: 0.15),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(
+                          color: colorScheme.primary.withValues(alpha: 0.35),
+                          width: 0.8,
+                        ),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.album_rounded, size: 12, color: colorScheme.primary),
+                          const SizedBox(width: 5),
+                          Text(
+                            'Open Mix Album Page',
+                            style: AttuneTypography.soraBadge(
+                              fontSize: 10,
+                              color: colorScheme.primary,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                          const SizedBox(width: 2),
+                          Icon(Icons.arrow_forward_rounded, size: 12, color: colorScheme.primary),
+                        ],
+                      ),
+                    ),
                   ),
-                ),
               ],
             ),
           ),
