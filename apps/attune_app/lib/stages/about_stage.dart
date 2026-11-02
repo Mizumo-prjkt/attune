@@ -200,6 +200,9 @@ class _AboutStageState extends State<AboutStage> {
                       _buildSectionTitle('GITHUB RELEASES & UPDATES', colorScheme),
                       _buildUpdateCard(colorScheme, fullVersionString, appVersion, localVersion),
 
+                      const SizedBox(height: 16),
+                      _buildObtainiumCard(colorScheme),
+
                       const SizedBox(height: 24),
 
                       // SECTION 1: CREDITS & ARCHITECTURE
@@ -791,6 +794,160 @@ class _AboutStageState extends State<AboutStage> {
               ),
             ],
           ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildObtainiumCard(ColorScheme colorScheme) {
+    return LiquidGlassContainer(
+      borderRadius: 22,
+      surfaceAlpha: 0.14,
+      padding: const EdgeInsets.all(18.0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: colorScheme.primary.withValues(alpha: 0.2),
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(
+                  Icons.install_mobile_rounded,
+                  color: colorScheme.primary,
+                  size: 20,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Obtainium (Android App Updates)',
+                      style: AttuneTypography.soraSubheading(
+                        fontSize: 14,
+                        color: colorScheme.onSurface,
+                      ),
+                    ),
+                    Text(
+                      'Automated release tracking directly via GitHub',
+                      style: AttuneTypography.jakartaBody(
+                        fontSize: 12,
+                        color: colorScheme.onSurface.withValues(alpha: 0.6),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          const Divider(height: 1, color: Colors.white10),
+          const SizedBox(height: 14),
+          Text(
+            'Track, install, and automatically receive new Attune updates directly from GitHub Releases using Obtainium on Android devices.',
+            style: AttuneTypography.jakartaBody(
+              fontSize: 12,
+              color: colorScheme.onSurface.withValues(alpha: 0.75),
+            ),
+          ),
+          const SizedBox(height: 16),
+          // Clickable Badge Banner
+          Material(
+            color: Colors.transparent,
+            child: InkWell(
+              borderRadius: BorderRadius.circular(14),
+              onTap: () => UpdateService.openReleaseUrl(ObtainiumConfig.redirectUrl),
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(14),
+                  color: Colors.white.withValues(alpha: 0.05),
+                  border: Border.all(color: colorScheme.primary.withValues(alpha: 0.25)),
+                ),
+                child: Row(
+                  children: [
+                    Image.asset(
+                      ObtainiumConfig.badgeAssetPath,
+                      height: 38,
+                      fit: BoxFit.contain,
+                    ),
+                    const SizedBox(width: 14),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Get it on Obtainium',
+                            style: AttuneTypography.soraTitleSmall(
+                              fontSize: 13,
+                              color: colorScheme.onSurface,
+                            ),
+                          ),
+                          Text(
+                            'One-tap app configuration & install',
+                            style: AttuneTypography.jakartaBody(
+                              fontSize: 11,
+                              color: colorScheme.primary.withValues(alpha: 0.8),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    Icon(Icons.open_in_new_rounded, size: 18, color: colorScheme.primary),
+                  ],
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(height: 14),
+          // Actions: Add to Obtainium + Copy Deep Link
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              FilledButton.icon(
+                style: FilledButton.styleFrom(
+                  backgroundColor: colorScheme.primary,
+                  foregroundColor: colorScheme.onPrimary,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                ),
+                icon: const Icon(Icons.download_rounded, size: 16),
+                label: Text(
+                  'Add to Obtainium',
+                  style: AttuneTypography.soraTitleSmall(fontSize: 12, color: colorScheme.onPrimary),
+                ),
+                onPressed: () => UpdateService.openReleaseUrl(ObtainiumConfig.redirectUrl),
+              ),
+              OutlinedButton.icon(
+                style: OutlinedButton.styleFrom(
+                  side: BorderSide(color: colorScheme.primary.withValues(alpha: 0.5)),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                ),
+                icon: const Icon(Icons.copy_rounded, size: 16),
+                label: Text(
+                  'Copy Link',
+                  style: AttuneTypography.soraTitleSmall(fontSize: 12, color: colorScheme.primary),
+                ),
+                onPressed: () {
+                  Clipboard.setData(const ClipboardData(text: ObtainiumConfig.redirectUrl));
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('Obtainium redirect URL copied to clipboard'),
+                      behavior: SnackBarBehavior.floating,
+                      duration: Duration(seconds: 2),
+                    ),
+                  );
+                },
+              ),
+            ],
+          ),
         ],
       ),
     );

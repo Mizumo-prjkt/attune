@@ -125,6 +125,30 @@ attune/
 
 ---
 
+## Installation & Downloads
+
+Official releases and bleeding-edge builds are published under [GitHub Releases](https://github.com/Mizumo-prjkt/attune/releases).
+
+### Android (via Obtainium)
+
+Install and track automated release updates directly on Android using [Obtainium](https://github.com/ImranR98/Obtainium):
+
+<a href="https://apps.obtainium.imranr.dev/redirect?r=obtainium://app/%7B%22id%22%3A%22org.mizproject.attune%22%2C%22url%22%3A%22https%3A%2F%2Fgithub.com%2FMizumo-prjkt%2Fattune%22%2C%22author%22%3A%22Mizumo-prjkt%22%2C%22name%22%3A%22Attune%22%2C%22additionalSettings%22%3A%22%7B%5C%22about%5C%22%3A%5C%22Open-source%20DJ-grade%20audio-profile-driven%20transition%20and%20remixing%20music%20player.%5C%22%7D%22%7D">
+  <img src="third-party-images/badge_obtainium.png" alt="Get it on Obtainium" height="55" />
+</a>
+
+*Direct link:* [`obtainium://app/...`](https://apps.obtainium.imranr.dev/redirect?r=obtainium://app/%7B%22id%22%3A%22org.mizproject.attune%22%2C%22url%22%3A%22https%3A%2F%2Fgithub.com%2FMizumo-prjkt%2Fattune%22%2C%22author%22%3A%22Mizumo-prjkt%22%2C%22name%22%3A%22Attune%22%2C%22additionalSettings%22%3A%22%7B%5C%22about%5C%22%3A%5C%22Open-source%20DJ-grade%20audio-profile-driven%20transition%20and%20remixing%20music%20player.%5C%22%7D%22%7D)
+
+### Standalone Packages
+
+| Platform | Format | Release Channel |
+| :--- | :--- | :--- |
+| **Linux** | AppImage (`.AppImage`), Tarball (`.tar.gz`) | [GitHub Releases](https://github.com/Mizumo-prjkt/attune/releases) |
+| **Windows** | Inno Setup Installer (`.exe`), Portable (`.zip`) | [GitHub Releases](https://github.com/Mizumo-prjkt/attune/releases) |
+| **Android** | Universal APK (`.apk`) | [GitHub Releases](https://github.com/Mizumo-prjkt/attune/releases) & [Obtainium](https://apps.obtainium.imranr.dev/redirect?r=obtainium://app/%7B%22id%22%3A%22org.mizproject.attune%22%2C%22url%22%3A%22https%3A%2F%2Fgithub.com%2FMizumo-prjkt%2Fattune%22%2C%22author%22%3A%22Mizumo-prjkt%22%2C%22name%22%3A%22Attune%22%2C%22additionalSettings%22%3A%22%7B%5C%22about%5C%22%3A%5C%22Open-source%20DJ-grade%20audio-profile-driven%20transition%20and%20remixing%20music%20player.%5C%22%7D%22%7D) |
+
+---
+
 ## Building from Source
 
 ### Prerequisites

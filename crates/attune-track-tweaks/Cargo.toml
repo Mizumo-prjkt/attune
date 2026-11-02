@@ -1,0 +1,22 @@
+[package]
+name = "attune-track-tweaks"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Sound track tweaks, metadata editing without touching audio, normalization, slicing, silence trimming, and speed adjustment for Attune"
+
+[lib]
+name = "attune_track_tweaks"
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+hound = { workspace = true }
+symphonia = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+log = { workspace = true }
+
+[dev-dependencies]
+env_logger = { workspace = true }

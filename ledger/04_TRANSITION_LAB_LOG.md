@@ -799,6 +799,35 @@ These four benchmark scenarios define the "Gold Standard" transitions that Attun
   - `cargo test --workspace`: All 36 native Rust tests pass cleanly.
 - **Listening & Stability Verdict**: `PASS`. High UI polish, fluid organic shape-shifting transitions, zero repeated shape monotony, and clean queue management.
 
+---
+
+### Experiment #026: Dedicated Album & Group Editor (`AlbumEditorStage`), Smart Shuffle Verdict Queue Modal Integration, Native Audio Manipulation Crate (`attune-track-tweaks`), and Obtainium Distribution Badging
+- **Date**: 2026-11-03
+- **Hypothesis**: Replacing cramped translucent dialogs with a high-contrast full-screen `AlbumEditorStage` will eliminate text bleedthrough while allowing full album group membership editing (adding and removing songs); gating the queue's `TransitionConnectorPill` strictly to Smart Shuffle and linking it to the dual-tab verdict modal will allow direct candidate inspection and promotion from the queue; implementing `attune-track-tweaks` will provide a modular native C-ABI crate for non-destructive audio tweaking; and integrating Obtainium deep linking will enable seamless Android open-source distribution.
+- **Empirical Findings & Mathematical Implementation**:
+  1. **Album Modification Overhaul**:
+     - `AlbumEditorStage` provides an opaque dark gradient container (`#0D111A` -> `#090C12`) with full contrast.
+     - Inputs for Title, Artist, Year, Genre, Splash Art (with quick thumbnail carousel), and Lore (with factual auto-synthesizer computing duration, track count, genre, and key signature distributions).
+     - Full group management: adds songs from library with "+ Add Songs" modal; removes songs from group via instant unlinking (`Icons.remove_circle_outline_rounded`); changes persist to `PlaybackController` and `album_descriptions.json`.
+  2. **Queue Area Connector Pill & Verdict Popup**:
+     - `TransitionConnectorPill` is guarded by `if (isSmartShuffle && current != null)`. It is completely hidden when shuffle is off or in standard random shuffle.
+     - Tapping the pill triggers `showTransitionDetailsDialog(context, controller, colorScheme)`, displaying the exact same winning match rationale and runner-up candidate list with 1-tap promotion capability as Now Playing.
+  3. **Native Track Tweaks Crate (`crates/attune-track-tweaks`)**:
+     - Non-destructive metadata editing: updates container tags (FLAC Vorbis comments, MP3 ID3v2.4 tags, WAV RIFF INFO chunks) while streaming raw audio frames without re-encoding.
+     - Peak normalization: scales sample buffers to exact target dBFS with zero-division safety.
+     - Dynamic silence detection/trimming: 20ms RMS scanning forward and backward.
+     - Cue-point region slicing and Catmull-Rom cubic Hermite fractional playhead resampling.
+     - Exported C-ABI FFI layer in `src/ffi.rs` wrapped in `catch_unwind`.
+  4. **Obtainium Distribution**:
+     - Deep link payload: `obtainium://app/%7B%22id%22%3A%22org.mizproject.attune%22...%7D`.
+     - Validated against `https://apps.obtainium.imranr.dev/redirect` returning HTTP 200.
+     - Added official badge image to README and built interactive Obtainium card in `AboutStage`.
+- **Empirical Verification**:
+  - `cargo test --workspace`: All 44 native Rust unit and integration tests pass cleanly (8 in `attune-track-tweaks`).
+  - `flutter analyze apps/attune_app`: 0 issues found.
+  - `flutter test`: All 144 Flutter unit and widget tests pass cleanly across all suites.
+- **Listening & Stability Verdict**: `PASS`. Clean readability, complete group track customization, seamless queue verdict inspection, and rock-solid native audio tweaks.
+
 
 
 

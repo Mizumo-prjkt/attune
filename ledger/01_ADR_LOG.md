@@ -1942,6 +1942,48 @@ This file records all major architectural decisions for **Attune**, including co
   - All 139 Flutter unit/widget tests and all 36 native Rust workspace tests pass cleanly.
   - `flutter analyze apps/attune_app` reports 0 issues.
 
+---
+
+## ADR-058: Dedicated Album & Group Editor (`AlbumEditorStage`), Smart Shuffle Verdict Queue Modal Integration, Native Audio Manipulation Crate (`attune-track-tweaks`), and Obtainium Distribution Badging
+- **Date**: 2026-11-03
+- **Status**: `LOCKED`
+- **Context**:
+  1. **Illegible Album Modification Dialog**:
+     - The previous modal dialog for editing album metadata suffered from translucent glass bleedthrough where underlying hero title and tracklist texts overlapped with inputs, rendering it illegible.
+     - Users also needed the ability to add and remove songs from the album group directly within this interface.
+  2. **Queue Area Smart Shuffle Verdict Integration**:
+     - In `PlaylistQueueStage`, the `TransitionConnectorPill` was previously displayed unconditionally, even when shuffle was turned off or in standard shuffle mode.
+     - Users needed the connector pill to be visible strictly in Smart Shuffle mode, and tapping it needed to trigger the dual-tab Smart Shuffle verdict & candidate alternatives dialog (identical to Now Playing) so runner-ups could be promoted directly from the queue view.
+  3. **Native Track Tweaks Crate Requirement**:
+     - Attune required an independent native library crate (`crates/attune-track-tweaks`) capable of non-destructive audio track tweaking (peak gain normalization, dynamic silence detection/trimming, cue-point region slicing, Catmull-Rom cubic Hermite fractional resampling speed adjustment, and container metadata editing without touching raw audio streams).
+  4. **Obtainium App Distribution & Badging**:
+     - Attune needed official Obtainium deep link integration (`obtainium://app/<json>`), web fallback redirect via `https://apps.obtainium.imranr.dev/redirect`, official badge assets in README.md, and an in-app card in `AboutStage`.
+- **Decision**:
+  1. **Dedicated Full-Screen Album & Group Editor (`AlbumEditorStage`)**:
+     - Built `apps/attune_app/lib/stages/album_editor_stage.dart` with high-contrast, opaque dark gradient container (`#0D111A` -> `#090C12`) with zero bleedthrough.
+     - Features structured cards: Album Metadata (Title, Primary Artist, Release Year, Genre), Splash Art (custom file path with live preview and quick-select horizontal thumbnail carousel from album tracks), and Album Lore (with dynamic factual auto-synthesizer).
+     - Full group tracks management: live list of tracks currently in the album, "+ Add Songs" modal picker from available library tracks, and instant removal unlinking (`Icons.remove_circle_outline_rounded`).
+     - Save action synchronizes metadata and track group assignments in `PlaybackController` and `album_descriptions.json`.
+     - Extracted `AlbumCustomMetadata` to `apps/attune_app/lib/models/album_custom_metadata.dart`.
+  2. **Queue Area Connector Pill Gating & Verdict Modal**:
+     - Updated `playlist_queue_stage.dart`: `TransitionConnectorPill` is strictly guarded by `if (isSmartShuffle && current != null)`. It is completely hidden when shuffle is off or in standard random shuffle.
+     - Extracted `showTransitionDetailsDialog` into `apps/attune_app/lib/widgets/transition_details_dialog.dart`.
+     - Set `onTap` on the queue's `TransitionConnectorPill` to open `showTransitionDetailsDialog`, allowing users to inspect the winning candidate match, harmonic/tempo/energy factors, and promote runner-up tracks directly from the queue.
+  3. **Native Crate `attune-track-tweaks` (`crates/attune-track-tweaks`)**:
+     - Added `crates/attune-track-tweaks` to workspace `Cargo.toml`.
+     - Configured as `["cdylib", "rlib"]` generating `libattune_track_tweaks.so`/`.dll`.
+     - Implemented peak normalization, 20ms RMS silence detection/trimming, cue-point region slicing, Catmull-Rom cubic Hermite fractional speed adjustment, and non-destructive track metadata read/write via Symphonia and Hound.
+     - Built C-ABI FFI layer in `src/ffi.rs` wrapped in `catch_unwind` with standard error codes.
+  4. **Obtainium Integration**:
+     - Encoded JSON payload for `org.mizproject.attune` under `https://github.com/Mizumo-prjkt/attune`.
+     - Copied `third-party-images/badge_obtainium.png` to `apps/attune_app/assets/images/badge_obtainium.png` and registered in `pubspec.yaml`.
+     - Added Obtainium badge and direct links to `README.md`.
+     - Created `ObtainiumConfig` in `update_service.dart` and integrated Obtainium card with "Add to Obtainium" and "Copy Link" actions into `AboutStage`.
+- **Consequences**:
+  - Full adherence to Mandate 4 (zero hardcoding) and Knowledge Ledger protocol.
+  - All 144 Flutter unit/widget tests and all 44 native Rust workspace tests pass cleanly.
+  - `flutter analyze apps/attune_app` reports 0 issues.
+
 
 
 

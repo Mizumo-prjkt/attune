@@ -42,6 +42,17 @@ class TrackItem {
     this.tapProfile,
   });
 
+  /// Formatted duration string as `M:SS` (or `H:MM:SS` if 1 hour or longer).
+  String get formattedDuration {
+    final hours = duration.inHours;
+    final minutes = duration.inMinutes % 60;
+    final seconds = (duration.inSeconds % 60).toString().padLeft(2, '0');
+    if (hours > 0) {
+      return '$hours:${minutes.toString().padLeft(2, '0')}:$seconds';
+    }
+    return '${duration.inMinutes}:$seconds';
+  }
+
   TrackItem copyWith({
     String? id,
     String? title,

@@ -6,7 +6,7 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   testWidgets('AboutStage renders hero, credits, AI disclosure, donation and license sections', (WidgetTester tester) async {
-    await tester.binding.setSurfaceSize(const Size(1080, 1920));
+    await tester.binding.setSurfaceSize(const Size(1080, 3600));
 
     await tester.pumpWidget(
       const MaterialApp(

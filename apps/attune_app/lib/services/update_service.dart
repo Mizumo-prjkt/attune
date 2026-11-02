@@ -435,3 +435,58 @@ class _ParsedVersion implements Comparable<_ParsedVersion> {
     return tokens;
   }
 }
+
+/// Obtainium configuration and deep link generator for automated Android updates.
+class ObtainiumConfig {
+  static const String appId = 'org.mizproject.attune';
+  static const String appUrl = 'https://github.com/Mizumo-prjkt/attune';
+  static const String appAuthor = 'Mizumo-prjkt';
+  static const String appName = 'Attune';
+  static const String appAbout =
+      'Open-source DJ-grade audio-profile-driven transition and remixing music player.';
+
+  static const String badgeAssetPath = 'assets/images/badge_obtainium.png';
+
+  static const String redirectUrl =
+      'https://apps.obtainium.imranr.dev/redirect?r=obtainium://app/%7B%22id%22%3A%22org.mizproject.attune%22%2C%22url%22%3A%22https%3A%2F%2Fgithub.com%2FMizumo-prjkt%2Fattune%22%2C%22author%22%3A%22Mizumo-prjkt%22%2C%22name%22%3A%22Attune%22%2C%22additionalSettings%22%3A%22%7B%5C%22about%5C%22%3A%5C%22Open-source%20DJ-grade%20audio-profile-driven%20transition%20and%20remixing%20music%20player.%5C%22%7D%22%7D';
+
+  static const String deepLinkUrl =
+      'obtainium://app/%7B%22id%22%3A%22org.mizproject.attune%22%2C%22url%22%3A%22https%3A%2F%2Fgithub.com%2FMizumo-prjkt%2Fattune%22%2C%22author%22%3A%22Mizumo-prjkt%22%2C%22name%22%3A%22Attune%22%2C%22additionalSettings%22%3A%22%7B%5C%22about%5C%22%3A%5C%22Open-source%20DJ-grade%20audio-profile-driven%20transition%20and%20remixing%20music%20player.%5C%22%7D%22%7D';
+
+  /// Dynamically builds the Obtainium deep link scheme (`obtainium://app/...`).
+  static String buildDeepLink({
+    String id = appId,
+    String url = appUrl,
+    String author = appAuthor,
+    String name = appName,
+    String about = appAbout,
+  }) {
+    final payload = {
+      'id': id,
+      'url': url,
+      'author': author,
+      'name': name,
+      'additionalSettings': json.encode({'about': about}),
+    };
+    return 'obtainium://app/${Uri.encodeComponent(json.encode(payload))}';
+  }
+
+  /// Dynamically builds the Obtainium web redirect URL (`https://apps.obtainium.imranr.dev/redirect?r=...`).
+  static String buildRedirectUrl({
+    String id = appId,
+    String url = appUrl,
+    String author = appAuthor,
+    String name = appName,
+    String about = appAbout,
+  }) {
+    final deepLink = buildDeepLink(
+      id: id,
+      url: url,
+      author: author,
+      name: name,
+      about: about,
+    );
+    return 'https://apps.obtainium.imranr.dev/redirect?r=$deepLink';
+  }
+}
+

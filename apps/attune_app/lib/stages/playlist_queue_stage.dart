@@ -4,6 +4,7 @@ import '../services/playback_controller.dart';
 import '../theme/liquid_glass.dart';
 import '../theme/typography.dart';
 import '../widgets/transition_connector_pill.dart';
+import '../widgets/transition_details_dialog.dart';
 import 'queue_add_tracks_stage.dart';
 
 /// PlaylistQueueStage implementing Stage 2 of 05_UI_DESIGN_SPEC.md:
@@ -102,10 +103,10 @@ class _PlaylistQueueStageState extends State<PlaylistQueueStage> {
                 ),
               ),
 
-            if (current != null) const SizedBox(height: 12),
+            if (isSmartShuffle && current != null) const SizedBox(height: 12),
 
-            // 2. Subtle Inline Transition Connector Pill (Section 3.2)
-            if (current != null)
+            // 2. Subtle Inline Transition Connector Pill (Section 3.2) - Shown exclusively when Smart Shuffle is active
+            if (isSmartShuffle && current != null)
               Center(
                 child: TransitionConnectorPill(
                   archetype: controller.activeArchetype,
@@ -113,10 +114,11 @@ class _PlaylistQueueStageState extends State<PlaylistQueueStage> {
                       ? controller.lastTransitionDurationSec!
                       : 1.4,
                   confidenceScore: 0.94,
+                  onTap: () => showTransitionDetailsDialog(context, controller, colorScheme),
                 ),
               ),
 
-            if (current != null) const SizedBox(height: 16),
+            if (isSmartShuffle && current != null) const SizedBox(height: 16),
 
             // 3. Category Filter Chips
             SingleChildScrollView(
