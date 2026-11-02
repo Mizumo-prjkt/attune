@@ -70,6 +70,20 @@
             android:hardwareAccelerated="true"
             android:windowSoftInputMode="adjustResize" />
 
+        <!-- Receiver for Android Status Bar & Lockscreen Notification Controls -->
+        <receiver
+            android:name=".NotificationActionReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="org.mizproject.attune.ACTION_PLAY" />
+                <action android:name="org.mizproject.attune.ACTION_PAUSE" />
+                <action android:name="org.mizproject.attune.ACTION_TOGGLE" />
+                <action android:name="org.mizproject.attune.ACTION_NEXT" />
+                <action android:name="org.mizproject.attune.ACTION_PREV" />
+                <action android:name="org.mizproject.attune.ACTION_SWITCH_CODEC" />
+            </intent-filter>
+        </receiver>
+
         <!-- Don't delete the meta-data below.
              This is used by the Flutter tool to generate GeneratedPluginRegistrant.java -->
         <meta-data

@@ -3,6 +3,8 @@ package org.mizproject.attune
 import android.content.Context
 import android.media.AudioAttributes
 import android.media.MediaPlayer
+import android.net.Uri
+import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
@@ -10,7 +12,6 @@ import io.flutter.plugin.common.BinaryMessenger
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
 import java.io.File
-import java.io.FileInputStream
 
 /**
  * SystemAudioEngine manages hardware-accelerated playback via Android's native MediaCodec / MediaPlayer.
@@ -50,8 +51,10 @@ class SystemAudioEngine private constructor(
                     result.error("INVALID_PATH", "Path is null or empty", null)
                     return
                 }
-                val success = loadTrack(path)
-                result.success(success)
+                val startPosMs = call.argument<Number>("positionMs")?.toLong() ?: 0L
+                val autoPlay = call.argument<Boolean>("autoPlay") ?: false
+                val loadResult = loadTrack(path, startPosMs, autoPlay)
+                result.success(loadResult)
             }
             "play" -> {
                 val success = play()
@@ -90,7 +93,7 @@ class SystemAudioEngine private constructor(
         }
     }
 
-    private fun loadTrack(path: String): Boolean {
+    private fun loadTrack(path: String, startPositionMs: Long = 0L, autoPlay: Boolean = false): Map<String, Any?> {
         try {
             release()
             currentPath = path
@@ -103,13 +106,16 @@ class SystemAudioEngine private constructor(
                         .build()
                 )
 
-                val file = File(path)
-                if (file.exists() && file.canRead()) {
-                    val fis = FileInputStream(file)
-                    setDataSource(fis.fd)
-                    fis.close()
+                val uri = Uri.parse(path)
+                if (uri.scheme == "content") {
+                    setDataSource(context, uri)
                 } else {
-                    setDataSource(path)
+                    val file = File(path)
+                    if (file.exists() && file.canRead()) {
+                        setDataSource(file.absolutePath)
+                    } else {
+                        setDataSource(path)
+                    }
                 }
 
                 setOnCompletionListener {
@@ -128,14 +134,42 @@ class SystemAudioEngine private constructor(
                 }
 
                 prepare()
+
+                if (startPositionMs > 0) {
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                        seekTo(startPositionMs, MediaPlayer.SEEK_CLOSEST)
+                    } else {
+                        seekTo(startPositionMs.toInt())
+                    }
+                }
+
+                if (autoPlay) {
+                    start()
+                }
             }
 
             mediaPlayer = player
-            Log.i(TAG, "Loaded track in SystemAudioEngine: $path (duration: ${player.duration} ms)")
-            return true
+            val dur = player.duration.toLong()
+            val pos = player.currentPosition.toLong()
+            val playing = player.isPlaying
+            Log.i(TAG, "Loaded track in SystemAudioEngine: $path (duration: $dur ms, pos: $pos ms, autoPlay: $autoPlay)")
+
+            return mapOf(
+                "success" to true,
+                "durationMs" to dur,
+                "positionMs" to pos,
+                "isPlaying" to playing
+            )
         } catch (e: Exception) {
             Log.e(TAG, "Failed to load track in SystemAudioEngine: $path", e)
-            return false
+            release()
+            return mapOf(
+                "success" to false,
+                "durationMs" to 0L,
+                "positionMs" to 0L,
+                "isPlaying" to false,
+                "error" to (e.message ?: "Unknown error")
+            )
         }
     }
 
@@ -172,7 +206,11 @@ class SystemAudioEngine private constructor(
     private fun seek(positionMs: Long): Boolean {
         return try {
             mediaPlayer?.let {
-                it.seekTo(positionMs.toInt())
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    it.seekTo(positionMs, MediaPlayer.SEEK_CLOSEST)
+                } else {
+                    it.seekTo(positionMs.toInt())
+                }
                 true
             } ?: false
         } catch (e: Exception) {

@@ -42,6 +42,7 @@ class MainActivity : FlutterActivity() {
 
         PermissionManager.setup(this, flutterEngine.dartExecutor.binaryMessenger)
         SystemAudioEngine.setup(this, flutterEngine.dartExecutor.binaryMessenger)
+        MediaNotificationManager.setup(this, flutterEngine.dartExecutor.binaryMessenger)
 
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, NAVIGATION_CHANNEL).setMethodCallHandler { call, result ->
             when (call.method) {

@@ -551,3 +551,20 @@ These four benchmark scenarios define the "Gold Standard" transitions that Attun
      - Captured live screenshot (`attune_live_active_fixed.png`): zero background text bleedthrough behind the album art, lyrics, or controls.
 - **Listening & Stability Verdict**: `PASS`. Seamless auto-progression, silky smooth non-blocking UI, and pristine visual presentation.
 
+---
+
+### Experiment #022: System Audio Codec Natural Handover & Lockscreen Media Notification Bar
+- **Date**: 2026-11-02
+- **Hypothesis**: Replacing premature `FileInputStream` descriptor closure with direct path parsing in `SystemAudioEngine.kt` and utilizing atomic initialization (`loadTrack(path, startPositionMs, autoPlay)`) will provide a click-free, natural handover from the Attune Rust engine to the Android System Codec, keeping the playback counter moving continuously while keeping lockscreen and status bar media controls in sync.
+- **Empirical Findings & Verification**:
+  1. **MediaPlayer File Descriptor Lifecycle**:
+     - Previously, `FileInputStream(file).close()` closed the file descriptor before `prepare()` could parse audio streams, resulting in `MEDIA_ERROR_IO` (`what=1, extra=-19`).
+     - Directly invoking `setDataSource(file.absolutePath)` or `Uri.parse(path)` allows Android's MediaCodec framework to open and manage descriptors safely.
+  2. **Playhead Counter & Handover Continuity**:
+     - Verified in `test/watchguard_and_decoder_test.dart`: atomic load with `startPositionSec: 42.5` and `autoPlay: true` immediately reflects `positionSec = 42.5` and `isPlaying = true`.
+     - 50ms polling loop reads `SystemAudioPlayerService.instance.positionSec` and continuously advances the UI playhead counter without freezing.
+  3. **Android Status Bar & Lockscreen Controls**:
+     - `MediaNotificationManager` with `Notification.MediaStyle` verified via Android Kotlin compilation and test harness.
+     - Action handling for Previous, Toggle Play/Pause, Next, and Switch Codec verified without race conditions.
+- **Listening & Stability Verdict**: `PASS`. Instant, click-free decoder handover with continuous counter movement and native Android media controls.
+

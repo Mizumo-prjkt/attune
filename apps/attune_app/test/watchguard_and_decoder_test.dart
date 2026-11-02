@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:attune_app/services/notification_service.dart';
 import 'package:attune_app/services/playback_controller.dart';
 import 'package:attune_app/services/settings_service.dart';
 import 'package:attune_app/services/system_audio_player_service.dart';
@@ -94,6 +95,47 @@ void main() {
       expect(stopped, true);
       expect(service.isPlaying, false);
       expect(service.positionSec, 0.0);
+    });
+
+    test('Atomic load with startPositionSec and autoPlay initializes position and playback', () async {
+      final service = SystemAudioPlayerService.instance;
+      final ok = await service.load(
+        '/mock/test/track_b.mp3',
+        startPositionSec: 42.5,
+        autoPlay: true,
+      );
+      expect(ok, true);
+      expect(service.currentPath, '/mock/test/track_b.mp3');
+      expect(service.positionSec, 42.5);
+      expect(service.isPlaying, true);
+
+      await service.stop();
+      expect(service.isPlaying, false);
+    });
+  });
+
+  group('AttuneNotificationService Tests', () {
+    test('showPlaybackNotification and hidePlaybackNotification execute safely without errors', () async {
+      final service = AttuneNotificationService.instance;
+      await service.showPlaybackNotification(
+        title: 'Song A',
+        artist: 'Artist A',
+        isPlaying: true,
+        albumArtPath: '/tmp/art.png',
+      );
+
+      await service.hidePlaybackNotification();
+    });
+
+    test('showOverloadAlert and dismissOverloadAlert execute safely without errors', () async {
+      final service = AttuneNotificationService.instance;
+      await service.showOverloadAlert(
+        title: 'Overload Warning',
+        message: 'Buffer underruns',
+        score: 1.0,
+      );
+
+      await service.dismissOverloadAlert();
     });
   });
 

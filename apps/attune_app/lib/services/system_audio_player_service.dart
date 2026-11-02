@@ -52,21 +52,51 @@ class SystemAudioPlayerService {
     }
   }
 
-  Future<bool> load(String path) async {
+  Future<bool> load(
+    String path, {
+    double startPositionSec = 0.0,
+    bool autoPlay = false,
+  }) async {
     _currentPath = path;
-    _positionSec = 0.0;
+    _positionSec = startPositionSec;
+    _isPlaying = autoPlay;
     try {
       if (Platform.isAndroid) {
-        final success = await _channel.invokeMethod<bool>('load', {'path': path});
-        if (success == true) {
-          final durMs = await _channel.invokeMethod<int>('getDuration') ?? 0;
+        final res = await _channel.invokeMethod<dynamic>('load', {
+          'path': path,
+          'positionMs': (startPositionSec * 1000).round(),
+          'autoPlay': autoPlay,
+        });
+
+        if (res is Map) {
+          final success = res['success'] == true;
+          if (success) {
+            final durMs = (res['durationMs'] as num?)?.toDouble() ?? 0.0;
+            final posMs = (res['positionMs'] as num?)?.toDouble() ?? 0.0;
+            _durationSec = durMs > 0 ? durMs / 1000.0 : 0.0;
+            _positionSec = posMs > 0 ? posMs / 1000.0 : startPositionSec;
+            _isPlaying = res['isPlaying'] == true || autoPlay;
+            if (_isPlaying) {
+              _startPolling();
+            }
+            return true;
+          }
+          return false;
+        } else if (res == true) {
+          final durMs = (await _channel.invokeMethod<num>('getDuration'))?.toDouble() ?? 0.0;
           _durationSec = durMs > 0 ? durMs / 1000.0 : 0.0;
+          if (autoPlay) {
+            _startPolling();
+          }
           return true;
         }
         return false;
       } else {
         // Fallback for non-Android / hermetic tests
         _durationSec = 180.0;
+        if (autoPlay) {
+          _startPolling();
+        }
         return true;
       }
     } catch (e) {
@@ -143,7 +173,7 @@ class SystemAudioPlayerService {
       if (!_isPlaying) return;
       try {
         if (Platform.isAndroid) {
-          final posMs = await _channel.invokeMethod<int>('getPosition');
+          final posMs = (await _channel.invokeMethod<num>('getPosition'))?.toDouble();
           if (posMs != null && posMs >= 0) {
             _positionSec = posMs / 1000.0;
           }

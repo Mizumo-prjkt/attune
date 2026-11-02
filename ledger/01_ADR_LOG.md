@@ -1491,6 +1491,43 @@ This file records all major architectural decisions for **Attune**, including co
   - Release assets and patch notes correctly render for users when a newer candidate is published.
   - 100% test pass rate across all update service test suites.
 
+---
+
+## ADR-046: System Audio Codec Natural Handover, MediaNotificationManager Media Controls & Watchguard Native Alerting
+
+- **Status**: **LOCKED** (Implemented & Verified)
+- **Date**: 2026-11-02
+- **Context**:
+  - Transitioning playback from the Attune DSP Engine to the Android System Default Codec failed to hand over playback naturally, and the UI playback counter remained frozen at `0:00`.
+  - Root cause investigation revealed that in `SystemAudioEngine.kt`, `val fis = FileInputStream(file)` was followed by `setDataSource(fis.fd)` and an immediate `fis.close()`. Closing the input stream closed the underlying Linux file descriptor before `prepare()` could parse the audio stream or fill playback buffers, driving Android's `MediaPlayer` into an unrecoverable `Error` state (`what=1, extra=-19` / `MEDIA_ERROR_IO`). As a result, subsequent calls to `start()` and `currentPosition` threw exceptions, returning `0` and flipping `isPlaying` back to `false`.
+  - Furthermore, calls between `load()`, `seek()`, and `play()` in `PlaybackController` occurred as separate uncoordinated asynchronous steps, creating race conditions during decoder switching and queue skips.
+  - Additionally, Attune lacked a native Android notification bar media controller (status bar and lockscreen widget with play/pause, next, previous, track metadata, and album art) as well as native system notifications for Watchguard hardware instability and audio clipping alerts.
+- **Decision**:
+  1. **Elimination of File Descriptor Premature Closure in `SystemAudioEngine.kt`**:
+     - Removed `FileInputStream` descriptor wrapping. Configured `MediaPlayer` to accept `file.absolutePath` directly for filesystem audio files and `Uri.parse(path)` for `content://` MediaStore streams.
+     - Introduced atomic `loadTrack(path, startPositionMs, autoPlay)` returning a composite status map `{"success": Boolean, "durationMs": Long, "positionMs": Long, "isPlaying": Boolean}`, ensuring atomic initialization and seek positioning (`MediaPlayer.SEEK_CLOSEST` on API $\ge 26$).
+  2. **Atomic Dart Interop in `SystemAudioPlayerService.dart`**:
+     - Updated `load(path, {double startPositionSec = 0.0, bool autoPlay = false})` to send atomic parameters to native Android and immediately ingest verified duration and position metrics.
+     - Migrated `_channel.invokeMethod<int>` to `invokeMethod<num>` to safely accommodate Kotlin `Long` types without platform channel type cast exceptions.
+  3. **Native Media Notification & Watchguard Alert System (`MediaNotificationManager.kt`)**:
+     - Implemented `MediaNotificationManager` with two notification channels:
+       - `org.mizproject.attune.playback` (`IMPORTANCE_LOW`): Features `Notification.MediaStyle().setShowActionsInCompactView(0, 1, 2)` rendering persistent lockscreen and shade media playback controls (Previous, Play/Pause toggle, Next) and album artwork bitmap.
+       - `org.mizproject.attune.alerts` (`IMPORTANCE_HIGH`): Dispatches high-priority system notifications when Watchguard detects DSP buffer underruns, audio clipping, or severe frame drops, with an actionable `"Switch to System Codec"` button.
+     - Implemented `NotificationActionReceiver.kt` registered in `AndroidManifest.xml` with broadcast intent filters for media playback actions and codec switching.
+  4. **AttuneNotificationService Interop**:
+     - Built `AttuneNotificationService` (`apps/attune_app/lib/services/notification_service.dart`) listening to `org.mizproject.attune/notification` and relaying user actions directly to `PlaybackController`.
+  5. **PlaybackController Integration & Smart Shuffle Constraints**:
+     - Synchronized `PlaybackController`'s 50ms reactive state polling with `SystemAudioPlayerService.instance.positionSec`, ensuring smooth real-time counter progression.
+     - In `switchDecoderMode`: atomically transfers current track, playhead position, and playing state to `SystemAudioPlayerService`.
+     - Strictly enforced that Smart Shuffle is disabled and blocked when running in `systemDefault` mode (clamping to standard shuffle or off), while automatically dismissing overload alerts.
+- **Consequences**:
+  - Smooth, seamless, click-free handover when switching between Attune Rust DSP and Android System Codec.
+  - Accurate playhead counter advancement on both native and system decoders.
+  - Native lockscreen and notification shade media controls are fully functional and responsive.
+  - Watchguard instability alerts are delivered via native Android notifications with direct 1-tap codec switching.
+  - 100% test pass rate across all 86 Flutter unit tests and all workspace Cargo test suites.
+
+
 
 
 

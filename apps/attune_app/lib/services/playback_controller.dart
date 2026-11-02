@@ -6,6 +6,7 @@ import '../models/track_item.dart';
 import '../models/smart_shuffle_verdict.dart';
 import 'audio_storage_service.dart';
 import 'engine_bridge.dart';
+import 'notification_service.dart';
 import 'permission_service.dart';
 import 'settings_service.dart';
 import 'system_audio_player_service.dart';
@@ -123,6 +124,7 @@ class PlaybackController extends ChangeNotifier {
 
   void dismissOverloadAlert() {
     _overloadAlertDismissed = true;
+    AttuneNotificationService.instance.dismissOverloadAlert();
     notifyListeners();
   }
 
@@ -130,12 +132,20 @@ class PlaybackController extends ChangeNotifier {
 
   PlaybackController._init() {
     _initEngine();
+    AttuneNotificationService.instance.init();
     SystemAudioPlayerService.instance.onTrackEnded = (path) {
       if (SettingsService.instance.decoderMode == AudioDecoderMode.systemDefault) {
         skipNext(autoPlay: true);
       }
     };
     WatchguardService.instance.addListener(() {
+      if (isSystemOverloaded) {
+        AttuneNotificationService.instance.showOverloadAlert(
+          title: 'System Overloaded: Audio Clipping',
+          message: 'Audio buffer underruns detected. Tap to switch to System Codec.',
+          score: WatchguardService.instance.instabilityScore,
+        );
+      }
       notifyListeners();
     });
     if (!Platform.environment.containsKey('FLUTTER_TEST')) {
@@ -239,14 +249,13 @@ class PlaybackController extends ChangeNotifier {
       _transitionProgress = 0.0;
       _pendingRecipe = null;
       if (track != null) {
-        await SystemAudioPlayerService.instance.load(track.filePath);
-        if (currentPos > 0) {
-          await SystemAudioPlayerService.instance.seek(Duration(milliseconds: (currentPos * 1000).toInt()));
-        }
-        if (wasPlaying) {
-          await SystemAudioPlayerService.instance.play();
-        }
+        await SystemAudioPlayerService.instance.load(
+          track.filePath,
+          startPositionSec: currentPos,
+          autoPlay: wasPlaying,
+        );
       }
+      AttuneNotificationService.instance.dismissOverloadAlert();
     } else {
       await SystemAudioPlayerService.instance.stop();
       _bridge.playerStart();
@@ -261,6 +270,7 @@ class PlaybackController extends ChangeNotifier {
         }
       }
     }
+    _updatePlaybackNotification();
     notifyListeners();
   }
 
@@ -482,7 +492,11 @@ class PlaybackController extends ChangeNotifier {
         if (SystemAudioPlayerService.instance.durationSec > 0) {
           _durationSec = SystemAudioPlayerService.instance.durationSec;
         }
-        _isPlaying = SystemAudioPlayerService.instance.isPlaying;
+        final sysPlaying = SystemAudioPlayerService.instance.isPlaying;
+        if (_isPlaying != sysPlaying) {
+          _isPlaying = sysPlaying;
+          _updatePlaybackNotification();
+        }
         _isTransitioning = false;
         notifyListeners();
         return;
@@ -505,6 +519,13 @@ class PlaybackController extends ChangeNotifier {
             isUnderrun: isUnderrun,
             isClipping: isClipping,
           );
+          if (isSystemOverloaded) {
+            AttuneNotificationService.instance.showOverloadAlert(
+              title: 'System Overloaded: Audio Clipping',
+              message: 'Audio buffer underruns detected. Tap to switch to System Codec.',
+              score: WatchguardService.instance.instabilityScore,
+            );
+          }
         }
 
         final nativeIsPlaying = state['is_playing'] as bool? ?? false;
@@ -578,7 +599,10 @@ class PlaybackController extends ChangeNotifier {
             }
           }
         }
-        _isPlaying = nativeIsPlaying;
+        if (_isPlaying != nativeIsPlaying) {
+          _isPlaying = nativeIsPlaying;
+          _updatePlaybackNotification();
+        }
         notifyListeners();
       } else if (_isPlaying) {
         // Fallback/Simulated progression when audio hardware is not attached
@@ -617,6 +641,8 @@ class PlaybackController extends ChangeNotifier {
     }
   }
 
+  void togglePlayPause() => togglePlay();
+
   void play() {
     if (_queue.isEmpty) return;
     if (_positionSec >= _durationSec - 0.5) {
@@ -628,6 +654,7 @@ class PlaybackController extends ChangeNotifier {
     } else {
       _bridge.playerPlay();
     }
+    _updatePlaybackNotification();
     notifyListeners();
   }
 
@@ -638,6 +665,7 @@ class PlaybackController extends ChangeNotifier {
     } else {
       _bridge.playerPause();
     }
+    _updatePlaybackNotification();
     notifyListeners();
   }
 
@@ -679,15 +707,12 @@ class PlaybackController extends ChangeNotifier {
     _transitionProgress = 0.0;
     _isTransitioning = false;
     _pendingRecipe = null;
+    _isPlaying = wasPlaying;
     _loadCurrentTrackToEngine(force: true);
-    if (wasPlaying) {
-      _isPlaying = true;
-      if (SettingsService.instance.decoderMode == AudioDecoderMode.systemDefault) {
-        SystemAudioPlayerService.instance.play();
-      } else {
-        _bridge.playerPlay();
-      }
+    if (wasPlaying && SettingsService.instance.decoderMode != AudioDecoderMode.systemDefault) {
+      _bridge.playerPlay();
     }
+    _updatePlaybackNotification();
     notifyListeners();
   }
 
@@ -1121,14 +1146,11 @@ class PlaybackController extends ChangeNotifier {
       _transitionProgress = 0.0;
       _pendingRecipe = null;
       _loadCurrentTrackToEngine(force: true);
-      if (_isPlaying) {
-        if (SettingsService.instance.decoderMode == AudioDecoderMode.systemDefault) {
-          SystemAudioPlayerService.instance.play();
-        } else {
-          _bridge.playerPlay();
-        }
+      if (_isPlaying && SettingsService.instance.decoderMode != AudioDecoderMode.systemDefault) {
+        _bridge.playerPlay();
       }
     }
+    _updatePlaybackNotification();
     notifyListeners();
   }
 
@@ -1293,6 +1315,7 @@ class PlaybackController extends ChangeNotifier {
       _bridge.playerLoadTrack(1, next.filePath);
     }
     _preparePendingRecipe();
+    _updatePlaybackNotification();
     notifyListeners();
   }
 
@@ -1304,7 +1327,12 @@ class PlaybackController extends ChangeNotifier {
     if (SettingsService.instance.decoderMode == AudioDecoderMode.systemDefault) {
       _positionSec = 0.0;
       _loadedDeckAPath = track.filePath;
-      SystemAudioPlayerService.instance.load(track.filePath);
+      SystemAudioPlayerService.instance.load(
+        track.filePath,
+        startPositionSec: 0.0,
+        autoPlay: _isPlaying,
+      );
+      _updatePlaybackNotification();
       return;
     }
 
@@ -1318,6 +1346,21 @@ class PlaybackController extends ChangeNotifier {
       _bridge.playerLoadTrack(1, next.filePath);
     }
     _preparePendingRecipe();
+    _updatePlaybackNotification();
+  }
+
+  void _updatePlaybackNotification() {
+    final track = currentTrack;
+    if (track == null) {
+      AttuneNotificationService.instance.hidePlaybackNotification();
+      return;
+    }
+    AttuneNotificationService.instance.showPlaybackNotification(
+      title: track.title,
+      artist: track.artist,
+      isPlaying: _isPlaying,
+      albumArtPath: track.artworkFile,
+    );
   }
 
   Future<void> _preparePendingRecipe() async {

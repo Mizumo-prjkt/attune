@@ -102,6 +102,7 @@ class WatchguardService extends ChangeNotifier {
   WatchguardStabilityStatus get currentStatus => _currentStatus;
 
   bool get isOverloaded => _currentStatus.isOverloaded;
+  double get instabilityScore => _currentStatus.instabilityScore;
   double get averageFps => _currentStatus.averageFps;
   String? get warningMessage => _currentStatus.warningMessage;
   bool get recommendSystemCodec => _currentStatus.recommendSystemCodec;
