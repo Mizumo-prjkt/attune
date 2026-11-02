@@ -1,6 +1,5 @@
 import 'dart:io';
 import 'dart:math' as math;
-import 'dart:ui';
 import 'package:flutter/material.dart';
 import '../services/audio_storage_service.dart';
 import '../services/playback_controller.dart';
@@ -565,8 +564,6 @@ class _ResponsiveGlassScaffoldState extends State<ResponsiveGlassScaffold>
           final midPeak = math.sin(t * math.pi);
 
           // Dynamic liquid glass parameters:
-          // Blur peaks aggressively mid-animation up to 48px, simulating viscous liquid refraction
-          final blurSigma = (4.0 + 44.0 * midPeak).clamp(0.0, 50.0);
           final specularAlpha = 0.40 * midPeak;
           final scale = 0.90 + (0.10 * t);
           final translateY = (1.0 - t) * 60.0;

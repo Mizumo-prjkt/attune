@@ -1570,6 +1570,48 @@ This file records all major architectural decisions for **Attune**, including co
   - Impeller render performance is buttery smooth with zero GPU blur passes or vignette shader overhead.
   - 100% test pass rate across all 87 Flutter tests and all workspace Rust tests.
 
+---
+
+## ADR-048: Multi-Format BPM Parsing, Zero-0.0 UI Fallbacks & Background Idle Profiling Cache Sync
+
+- **Status**: **LOCKED** (Implemented & Verified)
+- **Date**: 2026-11-02
+- **Context**:
+  - The user observed tracks in the Attune UI displaying `0.0 BPM` or `BPM 0.0`.
+  - Root cause investigation identified 5 interconnected bottlenecks across native audio probing and Flutter state management:
+    1. **Symphonia Metadata Location**: Symphonia stores ID3v2 tags prepended to MP3, FLAC, and AAC containers in `probed.metadata` (outside the container) rather than `format.metadata()`. Previously, `AudioDecoder::probe_metadata` and `extract_artwork` only checked `format.metadata()`, causing ID3v2 BPM and artwork to return `None`.
+    2. **Tag Formatting & Encoding Variations**: BPM tags in the wild use multiple formats:
+       - Floating point strings with comma decimals (`128,5`).
+       - Suffixes like `"128 BPM"` or `"128bpm"`.
+       - Null-padded binary strings (`"128.00\0"`).
+       - iTunes / MP4 `tmpo` atoms storing big-endian 16-bit binary integers (`[0x00, 0x80]` = 128).
+       - Traktor / Rekordbox user-defined frames (`TXXX:BPM`, `TXXX:FBPM`).
+       - DJ comment tags containing `"BPM: 130"` or `"Tempo: 140"`.
+       Previously, `tag.value.to_string().parse::<f32>()` failed on all of these, leaving `bpm = None`.
+    3. **Commercial Audio Without Embedded BPM Tags**: Files without embedded BPM tags initialized `TrackItem.bpm = 0.0`.
+    4. **Unconditional UI String Interpolation**: UI stages unconditionally interpolated `'${track.bpm.toStringAsFixed(1)} BPM'`, rendering `"0.0 BPM"`.
+    5. **Asymmetric Cache Sync in PlaybackController**: In `_preparePendingRecipe()`, newly computed JIT profile BPMs were only updated in `_queue` and saved to `library_cache.json` with `_queue` rather than `_libraryTracks`, leaving `_libraryTracks` with `bpm = 0.0` and without persisted TAP profiles.
+- **Decision**:
+  1. **Dual-Source Symphonia Metadata & Artwork Extraction**:
+     - Updated `AudioDecoder::probe_metadata` and `AudioDecoder::extract_artwork` in `crates/attune-core/src/audio.rs` to process metadata revisions from both `probed.metadata.get()` and `format.metadata()`.
+  2. **Robust Multi-Format BPM Parser (`parse_bpm_str` & `parse_bpm_tag`)**:
+     - Implemented `AudioDecoder::parse_bpm_str`: cleans null bytes, whitespace, normalizes commas to dots, trims suffixes, extracts numeric tokens from strings like `"BPM: 130.5"`, and bounds valid BPM between $30.0$ and $350.0$.
+     - Implemented `AudioDecoder::parse_bpm_tag`: recognizes `StandardTagKey::Bpm`, `BPM`, `TBPM`, `TEMPO`, `TMPO`, `©TMP`, `TRACKBPM`, `FBPM`, `TXXX:BPM`, `TXXX:FBPM`, 16-bit big-endian binary integers (iTunes `tmpo`), and comment frames containing tempo information.
+  3. **Zero-0.0 UI Contract in TrackItem & Stage Widgets**:
+     - Added `bool get hasBpm` to `TrackItem`: returns true if `bpm > 0.0` or `tapProfile` nominal BPM is $> 0.0$.
+     - Added `double get effectiveBpm`: resolves `bpm` first, falls back to `tapProfile` nominal BPM, or `0.0`.
+     - Added `String get formattedBpm`: returns `'${effectiveBpm.toStringAsFixed(1)} BPM'` if `hasBpm`, else `'-- BPM'`.
+     - Updated all UI stages (`home_stage.dart`, `playlist_queue_stage.dart`, `albums_stage.dart`, `transition_inspector_stage.dart`, `music_library_stage.dart`, `profile_and_stats_stage.dart`) to use `hasBpm` and `formattedBpm`, ensuring `"0.0 BPM"` is never rendered.
+  4. **Synchronous Library Cache Sync & Paced Background Idle Profiler**:
+     - In `PlaybackController`: updated `_preparePendingRecipe` and `profileTrackAsync` to update both `_queue` and `_libraryTracks`, persisting with `AudioStorageService.instance.saveCachedTracks(_libraryTracks)`.
+     - Added `_startBackgroundLibraryProfiler()`: a low-priority, non-blocking worker that discovers uncached tracks in `_libraryTracks` lacking BPM or TAP profiles and progressively profiles them (at 200ms intervals) without starving audio or UI threads.
+- **Consequences**:
+  - Full compatibility with ID3v2, FLAC/Vorbis, MP4/AAC `tmpo`, and DJ tagging software (Traktor, Rekordbox, foobar2000, Mixed In Key).
+  - Complete elimination of `"0.0 BPM"` across all stages and widgets.
+  - Zero unprofiled tracks over time as the background worker progressively populates TAP profiles and nominal BPMs.
+  - All unit tests pass cleanly: Rust attune-core unit tests (including `test_parse_bpm_str` and `test_parse_bpm_tag`) and Flutter unit tests (including `track_item_bpm_test.dart`).
+
+
 
 
 

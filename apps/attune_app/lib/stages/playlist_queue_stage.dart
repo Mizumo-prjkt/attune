@@ -244,7 +244,7 @@ class _PlaylistQueueStageState extends State<PlaylistQueueStage> {
                             ),
                             const SizedBox(height: 2),
                             Text(
-                              '${item.artist} • ${item.bpm.toStringAsFixed(1)} BPM',
+                              '${item.artist}${item.hasBpm ? " • ${item.formattedBpm}" : " • ${item.format}"}',
                               style: AttuneTypography.jakartaBodySmall(
                                 color: colorScheme.onSurface.withValues(alpha: 0.6),
                               ),

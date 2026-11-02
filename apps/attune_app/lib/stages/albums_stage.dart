@@ -366,7 +366,7 @@ class _AlbumsStageState extends State<AlbumsStage> {
                           ),
                           const SizedBox(height: 2),
                           Text(
-                            '${track.format} • ${track.bpm.toStringAsFixed(1)} BPM',
+                            '${track.format}${track.hasBpm ? " • ${track.formattedBpm}" : ""}',
                             style: AttuneTypography.jakartaBody(
                               fontSize: 11,
                               color: colorScheme.onSurface.withValues(alpha: 0.5),

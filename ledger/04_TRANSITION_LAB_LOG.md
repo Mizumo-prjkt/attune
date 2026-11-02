@@ -592,3 +592,23 @@ These four benchmark scenarios define the "Gold Standard" transitions that Attun
      - 100% test pass rate across all 87 Flutter unit/widget tests and all workspace Cargo test suites.
 - **Listening & Stability Verdict**: `PASS`. Zero clipping false flags on fluid displays, zero Smart Shuffle playback stalls, responsive alert suppression, and silky smooth Impeller UI rendering.
 
+---
+
+### Experiment #024: Multi-Format BPM Extraction, Zero-0.0 UI Fallbacks & Background Idle Profiling Sync
+- **Date**: 2026-11-02
+- **Hypothesis**: Expanding Symphonia metadata probing to inspect both `probed.metadata` (ID3v2 prepended tags) and `format.metadata()`, implementing fuzzy BPM parsing across comma decimals, suffixes, binary `tmpo` atoms, and DJ comment tags, enforcing `hasBpm` / `formattedBpm` UI contracts, and syncing JIT profiles with `library_cache.json` and a low-priority background profiler will eliminate all occurrences of `0.0 BPM` across the entire application without CPU/audio thread contention.
+- **Empirical Findings & Verification**:
+  1. **Dual-Source Symphonia Metadata & Binary Tag Decoding**:
+     - Verified in `AudioDecoder::probe_metadata`: previously missed ID3v2 tags prepended to FLAC, MP3, and AAC containers are now fully extracted via `probed.metadata.get()`.
+     - Tested in `test_parse_bpm_tag`: supports `StandardTagKey::Bpm`, `TBPM`, `tmpo` (16-bit big-endian integer `0x0080` = 128.0), Traktor `TXXX:BPM`, and comments containing `"DJ Info: BPM 135"`.
+  2. **Flexible String Parser (`test_parse_bpm_str`)**:
+     - Cleanly parses `"128"`, `"128.5"`, `"128,5"`, `"128 BPM"`, `"128bpm"`, `"128.00\0"`, `"BPM: 130"`, and `"Tempo: 140.2"`.
+     - Out-of-range values ($< 30.0$ or $> 350.0$), empty strings, and zeroes return `None`.
+  3. **UI Contract & Cache Synchronization**:
+     - `TrackItem.hasBpm`, `effectiveBpm`, and `formattedBpm` verified via unit tests in `test/track_item_bpm_test.dart`.
+     - All stages (`home_stage.dart`, `playlist_queue_stage.dart`, `albums_stage.dart`, `transition_inspector_stage.dart`, `music_library_stage.dart`, `profile_and_stats_stage.dart`) display formatted BPM or graceful sample rate / format fallbacks; `"0.0 BPM"` is completely eliminated.
+     - `_preparePendingRecipe` and `profileTrackAsync` update `_libraryTracks` and persist via `AudioStorageService.saveCachedTracks(_libraryTracks)`.
+     - `_startBackgroundLibraryProfiler` progressively profiles unanalyzed tracks at 200ms intervals when idle.
+- **Listening & Stability Verdict**: `PASS`. Accurate BPMs across all audio formats and DJ tag conventions, zero `"0.0 BPM"` in UI, and smooth background library indexing.
+
+

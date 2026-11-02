@@ -129,5 +129,19 @@ class TrackItem {
       tapProfile: json['tapProfile'] as Map<String, dynamic>?,
     );
   }
+
+  /// Whether the track has a recognized or profiled BPM.
+  bool get hasBpm => bpm > 0.0 || (tapProfile?['global_summary']?['nominal_bpm'] as num? ?? 0.0) > 0.0;
+
+  /// Effective BPM resolving metadata BPM first, then falling back to computed TAP profile nominal BPM.
+  double get effectiveBpm {
+    if (bpm > 0.0) return bpm;
+    final nominal = tapProfile?['global_summary']?['nominal_bpm'] as num?;
+    if (nominal != null && nominal > 0.0) return nominal.toDouble();
+    return 0.0;
+  }
+
+  /// Formatted BPM string (e.g. "128.0 BPM" or "-- BPM" if not yet profiled/probed).
+  String get formattedBpm => hasBpm ? '${effectiveBpm.toStringAsFixed(1)} BPM' : '-- BPM';
 }
 

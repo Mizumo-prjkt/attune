@@ -427,6 +427,8 @@ class PlaybackController extends ChangeNotifier {
         _loadCurrentTrackToEngine();
       }
 
+      _startBackgroundLibraryProfiler();
+
       debugPrint('[PlaybackController] Ingested ${_libraryTracks.length} genuine tracks (${_rawScannedTracks.length} raw) via AudioStorageService.');
     } catch (e) {
       debugPrint('[PlaybackController] Error scanning audio files: $e');
@@ -438,12 +440,40 @@ class PlaybackController extends ChangeNotifier {
         if (_queue.isNotEmpty) {
           _loadCurrentTrackToEngine();
         }
+        _startBackgroundLibraryProfiler();
         debugPrint('[PlaybackController] Fallback loaded ${fallbackTracks.length} tracks from cache.');
       }
     } finally {
       _isScanning = false;
       notifyListeners();
     }
+  }
+
+  bool _isBackgroundProfiling = false;
+
+  /// Low-priority background idle profiler scanning the full library progressively (Mandate 3).
+  void _startBackgroundLibraryProfiler() {
+    if (Platform.environment.containsKey('FLUTTER_TEST')) return;
+    if (_isBackgroundProfiling) return;
+    _isBackgroundProfiling = true;
+
+    Future.microtask(() async {
+      try {
+        final toProfile = _libraryTracks
+            .where((t) => !t.hasBpm || t.tapProfile == null)
+            .toList();
+
+        for (final track in toProfile) {
+          if (!_libraryTracks.any((t) => t.id == track.id)) continue;
+          await Future.delayed(const Duration(milliseconds: 200));
+          await profileTrackAsync(track);
+        }
+      } catch (e) {
+        debugPrint('[PlaybackController] Background library profiler caught: $e');
+      } finally {
+        _isBackgroundProfiling = false;
+      }
+    });
   }
 
   Future<void> profileTrackAsync(TrackItem track) async {
@@ -454,8 +484,16 @@ class PlaybackController extends ChangeNotifier {
         final summary = tap['global_summary'] as Map<String, dynamic>?;
         final trackIdObj = tap['track_id'] as Map<String, dynamic>?;
 
-        final nominalBpm = (summary?['nominal_bpm'] as num?)?.toDouble() ?? track.bpm;
-        final primaryKey = summary?['primary_key'] as String? ?? track.musicalKey;
+        final nominalBpm = track.bpm > 0.0
+            ? track.bpm
+            : ((summary?['nominal_bpm'] as num?)?.toDouble() ??
+                (summary?['bpm_estimate'] as num?)?.toDouble() ??
+                0.0);
+        final primaryKey = (track.musicalKey != 'Pending Profile' && track.musicalKey.isNotEmpty)
+            ? track.musicalKey
+            : (summary?['primary_key'] as String? ??
+                summary?['key_signature'] as String? ??
+                track.musicalKey);
         final durMs = (trackIdObj?['duration_ms'] as num?)?.toInt();
         final actualDuration = durMs != null && durMs > 0 ? Duration(milliseconds: durMs) : track.duration;
 
@@ -480,6 +518,7 @@ class PlaybackController extends ChangeNotifier {
             _preparePendingRecipe();
           }
         }
+        AudioStorageService.instance.saveCachedTracks(_libraryTracks);
         notifyListeners();
       }
     } catch (e) {
@@ -1409,17 +1448,25 @@ class PlaybackController extends ChangeNotifier {
       try {
         final profileA = await _bridge.profileTrack(current.filePath, tier: 0);
         if (profileA != null) {
-          final bpm = (profileA['global_summary']?['nominal_bpm'] as num?)?.toDouble() ??
-              (profileA['global_summary']?['bpm_estimate'] as num?)?.toDouble() ??
-              current.bpm;
-          final key = profileA['global_summary']?['primary_key'] as String? ??
-              profileA['global_summary']?['key_signature'] as String? ??
-              current.musicalKey;
+          final bpm = current.bpm > 0.0
+              ? current.bpm
+              : ((profileA['global_summary']?['nominal_bpm'] as num?)?.toDouble() ??
+                  (profileA['global_summary']?['bpm_estimate'] as num?)?.toDouble() ??
+                  0.0);
+          final key = (current.musicalKey != 'Pending Profile' && current.musicalKey.isNotEmpty)
+              ? current.musicalKey
+              : (profileA['global_summary']?['primary_key'] as String? ??
+                  profileA['global_summary']?['key_signature'] as String? ??
+                  current.musicalKey);
           final updated = current.copyWith(tapProfile: profileA, bpm: bpm, musicalKey: key);
+          final libIdx = _libraryTracks.indexWhere((t) => t.id == current.id);
+          if (libIdx != -1) {
+            _libraryTracks[libIdx] = updated;
+          }
           if (_currentQueueIndex < _queue.length && _queue[_currentQueueIndex].id == current.id) {
             _queue[_currentQueueIndex] = updated;
           }
-          AudioStorageService.instance.saveCachedTracks(_queue);
+          AudioStorageService.instance.saveCachedTracks(_libraryTracks);
         }
       } catch (e) {
         debugPrint('[PlaybackController] JIT profile A error: $e');
@@ -1430,17 +1477,25 @@ class PlaybackController extends ChangeNotifier {
       try {
         final profileB = await _bridge.profileTrack(next.filePath, tier: 0);
         if (profileB != null) {
-          final bpm = (profileB['global_summary']?['nominal_bpm'] as num?)?.toDouble() ??
-              (profileB['global_summary']?['bpm_estimate'] as num?)?.toDouble() ??
-              next.bpm;
-          final key = profileB['global_summary']?['primary_key'] as String? ??
-              profileB['global_summary']?['key_signature'] as String? ??
-              next.musicalKey;
+          final bpm = next.bpm > 0.0
+              ? next.bpm
+              : ((profileB['global_summary']?['nominal_bpm'] as num?)?.toDouble() ??
+                  (profileB['global_summary']?['bpm_estimate'] as num?)?.toDouble() ??
+                  0.0);
+          final key = (next.musicalKey != 'Pending Profile' && next.musicalKey.isNotEmpty)
+              ? next.musicalKey
+              : (profileB['global_summary']?['primary_key'] as String? ??
+                  profileB['global_summary']?['key_signature'] as String? ??
+                  next.musicalKey);
           final updated = next.copyWith(tapProfile: profileB, bpm: bpm, musicalKey: key);
+          final libIdx = _libraryTracks.indexWhere((t) => t.id == next.id);
+          if (libIdx != -1) {
+            _libraryTracks[libIdx] = updated;
+          }
           if (_upNextQueueIndex < _queue.length && _queue[_upNextQueueIndex].id == next.id) {
             _queue[_upNextQueueIndex] = updated;
           }
-          AudioStorageService.instance.saveCachedTracks(_queue);
+          AudioStorageService.instance.saveCachedTracks(_libraryTracks);
         }
       } catch (e) {
         debugPrint('[PlaybackController] JIT profile B error: $e');

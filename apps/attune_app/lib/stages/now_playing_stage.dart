@@ -6,7 +6,6 @@ import '../services/platform_navigation.dart';
 import '../theme/color_engine.dart';
 import '../theme/liquid_glass.dart';
 import '../theme/typography.dart';
-import '../widgets/audio_quality_badge.dart';
 import '../widgets/transition_connector_pill.dart';
 import 'equalizer_stage.dart';
 import 'synchronized_lyrics_stage.dart';

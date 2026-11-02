@@ -398,7 +398,7 @@ class _HomeStageState extends State<HomeStage> {
                   ),
                   const SizedBox(height: 3),
                   Text(
-                    '${track.artist} • ${track.format} • ${track.bpm.toStringAsFixed(1)} BPM',
+                    '${track.artist} • ${track.format}${track.hasBpm ? " • ${track.formattedBpm}" : ""}',
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: AttuneTypography.jakartaBody(

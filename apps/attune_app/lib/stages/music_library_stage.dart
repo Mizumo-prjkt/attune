@@ -334,7 +334,7 @@ class _MusicLibraryStageState extends State<MusicLibraryStage> {
                               ),
                               const SizedBox(height: 2),
                               Text(
-                                '${track.artist} • ${track.format} • ${track.bpm > 0 ? "${track.bpm.toStringAsFixed(1)} BPM" : "${track.sampleRate} Hz"}',
+                                '${track.artist} • ${track.format} • ${track.hasBpm ? track.formattedBpm : "${track.sampleRate} Hz"}',
                                 style: AttuneTypography.jakartaBodySmall(
                                   color: colorScheme.onSurface.withValues(alpha: 0.6),
                                 ),

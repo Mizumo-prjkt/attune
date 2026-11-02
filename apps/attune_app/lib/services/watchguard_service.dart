@@ -85,7 +85,6 @@ class WatchguardService extends ChangeNotifier {
   bool _isNativeLoaded = false;
   bool get isNativeLoaded => _isNativeLoaded;
 
-  WatchguardInitDart? _initFn;
   WatchguardVersionDart? _versionFn;
   WatchguardRecordAudioEventDart? _recordAudioEvent;
   WatchguardRecordUiFrameDart? _recordUiFrame;

@@ -170,7 +170,7 @@ class _ProfileAndStatsStageState extends State<ProfileAndStatsStage> {
           final lastDur = (playback.lastTransitionDurationSec ?? 1.4).toStringAsFixed(1);
           transitionSubtitle = '$lastArch (${lastDur}s)';
         } else {
-          final validBpms = tracks.map((t) => t.bpm).where((b) => b > 40 && b < 240).toList();
+          final validBpms = tracks.map((t) => t.effectiveBpm).where((b) => b > 40 && b < 240).toList();
           final avgBpm = validBpms.isNotEmpty
               ? validBpms.reduce((a, b) => a + b) / validBpms.length
               : 120.0;

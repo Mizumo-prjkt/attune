@@ -5,7 +5,6 @@ import '../services/lyrics_service.dart';
 import '../services/playback_controller.dart';
 import '../theme/liquid_glass.dart';
 import '../theme/typography.dart';
-import '../widgets/audio_quality_badge.dart';
 
 /// SynchronizedLyricsStage implementing Phase 4 UI Specification:
 /// High-legibility scrolling synchronized lyrics powered by real embedded metadata

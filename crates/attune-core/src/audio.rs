@@ -291,7 +291,7 @@ impl AudioDecoder {
         let format_opts: FormatOptions = Default::default();
         let metadata_opts: MetadataOptions = Default::default();
 
-        let probed = symphonia::default::get_probe()
+        let mut probed = symphonia::default::get_probe()
             .format(&hint, mss, &format_opts, &metadata_opts)
             .map_err(|e| AudioError::Decode(e.to_string()))?;
 
@@ -334,38 +334,60 @@ impl AudioDecoder {
         let mut initial_key = None;
         let mut artwork_path = None;
 
-        if let Some(metadata) = format.metadata().current() {
+        // Helper to extract tags and visuals from a metadata revision
+        let mut process_revision = |metadata: &symphonia::core::meta::MetadataRevision| {
             for tag in metadata.tags() {
                 let tag_key_str = tag.key.to_uppercase();
                 if let Some(std_key) = tag.std_key {
                     match std_key {
                         symphonia::core::meta::StandardTagKey::Artist => {
-                            artist = Some(tag.value.to_string());
+                            if artist.is_none() {
+                                let s = tag.value.to_string().trim().to_string();
+                                if !s.is_empty() {
+                                    artist = Some(s);
+                                }
+                            }
                         }
                         symphonia::core::meta::StandardTagKey::TrackTitle => {
-                            title = Some(tag.value.to_string());
+                            if title.is_none() {
+                                let s = tag.value.to_string().trim().to_string();
+                                if !s.is_empty() {
+                                    title = Some(s);
+                                }
+                            }
                         }
                         symphonia::core::meta::StandardTagKey::Album => {
-                            album = Some(tag.value.to_string());
+                            if album.is_none() {
+                                let s = tag.value.to_string().trim().to_string();
+                                if !s.is_empty() {
+                                    album = Some(s);
+                                }
+                            }
                         }
                         symphonia::core::meta::StandardTagKey::Genre => {
-                            genre = Some(tag.value.to_string());
-                        }
-                        symphonia::core::meta::StandardTagKey::Bpm => {
-                            if let Ok(b) = tag.value.to_string().parse::<f32>() {
-                                bpm = Some(b);
+                            if genre.is_none() {
+                                let s = tag.value.to_string().trim().to_string();
+                                if !s.is_empty() {
+                                    genre = Some(s);
+                                }
                             }
                         }
                         _ => {}
                     }
                 }
-                // Custom or non-standard tag fallback
-                if bpm.is_none() && (tag_key_str == "BPM" || tag_key_str == "TBPM" || tag_key_str == "TEMPO") {
-                    if let Ok(b) = tag.value.to_string().parse::<f32>() {
-                        bpm = Some(b);
-                    }
+
+                // Robust BPM extraction across all tag types, decimal encodings, and comment tags
+                if bpm.is_none() {
+                    bpm = Self::parse_bpm_tag(tag);
                 }
-                if initial_key.is_none() && (tag_key_str == "INITIALKEY" || tag_key_str == "KEY" || tag_key_str == "TKEY") {
+
+                if initial_key.is_none() && (
+                    tag_key_str == "INITIALKEY"
+                    || tag_key_str == "KEY"
+                    || tag_key_str == "TKEY"
+                    || tag_key_str.ends_with(":KEY")
+                    || tag_key_str.ends_with(":INITIALKEY")
+                ) {
                     let k = tag.value.to_string().trim().to_string();
                     if !k.is_empty() {
                         initial_key = Some(k);
@@ -374,43 +396,58 @@ impl AudioDecoder {
             }
 
             // Extract embedded visual if present
-            if let Some(visual) = metadata.visuals().first() {
-                let ext = if visual.media_type.contains("png") {
-                    "png"
-                } else if visual.media_type.contains("webp") {
-                    "webp"
-                } else {
-                    "jpg"
-                };
+            if artwork_path.is_none() {
+                if let Some(visual) = metadata.visuals().first() {
+                    let ext = if visual.media_type.contains("png") {
+                        "png"
+                    } else if visual.media_type.contains("webp") {
+                        "webp"
+                    } else {
+                        "jpg"
+                    };
 
-                let cache_base = std::env::var("ATTUNE_CACHE_DIR")
-                    .map(std::path::PathBuf::from)
-                    .unwrap_or_else(|_| {
-                        #[cfg(target_os = "android")]
-                        {
-                            let debug_dir = std::path::PathBuf::from("/data/user/0/org.mizproject.attune.debug/cache");
-                            if debug_dir.exists() {
-                                debug_dir
-                            } else {
-                                std::path::PathBuf::from("/data/user/0/org.mizproject.attune/cache")
+                    let cache_base = std::env::var("ATTUNE_CACHE_DIR")
+                        .map(std::path::PathBuf::from)
+                        .unwrap_or_else(|_| {
+                            #[cfg(target_os = "android")]
+                            {
+                                let debug_dir = std::path::PathBuf::from("/data/user/0/org.mizproject.attune.debug/cache");
+                                if debug_dir.exists() {
+                                    debug_dir
+                                } else {
+                                    std::path::PathBuf::from("/data/user/0/org.mizproject.attune/cache")
+                                }
                             }
+                            #[cfg(not(target_os = "android"))]
+                            {
+                                std::env::temp_dir().join("attune_cache")
+                            }
+                        });
+                    let art_dir = cache_base.join("artwork");
+                    if std::fs::create_dir_all(&art_dir).is_ok() {
+                        let path_hash = blake3::hash(path.as_ref().to_string_lossy().as_bytes()).to_hex();
+                        let dest_file = art_dir.join(format!("{}.{}", path_hash, ext));
+                        if !dest_file.exists() && !visual.data.is_empty() {
+                            let _ = std::fs::write(&dest_file, &visual.data);
                         }
-                        #[cfg(not(target_os = "android"))]
-                        {
-                            std::env::temp_dir().join("attune_cache")
+                        if dest_file.exists() {
+                            artwork_path = Some(dest_file.to_string_lossy().to_string());
                         }
-                    });
-                let art_dir = cache_base.join("artwork");
-                if std::fs::create_dir_all(&art_dir).is_ok() {
-                    let path_hash = blake3::hash(path.as_ref().to_string_lossy().as_bytes()).to_hex();
-                    let dest_file = art_dir.join(format!("{}.{}", path_hash, ext));
-                    if !dest_file.exists() && !visual.data.is_empty() {
-                        let _ = std::fs::write(&dest_file, &visual.data);
-                    }
-                    if dest_file.exists() {
-                        artwork_path = Some(dest_file.to_string_lossy().to_string());
                     }
                 }
+            }
+        };
+
+        // Collect tags and visuals from both probed.metadata (e.g. prepended ID3v2) and format.metadata()
+        if let Some(meta) = probed.metadata.get() {
+            if let Some(rev) = meta.current() {
+                process_revision(rev);
+            }
+        }
+        {
+            let meta = format.metadata();
+            if let Some(rev) = meta.current() {
+                process_revision(rev);
             }
         }
 
@@ -443,23 +480,145 @@ impl AudioDecoder {
         let format_opts: FormatOptions = Default::default();
         let metadata_opts: MetadataOptions = Default::default();
 
-        let probed = symphonia::default::get_probe()
+        let mut probed = symphonia::default::get_probe()
             .format(&hint, mss, &format_opts, &metadata_opts)
             .map_err(|e| AudioError::Decode(e.to_string()))?;
 
         let mut format = probed.format;
-        if let Some(metadata) = format.metadata().current() {
-            if let Some(visual) = metadata.visuals().first() {
-                if !visual.data.is_empty() {
-                    if let Some(parent) = dest_path.as_ref().parent() {
-                        let _ = std::fs::create_dir_all(parent);
+        let mut found_data: Option<Vec<u8>> = None;
+
+        if let Some(meta) = probed.metadata.get() {
+            if let Some(rev) = meta.current() {
+                if let Some(v) = rev.visuals().first() {
+                    if !v.data.is_empty() {
+                        found_data = Some(v.data.to_vec());
                     }
-                    std::fs::write(&dest_path, &visual.data)?;
-                    return Ok(true);
                 }
             }
         }
+        if found_data.is_none() {
+            let meta = format.metadata();
+            if let Some(rev) = meta.current() {
+                if let Some(v) = rev.visuals().first() {
+                    if !v.data.is_empty() {
+                        found_data = Some(v.data.to_vec());
+                    }
+                }
+            }
+        }
+
+        if let Some(data) = found_data {
+            if let Some(parent) = dest_path.as_ref().parent() {
+                let _ = std::fs::create_dir_all(parent);
+            }
+            std::fs::write(&dest_path, &data)?;
+            return Ok(true);
+        }
         Ok(false)
+    }
+
+    /// Flexible BPM string parser supporting formats like "128", "128.5", "128,5", "128 BPM", "BPM: 130".
+    pub fn parse_bpm_str(s: &str) -> Option<f32> {
+        let clean = s.trim_matches(|c: char| c.is_whitespace() || c == '\0');
+        if clean.is_empty() {
+            return None;
+        }
+
+        let with_dot = clean.replace(',', ".");
+        let without_suffix = with_dot
+            .trim_end_matches(|c: char| c.is_alphabetic() || c.is_whitespace() || c == '.');
+
+        if let Ok(b) = without_suffix.trim().parse::<f32>() {
+            if (30.0..=350.0).contains(&b) {
+                return Some((b * 10.0).round() / 10.0);
+            }
+        }
+
+        // Search for numbers in string (e.g. "BPM 128", "128.5 BPM", "Tempo: 140")
+        for token in with_dot.split(|c: char| !c.is_numeric() && c != '.') {
+            if let Ok(b) = token.parse::<f32>() {
+                if (30.0..=350.0).contains(&b) {
+                    return Some((b * 10.0).round() / 10.0);
+                }
+            }
+        }
+        None
+    }
+
+    /// Robust BPM tag parser recognizing ID3v2, Vorbis/FLAC, MP4/iTunes tmpo, and Traktor/Rekordbox tags.
+    pub fn parse_bpm_tag(tag: &symphonia::core::meta::Tag) -> Option<f32> {
+        let tag_key_str = tag.key.to_uppercase();
+        let is_bpm_key = tag.std_key == Some(symphonia::core::meta::StandardTagKey::Bpm)
+            || tag_key_str == "BPM"
+            || tag_key_str == "TBPM"
+            || tag_key_str == "TEMPO"
+            || tag_key_str == "TMPO"
+            || tag_key_str == "©TMP"
+            || tag_key_str.contains("BPM")
+            || tag_key_str.contains("TEMPO")
+            || tag_key_str.ends_with(":BPM")
+            || tag_key_str.ends_with(":TEMPO")
+            || tag_key_str.ends_with(":FBPM")
+            || tag_key_str == "TRACKBPM"
+            || tag_key_str == "FBPM";
+
+        let is_comment_key = tag.std_key == Some(symphonia::core::meta::StandardTagKey::Comment)
+            || tag_key_str.contains("COMMENT")
+            || tag_key_str == "COMM";
+
+        if !is_bpm_key && !is_comment_key {
+            return None;
+        }
+
+        // For comment tags, only extract if it specifically references BPM or Tempo
+        if is_comment_key && !tag_key_str.contains("BPM") {
+            let str_val = tag.value.to_string();
+            let upper = str_val.to_uppercase();
+            if upper.contains("BPM") || upper.contains("TEMPO") {
+                return Self::parse_bpm_str(&str_val);
+            }
+            return None;
+        }
+
+        match &tag.value {
+            symphonia::core::meta::Value::Float(f) => {
+                let b = *f as f32;
+                if (30.0..=350.0).contains(&b) {
+                    Some((b * 10.0).round() / 10.0)
+                } else {
+                    None
+                }
+            }
+            symphonia::core::meta::Value::UnsignedInt(u) => {
+                let b = *u as f32;
+                if (30.0..=350.0).contains(&b) {
+                    Some((b * 10.0).round() / 10.0)
+                } else {
+                    None
+                }
+            }
+            symphonia::core::meta::Value::SignedInt(i) => {
+                let b = *i as f32;
+                if (30.0..=350.0).contains(&b) {
+                    Some((b * 10.0).round() / 10.0)
+                } else {
+                    None
+                }
+            }
+            symphonia::core::meta::Value::Binary(bytes) => {
+                if bytes.len() == 2 {
+                    let bpm_int = u16::from_be_bytes([bytes[0], bytes[1]]) as f32;
+                    if (30.0..=350.0).contains(&bpm_int) {
+                        return Some(bpm_int);
+                    }
+                } else if let Ok(s) = std::str::from_utf8(bytes) {
+                    return Self::parse_bpm_str(s);
+                }
+                None
+            }
+            symphonia::core::meta::Value::String(s) => Self::parse_bpm_str(s),
+            _ => Self::parse_bpm_str(&tag.value.to_string()),
+        }
     }
 }
 
@@ -483,6 +642,53 @@ pub struct TrackMetadataProbe {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_parse_bpm_str() {
+        assert_eq!(AudioDecoder::parse_bpm_str("128"), Some(128.0));
+        assert_eq!(AudioDecoder::parse_bpm_str("128.5"), Some(128.5));
+        assert_eq!(AudioDecoder::parse_bpm_str("128,5"), Some(128.5));
+        assert_eq!(AudioDecoder::parse_bpm_str("128 BPM"), Some(128.0));
+        assert_eq!(AudioDecoder::parse_bpm_str("128bpm"), Some(128.0));
+        assert_eq!(AudioDecoder::parse_bpm_str("128.00\0"), Some(128.0));
+        assert_eq!(AudioDecoder::parse_bpm_str("BPM: 130"), Some(130.0));
+        assert_eq!(AudioDecoder::parse_bpm_str("Tempo: 140.2"), Some(140.2));
+        assert_eq!(AudioDecoder::parse_bpm_str("0.0"), None);
+        assert_eq!(AudioDecoder::parse_bpm_str("0"), None);
+        assert_eq!(AudioDecoder::parse_bpm_str("-1"), None);
+        assert_eq!(AudioDecoder::parse_bpm_str("500"), None);
+        assert_eq!(AudioDecoder::parse_bpm_str(""), None);
+        assert_eq!(AudioDecoder::parse_bpm_str("   "), None);
+    }
+
+    #[test]
+    fn test_parse_bpm_tag() {
+        use symphonia::core::meta::{Tag, Value, StandardTagKey};
+
+        // StandardTagKey::Bpm
+        let tag_std = Tag::new(Some(StandardTagKey::Bpm), "TBPM", Value::String("126.5".to_string()));
+        assert_eq!(AudioDecoder::parse_bpm_tag(&tag_std), Some(126.5));
+
+        // Unsigned Int (e.g. from ID3 numeric frame)
+        let tag_uint = Tag::new(None, "BPM", Value::UnsignedInt(130));
+        assert_eq!(AudioDecoder::parse_bpm_tag(&tag_uint), Some(130.0));
+
+        // Binary 16-bit BE (MP4 / iTunes 'tmpo' atom)
+        let tag_tmpo = Tag::new(None, "tmpo", Value::Binary(vec![0x00, 0x80].into_boxed_slice()));
+        assert_eq!(AudioDecoder::parse_bpm_tag(&tag_tmpo), Some(128.0));
+
+        // Traktor / Rekordbox TXXX
+        let tag_txxx = Tag::new(None, "TXXX:BPM", Value::String("124.0".to_string()));
+        assert_eq!(AudioDecoder::parse_bpm_tag(&tag_txxx), Some(124.0));
+
+        // Comment with embedded BPM
+        let tag_comm_bpm = Tag::new(Some(StandardTagKey::Comment), "COMM", Value::String("DJ Info: BPM 135".to_string()));
+        assert_eq!(AudioDecoder::parse_bpm_tag(&tag_comm_bpm), Some(135.0));
+
+        // Irrelevant comment
+        let tag_comm_normal = Tag::new(Some(StandardTagKey::Comment), "COMM", Value::String("Recorded live in Tokyo".to_string()));
+        assert_eq!(AudioDecoder::parse_bpm_tag(&tag_comm_normal), None);
+    }
 
     #[test]
     fn test_probe_metadata_wav() {

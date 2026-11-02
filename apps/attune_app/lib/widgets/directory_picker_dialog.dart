@@ -1,6 +1,5 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
-import '../services/environment_delegator.dart';
 import '../theme/liquid_glass.dart';
 import '../theme/typography.dart';
 
@@ -102,7 +101,6 @@ class _DirectoryPickerDialogState extends State<DirectoryPickerDialog> {
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
-    final isDesktop = MediaQuery.of(context).size.width >= 720;
 
     return Dialog(
       backgroundColor: Colors.transparent,
@@ -254,7 +252,7 @@ class _DirectoryPickerDialogState extends State<DirectoryPickerDialog> {
                                 )
                               : ListView.separated(
                                   itemCount: _subDirectories.length,
-                                  separatorBuilder: (_, __) => const Divider(height: 1, color: Colors.white10),
+                                  separatorBuilder: (context, index) => const Divider(height: 1, color: Colors.white10),
                                   itemBuilder: (context, index) {
                                     final sub = _subDirectories[index];
                                     final name = sub.path.split(Platform.pathSeparator).last;

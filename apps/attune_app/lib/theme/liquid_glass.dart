@@ -1,5 +1,3 @@
-import 'dart:math' as math;
-import 'dart:ui';
 import 'package:flutter/material.dart';
 import '../services/playback_controller.dart';
 import '../services/settings_service.dart';
@@ -151,27 +149,13 @@ class AmbientMeshBackground extends StatelessWidget {
     return ListenableBuilder(
       listenable: Listenable.merge([PlaybackController.instance, SettingsService.instance]),
       builder: (context, _) {
-        final controller = PlaybackController.instance;
-        final isEnabled = controller.livingBeatMeshEnabled;
         final scheme = colorScheme ?? Theme.of(context).colorScheme;
-        final currentTrack = controller.currentTrack;
-        final accent = currentTrack?.seedColor ?? scheme.primary;
-
-        if (!isEnabled) {
-          return Stack(
-            fit: StackFit.expand,
-            children: [
-              Container(color: scheme.surface),
-              if (child != null) child!,
-            ],
-          );
-        }
 
         return Stack(
           fit: StackFit.expand,
           children: [
             Container(color: scheme.surface),
-            if (child != null) child!,
+            ?child,
           ],
         );
       },

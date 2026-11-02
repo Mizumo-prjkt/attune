@@ -186,7 +186,11 @@ class _TransitionInspectorStageState extends State<TransitionInspectorStage> {
                                     ),
                                   ),
                                   Text(
-                                    deckB != null ? '${deckB.bpm.toStringAsFixed(1)} BPM • ${deckB.musicalKey}' : 'Ready',
+                                    deckB != null
+                                        ? (deckB.hasBpm
+                                            ? '${deckB.formattedBpm} • ${deckB.musicalKey}'
+                                            : deckB.musicalKey)
+                                        : 'Ready',
                                     style: AttuneTypography.soraMetric(color: colorScheme.secondary, fontSize: 11),
                                   ),
                                 ],
