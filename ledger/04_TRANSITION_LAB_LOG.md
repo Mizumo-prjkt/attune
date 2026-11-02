@@ -705,8 +705,8 @@ These four benchmark scenarios define the "Gold Standard" transitions that Attun
      - Disambiguated Stack bubble keys with `bubble_${rb.index}_${rb.item.id}` and updated `AudioStorageService` track ID hashing with `file.path`, eliminating `Duplicate Keys` assertions when libraries contain duplicate songs.
      - Added `gaplessPlayback: true` and capped GPU texture decoding at `cacheWidth: 160, cacheHeight: 160`.
      - Removed `WidgetsBinding.instance.addPostFrameCallback` calling `setState` during drag; `activeHighlightIndex` updates synchronously in `build`.
-  3. **Touch Interactions, Momentum & Floating Liquid Glass Highlight Card**:
-     - Dragging canvas pans the 2D offset smoothly; releasing with velocity initiates momentum coasting with cubic deceleration.
+  3. **Touch Interactions, Momentum & Magnetic Snap-to-Track**:
+     - Dragging canvas pans the 2D offset smoothly; releasing with velocity or ending a pan triggers `_snapToClosest({Offset velocity})`, projecting momentum resting positions and smoothly snapping (`Curves.easeOutCubic`) the nearest bubble dead-center into the reticle ring.
      - Nearest bubble is highlighted with primary accent halo and updates the floating bottom `LiquidGlassContainer`.
      - Highlight card displays thumbnail artwork bubble, title, artist, BPM/Key pills, "View Album" navigation, and immediate play/pause trigger.
      - Tapping any off-center bubble smoothly glides and centers it via `CurvedAnimation(curve: Curves.easeOutCubic)`.

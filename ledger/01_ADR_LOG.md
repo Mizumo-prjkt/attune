@@ -1751,8 +1751,10 @@ This file records all major architectural decisions for **Attune**, including co
        * Updated `AudioStorageService` to hash `file.path` rather than `title.hashCode`, ensuring tracks with identical titles (e.g. multiple versions of a song) have distinct IDs.
        * Synchronously resolved `activeHighlightIndex` in `build`, eliminating asynchronous `WidgetsBinding.instance.addPostFrameCallback` churn.
      - Evaluated viewport culling per frame, skipping rendering for any bubble fully outside $([-40, W+40], [-40, H+40])$, ensuring solid 120 FPS performance on Impeller and Skia.
-  3. **Interactive 2D Pan Momentum & Nearest Bubble Catch**:
+  3. **Interactive 2D Pan, Momentum & Magnetic Snap-to-Track**:
      - Handled 2D pan with velocity momentum coasting and spring deceleration.
+     - Implemented **Magnetic Snap-to-Track** (`_snapToClosest({Offset velocity})`): evaluates candidate resting position incorporating flick momentum (`_panOffset + momentumDelta`), identifies closest item via `_findClosestIndex`, and smoothly animates to `-_items[bestIndex].baseOffset` over 260–380ms (`Curves.easeOutCubic`).
+     - Guarantees that whenever drag release, flick coasting, or pan cancellation occurs, the nearest track snaps dead-center into the reticle ring without resting halfway or off-axis.
      - Automatically identified the nearest bubble to center, applied an active primary color rim and glow shadow, and synchronized with a floating bottom Liquid Glass card (`LiquidGlassContainer`).
      - Highlight card features artwork bubble, track/album title, artist/subtitle, BPM and musical key pills, "View Album" navigation, and an instant circular play/pause button.
      - Tapping any bubble glides it into the center; tapping the highlighted bubble or double tapping starts playback immediately.

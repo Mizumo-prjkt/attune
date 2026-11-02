@@ -318,6 +318,65 @@ class _BubbleNavigationStageState extends State<BubbleNavigationStage>
     }
   }
 
+  int _findClosestIndex(Offset offset) {
+    if (_items.isEmpty) return 0;
+    int bestIdx = 0;
+    double minDistance = double.infinity;
+    for (int i = 0; i < _items.length; i++) {
+      final d = (offset + _items[i].baseOffset).distance;
+      if (d < minDistance) {
+        minDistance = d;
+        bestIdx = i;
+      }
+    }
+    return bestIdx;
+  }
+
+  void _animateToOffset(
+    Offset targetOffset, {
+    Duration duration = const Duration(milliseconds: 320),
+    Curve curve = Curves.easeOutCubic,
+    int? targetIndex,
+  }) {
+    _animController.stop();
+    _animController.duration = duration;
+    _panAnimation = Tween<Offset>(
+      begin: _panOffset,
+      end: targetOffset,
+    ).animate(CurvedAnimation(
+      parent: _animController,
+      curve: curve,
+    ));
+    if (targetIndex != null) {
+      _highlightedIndex = targetIndex;
+    }
+    _animController.forward(from: 0.0);
+  }
+
+  void _snapToClosest({Offset velocity = Offset.zero}) {
+    if (_items.isEmpty) return;
+
+    final hasVelocity = velocity.distanceSquared > 25000; // > ~158 px/sec
+    final momentumDelta = hasVelocity
+        ? Offset(velocity.dx * 0.22, velocity.dy * 0.22)
+        : Offset.zero;
+
+    final candidateOffset = _panOffset + momentumDelta;
+    final bestIndex = _findClosestIndex(candidateOffset);
+    final targetOffset = -_items[bestIndex].baseOffset;
+
+    final duration = hasVelocity
+        ? const Duration(milliseconds: 380)
+        : const Duration(milliseconds: 260);
+
+    _animateToOffset(
+      targetOffset,
+      duration: duration,
+      curve: Curves.easeOutCubic,
+      targetIndex: bestIndex,
+    );
+  }
+
   void _centerOnIndex(int index, {bool animated = true}) {
     if (index < 0 || index >= _items.length) return;
     final item = _items[index];
@@ -331,16 +390,12 @@ class _BubbleNavigationStageState extends State<BubbleNavigationStage>
       return;
     }
 
-    _animController.stop();
-    _panAnimation = Tween<Offset>(
-      begin: _panOffset,
-      end: targetOffset,
-    ).animate(CurvedAnimation(
-      parent: _animController,
+    _animateToOffset(
+      targetOffset,
+      duration: const Duration(milliseconds: 340),
       curve: Curves.easeOutCubic,
-    ));
-    _highlightedIndex = index;
-    _animController.forward(from: 0.0);
+      targetIndex: index,
+    );
   }
 
   void _onPanStart(DragStartDetails details) {
@@ -354,19 +409,7 @@ class _BubbleNavigationStageState extends State<BubbleNavigationStage>
   }
 
   void _onPanEnd(DragEndDetails details) {
-    final velocity = details.velocity.pixelsPerSecond;
-    if (velocity.distanceSquared > 40000) {
-      // Momentum coasting using friction simulation
-      final target = _panOffset + Offset(velocity.dx * 0.28, velocity.dy * 0.28);
-      _panAnimation = Tween<Offset>(
-        begin: _panOffset,
-        end: target,
-      ).animate(CurvedAnimation(
-        parent: _animController,
-        curve: Curves.decelerate,
-      ));
-      _animController.forward(from: 0.0);
-    }
+    _snapToClosest(velocity: details.velocity.pixelsPerSecond);
   }
 
   void _playItem(BubbleItem item) {
@@ -558,6 +601,7 @@ class _BubbleNavigationStageState extends State<BubbleNavigationStage>
                   onPanStart: _onPanStart,
                   onPanUpdate: _onPanUpdate,
                   onPanEnd: _onPanEnd,
+                  onPanCancel: () => _snapToClosest(),
                   behavior: HitTestBehavior.opaque,
                   child: Container(
                     width: w,

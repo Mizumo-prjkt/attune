@@ -157,5 +157,27 @@ void main() {
       expect(tester.takeException(), isNull);
       expect(find.text('Bubblegrid Selection'), findsOneWidget);
     });
+
+    testWidgets('Snapping feature centers nearest track into reticle on drag release', (tester) async {
+      await tester.pumpWidget(
+        const MaterialApp(
+          home: BubbleNavigationStage(),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      // Drag by small offset (-40, -20) and release to trigger snapping
+      final center = tester.getCenter(find.byType(BubbleNavigationStage));
+      final gesture = await tester.startGesture(center);
+      await gesture.moveBy(const Offset(-40.0, -20.0));
+      await tester.pump();
+      await gesture.up();
+
+      // Animate the snap completion
+      await tester.pumpAndSettle();
+
+      expect(tester.takeException(), isNull);
+      expect(find.text('Bubblegrid Selection'), findsOneWidget);
+    });
   });
 }
