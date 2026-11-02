@@ -634,68 +634,65 @@ pub extern "C" fn attune_player_get_state() -> *mut c_char {
             }
         };
 
-        let mixer = match mixer_arc.lock() {
-            Ok(m) => m,
-            Err(_) => return std::ptr::null_mut(),
-        };
+        // Fast snapshot taking < 1 microsecond of mutex hold time
+        let snapshot = {
+            let mixer = match mixer_arc.lock() {
+                Ok(m) => m,
+                Err(_) => return std::ptr::null_mut(),
+            };
+            mixer.snapshot()
+        }; // Lock dropped immediately!
 
         let deck_a_json = serde_json::json!({
-            "position_ms": mixer.deck_a.current_position_ms(),
-            "duration_ms": mixer.deck_a.duration_ms(),
-            "audible_end_ms": mixer.deck_a.audible_end_ms(),
-            "state": format!("{:?}", mixer.deck_a.state),
-            "is_playing": mixer.deck_a.is_playing(),
-            "is_audible_finished": mixer.deck_a.is_audible_finished(),
-            "gain_db": mixer.deck_a.gain_db(),
-            "stretch_ratio": mixer.deck_a.stretch_ratio(),
-            "pitch_cents": mixer.deck_a.pitch_cents(),
-            "reverb_freeze_send": mixer.deck_a.reverb_freeze_send(),
-            "eq_low_db": mixer.deck_a.eq_low_db(),
-            "eq_mid_db": mixer.deck_a.eq_mid_db(),
-            "eq_high_db": mixer.deck_a.eq_high_db(),
+            "position_ms": snapshot.deck_a.position_ms,
+            "duration_ms": snapshot.deck_a.duration_ms,
+            "audible_end_ms": snapshot.deck_a.audible_end_ms,
+            "state": snapshot.deck_a.state_str,
+            "is_playing": snapshot.deck_a.is_playing,
+            "is_audible_finished": snapshot.deck_a.is_audible_finished,
+            "gain_db": snapshot.deck_a.gain_db,
+            "stretch_ratio": snapshot.deck_a.stretch_ratio,
+            "pitch_cents": snapshot.deck_a.pitch_cents,
+            "reverb_freeze_send": snapshot.deck_a.reverb_freeze_send,
+            "eq_low_db": snapshot.deck_a.eq_low_db,
+            "eq_mid_db": snapshot.deck_a.eq_mid_db,
+            "eq_high_db": snapshot.deck_a.eq_high_db,
         });
 
         let deck_b_json = serde_json::json!({
-            "position_ms": mixer.deck_b.current_position_ms(),
-            "duration_ms": mixer.deck_b.duration_ms(),
-            "audible_end_ms": mixer.deck_b.audible_end_ms(),
-            "state": format!("{:?}", mixer.deck_b.state),
-            "is_playing": mixer.deck_b.is_playing(),
-            "is_audible_finished": mixer.deck_b.is_audible_finished(),
-            "gain_db": mixer.deck_b.gain_db(),
-            "stretch_ratio": mixer.deck_b.stretch_ratio(),
-            "pitch_cents": mixer.deck_b.pitch_cents(),
-            "reverb_freeze_send": mixer.deck_b.reverb_freeze_send(),
-            "eq_low_db": mixer.deck_b.eq_low_db(),
-            "eq_mid_db": mixer.deck_b.eq_mid_db(),
-            "eq_high_db": mixer.deck_b.eq_high_db(),
+            "position_ms": snapshot.deck_b.position_ms,
+            "duration_ms": snapshot.deck_b.duration_ms,
+            "audible_end_ms": snapshot.deck_b.audible_end_ms,
+            "state": snapshot.deck_b.state_str,
+            "is_playing": snapshot.deck_b.is_playing,
+            "is_audible_finished": snapshot.deck_b.is_audible_finished,
+            "gain_db": snapshot.deck_b.gain_db,
+            "stretch_ratio": snapshot.deck_b.stretch_ratio,
+            "pitch_cents": snapshot.deck_b.pitch_cents,
+            "reverb_freeze_send": snapshot.deck_b.reverb_freeze_send,
+            "eq_low_db": snapshot.deck_b.eq_low_db,
+            "eq_mid_db": snapshot.deck_b.eq_mid_db,
+            "eq_high_db": snapshot.deck_b.eq_high_db,
         });
 
-        let transition_json = mixer.transition.as_ref().map(|t| {
-            let progress = if t.total_transition_frames > 0 {
-                t.elapsed_frames as f32 / t.total_transition_frames as f32
-            } else {
-                1.0
-            };
+        let transition_json = snapshot.transition_info.map(|(elapsed, total, progress, archetype)| {
             serde_json::json!({
                 "in_progress": true,
-                "elapsed_frames": t.elapsed_frames,
-                "total_transition_frames": t.total_transition_frames,
-                "progress": progress.clamp(0.0, 1.0),
-                "archetype": format!("{:?}", t.recipe.archetype),
+                "elapsed_frames": elapsed,
+                "total_transition_frames": total,
+                "progress": progress,
+                "archetype": archetype,
             })
         });
 
-        let active_deck_str = match mixer.active_deck {
-            DeckId::DeckA => "DeckA",
-            DeckId::DeckB => "DeckB",
-        };
-
         let result = serde_json::json!({
             "initialized": true,
-            "is_playing": mixer.is_playing(),
-            "active_deck": active_deck_str,
-            "sample_rate": mixer.sample_rate,
+            "is_playing": snapshot.is_playing,
+            "active_deck": snapshot.active_deck_str,
+            "sample_rate": snapshot.sample_rate,
+            "clipping_count": snapshot.clipping_count,
+            "underrun_count": snapshot.underrun_count,
+            "peak_amplitude": snapshot.peak_amplitude,
             "deck_a": deck_a_json,
             "deck_b": deck_b_json,
             "transition": transition_json,
@@ -708,6 +705,41 @@ pub extern "C" fn attune_player_get_state() -> *mut c_char {
     });
 
     res.unwrap_or(std::ptr::null_mut())
+}
+
+/// Queries real-time audio stability telemetry (clipping count, underrun count, peak amplitude).
+#[no_mangle]
+pub extern "C" fn attune_player_get_audio_telemetry(
+    out_clipping: *mut u32,
+    out_underruns: *mut u32,
+    out_peak: *mut f32,
+) -> i32 {
+    let res = std::panic::catch_unwind(|| {
+        let (clip, underruns, peak) = attune_core::engine::mixer::get_audio_telemetry();
+        unsafe {
+            if !out_clipping.is_null() {
+                *out_clipping = clip;
+            }
+            if !out_underruns.is_null() {
+                *out_underruns = underruns;
+            }
+            if !out_peak.is_null() {
+                *out_peak = peak;
+            }
+        }
+        0
+    });
+    res.unwrap_or(-1)
+}
+
+/// Resets audio stability telemetry counters.
+#[no_mangle]
+pub extern "C" fn attune_player_reset_audio_telemetry() -> i32 {
+    let res = std::panic::catch_unwind(|| {
+        attune_core::engine::mixer::reset_audio_telemetry();
+        0
+    });
+    res.unwrap_or(-1)
 }
 
 /// Stops the real-time player and releases audio hardware.

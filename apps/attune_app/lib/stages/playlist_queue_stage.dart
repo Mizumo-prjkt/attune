@@ -134,21 +134,29 @@ class _PlaylistQueueStageState extends State<PlaylistQueueStage> {
               String shuffleLabel;
               IconData shuffleIcon;
               bool isShuffleActive;
+              String? shuffleTooltip;
               switch (controller.shuffleMode) {
                 case ShuffleMode.off:
                   shuffleLabel = 'Shuffle Off';
                   shuffleIcon = Icons.shuffle_rounded;
                   isShuffleActive = false;
+                  shuffleTooltip = controller.isSmartShuffleSupported
+                      ? 'Linear playback order'
+                      : 'Linear playback order (Smart Shuffle unavailable in System Codec)';
                   break;
                 case ShuffleMode.standard:
-                  shuffleLabel = 'Basic Shuffle';
+                  shuffleLabel = controller.isSmartShuffleSupported ? 'Basic Shuffle' : 'Shuffle (Standard)';
                   shuffleIcon = Icons.shuffle_rounded;
                   isShuffleActive = true;
+                  shuffleTooltip = controller.isSmartShuffleSupported
+                      ? 'Randomized queue sequence'
+                      : 'Randomized queue sequence (Smart Shuffle unavailable in System Codec)';
                   break;
                 case ShuffleMode.smart:
                   shuffleLabel = 'Smart Shuffle';
                   shuffleIcon = Icons.auto_awesome_rounded;
                   isShuffleActive = true;
+                  shuffleTooltip = 'Profile & BPM-matched smart transition shuffle';
                   break;
               }
 
@@ -163,6 +171,7 @@ class _PlaylistQueueStageState extends State<PlaylistQueueStage> {
                     label: shuffleLabel,
                     active: isShuffleActive,
                     colorScheme: colorScheme,
+                    tooltip: shuffleTooltip,
                     onTap: controller.cycleShuffleMode,
                   ),
                   Text(
@@ -300,9 +309,10 @@ class _PlaylistQueueStageState extends State<PlaylistQueueStage> {
     required String label,
     required bool active,
     required ColorScheme colorScheme,
+    String? tooltip,
     required VoidCallback onTap,
   }) {
-    return GestureDetector(
+    final chip = GestureDetector(
       onTap: onTap,
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
@@ -333,5 +343,10 @@ class _PlaylistQueueStageState extends State<PlaylistQueueStage> {
         ),
       ),
     );
+
+    if (tooltip != null) {
+      return Tooltip(message: tooltip, child: chip);
+    }
+    return chip;
   }
 }

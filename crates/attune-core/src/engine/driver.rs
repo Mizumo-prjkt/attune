@@ -76,7 +76,12 @@ impl AudioOutputDriver {
                     if let Ok(mut mixer) = mixer_cb.try_lock() {
                         mixer.process_interleaved_block(data);
                     } else {
-                        data.fill(0.0);
+                        crate::engine::mixer::record_underrun_event();
+                        let len = data.len();
+                        for (i, sample) in data.iter_mut().enumerate() {
+                            let ramp = (1.0 - (i as f32 / len.min(64) as f32)).max(0.0);
+                            *sample *= ramp;
+                        }
                     }
                 },
                 err_fn,
@@ -92,7 +97,12 @@ impl AudioOutputDriver {
                             *dest = (src * 32767.0).clamp(-32768.0, 32767.0) as i16;
                         }
                     } else {
-                        data.fill(0);
+                        crate::engine::mixer::record_underrun_event();
+                        let len = data.len();
+                        for (i, sample) in data.iter_mut().enumerate() {
+                            let ramp = (1.0 - (i as f32 / len.min(64) as f32)).max(0.0);
+                            *sample = (*sample as f32 * ramp) as i16;
+                        }
                     }
                 },
                 err_fn,

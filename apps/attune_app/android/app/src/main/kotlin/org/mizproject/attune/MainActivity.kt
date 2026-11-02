@@ -18,6 +18,11 @@ class MainActivity : FlutterActivity() {
             } catch (e: UnsatisfiedLinkError) {
                 Log.e("MainActivity", "Failed to load attune_engine library", e)
             }
+            try {
+                System.loadLibrary("attune_watchguard")
+            } catch (e: UnsatisfiedLinkError) {
+                Log.w("MainActivity", "attune_watchguard library not loaded (optional/mock)", e)
+            }
         }
     }
 
@@ -36,6 +41,7 @@ class MainActivity : FlutterActivity() {
         super.configureFlutterEngine(flutterEngine)
 
         PermissionManager.setup(this, flutterEngine.dartExecutor.binaryMessenger)
+        SystemAudioEngine.setup(this, flutterEngine.dartExecutor.binaryMessenger)
 
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, NAVIGATION_CHANNEL).setMethodCallHandler { call, result ->
             when (call.method) {

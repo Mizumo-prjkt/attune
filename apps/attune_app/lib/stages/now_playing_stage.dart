@@ -1088,12 +1088,16 @@ class _NowPlayingStageState extends State<NowPlayingStage> {
       case ShuffleMode.off:
         icon = Icons.shuffle_rounded;
         color = colorScheme.onSurface.withValues(alpha: 0.35);
-        tooltip = 'Shuffle Off (Linear Sequence)';
+        tooltip = controller.isSmartShuffleSupported
+            ? 'Shuffle Off (Linear Sequence)'
+            : 'Shuffle Off (Linear Sequence • Smart Shuffle requires Attune Engine)';
         break;
       case ShuffleMode.standard:
         icon = Icons.shuffle_rounded;
         color = colorScheme.primary;
-        tooltip = 'Basic Shuffle (Random Track)';
+        tooltip = controller.isSmartShuffleSupported
+            ? 'Basic Shuffle (Random Track)'
+            : 'Basic Shuffle (System Codec • Smart Shuffle requires Attune Engine)';
         break;
       case ShuffleMode.smart:
         icon = Icons.auto_awesome_rounded;

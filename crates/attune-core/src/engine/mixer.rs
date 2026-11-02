@@ -4,6 +4,78 @@ use super::deck::{Deck, DeckId, DeckState};
 use crate::audio::AudioBuffer;
 use crate::schema::{DeckAutomation, DspAutomationKeyframe, TransitionRecipe};
 use attune_dsp_ffi::master_fx::MasterFxRack;
+use std::sync::atomic::{AtomicU32, Ordering};
+
+static AUDIO_UNDERRUNS: AtomicU32 = AtomicU32::new(0);
+static AUDIO_CLIPPINGS: AtomicU32 = AtomicU32::new(0);
+static AUDIO_MAX_PEAK_BITS: AtomicU32 = AtomicU32::new(0);
+
+pub fn record_underrun_event() {
+    AUDIO_UNDERRUNS.fetch_add(1, Ordering::Relaxed);
+}
+
+pub fn record_clipping_event(peak: f32) {
+    AUDIO_CLIPPINGS.fetch_add(1, Ordering::Relaxed);
+    let mut current_bits = AUDIO_MAX_PEAK_BITS.load(Ordering::Relaxed);
+    loop {
+        let current_peak = f32::from_bits(current_bits);
+        if peak <= current_peak {
+            break;
+        }
+        match AUDIO_MAX_PEAK_BITS.compare_exchange_weak(
+            current_bits,
+            peak.to_bits(),
+            Ordering::Relaxed,
+            Ordering::Relaxed,
+        ) {
+            Ok(_) => break,
+            Err(actual) => current_bits = actual,
+        }
+    }
+}
+
+pub fn get_audio_telemetry() -> (u32, u32, f32) {
+    let underruns = AUDIO_UNDERRUNS.load(Ordering::Relaxed);
+    let clippings = AUDIO_CLIPPINGS.load(Ordering::Relaxed);
+    let peak_bits = AUDIO_MAX_PEAK_BITS.load(Ordering::Relaxed);
+    (clippings, underruns, f32::from_bits(peak_bits))
+}
+
+pub fn reset_audio_telemetry() {
+    AUDIO_UNDERRUNS.store(0, Ordering::Relaxed);
+    AUDIO_CLIPPINGS.store(0, Ordering::Relaxed);
+    AUDIO_MAX_PEAK_BITS.store(0, Ordering::Relaxed);
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+pub struct DeckSnapshot {
+    pub position_ms: u64,
+    pub duration_ms: u64,
+    pub audible_end_ms: u64,
+    pub state_str: &'static str,
+    pub is_playing: bool,
+    pub is_audible_finished: bool,
+    pub gain_db: f32,
+    pub stretch_ratio: f32,
+    pub pitch_cents: i32,
+    pub reverb_freeze_send: f32,
+    pub eq_low_db: f32,
+    pub eq_mid_db: f32,
+    pub eq_high_db: f32,
+}
+
+#[derive(Debug, Clone)]
+pub struct MixerSnapshot {
+    pub is_playing: bool,
+    pub active_deck_str: &'static str,
+    pub sample_rate: u32,
+    pub deck_a: DeckSnapshot,
+    pub deck_b: DeckSnapshot,
+    pub transition_info: Option<(usize, usize, f32, String)>,
+    pub clipping_count: u32,
+    pub underrun_count: u32,
+    pub peak_amplitude: f32,
+}
 
 #[derive(Debug, Clone)]
 pub struct ActiveTransition {
@@ -216,10 +288,102 @@ impl DualDeckMixer {
 
     /// Process a block of interleaved stereo samples `[L, R, L, R, ...]` (real-time audio callback safe)
     pub fn process_interleaved_block(&mut self, output: &mut [f32]) {
+        let mut block_peak = 0.0f32;
+        let mut has_clipping = false;
+
         for frame in output.chunks_exact_mut(2) {
             let (l, r) = self.process_stereo_frame();
             frame[0] = l;
             frame[1] = r;
+
+            let abs_l = l.abs();
+            let abs_r = r.abs();
+            let peak = abs_l.max(abs_r);
+            if peak > block_peak {
+                block_peak = peak;
+            }
+            if peak >= 0.995 {
+                has_clipping = true;
+            }
+        }
+
+        if has_clipping {
+            record_clipping_event(block_peak);
+        }
+    }
+
+    /// Fast, non-allocating snapshot of all playback state to avoid holding mutex locks during JSON serialization
+    pub fn snapshot(&self) -> MixerSnapshot {
+        let (clippings, underruns, peak) = get_audio_telemetry();
+        let state_a = match self.deck_a.state {
+            DeckState::Stopped => "Stopped",
+            DeckState::Playing => "Playing",
+            DeckState::Paused => "Paused",
+            DeckState::Transitioning => "Transitioning",
+            DeckState::Finished => "Finished",
+        };
+        let state_b = match self.deck_b.state {
+            DeckState::Stopped => "Stopped",
+            DeckState::Playing => "Playing",
+            DeckState::Paused => "Paused",
+            DeckState::Transitioning => "Transitioning",
+            DeckState::Finished => "Finished",
+        };
+        let active_str = match self.active_deck {
+            DeckId::DeckA => "DeckA",
+            DeckId::DeckB => "DeckB",
+        };
+
+        MixerSnapshot {
+            is_playing: self.is_playing(),
+            active_deck_str: active_str,
+            sample_rate: self.sample_rate,
+            deck_a: DeckSnapshot {
+                position_ms: self.deck_a.current_position_ms(),
+                duration_ms: self.deck_a.duration_ms(),
+                audible_end_ms: self.deck_a.audible_end_ms(),
+                state_str: state_a,
+                is_playing: self.deck_a.is_playing(),
+                is_audible_finished: self.deck_a.is_audible_finished(),
+                gain_db: self.deck_a.gain_db(),
+                stretch_ratio: self.deck_a.stretch_ratio(),
+                pitch_cents: self.deck_a.pitch_cents(),
+                reverb_freeze_send: self.deck_a.reverb_freeze_send(),
+                eq_low_db: self.deck_a.eq_low_db(),
+                eq_mid_db: self.deck_a.eq_mid_db(),
+                eq_high_db: self.deck_a.eq_high_db(),
+            },
+            deck_b: DeckSnapshot {
+                position_ms: self.deck_b.current_position_ms(),
+                duration_ms: self.deck_b.duration_ms(),
+                audible_end_ms: self.deck_b.audible_end_ms(),
+                state_str: state_b,
+                is_playing: self.deck_b.is_playing(),
+                is_audible_finished: self.deck_b.is_audible_finished(),
+                gain_db: self.deck_b.gain_db(),
+                stretch_ratio: self.deck_b.stretch_ratio(),
+                pitch_cents: self.deck_b.pitch_cents(),
+                reverb_freeze_send: self.deck_b.reverb_freeze_send(),
+                eq_low_db: self.deck_b.eq_low_db(),
+                eq_mid_db: self.deck_b.eq_mid_db(),
+                eq_high_db: self.deck_b.eq_high_db(),
+            },
+            transition_info: self.transition.as_ref().map(|t| {
+                let progress = if t.total_transition_frames > 0 {
+                    t.elapsed_frames as f32 / t.total_transition_frames as f32
+                } else {
+                    1.0
+                };
+                (
+                    t.elapsed_frames,
+                    t.total_transition_frames,
+                    progress.clamp(0.0, 1.0),
+                    format!("{:?}", t.recipe.archetype),
+                )
+            }),
+            clipping_count: clippings,
+            underrun_count: underruns,
+            peak_amplitude: peak,
         }
     }
 }

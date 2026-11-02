@@ -1,0 +1,16 @@
+[package]
+name = "attune-watchguard"
+version = "0.1.0"
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Real-time hardware stability monitor, audio clipping detector, and device overhead watchguard for Attune."
+
+[lib]
+name = "attune_watchguard"
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+log.workspace = true

@@ -466,7 +466,7 @@ def compile_rust(mode="release", target_os=None, log_callback=None):
             env[f"AR_{target_snake}"] = str(ar_bin)
             env[f"CARGO_TARGET_{target_snake.upper()}_LINKER"] = str(clang_bin)
 
-            cmd = ["cargo", "build", "-p", "attune-ffi", "--target", rust_target]
+            cmd = ["cargo", "build", "-p", "attune-ffi", "-p", "attune-watchguard", "--target", rust_target]
             if mode.lower() == "release":
                 cmd.append("--release")
 
@@ -486,25 +486,33 @@ def compile_rust(mode="release", target_os=None, log_callback=None):
                 raise RuntimeError(f"Cargo build failed for {rust_target} with exit code {proc.returncode}")
 
             so_path = REPO_ROOT / "target" / rust_target / mode.lower() / "libattune_engine.so"
+            watchguard_so = REPO_ROOT / "target" / rust_target / mode.lower() / "libattune_watchguard.so"
             if not so_path.exists():
                 raise FileNotFoundError(f"Android native library not produced at: {so_path}")
 
-            # Place in apps/attune_app/android/app/src/main/jniLibs/<jni_abi>/libattune_engine.so
+            # Place in apps/attune_app/android/app/src/main/jniLibs/<jni_abi>/
             jni_dir = REPO_ROOT / "apps" / "attune_app" / "android" / "app" / "src" / "main" / "jniLibs" / jni_abi
             jni_dir.mkdir(parents=True, exist_ok=True)
             dest_so = jni_dir / "libattune_engine.so"
             shutil.copy2(so_path, dest_so)
-            log(f"[Rust] Copied {jni_abi} native library to: {dest_so}")
+            log(f"[Rust] Copied {jni_abi} native engine library to: {dest_so}")
+            if watchguard_so.exists():
+                dest_watchguard = jni_dir / "libattune_watchguard.so"
+                shutil.copy2(watchguard_so, dest_watchguard)
+                log(f"[Rust] Copied {jni_abi} watchguard library to: {dest_watchguard}")
             produced.append(dest_so)
 
         # Also copy arm64-v8a to apps/attune_app/lib/ for generic fallback
         dest_lib_dir = REPO_ROOT / "apps" / "attune_app" / "lib"
         dest_lib_dir.mkdir(parents=True, exist_ok=True)
         shutil.copy2(produced[0], dest_lib_dir / "libattune_engine.so")
+        target_wg = REPO_ROOT / "target" / "aarch64-linux-android" / mode.lower() / "libattune_watchguard.so"
+        if target_wg.exists():
+            shutil.copy2(target_wg, dest_lib_dir / "libattune_watchguard.so")
         return produced[0]
 
     # Host desktop build (linux, windows, macos)
-    cmd = ["cargo", "build", "-p", "attune-ffi"]
+    cmd = ["cargo", "build", "-p", "attune-ffi", "-p", "attune-watchguard"]
     if mode.lower() == "release":
         cmd.append("--release")
 
@@ -532,12 +540,16 @@ def compile_rust(mode="release", target_os=None, log_callback=None):
 
     if effective_target_os == "linux" or system == "Linux":
         lib_name = "libattune_engine.so"
+        wg_name = "libattune_watchguard.so"
     elif effective_target_os == "windows" or system == "Windows":
         lib_name = "attune_engine.dll"
+        wg_name = "attune_watchguard.dll"
     elif system == "Darwin":
         lib_name = "libattune_engine.dylib"
+        wg_name = "libattune_watchguard.dylib"
     else:
         lib_name = "libattune_engine.so"
+        wg_name = "libattune_watchguard.so"
 
     lib_path = target_dir / lib_name
     if not lib_path.exists():
@@ -549,6 +561,12 @@ def compile_rust(mode="release", target_os=None, log_callback=None):
     dest_lib = dest_lib_dir / lib_name
     shutil.copy2(lib_path, dest_lib)
     log(f"[Rust] Copied native library to relative lookup path: {dest_lib}")
+
+    wg_path = target_dir / wg_name
+    if wg_path.exists():
+        dest_wg = dest_lib_dir / wg_name
+        shutil.copy2(wg_path, dest_wg)
+        log(f"[Rust] Copied watchguard library to: {dest_wg}")
     return lib_path
 
 

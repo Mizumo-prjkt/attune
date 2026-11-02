@@ -8,6 +8,8 @@ import 'audio_storage_service.dart';
 import 'engine_bridge.dart';
 import 'permission_service.dart';
 import 'settings_service.dart';
+import 'system_audio_player_service.dart';
+import 'watchguard_service.dart';
 
 /// Shuffle playback mode
 enum ShuffleMode {
@@ -109,10 +111,33 @@ class PlaybackController extends ChangeNotifier {
   String? _lastTransitionArchetype;
   double? _lastTransitionDurationSec;
 
+  int _lastReportedClippingCount = 0;
+  int _lastReportedUnderrunCount = 0;
+  bool _overloadAlertDismissed = false;
+
+  bool get isSmartShuffleSupported => SettingsService.instance.decoderMode == AudioDecoderMode.attuneRust;
+  bool get isSystemOverloaded =>
+      WatchguardService.instance.isOverloaded &&
+      SettingsService.instance.decoderMode == AudioDecoderMode.attuneRust &&
+      !_overloadAlertDismissed;
+
+  void dismissOverloadAlert() {
+    _overloadAlertDismissed = true;
+    notifyListeners();
+  }
+
   Timer? _pollingTimer;
 
   PlaybackController._init() {
     _initEngine();
+    SystemAudioPlayerService.instance.onTrackEnded = (path) {
+      if (SettingsService.instance.decoderMode == AudioDecoderMode.systemDefault) {
+        skipNext(autoPlay: true);
+      }
+    };
+    WatchguardService.instance.addListener(() {
+      notifyListeners();
+    });
     if (!Platform.environment.containsKey('FLUTTER_TEST')) {
       _loadCachedTracksImmediately();
       Future.microtask(() {
@@ -198,7 +223,64 @@ class PlaybackController extends ChangeNotifier {
   String? get lastTransitionArchetype => _lastTransitionArchetype;
   double? get lastTransitionDurationSec => _lastTransitionDurationSec;
 
+  Future<void> switchDecoderMode(AudioDecoderMode newMode) async {
+    if (SettingsService.instance.decoderMode == newMode) return;
+    SettingsService.instance.setDecoderMode(newMode);
+    final wasPlaying = _isPlaying;
+    final currentPos = _positionSec;
+    final track = currentTrack;
+
+    if (newMode == AudioDecoderMode.systemDefault) {
+      _bridge.playerStop();
+      if (_shuffleMode == ShuffleMode.smart) {
+        _shuffleMode = ShuffleMode.standard;
+      }
+      _isTransitioning = false;
+      _transitionProgress = 0.0;
+      _pendingRecipe = null;
+      if (track != null) {
+        await SystemAudioPlayerService.instance.load(track.filePath);
+        if (currentPos > 0) {
+          await SystemAudioPlayerService.instance.seek(Duration(milliseconds: (currentPos * 1000).toInt()));
+        }
+        if (wasPlaying) {
+          await SystemAudioPlayerService.instance.play();
+        }
+      }
+    } else {
+      await SystemAudioPlayerService.instance.stop();
+      _bridge.playerStart();
+      _loadedDeckAPath = null;
+      if (track != null) {
+        _loadCurrentTrackToEngine(force: true);
+        if (currentPos > 0) {
+          _bridge.playerSeek(-1, (currentPos * 1000).toInt());
+        }
+        if (wasPlaying) {
+          _bridge.playerPlay();
+        }
+      }
+    }
+    notifyListeners();
+  }
+
   void cycleShuffleMode() {
+    if (SettingsService.instance.decoderMode == AudioDecoderMode.systemDefault) {
+      // In system codec mode, Smart Shuffle is strictly disabled
+      switch (_shuffleMode) {
+        case ShuffleMode.off:
+          _shuffleMode = ShuffleMode.standard;
+          break;
+        case ShuffleMode.standard:
+        case ShuffleMode.smart:
+          _shuffleMode = ShuffleMode.off;
+          break;
+      }
+      _upNextQueueIndex = _pickNextQueueIndex();
+      notifyListeners();
+      return;
+    }
+
     switch (_shuffleMode) {
       case ShuffleMode.off:
         _shuffleMode = ShuffleMode.standard;
@@ -221,6 +303,20 @@ class PlaybackController extends ChangeNotifier {
         _preparePendingRecipe();
       });
     }
+  }
+
+  void setShuffleMode(ShuffleMode mode) {
+    if (SettingsService.instance.decoderMode == AudioDecoderMode.systemDefault && mode == ShuffleMode.smart) {
+      // Blocked: Smart Shuffle is exclusively supported on Attune's FFI engine
+      _shuffleMode = ShuffleMode.standard;
+      _upNextQueueIndex = _pickNextQueueIndex();
+      notifyListeners();
+      return;
+    }
+    _shuffleMode = mode;
+    _upNextQueueIndex = _pickNextQueueIndex();
+    _preparePendingRecipe();
+    notifyListeners();
   }
 
   /// Applies duration thresholds and exclusion list filters to the active library and queue
@@ -381,9 +477,36 @@ class PlaybackController extends ChangeNotifier {
 
   void _pollNativeState() {
     try {
+      if (SettingsService.instance.decoderMode == AudioDecoderMode.systemDefault) {
+        _positionSec = SystemAudioPlayerService.instance.positionSec;
+        if (SystemAudioPlayerService.instance.durationSec > 0) {
+          _durationSec = SystemAudioPlayerService.instance.durationSec;
+        }
+        _isPlaying = SystemAudioPlayerService.instance.isPlaying;
+        _isTransitioning = false;
+        notifyListeners();
+        return;
+      }
+
       final state = _bridge.playerGetState();
 
       if (state != null && state['initialized'] == true) {
+        final clippingCount = (state['clipping_count'] as num?)?.toInt() ?? 0;
+        final underrunCount = (state['underrun_count'] as num?)?.toInt() ?? 0;
+        final peakAmp = (state['peak_amplitude'] as num?)?.toDouble() ?? 0.0;
+
+        if (clippingCount > _lastReportedClippingCount || underrunCount > _lastReportedUnderrunCount) {
+          final isClipping = clippingCount > _lastReportedClippingCount;
+          final isUnderrun = underrunCount > _lastReportedUnderrunCount;
+          _lastReportedClippingCount = clippingCount;
+          _lastReportedUnderrunCount = underrunCount;
+          WatchguardService.instance.recordAudioEvent(
+            peakAmplitude: peakAmp,
+            isUnderrun: isUnderrun,
+            isClipping: isClipping,
+          );
+        }
+
         final nativeIsPlaying = state['is_playing'] as bool? ?? false;
         final activeDeck = state['active_deck'] as String? ?? 'DeckA';
         final deckA = state['deck_a'] as Map<String, dynamic>?;
@@ -500,19 +623,31 @@ class PlaybackController extends ChangeNotifier {
       seek(0.0);
     }
     _isPlaying = true;
-    _bridge.playerPlay();
+    if (SettingsService.instance.decoderMode == AudioDecoderMode.systemDefault) {
+      SystemAudioPlayerService.instance.play();
+    } else {
+      _bridge.playerPlay();
+    }
     notifyListeners();
   }
 
   void pause() {
     _isPlaying = false;
-    _bridge.playerPause();
+    if (SettingsService.instance.decoderMode == AudioDecoderMode.systemDefault) {
+      SystemAudioPlayerService.instance.pause();
+    } else {
+      _bridge.playerPause();
+    }
     notifyListeners();
   }
 
   void seek(double seconds) {
     _positionSec = seconds.clamp(0.0, _durationSec);
-    _bridge.playerSeek(-1, (_positionSec * 1000).toInt());
+    if (SettingsService.instance.decoderMode == AudioDecoderMode.systemDefault) {
+      SystemAudioPlayerService.instance.seek(Duration(milliseconds: (_positionSec * 1000).toInt()));
+    } else {
+      _bridge.playerSeek(-1, (_positionSec * 1000).toInt());
+    }
     notifyListeners();
   }
 
@@ -547,7 +682,11 @@ class PlaybackController extends ChangeNotifier {
     _loadCurrentTrackToEngine(force: true);
     if (wasPlaying) {
       _isPlaying = true;
-      _bridge.playerPlay();
+      if (SettingsService.instance.decoderMode == AudioDecoderMode.systemDefault) {
+        SystemAudioPlayerService.instance.play();
+      } else {
+        _bridge.playerPlay();
+      }
     }
     notifyListeners();
   }
@@ -983,7 +1122,11 @@ class PlaybackController extends ChangeNotifier {
       _pendingRecipe = null;
       _loadCurrentTrackToEngine(force: true);
       if (_isPlaying) {
-        _bridge.playerPlay();
+        if (SettingsService.instance.decoderMode == AudioDecoderMode.systemDefault) {
+          SystemAudioPlayerService.instance.play();
+        } else {
+          _bridge.playerPlay();
+        }
       }
     }
     notifyListeners();
@@ -1155,13 +1298,20 @@ class PlaybackController extends ChangeNotifier {
 
   void _loadCurrentTrackToEngine({bool force = false}) {
     final track = currentTrack;
-    if (track != null) {
-      _durationSec = track.duration.inSeconds.toDouble();
-      if (force || _loadedDeckAPath != track.filePath) {
-        _positionSec = 0.0;
-        _loadedDeckAPath = track.filePath;
-        _bridge.playerLoadTrack(0, track.filePath);
-      }
+    if (track == null) return;
+    _durationSec = track.duration.inSeconds.toDouble();
+
+    if (SettingsService.instance.decoderMode == AudioDecoderMode.systemDefault) {
+      _positionSec = 0.0;
+      _loadedDeckAPath = track.filePath;
+      SystemAudioPlayerService.instance.load(track.filePath);
+      return;
+    }
+
+    if (force || _loadedDeckAPath != track.filePath) {
+      _positionSec = 0.0;
+      _loadedDeckAPath = track.filePath;
+      _bridge.playerLoadTrack(0, track.filePath);
     }
     final next = upNextTrack;
     if (next != null) {

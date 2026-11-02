@@ -10,6 +10,7 @@ import '../services/playback_controller.dart';
 import '../services/equalizer_service.dart';
 import '../services/platform_navigation.dart';
 import '../services/settings_service.dart';
+import '../services/watchguard_service.dart';
 import 'about_stage.dart';
 import 'equalizer_stage.dart';
 import 'song_exclusion_stage.dart';
@@ -198,7 +199,7 @@ class _SettingsAndAudioStageState extends State<SettingsAndAudioStage> with Widg
               // 2. Settings Categorized Lists
               Expanded(
                 child: ListenableBuilder(
-                  listenable: Listenable.merge([_settings, _playback]),
+                  listenable: Listenable.merge([_settings, _playback, WatchguardService.instance]),
                   builder: (context, _) {
                     return ListView(
                       physics: const BouncingScrollPhysics(),
@@ -338,6 +339,16 @@ class _SettingsAndAudioStageState extends State<SettingsAndAudioStage> with Widg
                                 subtitle: _settings.decoderMode.displayName,
                                 trailing: const Icon(Icons.chevron_right_rounded, color: Colors.white38, size: 20),
                                 onTap: () => _openDecoderDialog(context),
+                              ),
+                              const Divider(height: 1, color: Colors.white10),
+                              _buildSettingTile(
+                                icon: Icons.health_and_safety_rounded,
+                                title: 'Watchguard Diagnostics',
+                                subtitle: WatchguardService.instance.isOverloaded
+                                    ? 'Overloaded • Buffer underruns or clipping detected'
+                                    : 'Stable • ${WatchguardService.instance.averageFps.toStringAsFixed(0)} FPS • ${WatchguardService.instance.currentStatus.clippingCount} clipping',
+                                trailing: const Icon(Icons.chevron_right_rounded, color: Colors.white38, size: 20),
+                                onTap: () => _openWatchguardDialog(context),
                               ),
                               const Divider(height: 1, color: Colors.white10),
                               _buildSettingTile(
@@ -705,7 +716,7 @@ class _SettingsAndAudioStageState extends State<SettingsAndAudioStage> with Widg
                   borderRadius: BorderRadius.circular(14),
                   onTap: () {
                     setDialogState(() {
-                      _settings.setDecoderMode(mode);
+                      _playback.switchDecoderMode(mode);
                     });
                   },
                   child: Padding(
@@ -750,6 +761,133 @@ class _SettingsAndAudioStageState extends State<SettingsAndAudioStage> with Widg
           child: const Text('Close', style: TextStyle(color: Colors.white)),
         ),
       ],
+    );
+  }
+
+  void _openWatchguardDialog(BuildContext context) {
+    _showGlassDialog(
+      context: context,
+      title: 'Watchguard Diagnostics',
+      child: StatefulBuilder(
+        builder: (ctx, setDialogState) {
+          final status = WatchguardService.instance.currentStatus;
+          final isOverloaded = status.isOverloaded;
+          final colorScheme = Theme.of(context).colorScheme;
+
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: isOverloaded
+                      ? Colors.amberAccent.withValues(alpha: 0.15)
+                      : colorScheme.primary.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(
+                    color: isOverloaded
+                        ? Colors.amberAccent.withValues(alpha: 0.5)
+                        : colorScheme.primary.withValues(alpha: 0.3),
+                  ),
+                ),
+                child: Row(
+                  children: [
+                    Icon(
+                      isOverloaded ? Icons.warning_amber_rounded : Icons.verified_rounded,
+                      color: isOverloaded ? Colors.amberAccent : colorScheme.primary,
+                      size: 24,
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            isOverloaded ? 'System Overloaded' : 'Hardware Stable',
+                            style: AttuneTypography.soraSubheading(
+                              color: Colors.white,
+                              fontSize: 14,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            status.warningMessage ?? 'Attune Engine & UI running within target latency parameters.',
+                            style: AttuneTypography.jakartaBodySmall(
+                              color: Colors.white70,
+                              fontSize: 11,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 16),
+              _buildDiagnosticMetricRow('Guardrail Engine Version', 'v${WatchguardService.instance.version}'),
+              _buildDiagnosticMetricRow('Native Audio Clippings', '${status.clippingCount} events'),
+              _buildDiagnosticMetricRow('Buffer Underruns', '${status.underrunCount} events'),
+              _buildDiagnosticMetricRow('UI Render Cadence', '${status.averageFps.toStringAsFixed(1)} FPS'),
+              _buildDiagnosticMetricRow('Dropped Frame Ratio', '${(status.droppedFrameRatio * 100).toStringAsFixed(1)}%'),
+              _buildDiagnosticMetricRow('Peak Frame Duration', '${status.peakFrameDurationMs.toStringAsFixed(1)} ms'),
+              _buildDiagnosticMetricRow('Instability Score', '${(status.instabilityScore * 100).toStringAsFixed(0)}%'),
+              const SizedBox(height: 16),
+              if (isOverloaded && _settings.decoderMode == AudioDecoderMode.attuneRust) ...[
+                ElevatedButton.icon(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.amberAccent.withValues(alpha: 0.2),
+                    foregroundColor: Colors.amberAccent,
+                    minimumSize: const Size.fromHeight(40),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  ),
+                  icon: const Icon(Icons.swap_horiz_rounded, size: 18),
+                  label: const Text('Switch to System Codec'),
+                  onPressed: () {
+                    _playback.switchDecoderMode(AudioDecoderMode.systemDefault);
+                    setDialogState(() {});
+                  },
+                ),
+                const SizedBox(height: 8),
+              ],
+              OutlinedButton.icon(
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: Colors.white70,
+                  side: const BorderSide(color: Colors.white24),
+                  minimumSize: const Size.fromHeight(40),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                ),
+                icon: const Icon(Icons.refresh_rounded, size: 18),
+                label: const Text('Reset Metrics'),
+                onPressed: () {
+                  WatchguardService.instance.resetMetrics();
+                  _playback.dismissOverloadAlert();
+                  setDialogState(() {});
+                },
+              ),
+            ],
+          );
+        },
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Close', style: TextStyle(color: Colors.white)),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildDiagnosticMetricRow(String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text(label, style: AttuneTypography.jakartaBodySmall(color: Colors.white60, fontSize: 12)),
+          Text(value, style: AttuneTypography.soraBadge(color: Colors.white, fontSize: 12)),
+        ],
+      ),
     );
   }
 

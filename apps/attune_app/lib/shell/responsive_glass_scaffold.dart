@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import '../services/audio_storage_service.dart';
 import '../services/playback_controller.dart';
 import '../services/platform_navigation.dart';
+import '../services/settings_service.dart';
 import '../stages/albums_stage.dart';
 import '../stages/equalizer_stage.dart';
 import '../stages/home_stage.dart';
@@ -170,6 +171,15 @@ class _ResponsiveGlassScaffoldState extends State<ResponsiveGlassScaffold>
           bottom: hasTrack ? 148 : 84, // Extra space when floating mini player is visible
           child: activeStage,
         ),
+
+        // System Overload Alert Banner
+        if (controller.isSystemOverloaded)
+          Positioned(
+            top: 12,
+            left: 16,
+            right: 16,
+            child: _buildSystemOverloadBanner(colorScheme, controller),
+          ),
 
         // Floating Mini-Player Toolbar (with neon-like lighting box)
         if (hasTrack)
@@ -384,6 +394,13 @@ class _ResponsiveGlassScaffoldState extends State<ResponsiveGlassScaffold>
                 bottom: hasTrack ? 80 : 0,
                 child: centerStage,
               ),
+              if (controller.isSystemOverloaded)
+                Positioned(
+                  top: 16,
+                  left: 20,
+                  right: 20,
+                  child: _buildSystemOverloadBanner(colorScheme, controller),
+                ),
               if (hasTrack)
                 Positioned(
                   left: 16,
@@ -621,6 +638,84 @@ class _ResponsiveGlassScaffoldState extends State<ResponsiveGlassScaffold>
             ],
           );
         },
+      ),
+    );
+  }
+
+  Widget _buildSystemOverloadBanner(ColorScheme colorScheme, PlaybackController controller) {
+    return Material(
+      color: Colors.transparent,
+      child: LiquidGlassContainer(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+        borderRadius: 18,
+        blurSigma: 24.0,
+        surfaceAlpha: 0.28,
+        borderColor: Colors.amberAccent.withValues(alpha: 0.6),
+        child: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: Colors.amberAccent.withValues(alpha: 0.16),
+                shape: BoxShape.circle,
+              ),
+              child: const Icon(
+                Icons.warning_amber_rounded,
+                color: Colors.amberAccent,
+                size: 22,
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'System Overloaded: Audio Clipping Detected',
+                    style: AttuneTypography.soraSubheading(
+                      color: Colors.white,
+                      fontSize: 13,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    'Hardware audio underruns detected on Attune Engine. Suggest switching to System Codec.',
+                    style: AttuneTypography.jakartaBodySmall(
+                      color: Colors.white70,
+                      fontSize: 11,
+                    ),
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 8),
+            FilledButton.tonal(
+              style: FilledButton.styleFrom(
+                backgroundColor: Colors.amberAccent.withValues(alpha: 0.22),
+                foregroundColor: Colors.amberAccent,
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                visualDensity: VisualDensity.compact,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              ),
+              onPressed: () => controller.switchDecoderMode(AudioDecoderMode.systemDefault),
+              child: Text(
+                'Switch Codec',
+                style: AttuneTypography.soraBadge(color: Colors.amberAccent, fontSize: 11),
+              ),
+            ),
+            const SizedBox(width: 4),
+            IconButton(
+              icon: const Icon(Icons.close_rounded, color: Colors.white60, size: 18),
+              tooltip: 'Dismiss overload alert',
+              visualDensity: VisualDensity.compact,
+              onPressed: () => controller.dismissOverloadAlert(),
+            ),
+          ],
+        ),
       ),
     );
   }
