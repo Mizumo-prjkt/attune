@@ -1737,12 +1737,18 @@ This file records all major architectural decisions for **Attune**, including co
 - **Decision**:
   1. **Honeycomb Hexagonal Geometry (`BubbleNavigationStage`)**:
      - Created `apps/attune_app/lib/stages/bubble_navigation_stage.dart`.
-     - Computed concentric hexagonal rings: Ring 0 at $(0, 0)$, Ring 1 with 6 vertices at $112\text{px}$ spacing, Ring 2 with 12 vertices, up to $N$ items along perimeter edges.
-  2. **Cosine Fisheye Lens & Viewport Culling**:
-     - Scaled bubbles using a smooth cosine lens equation:
-       $$\text{scale}(d) = 0.52 + (1.48 - 0.52) \times 0.5 \times (1.0 + \cos(\pi \cdot \text{clamp}(d / R_{\text{lens}}, 0, 1)))$$
-       yielding $1.48\times$ center magnification and $0.52\times$ perimeter edge tapering.
-     - Added spherical outward radial displacement: $P_{\text{pushed}} = \text{center} + \vec{d} \times (1.0 + 0.12 \times (1 - t^2))$.
+     - Computed concentric hexagonal rings: Ring 0 at $(0, 0)$, Ring 1 with 6 vertices at $82\text{px}$ spacing (base diameter $74\text{px}$), Ring 2 with 12 vertices, up to $N$ items along perimeter edges.
+  2. **Closed-Form Integral Lens Projection & Anti-Flickering Architecture**:
+     - Scaled bubbles using a smooth cosine lens equation coupled with its analytical integral for radial distance:
+       $$\text{scale}(u) = 0.64 + 0.36 \times (1.0 + \cos(\pi u)) \quad (u \le 1.0)$$
+       $$r'(u) = R_{\text{lens}} \times (u + 0.1146 \times \sin(\pi u))$$
+       yielding $1.36\times$ center magnification ($100.6\text{px}$ diameter) and $0.64\times$ perimeter edge scale ($47.4\text{px}$ diameter).
+     - Because $r'(u)$ and $\text{scale}(u)$ compress and expand together across all rings, the gap between adjacent bubbles remains consistently tight ($5\text{px}$ to $11.5\text{px}$) everywhere, completely eliminating large black chasms or scattered outer dots.
+     - **Zero Album Art Flickering**:
+       * Pre-validated artwork file existence on model initialization (`hasArtworkFile`), completely removing synchronous `File.existsSync()` disk calls from per-frame rendering.
+       * Enabled `gaplessPlayback: true` and capped GPU texture decoding with `cacheWidth: 160, cacheHeight: 160`.
+       * Tagged each positioned bubble with `key: ValueKey(rb.item.id)` so Flutter element identity is perfectly preserved across Stack children sorting without repainting image streams.
+       * Synchronously resolved `activeHighlightIndex` in `build`, eliminating asynchronous `WidgetsBinding.instance.addPostFrameCallback` churn.
      - Evaluated viewport culling per frame, skipping rendering for any bubble fully outside $([-40, W+40], [-40, H+40])$, ensuring solid 120 FPS performance on Impeller and Skia.
   3. **Interactive 2D Pan Momentum & Nearest Bubble Catch**:
      - Handled 2D pan with velocity momentum coasting and spring deceleration.

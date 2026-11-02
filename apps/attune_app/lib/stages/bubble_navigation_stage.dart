@@ -20,6 +20,7 @@ class BubbleItem {
   final String? album;
   final String? artworkFile;
   final String? artworkAsset;
+  final bool hasArtworkFile;
   final Color seedColor;
   final double bpm;
   final String musicalKey;
@@ -35,6 +36,7 @@ class BubbleItem {
     this.album,
     this.artworkFile,
     this.artworkAsset,
+    this.hasArtworkFile = false,
     required this.seedColor,
     this.bpm = 0.0,
     this.musicalKey = '--',
@@ -52,6 +54,7 @@ class BubbleItem {
       album: album,
       artworkFile: artworkFile,
       artworkAsset: artworkAsset,
+      hasArtworkFile: hasArtworkFile,
       seedColor: seedColor,
       bpm: bpm,
       musicalKey: musicalKey,
@@ -103,7 +106,8 @@ class _BubbleNavigationStageState extends State<BubbleNavigationStage>
   int _highlightedIndex = 0;
   List<BubbleItem> _items = [];
 
-  static const double _hexSpacing = 112.0;
+  static const double _hexSpacing = 82.0;
+  static const double _baseDiameter = 74.0;
 
   @override
   void initState() {
@@ -179,18 +183,24 @@ class _BubbleNavigationStageState extends State<BubbleNavigationStage>
 
     switch (_filterMode) {
       case BubbleFilterMode.allTracks:
-        rawItems = allTracks.map((t) => BubbleItem(
-          id: t.id,
-          title: t.title,
-          subtitle: t.artist,
-          album: t.album,
-          artworkFile: t.artworkFile,
-          artworkAsset: t.artworkAsset,
-          seedColor: t.seedColor,
-          bpm: t.effectiveBpm,
-          musicalKey: t.musicalKey,
-          track: t,
-        )).toList();
+        rawItems = allTracks.map((t) {
+          final hasArt = t.artworkFile != null &&
+              t.artworkFile!.isNotEmpty &&
+              File(t.artworkFile!).existsSync();
+          return BubbleItem(
+            id: t.id,
+            title: t.title,
+            subtitle: t.artist,
+            album: t.album,
+            artworkFile: t.artworkFile,
+            artworkAsset: t.artworkAsset,
+            hasArtworkFile: hasArt,
+            seedColor: t.seedColor,
+            bpm: t.effectiveBpm,
+            musicalKey: t.musicalKey,
+            track: t,
+          );
+        }).toList();
         break;
 
       case BubbleFilterMode.albums:
@@ -201,6 +211,9 @@ class _BubbleNavigationStageState extends State<BubbleNavigationStage>
         }
         rawItems = albumMap.entries.map((e) {
           final first = e.value.first;
+          final hasArt = first.artworkFile != null &&
+              first.artworkFile!.isNotEmpty &&
+              File(first.artworkFile!).existsSync();
           return BubbleItem(
             id: 'album_${e.key}',
             title: e.key,
@@ -208,6 +221,7 @@ class _BubbleNavigationStageState extends State<BubbleNavigationStage>
             album: e.key,
             artworkFile: first.artworkFile,
             artworkAsset: first.artworkAsset,
+            hasArtworkFile: hasArt,
             seedColor: first.seedColor,
             bpm: first.effectiveBpm,
             musicalKey: first.musicalKey,
@@ -217,15 +231,22 @@ class _BubbleNavigationStageState extends State<BubbleNavigationStage>
         break;
 
       case BubbleFilterMode.forYouMixes:
-        rawItems = mixes.map((m) => BubbleItem(
-          id: m.id,
-          title: m.title,
-          subtitle: m.subtitle,
-          artworkFile: m.tracks.isNotEmpty ? m.tracks.first.artworkFile : null,
-          seedColor: m.primaryColor,
-          mix: m,
-          albumTracks: m.tracks,
-        )).toList();
+        rawItems = mixes.map((m) {
+          final firstArt = m.tracks.isNotEmpty ? m.tracks.first.artworkFile : null;
+          final hasArt = firstArt != null &&
+              firstArt.isNotEmpty &&
+              File(firstArt).existsSync();
+          return BubbleItem(
+            id: m.id,
+            title: m.title,
+            subtitle: m.subtitle,
+            artworkFile: firstArt,
+            hasArtworkFile: hasArt,
+            seedColor: m.primaryColor,
+            mix: m,
+            albumTracks: m.tracks,
+          );
+        }).toList();
         break;
 
       case BubbleFilterMode.rock:
@@ -235,34 +256,46 @@ class _BubbleNavigationStageState extends State<BubbleNavigationStage>
             ? 'Rock'
             : (_filterMode == BubbleFilterMode.pop ? 'Pop' : 'Electronic');
         final filtered = allTracks.where((t) => t.genre.toLowerCase().contains(genreStr.toLowerCase())).toList();
-        rawItems = filtered.map((t) => BubbleItem(
+        rawItems = filtered.map((t) {
+          final hasArt = t.artworkFile != null &&
+              t.artworkFile!.isNotEmpty &&
+              File(t.artworkFile!).existsSync();
+          return BubbleItem(
+            id: t.id,
+            title: t.title,
+            subtitle: t.artist,
+            album: t.album,
+            artworkFile: t.artworkFile,
+            artworkAsset: t.artworkAsset,
+            hasArtworkFile: hasArt,
+            seedColor: t.seedColor,
+            bpm: t.effectiveBpm,
+            musicalKey: t.musicalKey,
+            track: t,
+          );
+        }).toList();
+        break;
+    }
+
+    if (rawItems.isEmpty && allTracks.isNotEmpty) {
+      rawItems = allTracks.take(30).map((t) {
+        final hasArt = t.artworkFile != null &&
+            t.artworkFile!.isNotEmpty &&
+            File(t.artworkFile!).existsSync();
+        return BubbleItem(
           id: t.id,
           title: t.title,
           subtitle: t.artist,
           album: t.album,
           artworkFile: t.artworkFile,
           artworkAsset: t.artworkAsset,
+          hasArtworkFile: hasArt,
           seedColor: t.seedColor,
           bpm: t.effectiveBpm,
           musicalKey: t.musicalKey,
           track: t,
-        )).toList();
-        break;
-    }
-
-    if (rawItems.isEmpty && allTracks.isNotEmpty) {
-      rawItems = allTracks.take(30).map((t) => BubbleItem(
-        id: t.id,
-        title: t.title,
-        subtitle: t.artist,
-        album: t.album,
-        artworkFile: t.artworkFile,
-        artworkAsset: t.artworkAsset,
-        seedColor: t.seedColor,
-        bpm: t.effectiveBpm,
-        musicalKey: t.musicalKey,
-        track: t,
-      )).toList();
+        );
+      }).toList();
     }
 
     final positions = _generateHexagonalPositions(rawItems.length);
@@ -364,14 +397,15 @@ class _BubbleNavigationStageState extends State<BubbleNavigationStage>
   }
 
   Widget _buildBubbleContent(BubbleItem item, double size) {
-    if (item.artworkFile != null &&
-        item.artworkFile!.isNotEmpty &&
-        File(item.artworkFile!).existsSync()) {
+    if (item.hasArtworkFile && item.artworkFile != null) {
       return Image.file(
         File(item.artworkFile!),
         width: size,
         height: size,
         fit: BoxFit.cover,
+        gaplessPlayback: true,
+        cacheWidth: 160,
+        cacheHeight: 160,
       );
     } else if (item.artworkAsset != null && item.artworkAsset!.isNotEmpty) {
       return Image.asset(
@@ -379,6 +413,9 @@ class _BubbleNavigationStageState extends State<BubbleNavigationStage>
         width: size,
         height: size,
         fit: BoxFit.cover,
+        gaplessPlayback: true,
+        cacheWidth: 160,
+        cacheHeight: 160,
       );
     } else if (item.mix != null) {
       return AutogeneratedMixCover(
@@ -414,14 +451,7 @@ class _BubbleNavigationStageState extends State<BubbleNavigationStage>
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
-    final highlightedItem = _items.isNotEmpty && _highlightedIndex < _items.length
-        ? _items[_highlightedIndex]
-        : null;
-
     final controller = PlaybackController.instance;
-    final isCurrentPlaying = highlightedItem?.track != null &&
-        controller.currentTrack?.id == highlightedItem!.track!.id &&
-        controller.isPlaying;
 
     return Scaffold(
       backgroundColor: const Color(0xFF0D0F14), // Pure deep space-black surface
@@ -436,40 +466,56 @@ class _BubbleNavigationStageState extends State<BubbleNavigationStage>
             // Shift center slightly upward so bottom highlight card does not collide
             final centerY = h / 2.0 - 45.0;
 
-            final lensRadius = math.min(w, h) * 0.64;
+            final lensRadius = math.max(300.0, math.min(w, h) * 0.60);
 
             // Find closest bubble to center
             int closestIndex = 0;
             double minCenterDist = double.infinity;
 
-            // Structure to hold rendered bubble layout info
             final visibleBubbles = <_RenderBubble>[];
+
+            const double sMax = 1.36; // Center magnification (diameter ≈ 100px)
+            const double sMin = 0.64; // Perimeter edge scale (diameter ≈ 47px)
+            const double deltaS = sMax - sMin; // 0.72
+            final double kFactor = deltaS / (2.0 * math.pi); // ≈ 0.1146
 
             for (int i = 0; i < _items.length; i++) {
               final item = _items[i];
-              final sx = centerX + item.baseOffset.dx + _panOffset.dx;
-              final sy = centerY + item.baseOffset.dy + _panOffset.dy;
+              final sx = item.baseOffset.dx + _panOffset.dx;
+              final sy = item.baseOffset.dy + _panOffset.dy;
 
-              final dx = sx - centerX;
-              final dy = sy - centerY;
-              final dist = math.sqrt(dx * dx + dy * dy);
+              final dist = math.sqrt(sx * sx + sy * sy);
 
               if (dist < minCenterDist) {
                 minCenterDist = dist;
                 closestIndex = i;
               }
 
-              // Fisheye Lens Cosine Curve:
-              // Scales from 1.48x at center down to 0.52x at perimeter
-              final t = (dist / lensRadius).clamp(0.0, 1.0);
-              final scale = 0.52 + (1.48 - 0.52) * 0.5 * (1.0 + math.cos(math.pi * t));
+              final u = dist / lensRadius;
+              final double scale;
+              final double rPrime;
 
-              // Radial lens curvature push
-              final pushFactor = 1.0 + 0.12 * (1.0 - t * t);
-              final finalX = centerX + dx * pushFactor;
-              final finalY = centerY + dy * pushFactor;
+              if (u <= 1.0) {
+                // Smooth integral cosine lens expansion & compression
+                scale = sMin + (deltaS * 0.5) * (1.0 + math.cos(math.pi * u));
+                rPrime = lensRadius * (u + kFactor * math.sin(math.pi * u));
+              } else {
+                scale = (sMin - 0.08 * (u - 1.0)).clamp(0.48, sMin);
+                rPrime = lensRadius * (1.0 + sMin * (u - 1.0));
+              }
 
-              final diameter = 76.0 * scale;
+              final double finalX;
+              final double finalY;
+              if (dist > 0.001) {
+                final push = rPrime / dist;
+                finalX = centerX + sx * push;
+                finalY = centerY + sy * push;
+              } else {
+                finalX = centerX;
+                finalY = centerY;
+              }
+
+              final diameter = _baseDiameter * scale;
 
               // Viewport Culling: Skip bubbles that are fully offscreen
               if (finalX + diameter < -40 ||
@@ -490,18 +536,19 @@ class _BubbleNavigationStageState extends State<BubbleNavigationStage>
               ));
             }
 
-            // Sync nearest highlight
-            if (_highlightedIndex != closestIndex && !_animController.isAnimating) {
-              WidgetsBinding.instance.addPostFrameCallback((_) {
-                if (mounted && _highlightedIndex != closestIndex) {
-                  setState(() {
-                    _highlightedIndex = closestIndex;
-                  });
-                }
-              });
-            }
+            // Synchronously resolve current highlight index
+            final activeHighlightIndex = _animController.isAnimating ? _highlightedIndex : closestIndex;
+            _highlightedIndex = activeHighlightIndex;
 
-            // Sort visible bubbles by distance descending so center bubbles render on top (highest Z-index)
+            final highlightedItem = _items.isNotEmpty && activeHighlightIndex < _items.length
+                ? _items[activeHighlightIndex]
+                : null;
+
+            final isCurrentPlaying = highlightedItem?.track != null &&
+                controller.currentTrack?.id == highlightedItem!.track!.id &&
+                controller.isPlaying;
+
+            // Sort visible bubbles by distance descending so center bubble renders on top (highest Z-index)
             visibleBubbles.sort((a, b) => b.distFromCenter.compareTo(a.distFromCenter));
 
             return Stack(
@@ -518,8 +565,9 @@ class _BubbleNavigationStageState extends State<BubbleNavigationStage>
                     color: Colors.transparent,
                     child: Stack(
                       children: visibleBubbles.map((rb) {
-                        final isHighlighted = rb.index == _highlightedIndex;
+                        final isHighlighted = rb.index == activeHighlightIndex;
                         return Positioned(
+                          key: ValueKey(rb.item.id),
                           left: rb.x - rb.diameter / 2.0,
                           top: rb.y - rb.diameter / 2.0,
                           width: rb.diameter,
@@ -535,24 +583,23 @@ class _BubbleNavigationStageState extends State<BubbleNavigationStage>
                             onDoubleTap: () {
                               _playItem(rb.item);
                             },
-                            child: AnimatedContainer(
-                              duration: const Duration(milliseconds: 180),
+                            child: Container(
                               decoration: BoxDecoration(
                                 shape: BoxShape.circle,
-                                boxShadow: [
-                                  BoxShadow(
-                                    color: isHighlighted
-                                        ? colorScheme.primary.withValues(alpha: 0.55)
-                                        : Colors.black.withValues(alpha: 0.45),
-                                    blurRadius: isHighlighted ? 22 : 10,
-                                    spreadRadius: isHighlighted ? 3 : 0,
-                                    offset: Offset(0, isHighlighted ? 6 : 4),
-                                  ),
-                                ],
+                                boxShadow: isHighlighted
+                                    ? [
+                                        BoxShadow(
+                                          color: colorScheme.primary.withValues(alpha: 0.55),
+                                          blurRadius: 18,
+                                          spreadRadius: 2,
+                                          offset: const Offset(0, 4),
+                                        ),
+                                      ]
+                                    : null,
                                 border: Border.all(
                                   color: isHighlighted
                                       ? colorScheme.primary
-                                      : Colors.white.withValues(alpha: 0.16),
+                                      : Colors.white.withValues(alpha: 0.18),
                                   width: isHighlighted ? 3.0 : 1.2,
                                 ),
                               ),
@@ -633,17 +680,17 @@ class _BubbleNavigationStageState extends State<BubbleNavigationStage>
 
                 // 3. Center Target Catch Reticle (Subtle Spherical Lens Cue)
                 Positioned(
-                  left: centerX - 48,
-                  top: centerY - 48,
-                  width: 96,
-                  height: 96,
+                  left: centerX - 54,
+                  top: centerY - 54,
+                  width: 108,
+                  height: 108,
                   child: IgnorePointer(
                     child: Container(
                       decoration: BoxDecoration(
                         shape: BoxShape.circle,
                         border: Border.all(
-                          color: colorScheme.primary.withValues(alpha: 0.22),
-                          width: 1.0,
+                          color: colorScheme.primary.withValues(alpha: 0.26),
+                          width: 1.2,
                         ),
                       ),
                     ),
