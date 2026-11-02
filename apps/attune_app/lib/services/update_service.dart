@@ -166,29 +166,14 @@ class UpdateService {
   String? get lastError => _lastError;
   DateTime? get lastCheckedTime => _lastCheckedTime;
 
-  /// Compares semantic version [current] against [remote].
+  /// Compares semantic version [current] against [remote] according to SemVer 2.0.0
+  /// and natural token precedence (supporting pre-releases like -rc3, -rc4, -beta, -alpha).
   /// Returns negative if current < remote (remote is newer),
   /// 0 if equal, and positive if current > remote.
   static int compareSemanticVersions(String current, String remote) {
-    List<int> parseSegments(String ver) {
-      final sanitized = ver.trim().replaceFirst(RegExp(r'^[vV]'), '');
-      final match = RegExp(r'^(\d+)(?:\.(\d+))?(?:\.(\d+))?').firstMatch(sanitized);
-      if (match == null) return [0, 0, 0];
-      return [
-        int.tryParse(match.group(1) ?? '0') ?? 0,
-        int.tryParse(match.group(2) ?? '0') ?? 0,
-        int.tryParse(match.group(3) ?? '0') ?? 0,
-      ];
-    }
-
-    final vCurrent = parseSegments(current);
-    final vRemote = parseSegments(remote);
-
-    for (int i = 0; i < 3; i++) {
-      if (vCurrent[i] < vRemote[i]) return -1;
-      if (vCurrent[i] > vRemote[i]) return 1;
-    }
-    return 0;
+    final vCurrent = _ParsedVersion.parse(current);
+    final vRemote = _ParsedVersion.parse(remote);
+    return vCurrent.compareTo(vRemote);
   }
 
   /// Resolves the current application version dynamically from assets/build_info.json.
@@ -198,9 +183,14 @@ class UpdateService {
       final jsonString = await rootBundle.loadString('assets/build_info.json');
       final data = json.decode(jsonString);
       if (data is Map<String, dynamic>) {
+        final fullVersion = data['full_version'] as String?;
+        if (fullVersion != null && fullVersion.trim().isNotEmpty) {
+          return fullVersion.trim();
+        }
         final version = data['version'] as String?;
+        final local = data['localversion'] as String? ?? data['suffix_version'] as String? ?? '';
         if (version != null && version.trim().isNotEmpty) {
-          return version.trim();
+          return '${version.trim()}$local'.trim();
         }
       }
     } catch (_) {}
@@ -219,9 +209,18 @@ class UpdateService {
     _status = UpdateStatus.checking;
     _lastError = null;
 
-    final effectiveVersion = (currentVersion != null && currentVersion.trim().isNotEmpty)
-        ? currentVersion.trim()
-        : await resolveCurrentVersion();
+    String? effectiveVersion;
+    if (currentVersion != null && currentVersion.trim().isNotEmpty) {
+      final base = currentVersion.trim();
+      final suffix = currentSuffix?.trim() ?? '';
+      if (suffix.isNotEmpty && !base.endsWith(suffix)) {
+        effectiveVersion = '$base$suffix';
+      } else {
+        effectiveVersion = base;
+      }
+    } else {
+      effectiveVersion = await resolveCurrentVersion();
+    }
 
     if (effectiveVersion == null || effectiveVersion.isEmpty) {
       final err = 'Unable to determine current application version dynamically (missing build_info.json).';
@@ -283,10 +282,13 @@ class UpdateService {
         );
       } else {
         _status = UpdateStatus.upToDate;
+        final msg = cmp > 0
+            ? 'You are running a newer build ($effectiveVersion) than latest release (${info.tagName}).'
+            : 'Attune is up to date (${info.tagName}).';
         return UpdateCheckResult(
           status: UpdateStatus.upToDate,
           updateInfo: info,
-          message: 'Attune is up to date (${info.tagName}).',
+          message: msg,
         );
       }
     } catch (e) {
@@ -321,5 +323,115 @@ class UpdateService {
       }
     } catch (_) {}
     return false;
+  }
+}
+
+/// Robust semantic version model adhering to SemVer 2.0.0 and natural tag ordering.
+class _ParsedVersion implements Comparable<_ParsedVersion> {
+  final int major;
+  final int minor;
+  final int patch;
+  final String? prerelease;
+
+  const _ParsedVersion({
+    required this.major,
+    required this.minor,
+    required this.patch,
+    this.prerelease,
+  });
+
+  static _ParsedVersion parse(String versionStr) {
+    var raw = versionStr.trim();
+    if (raw.startsWith('v') || raw.startsWith('V')) {
+      raw = raw.substring(1).trim();
+    }
+
+    final plusIdx = raw.indexOf('+');
+    if (plusIdx != -1) {
+      raw = raw.substring(0, plusIdx);
+    }
+
+    String core;
+    String? prerelease;
+    final dashIdx = raw.indexOf('-');
+    if (dashIdx != -1) {
+      core = raw.substring(0, dashIdx);
+      prerelease = raw.substring(dashIdx + 1).trim();
+      if (prerelease.isEmpty) prerelease = null;
+    } else {
+      core = raw;
+    }
+
+    final coreParts = core.split('.');
+    final major = coreParts.isNotEmpty ? (int.tryParse(coreParts[0]) ?? 0) : 0;
+    final minor = coreParts.length > 1 ? (int.tryParse(coreParts[1]) ?? 0) : 0;
+    final patch = coreParts.length > 2 ? (int.tryParse(coreParts[2]) ?? 0) : 0;
+
+    return _ParsedVersion(
+      major: major,
+      minor: minor,
+      patch: patch,
+      prerelease: prerelease,
+    );
+  }
+
+  @override
+  int compareTo(_ParsedVersion other) {
+    if (major != other.major) return major.compareTo(other.major);
+    if (minor != other.minor) return minor.compareTo(other.minor);
+    if (patch != other.patch) return patch.compareTo(other.patch);
+
+    // SemVer 2.0.0 Clause 11: A normal version without a prerelease has higher
+    // precedence than a version with a prerelease (e.g., 0.1.0-rc4 < 0.1.0).
+    if (prerelease == null && other.prerelease == null) return 0;
+    if (prerelease == null && other.prerelease != null) return 1;
+    if (prerelease != null && other.prerelease == null) return -1;
+
+    return _comparePrereleases(prerelease!, other.prerelease!);
+  }
+
+  static int _comparePrereleases(String preA, String preB) {
+    final tokensA = _tokenizePrerelease(preA);
+    final tokensB = _tokenizePrerelease(preB);
+
+    final maxLen = tokensA.length > tokensB.length ? tokensA.length : tokensB.length;
+    for (int i = 0; i < maxLen; i++) {
+      if (i >= tokensA.length) return -1;
+      if (i >= tokensB.length) return 1;
+
+      final tA = tokensA[i];
+      final tB = tokensB[i];
+
+      final nA = int.tryParse(tA);
+      final nB = int.tryParse(tB);
+
+      if (nA != null && nB != null) {
+        if (nA != nB) return nA.compareTo(nB);
+      } else if (nA != null && nB == null) {
+        return -1;
+      } else if (nA == null && nB != null) {
+        return 1;
+      } else {
+        final cmp = tA.toLowerCase().compareTo(tB.toLowerCase());
+        if (cmp != 0) return cmp;
+      }
+    }
+    return 0;
+  }
+
+  static List<String> _tokenizePrerelease(String pre) {
+    final tokens = <String>[];
+    final segments = pre.split(RegExp(r'[.\-_]'));
+    for (final seg in segments) {
+      if (seg.isEmpty) continue;
+      final matches = RegExp(r'(\d+|\D+)').allMatches(seg);
+      for (final m in matches) {
+        final str = m.group(0);
+        if (str != null && str.isNotEmpty) {
+          tokens.add(str);
+        }
+      }
+    }
+    return tokens;
   }
 }

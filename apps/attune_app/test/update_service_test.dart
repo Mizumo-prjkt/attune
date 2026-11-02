@@ -9,6 +9,18 @@ void main() {
       expect(UpdateService.compareSemanticVersions('0.1.0', '0.1.1'), -1);
       expect(UpdateService.compareSemanticVersions('v0.1.0', 'v0.2.0'), -1);
       expect(UpdateService.compareSemanticVersions('0.1.0-alpha', '0.2.0'), -1);
+
+      // Pre-release tag progression (ADR-045 / tag diff fixes)
+      expect(UpdateService.compareSemanticVersions('v0.1.0-rc3', 'v0.1.0-rc4'), -1);
+      expect(UpdateService.compareSemanticVersions('0.1.0-rc3', '0.1.0-rc4'), -1);
+      expect(UpdateService.compareSemanticVersions('v0.1.0-rc3', 'v0.1.0-rc10'), -1);
+      expect(UpdateService.compareSemanticVersions('0.1.0-rc.3', '0.1.0-rc.4'), -1);
+      expect(UpdateService.compareSemanticVersions('0.1.0-beta.1', '0.1.0-beta.2'), -1);
+      expect(UpdateService.compareSemanticVersions('0.1.0-alpha', '0.1.0-beta'), -1);
+
+      // Normal release is newer than pre-release candidate
+      expect(UpdateService.compareSemanticVersions('0.1.0-rc3', 'v0.1.0'), -1);
+      expect(UpdateService.compareSemanticVersions('v0.1.0-rc4', '0.1.0'), -1);
     });
 
     test('Identifies older or equal versions correctly', () {
@@ -16,6 +28,15 @@ void main() {
       expect(UpdateService.compareSemanticVersions('1.0.0', '0.9.9'), 1);
       expect(UpdateService.compareSemanticVersions('0.1.0', '0.1.0'), 0);
       expect(UpdateService.compareSemanticVersions('v0.1.0', '0.1.0'), 0);
+
+      // Current is newer than older pre-release
+      expect(UpdateService.compareSemanticVersions('v0.1.0-rc4', 'v0.1.0-rc3'), 1);
+      expect(UpdateService.compareSemanticVersions('0.1.0-rc10', '0.1.0-rc3'), 1);
+      expect(UpdateService.compareSemanticVersions('0.1.0', 'v0.1.0-rc4'), 1);
+
+      // Identical pre-release tags
+      expect(UpdateService.compareSemanticVersions('v0.1.0-rc4', 'v0.1.0-rc4'), 0);
+      expect(UpdateService.compareSemanticVersions('0.1.0-rc3+build1', '0.1.0-rc3+build2'), 0);
     });
   });
 
@@ -97,6 +118,26 @@ void main() {
       expect(info.isNewer, true);
       expect(info.assets.length, 2);
       expect(info.releaseNotes, contains('in-app update checker'));
+    });
+
+    test('Correctly flags isNewer when on -rc3 and latest release is -rc4', () {
+      const current = 'v0.1.0-rc3';
+      final mockJson = {
+        'tag_name': 'v0.1.0-rc4',
+        'name': 'Attune v0.1.0-rc4',
+        'body': 'Release Candidate 4 with Watchguard stability monitoring',
+        'html_url': 'https://github.com/Mizumo-prjkt/attune/releases/tag/v0.1.0-rc4',
+        'prerelease': true,
+        'assets': [],
+      };
+
+      final cmp = UpdateService.compareSemanticVersions(current, mockJson['tag_name'] as String);
+      final isNewer = cmp < 0;
+      final info = UpdateInfo.fromJson(mockJson, isNewer: isNewer);
+
+      expect(cmp, -1);
+      expect(isNewer, true);
+      expect(info.isNewer, true);
     });
   });
 }

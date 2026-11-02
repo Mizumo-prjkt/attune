@@ -1462,6 +1462,35 @@ This file records all major architectural decisions for **Attune**, including co
   - Complete architectural separation: low-end devices can seamlessly fall back to OS codecs while preserving the integrity of Attune's Smart Shuffle engine.
   - 100% test pass rate across all Rust crates and Flutter unit/widget test suites.
 
+---
+
+## ADR-045: Semantic Version Pre-Release Precedence & In-App Release Diff Evaluation
+
+- **Status**: **LOCKED** (Implemented & Verified)
+- **Date**: 2026-11-02
+- **Context**:
+  - In `AboutStage`, when checking for updates on an active release candidate build (e.g. `v0.1.0-rc3`), the updater incorrectly reported `"Attune is up to date (v0.1.0-rc4)"` instead of detecting that `v0.1.0-rc4` was an available update.
+  - Two bugs were identified in `UpdateService`:
+    1. `UpdateService.checkForUpdates()` received `currentSuffix` (e.g. `"-rc3"`), but failed to concatenate it to `currentVersion` (`"0.1.0"`), degrading the version under comparison to `"0.1.0"` and dropping localversion suffix metadata.
+    2. `UpdateService.compareSemanticVersions()` used a simple 3-segment regex `r'^(\d+)(?:\.(\d+))?(?:\.(\d+))?'` which only parsed `[major, minor, patch]`. Consequently, `0.1.0-rc3` and `0.1.0-rc4` both parsed as `[0, 1, 0]`, returning a diff of `0` (`cmp == 0`), which erroneously marked newer release candidate tags as already up to date.
+- **Decision**:
+  1. **SemVer 2.0.0 Pre-Release Parsing & Tokenization (`_ParsedVersion`)**:
+     - Engineered `_ParsedVersion` in `apps/attune_app/lib/services/update_service.dart`:
+       * Separates core `major.minor.patch` from pre-release identifiers after `-` and strips build metadata after `+`.
+       * Enforces SemVer 2.0.0 Clause 11 precedence: a version without a pre-release has higher precedence than a version with a pre-release (`0.1.0-rc4 < 0.1.0`).
+       * Implemented natural tokenized pre-release comparison: tokenizes identifiers into alpha and numeric chunks (`"rc3"` $\to$ `["rc", 3]`, `"rc10"` $\to$ `["rc", 10]`), ensuring natural numeric ordering ($3 < 4 < 10$) and dot-delimited hierarchy (`rc.3 < rc.4`).
+  2. **Full Version & Suffix Composition in `checkForUpdates` & `resolveCurrentVersion`**:
+     - Updated `resolveCurrentVersion()` to prioritize `full_version` or `version + localversion` from `build_info.json`.
+     - In `checkForUpdates()`, if `currentSuffix` is supplied and not already present at the end of `currentVersion`, securely appends it to form the true effective version string.
+  3. **Clear Distinctions in Update Result Messages**:
+     - When `cmp < 0`: Status `updateAvailable` with `"Update available: {tag}"`.
+     - When `cmp == 0`: Status `upToDate` with `"Attune is up to date ({tag})."`.
+     - When `cmp > 0`: Status `upToDate` with `"You are running a newer build ({current}) than latest release ({tag})."`.
+- **Consequences**:
+  - Tag differences across release candidates (e.g. `v0.1.0-rc3` $\to$ `v0.1.0-rc4`) and official releases are detected accurately with zero false-negative "up to date" reports.
+  - Release assets and patch notes correctly render for users when a newer candidate is published.
+  - 100% test pass rate across all update service test suites.
+
 
 
 
