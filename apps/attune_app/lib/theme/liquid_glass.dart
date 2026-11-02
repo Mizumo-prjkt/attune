@@ -57,11 +57,14 @@ class LiquidGlassContainer extends StatelessWidget {
       child: child,
     );
 
-    // Apply diagonal specular rim lighting gradient via CustomPaint
+    final is3dMirror = SettingsService.instance.liquidGlass3dMirror;
+
+    // Apply diagonal specular rim lighting gradient and optional 3D mirror sheen
     content = CustomPaint(
       foregroundPainter: _SpecularRimPainter(
         borderRadius: borderRadius,
         primaryTint: colorScheme.primary,
+        is3dMirror: is3dMirror,
       ),
       child: content,
     );
@@ -91,14 +94,16 @@ class LiquidGlassContainer extends StatelessWidget {
   }
 }
 
-/// CustomPainter for the 1.0px diagonal specular rim gradient border
+/// CustomPainter for the 1.0px diagonal specular rim gradient border and optional 3D mirror sheen
 class _SpecularRimPainter extends CustomPainter {
   final double borderRadius;
   final Color primaryTint;
+  final bool is3dMirror;
 
   _SpecularRimPainter({
     required this.borderRadius,
     required this.primaryTint,
+    this.is3dMirror = true,
   });
 
   @override
@@ -106,6 +111,55 @@ class _SpecularRimPainter extends CustomPainter {
     final rect = Rect.fromLTWH(0.5, 0.5, size.width - 1.0, size.height - 1.0);
     final rrect = RRect.fromRectAndRadius(rect, Radius.circular(borderRadius));
 
+    // Optional 3D Mirror Sheen & Depth Bevel
+    if (is3dMirror) {
+      // 1. Diagonal mirror reflection sheen across upper face
+      final sheenPaint = Paint()
+        ..style = PaintingStyle.fill
+        ..shader = LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            Colors.white.withValues(alpha: 0.12),
+            Colors.white.withValues(alpha: 0.03),
+            Colors.transparent,
+          ],
+          stops: const [0.0, 0.30, 0.65],
+        ).createShader(rect);
+      canvas.drawRRect(rrect, sheenPaint);
+
+      // 2. Top bevel inner highlight
+      final bevelHighlightPaint = Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1.0
+        ..shader = LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [
+            Colors.white.withValues(alpha: 0.22),
+            Colors.transparent,
+          ],
+          stops: const [0.0, 0.20],
+        ).createShader(rect);
+      canvas.drawRRect(rrect, bevelHighlightPaint);
+
+      // 3. Bottom inner depth shadow ledge
+      final shadowLedgePaint = Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1.2
+        ..shader = LinearGradient(
+          begin: Alignment.bottomCenter,
+          end: Alignment.topCenter,
+          colors: [
+            Colors.black.withValues(alpha: 0.20),
+            Colors.transparent,
+          ],
+          stops: const [0.0, 0.18],
+        ).createShader(rect);
+      canvas.drawRRect(rrect, shadowLedgePaint);
+    }
+
+    // Specular Rim Border
     final paint = Paint()
       ..style = PaintingStyle.stroke
       ..strokeWidth = 1.0
@@ -113,9 +167,9 @@ class _SpecularRimPainter extends CustomPainter {
         begin: Alignment.topLeft,
         end: Alignment.bottomRight,
         colors: [
-          Colors.white.withValues(alpha: 0.24),                 // Top-Left specular catch light
-          primaryTint.withValues(alpha: 0.12),                  // Mid-edge tonal tint
-          Colors.white.withValues(alpha: 0.04),                 // Bottom-Right shadow edge
+          Colors.white.withValues(alpha: is3dMirror ? 0.24 : 0.14),
+          primaryTint.withValues(alpha: is3dMirror ? 0.12 : 0.06),
+          Colors.white.withValues(alpha: is3dMirror ? 0.04 : 0.02),
         ],
         stops: const [0.0, 0.45, 1.0],
       ).createShader(rect);
@@ -125,7 +179,9 @@ class _SpecularRimPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant _SpecularRimPainter oldDelegate) {
-    return oldDelegate.borderRadius != borderRadius || oldDelegate.primaryTint != primaryTint;
+    return oldDelegate.borderRadius != borderRadius ||
+        oldDelegate.primaryTint != primaryTint ||
+        oldDelegate.is3dMirror != is3dMirror;
   }
 }
 

@@ -42,6 +42,38 @@ enum AudioFocusLevel {
   }
 }
 
+/// Dynamic Home Section configuration model for non-hardcoded customization
+class HomeSectionConfig {
+  final String id;
+  final String titleKey;
+  final String descriptionKey;
+  final IconData icon;
+  bool enabled;
+
+  HomeSectionConfig({
+    required this.id,
+    required this.titleKey,
+    required this.descriptionKey,
+    required this.icon,
+    this.enabled = true,
+  });
+
+  Map<String, dynamic> toJson() => {
+    'id': id,
+    'enabled': enabled,
+  };
+
+  HomeSectionConfig copyWith({bool? enabled}) {
+    return HomeSectionConfig(
+      id: id,
+      titleKey: titleKey,
+      descriptionKey: descriptionKey,
+      icon: icon,
+      enabled: enabled ?? this.enabled,
+    );
+  }
+}
+
 /// Audio decoding engine modes
 enum AudioDecoderMode {
   attuneRust,
@@ -126,10 +158,60 @@ class SettingsService extends ChangeNotifier {
   // Lyrics
   bool _lrclibFetchEnabled = false;
 
-  // Skin
+  // Skin & Liquid Glass
   double _glassLensBlurSigma = 36.0;
   double _glassSurfaceAlpha = 0.14;
   bool _glowBlobFollowsRhythm = true;
+  bool _liquidGlass3dMirror = true;
+  bool _pendingLiquidGlass3dMirror = true;
+
+  // Home Layout Customization
+  List<HomeSectionConfig> _homeSections = [];
+
+  static List<HomeSectionConfig> get defaultHomeSections => [
+    HomeSectionConfig(
+      id: 'search_bar',
+      titleKey: 'home_section_search',
+      descriptionKey: 'home_section_search_desc',
+      icon: Icons.search_rounded,
+      enabled: true,
+    ),
+    HomeSectionConfig(
+      id: 'for_you_mixes',
+      titleKey: 'home_section_for_you',
+      descriptionKey: 'home_section_for_you_desc',
+      icon: Icons.auto_awesome_rounded,
+      enabled: true,
+    ),
+    HomeSectionConfig(
+      id: 'genre_chips',
+      titleKey: 'home_section_genres',
+      descriptionKey: 'home_section_genres_desc',
+      icon: Icons.music_note_rounded,
+      enabled: true,
+    ),
+    HomeSectionConfig(
+      id: 'quick_picks',
+      titleKey: 'home_section_quick_picks',
+      descriptionKey: 'home_section_quick_picks_desc',
+      icon: Icons.bolt_rounded,
+      enabled: true,
+    ),
+    HomeSectionConfig(
+      id: 'recent_tracks',
+      titleKey: 'home_section_recent',
+      descriptionKey: 'home_section_recent_desc',
+      icon: Icons.history_rounded,
+      enabled: true,
+    ),
+    HomeSectionConfig(
+      id: 'all_tracks',
+      titleKey: 'home_section_all_tracks',
+      descriptionKey: 'home_section_all_tracks_desc',
+      icon: Icons.library_music_rounded,
+      enabled: true,
+    ),
+  ];
 
   // Files
   final Set<String> _allowedDirectories = {};
@@ -165,6 +247,11 @@ class SettingsService extends ChangeNotifier {
   double get glassLensBlurSigma => _glassLensBlurSigma;
   double get glassSurfaceAlpha => _glassSurfaceAlpha;
   bool get glowBlobFollowsRhythm => _glowBlobFollowsRhythm;
+  bool get liquidGlass3dMirror => _liquidGlass3dMirror;
+  bool get pendingLiquidGlass3dMirror => _pendingLiquidGlass3dMirror;
+  bool get restartRequiredForGlass => _pendingLiquidGlass3dMirror != _liquidGlass3dMirror;
+
+  List<HomeSectionConfig> get homeSections => List.unmodifiable(_homeSections);
 
   Set<String> get allowedDirectories => Set.unmodifiable(_allowedDirectories);
   Set<String> get excludedSongIds => Set.unmodifiable(_excludedSongIds);
@@ -262,6 +349,43 @@ class SettingsService extends ChangeNotifier {
   void setGlowBlobFollowsRhythm(bool val) {
     if (_glowBlobFollowsRhythm == val) return;
     _glowBlobFollowsRhythm = val;
+    notifyListeners();
+    _saveToDisk();
+  }
+
+  void setPendingLiquidGlass3dMirror(bool val) {
+    if (_pendingLiquidGlass3dMirror == val) return;
+    _pendingLiquidGlass3dMirror = val;
+    notifyListeners();
+    _saveToDisk();
+  }
+
+  void reorderHomeSections(int oldIndex, int newIndex) {
+    if (oldIndex < 0 || oldIndex >= _homeSections.length) return;
+    if (newIndex < 0 || newIndex > _homeSections.length) return;
+    if (oldIndex < newIndex) {
+      newIndex -= 1;
+    }
+    final item = _homeSections.removeAt(oldIndex);
+    _homeSections.insert(newIndex, item);
+    notifyListeners();
+    _saveToDisk();
+  }
+
+  void toggleHomeSection(String id, bool enabled) {
+    final idx = _homeSections.indexWhere((s) => s.id == id);
+    if (idx != -1) {
+      _homeSections[idx] = _homeSections[idx].copyWith(enabled: enabled);
+      notifyListeners();
+      _saveToDisk();
+    }
+  }
+
+  void resetHomeSectionsToDefault() {
+    _homeSections.clear();
+    for (final def in defaultHomeSections) {
+      _homeSections.add(def.copyWith());
+    }
     notifyListeners();
     _saveToDisk();
   }
@@ -373,10 +497,39 @@ class SettingsService extends ChangeNotifier {
 
           _minSongDurationSec = map['min_song_duration_sec'] as int? ?? _minSongDurationSec;
           _profileName = map['profile_name'] as String? ?? _profileName;
+
+          _liquidGlass3dMirror = map['liquid_glass_3d_mirror'] as bool? ?? _liquidGlass3dMirror;
+          _pendingLiquidGlass3dMirror = _liquidGlass3dMirror;
+
+          if (map['home_sections'] is List) {
+            final savedList = (map['home_sections'] as List).whereType<Map<String, dynamic>>().toList();
+            final loaded = <HomeSectionConfig>[];
+            final defaultMap = {for (final d in defaultHomeSections) d.id: d};
+
+            for (final item in savedList) {
+              final id = item['id'] as String?;
+              if (id != null && defaultMap.containsKey(id)) {
+                final def = defaultMap.remove(id)!;
+                loaded.add(def.copyWith(enabled: item['enabled'] as bool? ?? true));
+              }
+            }
+            for (final remaining in defaultMap.values) {
+              loaded.add(remaining.copyWith());
+            }
+            _homeSections = loaded;
+          } else {
+            _homeSections = defaultHomeSections.map((d) => d.copyWith()).toList();
+          }
         }
+      }
+      if (_homeSections.isEmpty) {
+        _homeSections = defaultHomeSections.map((d) => d.copyWith()).toList();
       }
     } catch (e) {
       debugPrint('[SettingsService] Notice loading settings: $e');
+      if (_homeSections.isEmpty) {
+        _homeSections = defaultHomeSections.map((d) => d.copyWith()).toList();
+      }
     }
   }
 
@@ -398,6 +551,8 @@ class SettingsService extends ChangeNotifier {
         'glass_lens_blur_sigma': _glassLensBlurSigma,
         'glass_surface_alpha': _glassSurfaceAlpha,
         'glow_blob_follows_rhythm': _glowBlobFollowsRhythm,
+        'liquid_glass_3d_mirror': _pendingLiquidGlass3dMirror,
+        'home_sections': _homeSections.map((s) => s.toJson()).toList(),
         'allowed_directories': _allowedDirectories.toList(),
         'excluded_song_ids': _excludedSongIds.toList(),
         'min_song_duration_sec': _minSongDurationSec,

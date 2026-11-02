@@ -10,8 +10,11 @@ import '../services/equalizer_service.dart';
 import '../services/platform_navigation.dart';
 import '../services/settings_service.dart';
 import '../services/watchguard_service.dart';
+import '../l10n/translation_core.dart';
+import '../l10n/translation_registry.dart';
 import 'about_stage.dart';
 import 'equalizer_stage.dart';
+import 'home_customization_stage.dart';
 import 'song_exclusion_stage.dart';
 import '../theme/liquid_glass.dart';
 import '../theme/typography.dart';
@@ -210,10 +213,27 @@ class _SettingsAndAudioStageState extends State<SettingsAndAudioStage> with Widg
                             children: [
                               _buildSettingTile(
                                 icon: Icons.language_rounded,
-                                title: 'Language',
-                                subtitle: 'English (System Default) • Coming soon',
-                                trailing: const Icon(Icons.chevron_right_rounded, color: Colors.white38, size: 20),
-                                onTap: () => _openLanguageDialog(context),
+                                title: context.tr('settings_language'),
+                                subtitle: '${AppLocalizations.instance.currentLanguage.nativeName} (${AppLocalizations.instance.currentLanguage.name})',
+                                trailing: DropdownButtonHideUnderline(
+                                  child: DropdownButton<String>(
+                                    value: TranslationRegistry.isSupported(_settings.language) ? _settings.language : 'en',
+                                    dropdownColor: colorScheme.surfaceContainerHighest,
+                                    icon: const Icon(Icons.arrow_drop_down_rounded, color: Colors.white70),
+                                    items: TranslationRegistry.supportedLanguages.map((lang) {
+                                      return DropdownMenuItem<String>(
+                                        value: lang.code,
+                                        child: Text(
+                                          lang.nativeName,
+                                          style: AttuneTypography.soraBadge(color: colorScheme.onSurface),
+                                        ),
+                                      );
+                                    }).toList(),
+                                    onChanged: (newCode) {
+                                      if (newCode != null) _settings.setLanguage(newCode);
+                                    },
+                                  ),
+                                ),
                               ),
                               const Divider(height: 1, color: Colors.white10),
                               _buildSettingTile(
@@ -414,6 +434,65 @@ class _SettingsAndAudioStageState extends State<SettingsAndAudioStage> with Widg
                                 trailing: const Icon(Icons.chevron_right_rounded, color: Colors.white38, size: 20),
                                 onTap: () => _openGlassTweaksDialog(context),
                               ),
+                              const Divider(height: 1, color: Colors.white10),
+                              _buildSettingTile(
+                                icon: Icons.view_in_ar_rounded,
+                                title: context.tr('settings_3d_mirror'),
+                                subtitle: _settings.pendingLiquidGlass3dMirror
+                                    ? 'Multi-dimensional specular reflection & bevel depth'
+                                    : 'Flat liquid glass (2D minimal)',
+                                trailing: Switch(
+                                  value: _settings.pendingLiquidGlass3dMirror,
+                                  activeThumbColor: colorScheme.primary,
+                                  onChanged: (v) => _settings.setPendingLiquidGlass3dMirror(v),
+                                ),
+                              ),
+                              if (_settings.restartRequiredForGlass)
+                                Container(
+                                  margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                                  padding: const EdgeInsets.all(12),
+                                  decoration: BoxDecoration(
+                                    color: Colors.amber.withValues(alpha: 0.15),
+                                    borderRadius: BorderRadius.circular(14),
+                                    border: Border.all(color: Colors.amber.withValues(alpha: 0.3)),
+                                  ),
+                                  child: Row(
+                                    children: [
+                                      const Icon(Icons.restart_alt_rounded, color: Colors.amberAccent, size: 20),
+                                      const SizedBox(width: 10),
+                                      Expanded(
+                                        child: Text(
+                                          context.tr('settings_restart_notice'),
+                                          style: AttuneTypography.jakartaBodySmall(color: Colors.amberAccent),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                            ],
+                          ),
+                        ),
+
+                        const SizedBox(height: 24),
+
+                        // SECTION: HOME LAYOUT & CUSTOMIZATION (NO POPUPS)
+                        _buildSectionHeader(context.tr('settings_section_home_layout'), colorScheme),
+                        LiquidGlassContainer(
+                          borderRadius: 20,
+                          surfaceAlpha: 0.12,
+                          child: Column(
+                            children: [
+                              _buildSettingTile(
+                                icon: Icons.tune_rounded,
+                                title: context.tr('settings_home_customization'),
+                                subtitle: context.tr('settings_home_customization_desc'),
+                                trailing: const Icon(Icons.chevron_right_rounded, color: Colors.white38, size: 20),
+                                onTap: () {
+                                  Navigator.of(context).push(
+                                    MaterialPageRoute(builder: (_) => const HomeCustomizationStage()),
+                                  );
+                                },
+                              ),
                             ],
                           ),
                         ),
@@ -570,53 +649,6 @@ class _SettingsAndAudioStageState extends State<SettingsAndAudioStage> with Widg
   }
 
   // --- Dialog Implementations ---
-
-  void _openLanguageDialog(BuildContext context) {
-    _showGlassDialog(
-      context: context,
-      title: 'Language Change',
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-            decoration: BoxDecoration(
-              color: Colors.white.withValues(alpha: 0.08),
-              borderRadius: BorderRadius.circular(14),
-              border: Border.all(color: Colors.white12),
-            ),
-            child: Row(
-              children: [
-                const Icon(Icons.check_circle_rounded, color: Colors.tealAccent, size: 20),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text('English (System Default)', style: AttuneTypography.soraTitleSmall(color: Colors.white)),
-                      const SizedBox(height: 2),
-                      Text('Active UI locale', style: AttuneTypography.jakartaBodySmall(color: Colors.white60)),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 16),
-          Text(
-            'Community localization and additional languages (Japanese, Spanish, French, German, Chinese) are currently being integrated for upcoming releases.',
-            style: AttuneTypography.jakartaBodySmall(color: Colors.white60),
-          ),
-        ],
-      ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.of(context).pop(),
-          child: const Text('Done', style: TextStyle(color: Colors.white)),
-        ),
-      ],
-    );
-  }
 
   void _openAudioFocusDialog(BuildContext context) {
     _showGlassDialog(

@@ -7,7 +7,9 @@ import '../services/platform_navigation.dart';
 import '../services/settings_service.dart';
 import '../stages/albums_stage.dart';
 import '../stages/equalizer_stage.dart';
+import '../stages/for_you_stage.dart';
 import '../stages/home_stage.dart';
+import '../l10n/translation_core.dart';
 import '../stages/now_playing_stage.dart';
 import '../stages/playlist_queue_stage.dart';
 import '../stages/profile_and_stats_stage.dart';
@@ -148,12 +150,15 @@ class _ResponsiveGlassScaffoldState extends State<ResponsiveGlassScaffold>
         activeStage = HomeStage(onOpenNowPlaying: _openNowPlaying);
         break;
       case 1:
-        activeStage = const PlaylistQueueStage();
+        activeStage = ForYouStage(onOpenNowPlaying: _openNowPlaying);
         break;
       case 2:
-        activeStage = AlbumsStage(onOpenNowPlaying: _openNowPlaying);
+        activeStage = const PlaylistQueueStage();
         break;
       case 3:
+        activeStage = AlbumsStage(onOpenNowPlaying: _openNowPlaying);
+        break;
+      case 4:
         activeStage = ProfileAndStatsStage(onRerunSetup: () => setState(() => _isSetupDone = false));
         break;
       default:
@@ -204,10 +209,11 @@ class _ResponsiveGlassScaffoldState extends State<ResponsiveGlassScaffold>
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceAround,
               children: [
-                _buildMobileNavButton(0, Icons.home_rounded, 'Home', colorScheme),
-                _buildMobileNavButton(1, Icons.queue_music_rounded, 'Queue', colorScheme),
-                _buildMobileNavButton(2, Icons.album_rounded, 'Albums', colorScheme),
-                _buildMobileNavButton(3, Icons.person_rounded, 'Profile', colorScheme),
+                _buildMobileNavButton(0, Icons.home_rounded, context.tr('nav_home'), colorScheme),
+                _buildMobileNavButton(1, Icons.auto_awesome_rounded, context.tr('nav_for_you'), colorScheme),
+                _buildMobileNavButton(2, Icons.queue_music_rounded, context.tr('nav_queue'), colorScheme),
+                _buildMobileNavButton(3, Icons.album_rounded, context.tr('nav_albums'), colorScheme),
+                _buildMobileNavButton(4, Icons.person_rounded, context.tr('nav_profile'), colorScheme),
               ],
             ),
           ),
@@ -267,12 +273,15 @@ class _ResponsiveGlassScaffoldState extends State<ResponsiveGlassScaffold>
         centerStage = HomeStage(onOpenNowPlaying: _openNowPlaying);
         break;
       case 1:
-        centerStage = const PlaylistQueueStage();
+        centerStage = ForYouStage(onOpenNowPlaying: _openNowPlaying);
         break;
       case 2:
-        centerStage = AlbumsStage(onOpenNowPlaying: _openNowPlaying);
+        centerStage = const PlaylistQueueStage();
         break;
       case 3:
+        centerStage = AlbumsStage(onOpenNowPlaying: _openNowPlaying);
+        break;
+      case 4:
         centerStage = ProfileAndStatsStage(onRerunSetup: () => setState(() => _isSetupDone = false));
         break;
       default:
@@ -319,14 +328,16 @@ class _ResponsiveGlassScaffoldState extends State<ResponsiveGlassScaffold>
                         ),
                         const SizedBox(height: 28),
 
-                        // Nav Items: Home, Queue, Albums, Profile
-                        _buildRailButton(0, Icons.home_rounded, 'Home', colorScheme),
+                        // Nav Items: Home, For You, Queue, Albums, Profile
+                        _buildRailButton(0, Icons.home_rounded, context.tr('nav_home'), colorScheme),
                         const SizedBox(height: 12),
-                        _buildRailButton(1, Icons.queue_music_rounded, 'Queue', colorScheme),
+                        _buildRailButton(1, Icons.auto_awesome_rounded, context.tr('nav_for_you'), colorScheme),
                         const SizedBox(height: 12),
-                        _buildRailButton(2, Icons.album_rounded, 'Albums', colorScheme),
+                        _buildRailButton(2, Icons.queue_music_rounded, context.tr('nav_queue'), colorScheme),
                         const SizedBox(height: 12),
-                        _buildRailButton(3, Icons.person_rounded, 'Profile', colorScheme),
+                        _buildRailButton(3, Icons.album_rounded, context.tr('nav_albums'), colorScheme),
+                        const SizedBox(height: 12),
+                        _buildRailButton(4, Icons.person_rounded, context.tr('nav_profile'), colorScheme),
 
                         const Spacer(),
 
