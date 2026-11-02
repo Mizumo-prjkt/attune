@@ -575,31 +575,14 @@ class _ResponsiveGlassScaffoldState extends State<ResponsiveGlassScaffold>
           return Stack(
             fit: StackFit.expand,
             children: [
-              // Mid-animation liquid glass frosted backdrop
-              if (blurSigma > 1.0)
-                Positioned.fill(
-                  child: BackdropFilter(
-                    filter: ImageFilter.blur(sigmaX: blurSigma, sigmaY: blurSigma),
-                    child: Container(
-                      decoration: BoxDecoration(
-                        color: Colors.black.withValues(alpha: 0.28 * t + 0.05),
-                        gradient: midPeak > 0.05
-                            ? LinearGradient(
-                                begin: Alignment.topLeft,
-                                end: Alignment.bottomRight,
-                                colors: [
-                                  Colors.white.withValues(alpha: specularAlpha * 0.35),
-                                  colorScheme.primary.withValues(alpha: specularAlpha * 0.20),
-                                  Colors.transparent,
-                                ],
-                              )
-                            : null,
-                      ),
-                    ),
-                  ),
+              // Clean dark surface scrim during Now Playing slide (no expensive BackdropFilter or BoxShadow)
+              Positioned.fill(
+                child: Container(
+                  color: colorScheme.surface.withValues(alpha: 0.94 * t),
                 ),
+              ),
 
-              // Animated NowPlaying Content with liquid refraction border and spring-like slide
+              // Animated NowPlaying Content with clean spring-like slide
               Positioned.fill(
                 child: Transform.translate(
                   offset: Offset(0, translateY),
@@ -613,15 +596,8 @@ class _ResponsiveGlassScaffoldState extends State<ResponsiveGlassScaffold>
                                 borderRadius: BorderRadius.circular(32 * (1.0 - t)),
                                 border: Border.all(
                                   color: Colors.white.withValues(alpha: specularAlpha),
-                                  width: 1.5,
+                                  width: 1.0,
                                 ),
-                                boxShadow: [
-                                  BoxShadow(
-                                    color: Colors.black.withValues(alpha: 0.35 * midPeak),
-                                    blurRadius: 24 * midPeak,
-                                    offset: Offset(0, 8 * midPeak),
-                                  ),
-                                ],
                               )
                             : null,
                         child: ClipRRect(

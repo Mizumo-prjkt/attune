@@ -218,7 +218,7 @@ class WatchguardService extends ChangeNotifier {
     }
 
     // Fallback simulation
-    if (isClipping || peakAmplitude >= 0.995) {
+    if (isClipping || peakAmplitude > 1.02) {
       _mockClippingTotal++;
     }
     if (isUnderrun) {
@@ -265,21 +265,33 @@ class WatchguardService extends ChangeNotifier {
     final avgFps = avgMs > 0 ? (1000.0 / avgMs).clamp(1.0, 120.0) : 60.0;
     final droppedRatio = _mockFrameDurations.isNotEmpty ? dropped / _mockFrameDurations.length : 0.0;
 
-    final isOverloaded = _mockClippingTotal >= 2 || _mockUnderrunTotal >= 2 || (droppedRatio > 0.40 && peakMs > 70.0);
+    final isHeavyThrottling = (avgFps < 25.0 && _mockFrameDurations.length >= 10) || (droppedRatio > 0.40 && peakMs > 70.0);
+    final hasHardwareBufferStarvation = _mockUnderrunTotal >= 2;
+
+    // Overload requires genuine hardware starvation or severe throttling,
+    // NEVER audio clipping alone when frame cadence is fluid (>= 50 FPS).
+    final isOverloaded = hasHardwareBufferStarvation || isHeavyThrottling;
+
+    final clipPenalty = (_mockClippingTotal * 0.05).clamp(0.0, 0.20);
+    final underrunPenalty = (_mockUnderrunTotal * 0.35).clamp(0.0, 0.70);
+    final fpsPenalty = avgFps < 50.0 ? ((50.0 - avgFps) / 50.0 * 0.40).clamp(0.0, 0.40) : 0.0;
+    final spikePenalty = (droppedRatio * 0.30).clamp(0.0, 0.30);
+    final score = isOverloaded
+        ? (0.60 + underrunPenalty * 0.25 + fpsPenalty * 0.25).clamp(0.60, 1.0)
+        : (clipPenalty * 0.5 + fpsPenalty + spikePenalty).clamp(0.0, 0.25);
+
     String? warning;
-    if (_mockClippingTotal > 0 && _mockUnderrunTotal > 0) {
-      warning = 'System Overloaded: Audio clipping & buffer starvation detected. Suggest switching to System Codec.';
-    } else if (_mockClippingTotal > 0) {
-      warning = 'System Overloaded: Audio clipping detected in native DSP engine.';
-    } else if (_mockUnderrunTotal > 0) {
+    if (hasHardwareBufferStarvation && isHeavyThrottling) {
+      warning = 'System Overloaded: Buffer underruns and heavy throttling detected. Suggest switching to System Codec.';
+    } else if (hasHardwareBufferStarvation) {
       warning = 'Audio Buffer Pressure: Buffer underruns detected on device hardware.';
-    } else if (isOverloaded) {
-      warning = 'Device Strain Detected: Frame drops and high system load. Recommend System Codec.';
+    } else if (isHeavyThrottling) {
+      warning = 'Device Strain Detected: Heavy system throttling detected (low FPS / frame pacing drops). Suggest switching to System Codec.';
     }
 
     _currentStatus = WatchguardStabilityStatus(
       isOverloaded: isOverloaded,
-      instabilityScore: isOverloaded ? 0.65 : 0.0,
+      instabilityScore: score,
       clippingCount: _mockClippingTotal,
       underrunCount: _mockUnderrunTotal,
       recentClippingEvents: _mockClippingTotal,

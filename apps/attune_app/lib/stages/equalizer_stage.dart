@@ -47,19 +47,9 @@ class _EqualizerStageState extends State<EqualizerStage> {
       backgroundColor: Colors.transparent,
       body: Stack(
         children: [
-          // Background Liquid Glass ambient atmosphere
+          // Background ambient atmosphere
           Container(
-            decoration: const BoxDecoration(
-              gradient: RadialGradient(
-                center: Alignment(-0.6, -0.7),
-                radius: 1.4,
-                colors: [
-                  Color(0xFF1E1035),
-                  Color(0xFF0D0B18),
-                  Color(0xFF05050A),
-                ],
-              ),
-            ),
+            color: colorScheme.surface,
           ),
 
           SafeArea(

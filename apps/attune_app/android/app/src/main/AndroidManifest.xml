@@ -81,6 +81,7 @@
                 <action android:name="org.mizproject.attune.ACTION_NEXT" />
                 <action android:name="org.mizproject.attune.ACTION_PREV" />
                 <action android:name="org.mizproject.attune.ACTION_SWITCH_CODEC" />
+                <action android:name="org.mizproject.attune.ACTION_DISMISS_ALERT" />
             </intent-filter>
         </receiver>
 

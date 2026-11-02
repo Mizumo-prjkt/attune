@@ -40,13 +40,6 @@ class FloatingMiniPlayer extends StatelessWidget {
                   height: 48,
                   decoration: BoxDecoration(
                     borderRadius: BorderRadius.circular(14),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black.withValues(alpha: 0.3),
-                        blurRadius: 8,
-                        offset: const Offset(0, 2),
-                      ),
-                    ],
                     border: Border.all(
                       color: Colors.white.withValues(alpha: 0.15),
                       width: 1.0,

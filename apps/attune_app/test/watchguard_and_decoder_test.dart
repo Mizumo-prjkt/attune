@@ -24,21 +24,40 @@ void main() {
     test('Recording multiple clipping and underrun events triggers overload status', () {
       WatchguardService.instance.recordAudioEvent(
         peakAmplitude: 1.05,
-        isUnderrun: false,
+        isUnderrun: true,
         isClipping: true,
       );
       WatchguardService.instance.recordAudioEvent(
-        peakAmplitude: 1.02,
+        peakAmplitude: 1.03,
         isUnderrun: true,
         isClipping: true,
       );
 
       final status = WatchguardService.instance.currentStatus;
       expect(status.clippingCount, 2);
-      expect(status.underrunCount, 1);
+      expect(status.underrunCount, 2);
       expect(status.isOverloaded, true);
       expect(status.warningMessage, isNotNull);
       expect(status.recommendSystemCodec, true);
+    });
+
+    test('Audio clipping alone on fluid frame rate does not trigger false overload', () {
+      WatchguardService.instance.recordAudioEvent(
+        peakAmplitude: 1.03,
+        isUnderrun: false,
+        isClipping: true,
+      );
+      WatchguardService.instance.recordAudioEvent(
+        peakAmplitude: 1.04,
+        isUnderrun: false,
+        isClipping: true,
+      );
+
+      final status = WatchguardService.instance.currentStatus;
+      expect(status.clippingCount, 2);
+      expect(status.underrunCount, 0);
+      expect(status.isOverloaded, false);
+      expect(status.recommendSystemCodec, false);
     });
 
     test('Recording UI frames calculates average FPS and tracks spikes', () {

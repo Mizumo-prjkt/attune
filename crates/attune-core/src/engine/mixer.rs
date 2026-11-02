@@ -178,6 +178,11 @@ impl DualDeckMixer {
 
     /// Trigger a transition between outgoing Deck A and incoming Deck B using a .ptr recipe
     pub fn trigger_transition(&mut self, recipe: TransitionRecipe) {
+        if self.deck_b.num_frames() == 0 {
+            log::warn!("trigger_transition invoked but Deck B has no audio frames loaded; skipping transition");
+            return;
+        }
+
         let duration_ms = recipe
             .timing
             .track_a_exit_end_ms
@@ -302,7 +307,7 @@ impl DualDeckMixer {
             if peak > block_peak {
                 block_peak = peak;
             }
-            if peak >= 0.995 {
+            if peak > 1.02 {
                 has_clipping = true;
             }
         }

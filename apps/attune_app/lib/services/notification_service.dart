@@ -68,6 +68,11 @@ class AttuneNotificationService {
         await dismissOverloadAlert();
         break;
 
+      case 'onAlertDismissedByUser':
+        debugPrint('[AttuneNotificationService] User dismissed overload alert notification; suppressing for session');
+        PlaybackController.instance.permanentlySuppressOverloadAlert();
+        break;
+
       default:
         debugPrint('[AttuneNotificationService] Unhandled method: ${call.method}');
         break;
@@ -155,6 +160,18 @@ class AttuneNotificationService {
       await _channel.invokeMethod('dismissOverloadAlert');
     } catch (e) {
       debugPrint('[AttuneNotificationService] Failed to dismiss overload alert: $e');
+    }
+  }
+
+  /// Resets alert suppression count and state for new testing session
+  Future<void> resetAlertSuppression() async {
+    if (Platform.environment.containsKey('FLUTTER_TEST')) return;
+    if (!Platform.isAndroid) return;
+
+    try {
+      await _channel.invokeMethod('resetAlertSuppression');
+    } catch (e) {
+      debugPrint('[AttuneNotificationService] Failed to reset alert suppression: $e');
     }
   }
 }

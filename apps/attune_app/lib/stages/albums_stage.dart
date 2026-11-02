@@ -141,13 +141,6 @@ class _AlbumsStageState extends State<AlbumsStage> {
                     begin: Alignment.topLeft,
                     end: Alignment.bottomRight,
                   ),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withValues(alpha: 0.35),
-                      blurRadius: 10,
-                      offset: const Offset(0, 4),
-                    ),
-                  ],
                 ),
                 child: ClipRRect(
                   borderRadius: BorderRadius.circular(16),
@@ -264,13 +257,6 @@ class _AlbumsStageState extends State<AlbumsStage> {
                 height: 88,
                 decoration: BoxDecoration(
                   borderRadius: BorderRadius.circular(16),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withValues(alpha: 0.35),
-                      blurRadius: 12,
-                      offset: const Offset(0, 4),
-                    ),
-                  ],
                 ),
                 child: ClipRRect(
                   borderRadius: BorderRadius.circular(16),

@@ -166,13 +166,6 @@ class _SynchronizedLyricsStageState extends State<SynchronizedLyricsStage> {
           borderRadius: 24,
           surfaceAlpha: 0.32,
           tintOverride: colorScheme.primary.withValues(alpha: 0.30),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withValues(alpha: 0.40),
-              blurRadius: 18,
-              offset: const Offset(0, 4),
-            ),
-          ],
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
@@ -409,13 +402,6 @@ class _SynchronizedLyricsStageState extends State<SynchronizedLyricsStage> {
                               color: colorScheme.primary.withValues(alpha: 0.8),
                               width: 1.5,
                             ),
-                            boxShadow: [
-                              BoxShadow(
-                                color: Colors.black.withValues(alpha: 0.35),
-                                blurRadius: 12,
-                                offset: const Offset(0, 4),
-                              ),
-                            ],
                           ),
                           child: IconButton(
                             icon: Icon(

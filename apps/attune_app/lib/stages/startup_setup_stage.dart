@@ -128,13 +128,6 @@ class _StartupSetupStageState extends State<StartupSetupStage> {
                         begin: Alignment.topLeft,
                         end: Alignment.bottomRight,
                       ),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withValues(alpha: 0.35),
-                          blurRadius: 14,
-                          offset: const Offset(0, 4),
-                        ),
-                      ],
                     ),
                     child: Padding(
                       padding: const EdgeInsets.all(12.0),

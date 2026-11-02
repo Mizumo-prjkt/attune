@@ -42,6 +42,8 @@ class MediaNotificationManager private constructor(
         const val ACTION_NEXT = "org.mizproject.attune.ACTION_NEXT"
         const val ACTION_PREV = "org.mizproject.attune.ACTION_PREV"
         const val ACTION_SWITCH_CODEC = "org.mizproject.attune.ACTION_SWITCH_CODEC"
+        const val ACTION_DISMISS_ALERT = "org.mizproject.attune.ACTION_DISMISS_ALERT"
+        const val MAX_ALERT_COUNT = 3
 
         @Volatile
         var instance: MediaNotificationManager? = null
@@ -63,6 +65,8 @@ class MediaNotificationManager private constructor(
     private val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
     private val mainHandler = Handler(Looper.getMainLooper())
     private var lastAlertTimestamp: Long = 0L
+    private var alertCount: Int = 0
+    private var isAlertSuppressed: Boolean = false
 
     init {
         createNotificationChannels()
@@ -119,6 +123,10 @@ class MediaNotificationManager private constructor(
             }
             "dismissOverloadAlert" -> {
                 dismissOverloadAlert()
+                result.success(true)
+            }
+            "resetAlertSuppression" -> {
+                resetAlertSuppression()
                 result.success(true)
             }
             else -> result.notImplemented()
@@ -226,12 +234,18 @@ class MediaNotificationManager private constructor(
     }
 
     fun showOverloadAlert(title: String, message: String, score: Double) {
+        if (isAlertSuppressed || alertCount >= MAX_ALERT_COUNT) {
+            Log.i(TAG, "Watchguard alert suppressed (count: $alertCount, suppressed: $isAlertSuppressed)")
+            return
+        }
+
         val now = System.currentTimeMillis()
-        if (now - lastAlertTimestamp < 15000) {
-            // Debounce within 15 seconds to prevent spamming notifications on continuous underruns
+        if (now - lastAlertTimestamp < 20000) {
+            // Debounce within 20 seconds to prevent spamming notifications on continuous underruns
             return
         }
         lastAlertTimestamp = now
+        alertCount++
 
         try {
             val openAppIntent = Intent(context, MainActivity::class.java).apply {
@@ -259,12 +273,22 @@ class MediaNotificationManager private constructor(
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
             )
 
+            // DeleteIntent when user swipes away / clears the notification
+            val dismissIntent = Intent(context, NotificationActionReceiver::class.java).apply {
+                action = ACTION_DISMISS_ALERT
+            }
+            val dismissPending = PendingIntent.getBroadcast(
+                context, 11, dismissIntent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+
             builder.setSmallIcon(android.R.drawable.stat_notify_error)
                 .setContentTitle(title)
                 .setContentText(message)
                 .setSubText("Watchguard Guardrail")
                 .setAutoCancel(true)
                 .setContentIntent(contentPendingIntent)
+                .setDeleteIntent(dismissPending)
                 .addAction(
                     Notification.Action.Builder(
                         Icon.createWithResource(context, android.R.drawable.ic_menu_rotate),
@@ -273,7 +297,7 @@ class MediaNotificationManager private constructor(
                 )
 
             notificationManager.notify(NOTIFICATION_ID_ALERT, builder.build())
-            Log.i(TAG, "Posted Watchguard overload alert notification (instability: $score)")
+            Log.i(TAG, "Posted Watchguard overload alert notification #$alertCount (instability: $score)")
         } catch (e: Exception) {
             Log.e(TAG, "Failed to display Watchguard overload alert", e)
         }
@@ -287,9 +311,20 @@ class MediaNotificationManager private constructor(
         }
     }
 
+    fun resetAlertSuppression() {
+        alertCount = 0
+        isAlertSuppressed = false
+        Log.i(TAG, "Reset Watchguard alert suppression state")
+    }
+
     private fun processAction(action: String) {
         mainHandler.post {
             when (action) {
+                ACTION_DISMISS_ALERT -> {
+                    Log.i(TAG, "User dismissed overload alert; permanently suppressing for session")
+                    isAlertSuppressed = true
+                    channel.invokeMethod("onAlertDismissedByUser", null)
+                }
                 ACTION_SWITCH_CODEC -> {
                     Log.i(TAG, "Forwarding switch codec action to Flutter")
                     channel.invokeMethod("onSwitchCodec", null)

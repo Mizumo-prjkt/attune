@@ -144,13 +144,6 @@ class _AboutStageState extends State<AboutStage> {
                                   color: colorScheme.primary.withValues(alpha: 0.35),
                                   width: 1.5,
                                 ),
-                                boxShadow: [
-                                  BoxShadow(
-                                    color: colorScheme.primary.withValues(alpha: 0.25),
-                                    blurRadius: 24,
-                                    spreadRadius: 2,
-                                  ),
-                                ],
                               ),
                               child: Image.asset(
                                 'assets/icon/icon_transparent.png',

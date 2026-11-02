@@ -68,13 +68,10 @@ class LiquidGlassContainer extends StatelessWidget {
       child: content,
     );
 
-    // Apply BackdropFilter blur
+    // Clip to rounded border with clean, high-performance translucent tonal surface tint
     content = ClipRRect(
       borderRadius: BorderRadius.circular(borderRadius),
-      child: BackdropFilter(
-        filter: ImageFilter.blur(sigmaX: blurSigma, sigmaY: blurSigma),
-        child: content,
-      ),
+      child: content,
     );
 
     if (onTap != null) {
@@ -174,52 +171,10 @@ class AmbientMeshBackground extends StatelessWidget {
           fit: StackFit.expand,
           children: [
             Container(color: scheme.surface),
-            RepaintBoundary(
-              child: CustomPaint(
-                painter: _StaticAmbientVignettePainter(
-                  primary: accent,
-                  secondary: scheme.secondary,
-                ),
-                size: Size.infinite,
-              ),
-            ),
             if (child != null) child!,
           ],
         );
       },
     );
-  }
-}
-
-class _StaticAmbientVignettePainter extends CustomPainter {
-  final Color primary;
-  final Color secondary;
-
-  const _StaticAmbientVignettePainter({
-    required this.primary,
-    required this.secondary,
-  });
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    if (size.width <= 0 || size.height <= 0) return;
-    final rect = Offset.zero & size;
-    final paint = Paint()
-      ..shader = RadialGradient(
-        center: const Alignment(0.0, -0.3),
-        radius: 1.25,
-        colors: [
-          primary.withValues(alpha: 0.12),
-          secondary.withValues(alpha: 0.04),
-          Colors.transparent,
-        ],
-        stops: const [0.0, 0.50, 1.0],
-      ).createShader(rect);
-    canvas.drawRect(rect, paint);
-  }
-
-  @override
-  bool shouldRepaint(covariant _StaticAmbientVignettePainter oldDelegate) {
-    return oldDelegate.primary != primary || oldDelegate.secondary != secondary;
   }
 }

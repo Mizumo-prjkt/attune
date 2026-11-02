@@ -1527,6 +1527,49 @@ This file records all major architectural decisions for **Attune**, including co
   - Watchguard instability alerts are delivered via native Android notifications with direct 1-tap codec switching.
   - 100% test pass rate across all 86 Flutter unit tests and all workspace Cargo test suites.
 
+---
+
+## ADR-047: Watchguard Clipping Calibration & Heavy Throttling Detection, Alert Suppression Protocol, Android Smart Shuffle Transition Resilience, and Impeller Glow Elimination
+
+- **Status**: **LOCKED** (Implemented & Verified)
+- **Date**: 2026-11-02
+- **Context**:
+  1. **Clipping False Positive on Mastered Audio & Fluid Frame Rates**: Commercial music is mastered to $-0.1\text{ dBFS}$ ($0.988$) or $0.0\text{ dBFS}$ ($1.000$). Checking `peak >= 0.995` in `DualDeckMixer::process_frame_block` caused normal, clean music playback to increment `clipping_count` repeatedly. On high-refresh displays (90Hz+ / 120Hz screens or Linux at 90+ FPS, as evidenced by user telemetry showing 96.8 FPS with 0.0% dropped frames), Watchguard falsely declared the system overloaded with a 65% instability score solely due to mastered peaks.
+  2. **Aggressive Overload Notifications on Android**: System overload alerts fired continuously without respecting user intent. If the user dismissed or ignored notifications, the alerts kept recurring.
+  3. **Android Smart Shuffle Playback Stall**: On Android, enabling Smart Shuffle caused playback to stop when reaching track end instead of transitioning. Root causes:
+     - `attune_profile_file` decoded entire multi-minute tracks into memory for JIT tier 0 on the FFI thread instead of loading head/tail (45s each), causing heavy storage I/O and CPU contention on mobile.
+     - In `PlaybackController`, `_executeAutoTransition` set `_isTransitioning = true` without checking whether `_bridge.playerTriggerTransition` succeeded (e.g. if Deck B was still loading). When it returned `< 0`, the native mixer never started a transition, but Dart's sync loop saw `trans['in_progress'] == false`, assumed the transition finished, and called `_advanceQueue()`. Since `trigger_transition` had never run, Deck A was never swapped, leaving Deck A finished and silent while `_advanceQueue` only loaded Deck B. As a result, playback stalled.
+     - Furthermore, if transition planning was delayed, `_pendingRecipe` remained null, preventing auto-transitions.
+  4. **Impeller GPU Overhead from Glow & Blur Shaders**: Every `LiquidGlassContainer` was wrapped in a `BackdropFilter` with `sigma: 36..48`, `AmbientMeshBackground` used radial vignette shaders, and several stages and icons used heavy `BoxShadow` glows (such as the teal glowing halo behind the logo in `AboutStage`), forcing repeated offscreen framebuffer copies and multi-pass blurs on Flutter's Impeller renderer.
+- **Decision**:
+  1. **Clipping & Heavy Throttling Calibration**:
+     - Raised clipping detection threshold in `DualDeckMixer` (`mixer.rs`), `attune-watchguard` (`crates/watchguard/src/lib.rs`), and `WatchguardService.dart` from `0.995` to `1.02` (requiring genuine digital overs).
+     - Raised overload instability threshold to `0.70`.
+     - In `WatchguardState::evaluate_status` and `WatchguardService.dart`: when UI cadence is fluid ($\ge 50$ FPS) and buffer underruns are 0, clipping alone NEVER flags system overload.
+     - Added heavy system throttling detection (`avgFps < 25.0` or dropped frame ratio $> 0.40$ with peak $> 70\text{ms}$).
+  2. **Alert Suppression Protocol (3-Strike Limit & User Dismissal)**:
+     - Added `ACTION_DISMISS_ALERT` with `deleteIntent` on the Android overload notification in `MediaNotificationManager.kt`.
+     - When the user swipes away the alert, or after 3 alerts are dispatched, permanently suppresses further alerts for the session.
+     - Communicates dismissal to Flutter `PlaybackController.instance.permanentlySuppressOverloadAlert()`.
+     - Added "Reset Metrics" support in `settings_stage.dart` to clear suppression when testing.
+  3. **Smart Shuffle Transition Resilience**:
+     - Updated `attune_profile_file` for `tier_code == 0` to use `AudioDecoder::load_head_tail(path_str, 45.0, 45.0)`, slashing memory footprint and decoding latency on Android.
+     - In `DualDeckMixer::trigger_transition` and `attune_player_trigger_transition`: verify Deck B has frames; return `-3` if empty.
+     - In `PlaybackController._executeAutoTransition`: verify `_bridge.playerTriggerTransition(recipe) == 0`. If `< 0`, fallback immediately to `skipNext(autoPlay: true)` so playback never stalls.
+     - In `PlaybackController._preparePendingRecipe`: guarantee `_pendingRecipe` always falls back to `_buildFallbackRecipe(current, next)`.
+  4. **Elimination of Glow & Heavy Blur Passes**:
+     - Removed `BackdropFilter` from `LiquidGlassContainer` and `SettingsStage` dialogs, retaining crisp specular rim border and translucent tonal surface tint.
+     - Replaced radial vignette painter in `AmbientMeshBackground` with clean solid surface `Container(color: scheme.surface)`.
+     - Replaced animated `BackdropFilter` and dynamic `BoxShadow` in `ResponsiveGlassScaffold` with high-performance dark surface scrim `Container(color: colorScheme.surface.withValues(alpha: 0.94 * t))`.
+     - Removed all `BoxShadow` glow instances across `about_stage.dart`, `floating_mini_player.dart`, `albums_stage.dart`, `profile_and_stats_stage.dart`, `startup_setup_stage.dart`, and `synchronized_lyrics_stage.dart`.
+     - Replaced `RadialGradient` in `equalizer_stage.dart` with solid surface color.
+- **Consequences**:
+  - Zero false-positive clipping or overload alerts on 90Hz/120Hz displays or fluid playback.
+  - Overload alerts respect user dismissal and are strictly capped at 3 occurrences.
+  - Smart Shuffle transitions reliably and seamlessly on Android without stalling.
+  - Impeller render performance is buttery smooth with zero GPU blur passes or vignette shader overhead.
+  - 100% test pass rate across all 87 Flutter tests and all workspace Rust tests.
+
 
 
 

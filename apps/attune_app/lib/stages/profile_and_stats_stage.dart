@@ -246,13 +246,6 @@ class _ProfileAndStatsStageState extends State<ProfileAndStatsStage> {
                           begin: Alignment.topLeft,
                           end: Alignment.bottomRight,
                         ),
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.black.withValues(alpha: 0.35),
-                            blurRadius: 12,
-                            offset: const Offset(0, 4),
-                          ),
-                        ],
                       ),
                       child: Center(
                         child: Text(

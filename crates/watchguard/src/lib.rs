@@ -12,8 +12,8 @@ use std::os::raw::c_char;
 use std::sync::{LazyLock, Mutex};
 
 const MAX_FRAME_HISTORY: usize = 120;
-const CLIPPING_AMPLITUDE_THRESHOLD: f32 = 0.995;
-const OVERLOAD_INSTABILITY_THRESHOLD: f32 = 0.40;
+const CLIPPING_AMPLITUDE_THRESHOLD: f32 = 1.02;
+const OVERLOAD_INSTABILITY_THRESHOLD: f32 = 0.70;
 
 /// Real-time health and stability status snapshot
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -151,21 +151,22 @@ impl WatchguardState {
 
         let instability_score = (clip_penalty + underrun_penalty + fps_penalty + spike_penalty).clamp(0.0, 1.0);
 
-        let is_overloaded = instability_score >= OVERLOAD_INSTABILITY_THRESHOLD
-            || self.recent_clipping >= 2
-            || self.recent_underruns >= 2
-            || (dropped_frame_ratio > 0.40 && peak_frame_ms > 70.0);
+        // When UI is fluid (>= 50 FPS) and underrun count is 0, device hardware is demonstrably NOT overloaded!
+        let is_heavy_throttling = (average_fps < 25.0 && count >= 10) || (dropped_frame_ratio > 0.40 && peak_frame_ms > 70.0);
+        let has_hardware_buffer_starvation = self.recent_underruns >= 2;
+
+        let is_overloaded = has_hardware_buffer_starvation
+            || is_heavy_throttling
+            || (instability_score >= OVERLOAD_INSTABILITY_THRESHOLD && self.recent_underruns > 0);
 
         let recommend_system_codec = is_overloaded;
 
-        let warning_message = if self.recent_clipping > 0 && self.recent_underruns > 0 {
-            Some("System Overloaded: Audio clipping & buffer starvation detected. Suggest switching to System Codec.".to_string())
-        } else if self.recent_clipping > 0 {
-            Some("System Overloaded: Audio clipping detected in native DSP engine.".to_string())
-        } else if self.recent_underruns > 0 {
+        let warning_message = if has_hardware_buffer_starvation && is_heavy_throttling {
+            Some("System Overloaded: Buffer underruns and heavy throttling detected. Suggest switching to System Codec.".to_string())
+        } else if has_hardware_buffer_starvation {
             Some("Audio Buffer Pressure: Buffer underruns detected on device hardware.".to_string())
-        } else if is_overloaded {
-            Some("Device Strain Detected: Frame drops and high system load. Recommend System Codec.".to_string())
+        } else if is_heavy_throttling {
+            Some("Device Strain Detected: Heavy system throttling detected (low FPS / frame pacing drops). Suggest switching to System Codec.".to_string())
         } else {
             None
         };
@@ -315,13 +316,20 @@ mod tests {
     fn test_watchguard_clipping_detection() {
         let mut state = WatchguardState::new();
         state.record_audio_event(1.05, false, true);
-        state.record_audio_event(1.02, false, true);
+        state.record_audio_event(1.04, false, true);
 
         let status = state.evaluate_status();
         assert_eq!(status.clipping_count, 2);
-        assert!(status.is_overloaded);
-        assert!(status.recommend_system_codec);
-        assert!(status.warning_message.unwrap().contains("Audio clipping"));
+        // Audio clipping alone without hardware buffer underruns or severe UI drops
+        // does not falsely flag hardware system overload.
+        assert!(!status.is_overloaded);
+
+        // However, if hardware buffer underruns occur alongside clipping, overload is flagged
+        state.record_audio_event(0.8, true, false);
+        state.record_audio_event(0.8, true, false);
+        let overloaded_status = state.evaluate_status();
+        assert!(overloaded_status.is_overloaded);
+        assert!(overloaded_status.recommend_system_codec);
     }
 
     #[test]
@@ -365,12 +373,13 @@ mod tests {
         let ver = unsafe { CStr::from_ptr(ver_ptr).to_str().unwrap() };
         assert_eq!(ver, "0.1.0");
 
-        watchguard_record_audio_event(1.02, 1, 1);
+        watchguard_record_audio_event(1.05, 1, 1);
+        watchguard_record_audio_event(1.05, 1, 1);
         let json_ptr = watchguard_get_status_json();
         assert!(!json_ptr.is_null());
         let json_str = unsafe { CStr::from_ptr(json_ptr).to_str().unwrap() };
         assert!(json_str.contains("\"is_overloaded\":true"));
-        assert!(json_str.contains("\"clipping_count\":1"));
+        assert!(json_str.contains("\"clipping_count\":2"));
         watchguard_free_string(json_ptr as *mut c_char);
 
         assert_eq!(watchguard_reset_metrics(), 0);

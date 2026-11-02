@@ -115,16 +115,35 @@ class PlaybackController extends ChangeNotifier {
   int _lastReportedClippingCount = 0;
   int _lastReportedUnderrunCount = 0;
   bool _overloadAlertDismissed = false;
+  int _overloadAlertCount = 0;
+  bool _overloadAlertPermanentlySuppressed = false;
 
   bool get isSmartShuffleSupported => SettingsService.instance.decoderMode == AudioDecoderMode.attuneRust;
   bool get isSystemOverloaded =>
       WatchguardService.instance.isOverloaded &&
       SettingsService.instance.decoderMode == AudioDecoderMode.attuneRust &&
-      !_overloadAlertDismissed;
+      !_overloadAlertDismissed &&
+      !_overloadAlertPermanentlySuppressed;
 
   void dismissOverloadAlert() {
     _overloadAlertDismissed = true;
+    _overloadAlertPermanentlySuppressed = true;
     AttuneNotificationService.instance.dismissOverloadAlert();
+    notifyListeners();
+  }
+
+  void permanentlySuppressOverloadAlert() {
+    _overloadAlertDismissed = true;
+    _overloadAlertPermanentlySuppressed = true;
+    notifyListeners();
+  }
+
+  void resetOverloadAlert() {
+    _overloadAlertDismissed = false;
+    _overloadAlertPermanentlySuppressed = false;
+    _overloadAlertCount = 0;
+    WatchguardService.instance.resetMetrics();
+    AttuneNotificationService.instance.resetAlertSuppression();
     notifyListeners();
   }
 
@@ -520,9 +539,15 @@ class PlaybackController extends ChangeNotifier {
             isClipping: isClipping,
           );
           if (isSystemOverloaded) {
+            _overloadAlertCount++;
+            if (_overloadAlertCount >= 3) {
+              _overloadAlertPermanentlySuppressed = true;
+              debugPrint('[PlaybackController] Alert count reached 3; permanently suppressing overload alerts for session.');
+            }
             AttuneNotificationService.instance.showOverloadAlert(
-              title: 'System Overloaded: Audio Clipping',
-              message: 'Audio buffer underruns detected. Tap to switch to System Codec.',
+              title: 'System Overloaded: Device Strain',
+              message: WatchguardService.instance.warningMessage ??
+                  'Heavy system load or audio starvation detected. Tap to switch to System Codec.',
               score: WatchguardService.instance.instabilityScore,
             );
           }
@@ -619,7 +644,6 @@ class PlaybackController extends ChangeNotifier {
 
   void _executeAutoTransition(Map<String, dynamic> recipe) {
     if (_isTransitioning) return;
-    _isTransitioning = true;
     _activeArchetype =
         (recipe['archetype'] as String? ?? 'Riff Handoff').replaceAll('ARCHETYPE_', '').replaceAll('_', ' ');
     _lastTransitionArchetype = _activeArchetype;
@@ -629,7 +653,15 @@ class PlaybackController extends ChangeNotifier {
       final endMs = (timing['track_a_exit_end_ms'] as num?)?.toDouble() ?? 1400.0;
       _lastTransitionDurationSec = ((endMs - startMs).abs() / 1000.0);
     }
-    _bridge.playerTriggerTransition(recipe);
+    final code = _bridge.playerTriggerTransition(recipe);
+    if (code == 0) {
+      _isTransitioning = true;
+    } else {
+      debugPrint('[PlaybackController] Native transition failed (code $code); advancing queue cleanly with skipNext');
+      _isTransitioning = false;
+      _pendingRecipe = null;
+      skipNext(autoPlay: true);
+    }
     notifyListeners();
   }
 
@@ -1417,18 +1449,25 @@ class PlaybackController extends ChangeNotifier {
 
     final curWithProfile = currentTrack;
     final nextWithProfile = upNextTrack;
-    if (curWithProfile?.tapProfile != null && nextWithProfile?.tapProfile != null) {
-      try {
-        final recipe = await _bridge.planTransition(curWithProfile!.tapProfile!, nextWithProfile!.tapProfile!);
-        if (recipe != null) {
-          _pendingRecipe = recipe;
-          final archetype = recipe['archetype'] as String? ?? 'ARCHETYPE_2_RIFF_HANDOFF';
-          _activeArchetype = archetype.replaceAll('ARCHETYPE_', '').replaceAll('_', ' ');
-          notifyListeners();
+    if (curWithProfile != null && nextWithProfile != null) {
+      if (curWithProfile.tapProfile != null && nextWithProfile.tapProfile != null) {
+        try {
+          final recipe = await _bridge.planTransition(curWithProfile.tapProfile!, nextWithProfile.tapProfile!);
+          if (recipe != null) {
+            _pendingRecipe = recipe;
+            final archetype = recipe['archetype'] as String? ?? 'ARCHETYPE_2_RIFF_HANDOFF';
+            _activeArchetype = archetype.replaceAll('ARCHETYPE_', '').replaceAll('_', ' ');
+            notifyListeners();
+            return;
+          }
+        } catch (e) {
+          debugPrint('[PlaybackController] Error preparing transition recipe: $e');
         }
-      } catch (e) {
-        debugPrint('[PlaybackController] Error preparing transition recipe: $e');
       }
+      // Guarantee fallback recipe so smart shuffle transitions NEVER stall
+      _pendingRecipe = _buildFallbackRecipe(curWithProfile, nextWithProfile);
+      _activeArchetype = 'Equal-Power Crossfade';
+      notifyListeners();
     }
   }
 

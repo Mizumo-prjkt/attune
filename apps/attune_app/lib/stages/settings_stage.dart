@@ -96,22 +96,20 @@ class _SettingsAndAudioStageState extends State<SettingsAndAudioStage> with Widg
       context: context,
       barrierColor: Colors.black.withValues(alpha: 0.65),
       builder: (dialogCtx) {
-        return BackdropFilter(
-          filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
-          child: Dialog(
-            backgroundColor: Colors.transparent,
-            insetPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 540, maxHeight: 680),
-              child: LiquidGlassContainer(
-                borderRadius: 24,
-                surfaceAlpha: 0.28,
-                tintOverride: const Color(0xFF14161F),
-                padding: const EdgeInsets.fromLTRB(20, 20, 20, 16),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
+        return Dialog(
+          backgroundColor: Colors.transparent,
+          insetPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 540, maxHeight: 680),
+            child: LiquidGlassContainer(
+              borderRadius: 24,
+              surfaceAlpha: 0.28,
+              tintOverride: const Color(0xFF14161F),
+              padding: const EdgeInsets.fromLTRB(20, 20, 20, 16),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
                     // Dialog Header
                     Row(
                       children: [
@@ -156,11 +154,10 @@ class _SettingsAndAudioStageState extends State<SettingsAndAudioStage> with Widg
                 ),
               ),
             ),
-          ),
-        );
-      },
-    );
-  }
+          );
+        },
+      );
+    }
 
   @override
   Widget build(BuildContext context) {
@@ -860,8 +857,7 @@ class _SettingsAndAudioStageState extends State<SettingsAndAudioStage> with Widg
                 icon: const Icon(Icons.refresh_rounded, size: 18),
                 label: const Text('Reset Metrics'),
                 onPressed: () {
-                  WatchguardService.instance.resetMetrics();
-                  _playback.dismissOverloadAlert();
+                  _playback.resetOverloadAlert();
                   setDialogState(() {});
                 },
               ),
