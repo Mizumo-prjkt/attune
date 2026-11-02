@@ -81,5 +81,10 @@
   "common_disabled": "Naka-off",
   "common_ready": "Handa",
   "common_playing": "Tumatugtog",
-  "common_paused": "Nakahinto"
+  "common_paused": "Nakahinto",
+
+  "bubble_nav_title": "Bubblegrid Selection",
+  "bubble_nav_subtitle": "Hexagonal na pagpili at pag-highlight ng musika",
+  "bubble_recenter": "Ibalik sa Gitna",
+  "bubble_view_album": "Tingnan ang Album →"
 }

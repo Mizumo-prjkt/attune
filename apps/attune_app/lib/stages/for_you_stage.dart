@@ -5,6 +5,7 @@ import '../services/for_you_service.dart';
 import '../services/playback_controller.dart';
 import '../services/settings_service.dart';
 import '../stages/albums_stage.dart';
+import '../stages/bubble_navigation_stage.dart';
 import '../l10n/translation_core.dart';
 import '../theme/liquid_glass.dart';
 import '../theme/typography.dart';
@@ -95,6 +96,22 @@ class _ForYouStageState extends State<ForYouStage> {
                       ),
                     ],
                   ),
+                ),
+                const SizedBox(width: 8),
+
+                // Bubblegrid Selection Trigger
+                IconButton.filledTonal(
+                  icon: const Icon(Icons.bubble_chart_rounded, size: 20),
+                  tooltip: context.tr('bubble_nav_title'),
+                  onPressed: () {
+                    Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) => BubbleNavigationStage(
+                          onOpenNowPlaying: widget.onOpenNowPlaying,
+                        ),
+                      ),
+                    );
+                  },
                 ),
                 const SizedBox(width: 8),
 

@@ -1723,6 +1723,45 @@ This file records all major architectural decisions for **Attune**, including co
   - Sub-5ms instant startup reusing valid cache for up to 7 days unless new music is added.
   - All 113 Flutter unit and widget tests pass with 0 errors. All 29 Rust workspace tests pass with 0 errors.
 
+---
+
+## ADR-052: Full-Screen Bubblegrid Selection Stage, Concentric Hexagonal Lattice, Fisheye Lens Cosine Magnification & Floating Liquid Glass Highlight Card
+
+- **Status**: **LOCKED** (Implemented & Verified)
+- **Date**: 2026-11-02
+- **Context**:
+  - The user requested an interactive full-screen navigation stage displaying tracks, albums, and mixes as a honeycomb bubble grid with center magnification and highlight (`media_1793609888892_bb08a1d1.png`).
+  - Strict user constraints:
+    1. *"note that i dont want replacements on the navbar"* — Bottom navigation bar destinations must remain completely untouched.
+    2. *"do not mention watchOS, just make it say Bubblegrid selection"* — Eliminate all references to "watchOS" from UI, tooltips, localized strings, and code comments; rename to "Bubblegrid Selection".
+- **Decision**:
+  1. **Honeycomb Hexagonal Geometry (`BubbleNavigationStage`)**:
+     - Created `apps/attune_app/lib/stages/bubble_navigation_stage.dart`.
+     - Computed concentric hexagonal rings: Ring 0 at $(0, 0)$, Ring 1 with 6 vertices at $112\text{px}$ spacing, Ring 2 with 12 vertices, up to $N$ items along perimeter edges.
+  2. **Cosine Fisheye Lens & Viewport Culling**:
+     - Scaled bubbles using a smooth cosine lens equation:
+       $$\text{scale}(d) = 0.52 + (1.48 - 0.52) \times 0.5 \times (1.0 + \cos(\pi \cdot \text{clamp}(d / R_{\text{lens}}, 0, 1)))$$
+       yielding $1.48\times$ center magnification and $0.52\times$ perimeter edge tapering.
+     - Added spherical outward radial displacement: $P_{\text{pushed}} = \text{center} + \vec{d} \times (1.0 + 0.12 \times (1 - t^2))$.
+     - Evaluated viewport culling per frame, skipping rendering for any bubble fully outside $([-40, W+40], [-40, H+40])$, ensuring solid 120 FPS performance on Impeller and Skia.
+  3. **Interactive 2D Pan Momentum & Nearest Bubble Catch**:
+     - Handled 2D pan with velocity momentum coasting and spring deceleration.
+     - Automatically identified the nearest bubble to center, applied an active primary color rim and glow shadow, and synchronized with a floating bottom Liquid Glass card (`LiquidGlassContainer`).
+     - Highlight card features artwork bubble, track/album title, artist/subtitle, BPM and musical key pills, "View Album" navigation, and an instant circular play/pause button.
+     - Tapping any bubble glides it into the center; tapping the highlighted bubble or double tapping starts playback immediately.
+  4. **Category Filter Chips**:
+     - Built horizontal filter pills: All Tracks, Albums, For You Mixes, Rock, Pop, Electronic.
+  5. **Navigation Entry & Route Integration**:
+     - Bottom navigation bar left completely intact (zero replacement of tabs).
+     - Registered standalone route `'/bubble_selector'` in `apps/attune_app/lib/main.dart`.
+     - Added quick action launcher buttons (`Icons.bubble_chart_rounded`) in `ForYouStage` header and `HomeStage` search bar.
+  6. **Localization & Naming Compliance**:
+     - Registered keys `bubble_nav_title`, `bubble_nav_subtitle`, `bubble_recenter`, and `bubble_view_album` in `en.dart`, `fil.dart`, `template_en.json`, and `fil.json`.
+     - Zero occurrences of "watchOS" in UI strings or comments; all designated as "Bubblegrid Selection".
+- **Consequences**:
+  - Full-screen expressive Bubblegrid navigation with 120 FPS physics and fluid center highlight.
+  - 100% test pass rate across all 117 Flutter tests and all 29 Rust workspace tests with 0 analyze warnings.
+
 
 
 

@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'services/environment_delegator.dart';
 import 'shell/responsive_glass_scaffold.dart';
 import 'stages/about_stage.dart';
+import 'stages/bubble_navigation_stage.dart';
 import 'stages/equalizer_stage.dart';
 import 'stages/settings_stage.dart';
 import 'stages/song_exclusion_stage.dart';
@@ -78,6 +79,7 @@ class AttuneApp extends StatelessWidget {
         '/song_exclusion': (context) => const SongExclusionStage(),
         '/equalizer': (context) => const EqualizerStage(),
         '/about': (context) => const AboutStage(),
+        '/bubble_selector': (context) => const BubbleNavigationStage(),
       },
     );
   }

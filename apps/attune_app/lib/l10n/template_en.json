@@ -81,5 +81,10 @@
   "common_disabled": "Disabled",
   "common_ready": "Ready",
   "common_playing": "Playing",
-  "common_paused": "Paused"
+  "common_paused": "Paused",
+
+  "bubble_nav_title": "Bubblegrid Selection",
+  "bubble_nav_subtitle": "Fluid hexagonal navigation & highlight",
+  "bubble_recenter": "Recenter Grid",
+  "bubble_view_album": "View Album →"
 }

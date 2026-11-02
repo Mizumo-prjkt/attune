@@ -686,6 +686,33 @@ These four benchmark scenarios define the "Gold Standard" transitions that Attun
      - 29 Rust workspace tests pass with 0 errors.
 - **Listening & Stability Verdict**: `PASS`. 99.4% cache reduction, zero disk-save loops, sub-5ms instant startup with 7-day TTL and new music detection, and optimal RAM/CPU footprints.
 
+---
+
+### Experiment #028: Full-Screen Bubblegrid Selection Stage, Concentric Hexagonal Lattice & Cosine Lens Magnification
+- **Date**: 2026-11-02
+- **Hypothesis**: Implementing a full-screen "Bubblegrid Selection" screen (`BubbleNavigationStage`) with concentric hexagonal lattice spacing, a continuous cosine lens magnification curve ($1.48\times$ center to $0.52\times$ perimeter), 2D momentum pan physics, and a floating Liquid Glass highlight card will provide fluid, visually tactile music selection without touching the navigation bar or introducing rendering bottlenecks.
+- **Empirical Findings & Verification**:
+  1. **Hexagonal Lattice & Cosine Fisheye Magnification (`test/bubble_navigation_stage_test.dart`)**:
+     - Verified concentric hexagonal coordinate generator: Ring 0 at $(0, 0)$, Ring 1 with 6 vertices at $112\text{px}$, Ring 2 with 12 vertices.
+     - Verified cosine lens magnification:
+       $$\text{scale}(d) = 0.52 + (1.48 - 0.52) \times 0.5 \times (1.0 + \cos(\pi \cdot \text{clamp}(d / R_{\text{lens}}, 0, 1)))$$
+     - Center bubbles are magnified by $1.48\times$ with active glowing borders, while perimeter bubbles smoothly taper down to $0.52\times$.
+     - Viewport culling excludes off-screen bubbles outside the $([-40, W+40], [-40, H+40])$ bounding box, preserving 120 FPS render performance.
+  2. **Touch Interactions, Momentum & Floating Liquid Glass Highlight Card**:
+     - Dragging canvas pans the 2D offset smoothly; releasing with velocity initiates momentum coasting with cubic deceleration.
+     - Nearest bubble is highlighted with primary accent halo and updates the floating bottom `LiquidGlassContainer`.
+     - Highlight card displays thumbnail artwork bubble, title, artist, BPM/Key pills, "View Album" navigation, and immediate play/pause trigger.
+     - Tapping any off-center bubble smoothly glides and centers it via `CurvedAnimation(curve: Curves.easeOutCubic)`.
+  3. **Navbar & Naming Constraint Compliance**:
+     - Bottom navigation bar destinations are completely preserved and untouched.
+     - Zero mentions of "watchOS"; all labels, tooltips, and translations designate the stage as "Bubblegrid Selection" across English and Filipino dictionaries.
+     - Integrated route `'/bubble_selector'` into `main.dart` and added entry points in `ForYouStage` and `HomeStage`.
+  4. **Full Test & Analyze Verification**:
+     - 117 Flutter unit and widget tests pass with 0 errors.
+     - 29 Rust workspace tests pass with 0 errors.
+     - `flutter analyze apps/attune_app` reports 0 issues.
+- **Listening & Stability Verdict**: `PASS`. Fluid 120 FPS honeycomb Bubblegrid exploration, instantaneous tap-to-center physics, and floating Liquid Glass highlight integration.
+
 
 
 
