@@ -3,6 +3,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import '../models/smart_shuffle_verdict.dart';
 import '../models/track_item.dart';
+import '../services/lyrics_service.dart';
 import '../services/playback_controller.dart';
 import '../services/platform_navigation.dart';
 import '../services/settings_service.dart';
@@ -38,8 +39,35 @@ class NowPlayingStage extends StatefulWidget {
   State<NowPlayingStage> createState() => _NowPlayingStageState();
 }
 
-class _NowPlayingStageState extends State<NowPlayingStage> {
+class _NowPlayingStageState extends State<NowPlayingStage> with TickerProviderStateMixin {
   bool _showLyrics = false;
+  AnimationController? _morphController;
+  CurvedAnimation? _morphCurvedAnim;
+  int _currentShapeIndex = 0;
+  int _previousShapeIndex = 0;
+  String? _lastTrackId;
+  String? _lastArtworkFile;
+  String? _previousArtworkFile;
+
+  @override
+  void initState() {
+    super.initState();
+    _morphController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 750),
+    );
+    _morphCurvedAnim = CurvedAnimation(
+      parent: _morphController!,
+      curve: Curves.easeInOutCubic,
+    );
+    _morphController!.value = 1.0;
+  }
+
+  @override
+  void dispose() {
+    _morphController?.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -71,17 +99,34 @@ class _NowPlayingStageState extends State<NowPlayingStage> {
             ? AttuneColorEngine.lerpSchemes(baseScheme, targetScheme, controller.transitionProgress)
             : baseScheme;
 
+        // Update morphing shape when track changes
+        if (track?.id != _lastTrackId) {
+          _previousShapeIndex = _currentShapeIndex;
+          _previousArtworkFile = _lastArtworkFile;
+          _currentShapeIndex = _pickFreeshapeIndexWithRecency(track?.id ?? 'default');
+          _lastTrackId = track?.id;
+          _lastArtworkFile = track?.artworkFile;
+          if (_lastTrackId != null && _previousArtworkFile != null) {
+            _morphController?.forward(from: 0.0);
+          }
+        }
+
         // If lyrics mode is activated on mobile, render the full-page SynchronizedLyricsStage
         if (_showLyrics) {
           final skin = settings.nowPlayingSkin;
           final hasArtwork = track?.artworkFile != null && File(track!.artworkFile!).existsSync();
+          final parsedLyrics = LyricsService.instance.currentParsedLyrics;
+          final hasRealLyrics = parsedLyrics != null &&
+              parsedLyrics.hasLyrics &&
+              parsedLyrics.lines.isNotEmpty &&
+              !parsedLyrics.lines.every((l) => l.text.toLowerCase().contains('no lyrics'));
 
           return Container(
             color: colorScheme.surface.withValues(alpha: 0.20),
             child: Stack(
               children: [
-                // In Material You Freeshapes skin, show toned-down / dimmed background freeshape art
-                if (skin == NowPlayingSkin.materialYouFreeshapes && hasArtwork)
+                // In Material You Freeshapes skin, show toned-down background freeshape art ONLY when lyrics exist
+                if (skin == NowPlayingSkin.materialYouFreeshapes && hasArtwork && hasRealLyrics)
                   Positioned.fill(
                     child: Center(
                       child: Opacity(
@@ -90,7 +135,11 @@ class _NowPlayingStageState extends State<NowPlayingStage> {
                           width: 320,
                           height: 320,
                           child: ClipPath(
-                            clipper: _getFreeshapeClipper(track.id),
+                            clipper: MorphingFreeshapeClipper(
+                              shapeFrom: _currentShapeIndex,
+                              shapeTo: _currentShapeIndex,
+                              progress: 1.0,
+                            ),
                             child: Image.file(
                               File(track.artworkFile!),
                               fit: BoxFit.cover,
@@ -217,26 +266,63 @@ class _NowPlayingStageState extends State<NowPlayingStage> {
                   // 1. Dynamic Hero Artwork Card based on active NowPlayingSkin
                   _buildHeroArtwork(track, colorScheme, settings.nowPlayingSkin, MediaQuery.sizeOf(context).width),
 
-                  const SizedBox(height: 24),
+                  const SizedBox(height: 20),
 
-                  // 2. Track Title & Artist
-                  Text(
-                    track?.title ?? 'Rabbit Hole',
-                    style: AttuneTypography.soraTitleLarge(color: colorScheme.onSurface),
-                    textAlign: TextAlign.center,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    track?.artist ?? 'DECO*27 feat. Hatsune Miku',
-                    style: AttuneTypography.jakartaArtistSubtitle(
-                      color: colorScheme.onSurface.withValues(alpha: 0.72),
-                    ),
-                    textAlign: TextAlign.center,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
+                  // 2. Track Title, Artist, and Live Timed Lyric Snippet (for Normal Square Big)
+                  () {
+                    final isNormalSquareBig = settings.nowPlayingSkin == NowPlayingSkin.normalSquareBig;
+                    final heroSize = (MediaQuery.sizeOf(context).width >= 720)
+                        ? 360.0
+                        : math.min(MediaQuery.sizeOf(context).width - 48, 340.0);
+
+                    // Query timed lyrics for Normal Square Big live position line
+                    final parsed = LyricsService.instance.currentParsedLyrics;
+                    final isTimed = parsed != null &&
+                        parsed.hasLyrics &&
+                        parsed.lines.any((l) => l.timeSec >= 0.0);
+                    LyricLine? activeLine;
+                    if (isTimed && parsed.lines.isNotEmpty) {
+                      int idx = 0;
+                      for (int i = 0; i < parsed.lines.length; i++) {
+                        if (parsed.lines[i].timeSec >= 0 && posSec >= parsed.lines[i].timeSec) {
+                          idx = i;
+                        } else if (parsed.lines[i].timeSec > posSec) {
+                          break;
+                        }
+                      }
+                      activeLine = parsed.lines[idx];
+                    }
+
+                    return SizedBox(
+                      width: heroSize,
+                      child: Column(
+                        crossAxisAlignment:
+                            isNormalSquareBig ? CrossAxisAlignment.start : CrossAxisAlignment.center,
+                        children: [
+                          // Small space with current lyrics position (cream white / brightly colored syllables)
+                          if (isNormalSquareBig && isTimed && activeLine != null)
+                            _buildNormalSquareBigLyricSnippet(activeLine, posSec, colorScheme),
+                          Text(
+                            track?.title ?? (controller.queue.isEmpty ? 'No Track Playing' : 'Rabbit Hole'),
+                            style: AttuneTypography.soraTitleLarge(color: colorScheme.onSurface),
+                            textAlign: isNormalSquareBig ? TextAlign.left : TextAlign.center,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            track?.artist ?? (controller.queue.isEmpty ? 'Queue is empty' : 'DECO*27 feat. Hatsune Miku'),
+                            style: AttuneTypography.jakartaArtistSubtitle(
+                              color: colorScheme.onSurface.withValues(alpha: 0.72),
+                            ),
+                            textAlign: isNormalSquareBig ? TextAlign.left : TextAlign.center,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ],
+                      ),
+                    );
+                  }(),
 
                   const SizedBox(height: 20),
 
@@ -1206,25 +1292,15 @@ class _NowPlayingStageState extends State<NowPlayingStage> {
 
   Widget _buildFreeshapesArtwork(TrackItem? track, ColorScheme colorScheme, double size) {
     final hasArtwork = track?.artworkFile != null && File(track!.artworkFile!).existsSync();
-    final trackId = track?.id ?? 'default';
+    final hasPrevArtwork = _previousArtworkFile != null && File(_previousArtworkFile!).existsSync();
 
     return Center(
-      child: AnimatedSwitcher(
-        duration: const Duration(milliseconds: 600),
-        switchInCurve: Curves.easeInOutCubic,
-        switchOutCurve: Curves.easeInOutCubic,
-        transitionBuilder: (child, animation) {
-          return FadeTransition(
-            opacity: animation,
-            child: ScaleTransition(
-              scale: Tween<double>(begin: 0.90, end: 1.0).animate(animation),
-              child: child,
-            ),
-          );
-        },
-        child: KeyedSubtree(
-          key: ValueKey('freeshape_${track?.id ?? "none"}'),
-          child: SizedBox(
+      child: AnimatedBuilder(
+        animation: _morphCurvedAnim ?? const AlwaysStoppedAnimation(1.0),
+        builder: (context, _) {
+          final progress = _morphCurvedAnim?.value ?? 1.0;
+
+          return SizedBox(
             width: size,
             height: size,
             child: Stack(
@@ -1246,22 +1322,118 @@ class _NowPlayingStageState extends State<NowPlayingStage> {
                   ),
                 ),
                 ClipPath(
-                  clipper: _getFreeshapeClipper(trackId),
+                  clipper: MorphingFreeshapeClipper(
+                    shapeFrom: _previousShapeIndex,
+                    shapeTo: _currentShapeIndex,
+                    progress: progress,
+                  ),
                   child: SizedBox(
                     width: size,
                     height: size,
-                    child: hasArtwork
-                        ? Image.file(
-                            File(track.artworkFile!),
-                            fit: BoxFit.cover,
-                            errorBuilder: (context, error, stackTrace) => _buildFallbackCover(colorScheme),
-                          )
-                        : _buildFallbackCover(colorScheme),
+                    child: Stack(
+                      fit: StackFit.expand,
+                      children: [
+                        // Previous artwork fading out during morphological morph
+                        if (hasPrevArtwork && progress < 1.0)
+                          Opacity(
+                            opacity: (1.0 - progress).clamp(0.0, 1.0),
+                            child: Image.file(
+                              File(_previousArtworkFile!),
+                              fit: BoxFit.cover,
+                            ),
+                          ),
+                        // Current artwork fading in
+                        Opacity(
+                          opacity: progress.clamp(0.0, 1.0),
+                          child: hasArtwork
+                              ? Image.file(
+                                  File(track.artworkFile!),
+                                  fit: BoxFit.cover,
+                                  errorBuilder: (context, error, stackTrace) => _buildFallbackCover(colorScheme),
+                                )
+                              : _buildFallbackCover(colorScheme),
+                        ),
+                      ],
+                    ),
                   ),
                 ),
               ],
             ),
+          );
+        },
+      ),
+    );
+  }
+
+  /// Live snippet of active timed lyric position for NormalSquareBig skin
+  Widget _buildNormalSquareBigLyricSnippet(LyricLine activeLine, double currentPosSec, ColorScheme colorScheme) {
+    final hasSyllable = activeLine.hasSyllableSync;
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10.0),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        decoration: BoxDecoration(
+          color: Colors.white.withValues(alpha: 0.06),
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(
+            color: const Color(0xFFFFFDD0).withValues(alpha: 0.16),
+            width: 1,
           ),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              Icons.music_note_rounded,
+              size: 14,
+              color: const Color(0xFFFFFDD0).withValues(alpha: 0.8),
+            ),
+            const SizedBox(width: 6),
+            Flexible(
+              child: hasSyllable
+                  ? RichText(
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      text: TextSpan(
+                        children: activeLine.words.map((word) {
+                          final isSung = currentPosSec >= word.endSec;
+                          final isCurrent = currentPosSec >= word.startSec && currentPosSec < word.endSec;
+
+                          Color textColor;
+                          FontWeight fontWeight;
+                          if (isCurrent) {
+                            textColor = Colors.white; // Bright highlighted active syllable
+                            fontWeight = FontWeight.w800;
+                          } else if (isSung) {
+                            textColor = const Color(0xFFFFFDD0); // Cream white sung words
+                            fontWeight = FontWeight.w600;
+                          } else {
+                            textColor = const Color(0xFFFFFDD0).withValues(alpha: 0.40); // Dimmed upcoming words
+                            fontWeight = FontWeight.w400;
+                          }
+
+                          return TextSpan(
+                            text: '${word.text} ',
+                            style: AttuneTypography.jakartaBodySmall(
+                              color: textColor,
+                              fontSize: 12,
+                            ).copyWith(fontWeight: fontWeight),
+                          );
+                        }).toList(),
+                      ),
+                    )
+                  : Text(
+                      activeLine.text,
+                      style: AttuneTypography.jakartaBodySmall(
+                        color: const Color(0xFFFFFDD0),
+                        fontSize: 12,
+                      ).copyWith(fontWeight: FontWeight.w600),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+            ),
+          ],
         ),
       ),
     );
@@ -1338,41 +1510,93 @@ class _NowPlayingStageState extends State<NowPlayingStage> {
   }
 }
 
-/// Dynamic shape picker determining expressive M3 contour per track
-CustomClipper<Path> _getFreeshapeClipper(String trackId) {
-  final idx = trackId.hashCode.abs() % 5;
-  switch (idx) {
-    case 0:
-      return const FreeshapeFlowerClipper(petals: 8, depth: 0.14);
-    case 1:
-      return const FreeshapeCloverClipper();
-    case 2:
-      return const FreeshapeStarClipper(points: 6);
-    case 3:
-      return const FreeshapeOrganicBlobClipper();
-    case 4:
+// ---------------------------------------------------------------------------
+// Material You Expressive Freeshapes: Recency Scoring & Morphological Morphing
+// ---------------------------------------------------------------------------
+
+/// Recency ring buffer preventing consecutive/repetitive shapes
+final List<int> _recentFreeshapeIndices = [];
+
+/// Evaluates normalized radius r(theta) for theta in [0, 2*pi] across 8 distinct shapes
+double _evaluateFreeshapeRadius(int shapeIndex, double theta) {
+  switch (shapeIndex) {
+    case 0: // 8-Petal Flower
+      return 0.86 + 0.14 * math.cos(8 * theta);
+    case 1: // 4-Leaf Clover
+      return 0.82 + 0.18 * math.cos(4 * theta);
+    case 2: // 6-Point Star
+      return 0.80 + 0.20 * math.cos(6 * theta);
+    case 3: // Organic Fluid Blob (Asymmetric Harmonic contour)
+      return 0.82 + 0.12 * math.cos(theta) + 0.10 * math.sin(2 * theta) - 0.08 * math.cos(3 * theta);
+    case 4: // Squircle (Continuous superellipse approximation)
+      return 0.90 + 0.10 * math.cos(4 * theta) - 0.03 * math.cos(8 * theta);
+    case 5: // 12-Point Scallop / Sunburst
+      return 0.89 + 0.11 * math.cos(12 * theta);
+    case 6: // 5-Point Star
+      return 0.80 + 0.20 * math.cos(5 * theta);
+    case 7: // Rounded Diamond
     default:
-      return const FreeshapeSquircleClipper();
+      return 0.78 + 0.22 * math.cos(2 * theta);
   }
 }
 
-/// Expressive Material You Freeshape Clippers
-class FreeshapeFlowerClipper extends CustomClipper<Path> {
-  final int petals;
-  final double depth;
+/// Selects an expressive shape with progressive recency penalty
+int _pickFreeshapeIndexWithRecency(String trackId) {
+  const totalShapes = 8;
+  int bestIndex = 0;
+  double bestScore = -999999.0;
 
-  const FreeshapeFlowerClipper({this.petals = 8, this.depth = 0.14});
+  for (int k = 0; k < totalShapes; k++) {
+    final hashVal = (trackId.hashCode.abs() + (k * 43) + 17) % 1000;
+    double score = hashVal / 1000.0;
+
+    // Apply heavy recency penalty to recently used shapes
+    for (int r = 0; r < _recentFreeshapeIndices.length; r++) {
+      if (_recentFreeshapeIndices[r] == k) {
+        score -= (100.0 / (r + 1));
+      }
+    }
+
+    if (score > bestScore) {
+      bestScore = score;
+      bestIndex = k;
+    }
+  }
+
+  // Update ring buffer
+  _recentFreeshapeIndices.insert(0, bestIndex);
+  if (_recentFreeshapeIndices.length > 5) {
+    _recentFreeshapeIndices.removeLast();
+  }
+
+  return bestIndex;
+}
+
+/// Morphological CustomClipper that fluidly interpolates contour points from shapeFrom to shapeTo
+class MorphingFreeshapeClipper extends CustomClipper<Path> {
+  final int shapeFrom;
+  final int shapeTo;
+  final double progress; // 0.0 to 1.0
+
+  const MorphingFreeshapeClipper({
+    required this.shapeFrom,
+    required this.shapeTo,
+    required this.progress,
+  });
 
   @override
   Path getClip(Size size) {
     final center = Offset(size.width / 2, size.height / 2);
     final radius = size.width / 2;
     final path = Path();
-    const steps = 180;
+    const steps = 140;
+
     for (int i = 0; i <= steps; i++) {
       final theta = (i / steps) * 2 * math.pi;
-      final mod = (1.0 - depth) + depth * math.cos(petals * theta);
-      final r = radius * mod;
+      final rFrom = _evaluateFreeshapeRadius(shapeFrom, theta);
+      final rTo = _evaluateFreeshapeRadius(shapeTo, theta);
+      final blendedMod = (1.0 - progress) * rFrom + progress * rTo;
+      final r = radius * blendedMod;
       final x = center.dx + r * math.cos(theta);
       final y = center.dy + r * math.sin(theta);
       if (i == 0) {
@@ -1386,35 +1610,28 @@ class FreeshapeFlowerClipper extends CustomClipper<Path> {
   }
 
   @override
-  bool shouldReclip(covariant FreeshapeFlowerClipper oldClipper) =>
-      oldClipper.petals != petals || oldClipper.depth != depth;
+  bool shouldReclip(covariant MorphingFreeshapeClipper oldClipper) {
+    return oldClipper.shapeFrom != shapeFrom ||
+        oldClipper.shapeTo != shapeTo ||
+        oldClipper.progress != progress;
+  }
+}
+
+
+class FreeshapeFlowerClipper extends CustomClipper<Path> {
+  final int petals;
+  final double depth;
+  const FreeshapeFlowerClipper({this.petals = 8, this.depth = 0.14});
+  @override
+  Path getClip(Size size) => const MorphingFreeshapeClipper(shapeFrom: 0, shapeTo: 0, progress: 1.0).getClip(size);
+  @override
+  bool shouldReclip(covariant CustomClipper<Path> oldClipper) => false;
 }
 
 class FreeshapeCloverClipper extends CustomClipper<Path> {
   const FreeshapeCloverClipper();
-
   @override
-  Path getClip(Size size) {
-    final center = Offset(size.width / 2, size.height / 2);
-    final radius = size.width / 2;
-    final path = Path();
-    const steps = 180;
-    for (int i = 0; i <= steps; i++) {
-      final theta = (i / steps) * 2 * math.pi;
-      final mod = 0.82 + 0.18 * math.cos(4 * theta);
-      final r = radius * mod;
-      final x = center.dx + r * math.cos(theta);
-      final y = center.dy + r * math.sin(theta);
-      if (i == 0) {
-        path.moveTo(x, y);
-      } else {
-        path.lineTo(x, y);
-      }
-    }
-    path.close();
-    return path;
-  }
-
+  Path getClip(Size size) => const MorphingFreeshapeClipper(shapeFrom: 1, shapeTo: 1, progress: 1.0).getClip(size);
   @override
   bool shouldReclip(covariant CustomClipper<Path> oldClipper) => false;
 }
@@ -1422,67 +1639,24 @@ class FreeshapeCloverClipper extends CustomClipper<Path> {
 class FreeshapeStarClipper extends CustomClipper<Path> {
   final int points;
   const FreeshapeStarClipper({this.points = 6});
-
   @override
-  Path getClip(Size size) {
-    final center = Offset(size.width / 2, size.height / 2);
-    final radius = size.width / 2;
-    final path = Path();
-    const steps = 180;
-    for (int i = 0; i <= steps; i++) {
-      final theta = (i / steps) * 2 * math.pi;
-      final mod = 0.80 + 0.20 * math.cos(points * theta);
-      final r = radius * mod;
-      final x = center.dx + r * math.cos(theta);
-      final y = center.dy + r * math.sin(theta);
-      if (i == 0) {
-        path.moveTo(x, y);
-      } else {
-        path.lineTo(x, y);
-      }
-    }
-    path.close();
-    return path;
-  }
-
+  Path getClip(Size size) => const MorphingFreeshapeClipper(shapeFrom: 2, shapeTo: 2, progress: 1.0).getClip(size);
   @override
   bool shouldReclip(covariant CustomClipper<Path> oldClipper) => false;
 }
 
 class FreeshapeOrganicBlobClipper extends CustomClipper<Path> {
   const FreeshapeOrganicBlobClipper();
-
   @override
-  Path getClip(Size size) {
-    final w = size.width;
-    final h = size.height;
-    final path = Path();
-    path.moveTo(w * 0.42, 0);
-    path.cubicTo(w * 0.78, 0, w, h * 0.26, w, h * 0.56);
-    path.cubicTo(w, h * 0.86, w * 0.72, h, w * 0.44, h);
-    path.cubicTo(w * 0.16, h, 0, h * 0.76, 0, h * 0.44);
-    path.cubicTo(0, h * 0.16, w * 0.16, 0, w * 0.42, 0);
-    path.close();
-    return path;
-  }
-
+  Path getClip(Size size) => const MorphingFreeshapeClipper(shapeFrom: 3, shapeTo: 3, progress: 1.0).getClip(size);
   @override
   bool shouldReclip(covariant CustomClipper<Path> oldClipper) => false;
 }
 
 class FreeshapeSquircleClipper extends CustomClipper<Path> {
   const FreeshapeSquircleClipper();
-
   @override
-  Path getClip(Size size) {
-    final r = RRect.fromRectAndRadius(
-      Rect.fromLTWH(0, 0, size.width, size.height),
-      Radius.circular(size.width * 0.28),
-    );
-    final path = Path()..addRRect(r);
-    return path;
-  }
-
+  Path getClip(Size size) => const MorphingFreeshapeClipper(shapeFrom: 4, shapeTo: 4, progress: 1.0).getClip(size);
   @override
   bool shouldReclip(covariant CustomClipper<Path> oldClipper) => false;
 }

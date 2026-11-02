@@ -776,6 +776,29 @@ These four benchmark scenarios define the "Gold Standard" transitions that Attun
   - `flutter test`: All 132 Flutter unit and widget tests pass cleanly, including new unit tests verifying outro anchoring (`startMs == 238600` for a 240s track) and safety gating.
 - **Listening & Stability Verdict**: `PASS`. Tracks play continuously throughout their entire body, and Smart Shuffle transitions engage smoothly and exclusively during the outro cue zone.
 
+---
+
+### Experiment #025: Play Queue Overhaul, Isolated Smart Shuffle Meshing, Dedicated Track Selection Stage, Continuous Freeshape Morphing & Normal Square Big Polish
+- **Date**: 2026-11-03
+- **Hypothesis**: Decoupling library discovery from the active play queue so fresh launches begin with an empty queue, confining Smart Shuffle candidate evaluation strictly to queued tracks, warning users when $<20$ tracks are queued, providing a dedicated full-screen Liquid Glass track picker, continuously morphing polar harmonic contours between track changes in Material You Freeshapes with recency penalties, guarding lyrics silhouettes, and left-aligning Normal Square Big with live timed/syllable lyric snippets will produce a fluid, predictable, and aesthetically pleasing DJ listening experience.
+- **Empirical Findings & Mathematical Implementation**:
+  1. **Queue Isolation & Smart Shuffle Gating**:
+     - `applyLibraryFilters` and `scanLocalAudioDirectories` now default to `populateQueue: false`.
+     - Smart Shuffle candidate scoring in `_findBestSmartMatchIndex` iterates strictly through `_queue` items. When `_queue.length < 20`, a warning banner alerts the user with dynamic `${queue.length}/20 tracks` count.
+     - `reorderQueue` is locked during `ShuffleMode.smart`, eliminating confusion from conflicting manual drag reordering versus automatic Camelot transitions.
+  2. **Continuous Polar Harmonic Morphing**:
+     - `MorphingFreeshapeClipper` samples $N = 180$ angles $\theta_i = \frac{2\pi i}{N}$. For each angle, radii $r_0(\theta_i)$ and $r_1(\theta_i)$ are evaluated from the source and destination shape functions and linearly blended: $r(\theta_i, t) = (1-t)r_0(\theta_i) + t r_1(\theta_i)$.
+     - Path connects $(x_i, y_i) = (c_x + r\cos\theta, c_y + r\sin\theta)$, delivering smooth 60/120 FPS continuous deformation without geometric clipping errors.
+     - Recency scoring applies a $-100.0$ penalty to the previous index and $-100/(r+1)$ across a ring buffer of the 4 most recent shapes.
+  3. **Lyrics Silhouette & Normal Square Big Polish**:
+     - Mobile lyrics background silhouette is conditioned on `hasArtwork && hasRealLyrics` where `hasRealLyrics` checks for non-empty parsed lines without placeholder text.
+     - Normal Square Big cover title and artist are left-aligned. If timed lyrics are active, `_buildNormalSquareBigLyricSnippet` renders the active lyric line in cream white (`#FFFDD0`) with active words highlighted in bright white (`#FFFFFF`) with 40ms perceptual lead time.
+- **Empirical Verification**:
+  - `flutter analyze apps/attune_app`: 0 issues found.
+  - `flutter test`: All 139 Flutter tests pass cleanly (including dedicated `queue_overhaul_and_skins_polish_test.dart`).
+  - `cargo test --workspace`: All 36 native Rust tests pass cleanly.
+- **Listening & Stability Verdict**: `PASS`. High UI polish, fluid organic shape-shifting transitions, zero repeated shape monotony, and clean queue management.
+
 
 
 

@@ -1898,6 +1898,50 @@ This file records all major architectural decisions for **Attune**, including co
   - All 36 native Rust tests pass (`cargo test --workspace`).
   - All 132 Flutter unit & widget tests pass (`flutter test`) and `flutter analyze` reports 0 issues.
 
+---
+
+## ADR-057: Play Queue Overhaul, Isolated Smart Shuffle Meshing, Dedicated Track Selection Stage, Continuous Freeshape Morphing & Normal Square Big Polish
+- **Date**: 2026-11-03
+- **Status**: `LOCKED`
+- **Context**:
+  - Previously, library scanning automatically filled the playback queue with all discovered library tracks on fresh launch. Users expect fresh app starts to have a clean, empty queue that they populate explicitly.
+  - Smart Shuffle was evaluating candidate handoffs against all library tracks rather than restricting itself to the tracks currently in the queue.
+  - When the queue has few tracks ($< 20$), Camelot harmonic matches and aggression trajectories have limited variety, leading to repetitive loops unless the user is warned.
+  - In Smart Shuffle mode, manual queue reordering confuses users because Smart Shuffle dynamically computes upcoming sequence order.
+  - Adding tracks was done via popup modals rather than a dedicated full-screen Liquid Material Glass interface.
+  - Material You Freeshapes suffered from:
+    1. Shapes repeating frequently due to simple hash modulo without recency memory.
+    2. Artwork silhouettes showing on mobile lyrics view even when songs had no lyrics.
+    3. Discreet shape swapping without continuous geometric deformation.
+  - Normal Square Big skin had centered text instead of left-aligned text matching the cover edge, and lacked an inline live lyrics snippet for timed/syllable-synced lyrics.
+- **Decision**:
+  1. **Empty Queue Default & Lifecycle Management (`playback_controller.dart`)**:
+     - Updated `applyLibraryFilters({bool populateQueue = false})` and `scanLocalAudioDirectories({bool populateQueue = false})` so fresh startup does not dump the entire library into `_queue`.
+     - Added `removeFromQueue(int index)`, `removeFromQueueById(String trackId)`, `clearQueue()`, and `playAlbum(List<TrackItem> tracks)`.
+     - In Smart Shuffle, candidate evaluation (`_findBestSmartMatchIndex`) strictly iterates across `_queue` items.
+     - In `reorderQueue`, early-return if `_shuffleMode == ShuffleMode.smart` to preserve algorithmic ordering, while allowing interactive reordering in linear/standard shuffle modes.
+  2. **Dedicated Full-Screen Track Selection Stage (`QueueAddTracksStage`)**:
+     - Created `apps/attune_app/lib/stages/queue_add_tracks_stage.dart`.
+     - Features Liquid Glass search bar, horizontal category & genre filter chips (`All`, `Lossless`, `Hi-Res`, + library genres), select all / deselect all, "In Queue" disabled chips, and floating bottom pill `Add X Tracks to Queue`.
+  3. **Playlist Queue Stage Overhaul (`PlaylistQueueStage`)**:
+     - Empty state with `Icons.queue_music_rounded`, friendly copy, and "+ Add Tracks to Queue" button.
+     - Prominent warning banner (`Color(0xFFFFA000)`) when Smart Shuffle is active and `queue.length < 20`, explaining the 20-track recommendation for Camelot key alignments.
+     - Compact action buttons: "+ Add Tracks" and "Clear" with responsive `Wrap` layout to eliminate render overflows on compact screens.
+     - Integrated `Icons.close_rounded` remove buttons on queue list tiles.
+  4. **Continuous Polar Harmonic Freeshape Morphing (`MorphingFreeshapeClipper`)**:
+     - Implemented polar harmonic radius interpolation $r(\theta, t) = (1-t)r_{\text{from}}(\theta) + t r_{\text{to}}(\theta)$ across 8 geometric contours (Flower, Scallop, Hexagon, Star-8, Squircle, Organic Blob, Clover, Sunburst).
+     - Added `_pickFreeshapeIndexWithRecency(trackId)` with a 4-item ring buffer applying $-100.0$ penalty to the previous shape and $-100/(r+1)$ to recent shapes, preventing consecutive repetitions.
+     - Crossfades outgoing and incoming artwork smoothly during morphological deformation.
+     - Mobile lyrics background silhouette is strictly guarded by `hasArtwork && hasRealLyrics`, completely hiding if no lyrics exist.
+  5. **Normal Square Big Skin Polish**:
+     - Title and artist left-aligned directly with the cover's left margin.
+     - Integrated `_buildNormalSquareBigLyricSnippet`: displays active lyric line in cream white (`#FFFDD0`, 13sp Sora).
+     - If syllable-synced (`WordSpan`), highlights active word with bright white glow (`#FFFFFF`) with 40ms perceptual lookahead; if untimed/static, the snippet is hidden.
+- **Consequences**:
+  - Full adherence to Mandate 4 (zero hardcoding).
+  - All 139 Flutter unit/widget tests and all 36 native Rust workspace tests pass cleanly.
+  - `flutter analyze apps/attune_app` reports 0 issues.
+
 
 
 

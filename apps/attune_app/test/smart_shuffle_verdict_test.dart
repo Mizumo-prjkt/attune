@@ -11,7 +11,7 @@ void main() {
     final controller = PlaybackController.instance;
 
     setUp(() async {
-      await controller.scanLocalAudioDirectories();
+      await controller.scanLocalAudioDirectories(populateQueue: true);
     });
 
     test('getOrComputeSmartShuffleVerdict computes non-null structured verdict with dynamic rationale', () {

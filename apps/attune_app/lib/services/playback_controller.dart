@@ -442,7 +442,7 @@ class PlaybackController extends ChangeNotifier {
   }
 
   /// Applies duration thresholds and exclusion list filters to the active library and queue
-  void applyLibraryFilters() {
+  void applyLibraryFilters({bool populateQueue = false}) {
     final settings = SettingsService.instance;
     final minSec = settings.minSongDurationSec;
     final excluded = settings.excludedSongIds;
@@ -458,8 +458,14 @@ class PlaybackController extends ChangeNotifier {
       _libraryTracks.add(track);
     }
 
-    _queue.clear();
-    _queue.addAll(_libraryTracks);
+    if (populateQueue) {
+      _queue.clear();
+      _queue.addAll(_libraryTracks);
+    } else {
+      // Filter out any newly excluded tracks from existing queue without dumping library
+      _queue.removeWhere((t) => excluded.contains(t.id) || excluded.contains(t.filePath));
+    }
+
     if (_queue.isNotEmpty) {
       if (_currentQueueIndex >= _queue.length) {
         _currentQueueIndex = 0;
@@ -469,6 +475,8 @@ class PlaybackController extends ChangeNotifier {
     } else {
       _currentQueueIndex = 0;
       _upNextQueueIndex = 0;
+      _durationSec = 0.0;
+      _positionSec = 0.0;
     }
     notifyListeners();
   }
@@ -480,10 +488,11 @@ class PlaybackController extends ChangeNotifier {
     int? transitionsCount,
     String? lastArch,
     double? lastDur,
+    bool populateQueue = true,
   }) {
     _rawScannedTracks.clear();
     _rawScannedTracks.addAll(tracks);
-    applyLibraryFilters();
+    applyLibraryFilters(populateQueue: populateQueue);
     if (hardwareSampleRate != null) _hardwareSampleRate = hardwareSampleRate;
     if (transitionsCount != null) _transitionsCompletedCount = transitionsCount;
     if (lastArch != null) _lastTransitionArchetype = lastArch;
@@ -493,7 +502,11 @@ class PlaybackController extends ChangeNotifier {
 
   /// Scans local directories for genuine audio files (.flac, .mp3, .wav, .ogg, etc.)
   /// utilizing AudioStorageService across Windows, Linux, and Android scoped storage.
-  Future<void> scanLocalAudioDirectories({String? customPath, bool forceRefresh = false}) async {
+  Future<void> scanLocalAudioDirectories({
+    String? customPath,
+    bool forceRefresh = false,
+    bool populateQueue = false,
+  }) async {
     if (_isScanning) return;
     _isScanning = true;
     notifyListeners();
@@ -514,7 +527,7 @@ class PlaybackController extends ChangeNotifier {
 
       _rawScannedTracks.clear();
       _rawScannedTracks.addAll(scannedTracks);
-      applyLibraryFilters();
+      applyLibraryFilters(populateQueue: populateQueue);
 
       if (_queue.isNotEmpty) {
         _loadCurrentTrackToEngine();
@@ -529,7 +542,7 @@ class PlaybackController extends ChangeNotifier {
       if (fallbackTracks.isNotEmpty && _libraryTracks.isEmpty) {
         _rawScannedTracks.clear();
         _rawScannedTracks.addAll(fallbackTracks);
-        applyLibraryFilters();
+        applyLibraryFilters(populateQueue: populateQueue);
         if (_queue.isNotEmpty) {
           _loadCurrentTrackToEngine();
         }
@@ -1347,8 +1360,13 @@ class PlaybackController extends ChangeNotifier {
     if (existingIdx != -1) {
       _currentQueueIndex = existingIdx;
     } else {
-      _queue.insert(_currentQueueIndex + 1, track);
-      _currentQueueIndex++;
+      if (_queue.isEmpty) {
+        _queue.add(track);
+        _currentQueueIndex = 0;
+      } else {
+        _queue.insert(_currentQueueIndex + 1, track);
+        _currentQueueIndex++;
+      }
     }
     _upNextQueueIndex = _pickNextQueueIndex();
     _positionSec = 0.0;
@@ -1360,28 +1378,106 @@ class PlaybackController extends ChangeNotifier {
     play();
   }
 
+  /// Plays an entire collection/album replacing or seeding the queue
+  void playAlbum(List<TrackItem> tracks, {int startIndex = 0, bool autoPlay = true}) {
+    if (tracks.isEmpty) return;
+    _queue.clear();
+    _queue.addAll(tracks);
+    _currentQueueIndex = startIndex.clamp(0, tracks.length - 1);
+    _upNextQueueIndex = _pickNextQueueIndex();
+    _positionSec = 0.0;
+    _isTransitioning = false;
+    _transitionProgress = 0.0;
+    _pendingRecipe = null;
+    _isPlaying = autoPlay;
+    _loadCurrentTrackToEngine(force: true);
+    if (autoPlay) play();
+    _preparePendingRecipe();
+    notifyListeners();
+  }
+
   /// Appends a single track to the active playback queue
   void addToQueue(TrackItem track) {
+    final wasEmpty = _queue.isEmpty;
     _queue.add(track);
-    if (_queue.length == 1) {
+    if (wasEmpty) {
       _currentQueueIndex = 0;
       _upNextQueueIndex = 0;
-      _loadCurrentTrackToEngine(force: true);
+      _loadCurrentTrackToEngine(force: false);
     } else if (_upNextQueueIndex == _currentQueueIndex) {
       _upNextQueueIndex = _pickNextQueueIndex();
     }
+    _preparePendingRecipe();
     notifyListeners();
   }
 
   /// Appends multiple tracks to the active playback queue
   void addTracksToQueue(List<TrackItem> tracks) {
     if (tracks.isEmpty) return;
+    final wasEmpty = _queue.isEmpty;
     _queue.addAll(tracks);
-    if (_queue.length == tracks.length) {
+    if (wasEmpty) {
       _currentQueueIndex = 0;
       _upNextQueueIndex = _pickNextQueueIndex();
-      _loadCurrentTrackToEngine(force: true);
+      _loadCurrentTrackToEngine(force: false);
+    } else {
+      _upNextQueueIndex = _pickNextQueueIndex();
     }
+    _preparePendingRecipe();
+    notifyListeners();
+  }
+
+  /// Removes a track at [index] from the active playback queue
+  void removeFromQueue(int index) {
+    if (index < 0 || index >= _queue.length) return;
+    _queue.removeAt(index);
+    if (_queue.isEmpty) {
+      _currentQueueIndex = 0;
+      _upNextQueueIndex = 0;
+      _positionSec = 0.0;
+      _durationSec = 0.0;
+      _isPlaying = false;
+      _bridge.playerStop();
+      _pendingRecipe = null;
+    } else {
+      if (index < _currentQueueIndex) {
+        _currentQueueIndex--;
+      } else if (index == _currentQueueIndex) {
+        if (_currentQueueIndex >= _queue.length) {
+          _currentQueueIndex = 0;
+        }
+        _positionSec = 0.0;
+        _isTransitioning = false;
+        _pendingRecipe = null;
+        _loadCurrentTrackToEngine(force: true);
+        if (_isPlaying) play();
+      }
+      _upNextQueueIndex = _pickNextQueueIndex();
+      _preparePendingRecipe();
+    }
+    _updatePlaybackNotification();
+    notifyListeners();
+  }
+
+  /// Removes a track by ID from the active playback queue
+  void removeFromQueueById(String trackId) {
+    final idx = _queue.indexWhere((t) => t.id == trackId);
+    if (idx != -1) {
+      removeFromQueue(idx);
+    }
+  }
+
+  /// Clears the entire playback queue and halts audio
+  void clearQueue() {
+    _queue.clear();
+    _currentQueueIndex = 0;
+    _upNextQueueIndex = 0;
+    _positionSec = 0.0;
+    _durationSec = 0.0;
+    _isPlaying = false;
+    _pendingRecipe = null;
+    _bridge.playerStop();
+    _updatePlaybackNotification();
     notifyListeners();
   }
 
@@ -1497,11 +1593,19 @@ class PlaybackController extends ChangeNotifier {
   }
 
   void reorderQueue(int oldIndex, int newIndex) {
+    if (_shuffleMode == ShuffleMode.smart) return; // Smart Shuffle dynamically chooses upcoming tracks
     if (oldIndex < 0 || oldIndex >= _queue.length || newIndex < 0 || newIndex >= _queue.length) {
       return;
     }
+    final currentId = currentTrack?.id;
     final item = _queue.removeAt(oldIndex);
     _queue.insert(newIndex, item);
+    if (currentId != null) {
+      final newCurrentIdx = _queue.indexWhere((t) => t.id == currentId);
+      if (newCurrentIdx != -1) {
+        _currentQueueIndex = newCurrentIdx;
+      }
+    }
     _upNextQueueIndex = _pickNextQueueIndex();
     final next = upNextTrack;
     if (next != null) {

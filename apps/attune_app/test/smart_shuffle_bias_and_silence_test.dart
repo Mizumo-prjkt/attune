@@ -5,7 +5,7 @@ import 'package:attune_app/services/playback_controller.dart';
 void main() {
   test('Smart Shuffle does not repeatedly pick index 0 and respects recency variety', () async {
     final controller = PlaybackController.instance;
-    await controller.scanLocalAudioDirectories();
+    await controller.scanLocalAudioDirectories(populateQueue: true);
     expect(controller.queue.isNotEmpty, isTrue);
 
     // Switch to Smart Shuffle

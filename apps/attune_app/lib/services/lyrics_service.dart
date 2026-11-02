@@ -108,12 +108,32 @@ class LyricsService {
 
   // In-memory cache keyed by track ID and source type
   final Map<String, Map<LyricSourceType, LyricLoadResult>> _cache = {};
+  LyricLoadResult? _currentLyrics;
+
+  /// Most recently loaded or active parsed lyrics payload
+  LyricLoadResult? get currentLyrics => _currentLyrics;
+  LyricLoadResult? get currentParsedLyrics => _currentLyrics;
+
+  /// Retrieves cached lyrics for [trackId] across any available mode
+  LyricLoadResult? getCachedLyrics(String trackId) {
+    if (trackId.isEmpty) return _currentLyrics;
+    final map = _cache[trackId];
+    if (map == null || map.isEmpty) return _currentLyrics;
+    return map[LyricSourceType.syllableSync] ??
+        map[LyricSourceType.lrcFile] ??
+        map[LyricSourceType.embedded] ??
+        map.values.first;
+  }
 
   /// Loads lyrics for [track] from the requested [source].
   Future<LyricLoadResult> loadLyrics(TrackItem track, LyricSourceType source) async {
     final trackId = track.id.isNotEmpty ? track.id : track.filePath;
     if (_cache[trackId]?.containsKey(source) == true) {
-      return _cache[trackId]![source]!;
+      final cached = _cache[trackId]![source]!;
+      if (cached.hasLyrics) {
+        _currentLyrics = cached;
+      }
+      return cached;
     }
 
     LyricLoadResult result;
@@ -135,6 +155,7 @@ class LyricsService {
     }
 
     _cache.putIfAbsent(trackId, () => {})[source] = result;
+    _currentLyrics = result;
     return result;
   }
 
@@ -142,8 +163,10 @@ class LyricsService {
   void invalidateCache([String? trackId]) {
     if (trackId != null) {
       _cache.remove(trackId);
+      _currentLyrics = null;
     } else {
       _cache.clear();
+      _currentLyrics = null;
     }
   }
 
