@@ -15,6 +15,7 @@ import '../l10n/translation_registry.dart';
 import 'about_stage.dart';
 import 'equalizer_stage.dart';
 import 'home_customization_stage.dart';
+import 'now_playing_skin_picker_stage.dart';
 import 'song_exclusion_stage.dart';
 import '../theme/liquid_glass.dart';
 import '../theme/typography.dart';
@@ -427,6 +428,20 @@ class _SettingsAndAudioStageState extends State<SettingsAndAudioStage> with Widg
                           surfaceAlpha: 0.12,
                           child: Column(
                             children: [
+                              _buildSettingTile(
+                                icon: Icons.palette_rounded,
+                                title: 'Player Skins & Visual Styling',
+                                subtitle: '${_settings.nowPlayingSkin.displayName} • Live preview & mockups',
+                                trailing: const Icon(Icons.chevron_right_rounded, color: Colors.white38, size: 20),
+                                onTap: () {
+                                  Navigator.of(context).push(
+                                    MaterialPageRoute(
+                                      builder: (_) => const NowPlayingSkinPickerStage(),
+                                    ),
+                                  );
+                                },
+                              ),
+                              const Divider(height: 1, color: Colors.white10),
                               _buildSettingTile(
                                 icon: Icons.blur_on_rounded,
                                 title: 'Glass Configurations & Tweaks',

@@ -1,13 +1,17 @@
 import 'dart:io';
+import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import '../models/smart_shuffle_verdict.dart';
+import '../models/track_item.dart';
 import '../services/playback_controller.dart';
 import '../services/platform_navigation.dart';
+import '../services/settings_service.dart';
 import '../theme/color_engine.dart';
 import '../theme/liquid_glass.dart';
 import '../theme/typography.dart';
 import '../widgets/transition_connector_pill.dart';
 import 'equalizer_stage.dart';
+import 'now_playing_skin_picker_stage.dart';
 import 'synchronized_lyrics_stage.dart';
 
 /// Full-height Now Playing Stage implementing Section 3 of UI Design Spec:
@@ -42,9 +46,10 @@ class _NowPlayingStageState extends State<NowPlayingStage> {
     final isTabletDesktop = MediaQuery.sizeOf(context).width >= 720;
 
     return ListenableBuilder(
-      listenable: PlaybackController.instance,
+      listenable: Listenable.merge([PlaybackController.instance, SettingsService.instance]),
       builder: (context, _) {
         final controller = PlaybackController.instance;
+        final settings = SettingsService.instance;
         final track = controller.currentTrack;
         final nextTrack = controller.upNextTrack;
         final playing = controller.isPlaying;
@@ -68,11 +73,38 @@ class _NowPlayingStageState extends State<NowPlayingStage> {
 
         // If lyrics mode is activated on mobile, render the full-page SynchronizedLyricsStage
         if (_showLyrics) {
+          final skin = settings.nowPlayingSkin;
+          final hasArtwork = track?.artworkFile != null && File(track!.artworkFile!).existsSync();
+
           return Container(
             color: colorScheme.surface.withValues(alpha: 0.20),
-            child: SynchronizedLyricsStage(
-              isFullPage: true,
-              onBackToArtwork: () => setState(() => _showLyrics = false),
+            child: Stack(
+              children: [
+                // In Material You Freeshapes skin, show toned-down / dimmed background freeshape art
+                if (skin == NowPlayingSkin.materialYouFreeshapes && hasArtwork)
+                  Positioned.fill(
+                    child: Center(
+                      child: Opacity(
+                        opacity: 0.22,
+                        child: SizedBox(
+                          width: 320,
+                          height: 320,
+                          child: ClipPath(
+                            clipper: _getFreeshapeClipper(track.id),
+                            child: Image.file(
+                              File(track.artworkFile!),
+                              fit: BoxFit.cover,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                SynchronizedLyricsStage(
+                  isFullPage: true,
+                  onBackToArtwork: () => setState(() => _showLyrics = false),
+                ),
+              ],
             ),
           );
         }
@@ -152,10 +184,22 @@ class _NowPlayingStageState extends State<NowPlayingStage> {
                             tooltip: 'Attune Studio Master FX & Equalizer',
                           ),
                           IconButton(
+                            icon: const Icon(Icons.palette_rounded, size: 22),
+                            color: colorScheme.onSurface.withValues(alpha: 0.8),
+                            onPressed: () {
+                              Navigator.of(context).push(
+                                MaterialPageRoute(
+                                  builder: (_) => const NowPlayingSkinPickerStage(),
+                                ),
+                              );
+                            },
+                            tooltip: 'Player Skins & Visual Aesthetics',
+                          ),
+                          IconButton(
                             icon: const Icon(Icons.tune_rounded, size: 22),
                             color: colorScheme.onSurface.withValues(alpha: 0.8),
                             onPressed: () => _showPlayerStyleDialog(context, colorScheme),
-                            tooltip: 'Player Style & Glass Refraction',
+                            tooltip: 'Living Beat & Glass Refraction',
                           ),
                           IconButton(
                             icon: const Icon(Icons.settings_outlined, size: 22),
@@ -170,33 +214,8 @@ class _NowPlayingStageState extends State<NowPlayingStage> {
 
                   const SizedBox(height: 16),
 
-                  // 1. Hero Artwork Card
-                  Center(
-                    child: LiquidGlassContainer(
-                      key: const ValueKey('artwork_view'),
-                      width: 320,
-                      height: 320,
-                      padding: EdgeInsets.zero,
-                      borderRadius: 32,
-                      surfaceAlpha: 0.16,
-                      child: Stack(
-                        fit: StackFit.expand,
-                        children: [
-                          if (track?.artworkFile != null && File(track!.artworkFile!).existsSync())
-                            ClipRRect(
-                              borderRadius: BorderRadius.circular(32),
-                              child: Image.file(
-                                File(track.artworkFile!),
-                                fit: BoxFit.cover,
-                                errorBuilder: (context, error, stackTrace) => _buildFallbackCover(colorScheme),
-                              ),
-                            )
-                          else
-                            _buildFallbackCover(colorScheme),
-                        ],
-                      ),
-                    ),
-                  ),
+                  // 1. Dynamic Hero Artwork Card based on active NowPlayingSkin
+                  _buildHeroArtwork(track, colorScheme, settings.nowPlayingSkin, MediaQuery.sizeOf(context).width),
 
                   const SizedBox(height: 24),
 
@@ -1141,4 +1160,329 @@ class _NowPlayingStageState extends State<NowPlayingStage> {
       ),
     );
   }
+
+  Widget _buildHeroArtwork(
+    TrackItem? track,
+    ColorScheme colorScheme,
+    NowPlayingSkin skin,
+    double screenWidth,
+  ) {
+    final heroSize = (screenWidth >= 720) ? 360.0 : math.min(screenWidth - 48, 340.0);
+
+    switch (skin) {
+      case NowPlayingSkin.materialYouFreeshapes:
+        return _buildFreeshapesArtwork(track, colorScheme, heroSize);
+      case NowPlayingSkin.normalSquareBig:
+        return _buildNormalSquareBigArtwork(track, colorScheme, heroSize);
+      case NowPlayingSkin.defaultSkin:
+        return Center(
+          child: LiquidGlassContainer(
+            key: const ValueKey('artwork_view'),
+            width: 320,
+            height: 320,
+            padding: EdgeInsets.zero,
+            borderRadius: 32,
+            surfaceAlpha: 0.16,
+            child: Stack(
+              fit: StackFit.expand,
+              children: [
+                if (track?.artworkFile != null && File(track!.artworkFile!).existsSync())
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(32),
+                    child: Image.file(
+                      File(track.artworkFile!),
+                      fit: BoxFit.cover,
+                      errorBuilder: (context, error, stackTrace) => _buildFallbackCover(colorScheme),
+                    ),
+                  )
+                else
+                  _buildFallbackCover(colorScheme),
+              ],
+            ),
+          ),
+        );
+    }
+  }
+
+  Widget _buildFreeshapesArtwork(TrackItem? track, ColorScheme colorScheme, double size) {
+    final hasArtwork = track?.artworkFile != null && File(track!.artworkFile!).existsSync();
+    final trackId = track?.id ?? 'default';
+
+    return Center(
+      child: AnimatedSwitcher(
+        duration: const Duration(milliseconds: 600),
+        switchInCurve: Curves.easeInOutCubic,
+        switchOutCurve: Curves.easeInOutCubic,
+        transitionBuilder: (child, animation) {
+          return FadeTransition(
+            opacity: animation,
+            child: ScaleTransition(
+              scale: Tween<double>(begin: 0.90, end: 1.0).animate(animation),
+              child: child,
+            ),
+          );
+        },
+        child: KeyedSubtree(
+          key: ValueKey('freeshape_${track?.id ?? "none"}'),
+          child: SizedBox(
+            width: size,
+            height: size,
+            child: Stack(
+              alignment: Alignment.center,
+              children: [
+                // Ambient soft radial glow behind shape
+                Container(
+                  width: size * 0.90,
+                  height: size * 0.90,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    boxShadow: [
+                      BoxShadow(
+                        color: (track?.seedColor ?? colorScheme.primary).withValues(alpha: 0.35),
+                        blurRadius: 36,
+                        spreadRadius: 4,
+                      ),
+                    ],
+                  ),
+                ),
+                ClipPath(
+                  clipper: _getFreeshapeClipper(trackId),
+                  child: SizedBox(
+                    width: size,
+                    height: size,
+                    child: hasArtwork
+                        ? Image.file(
+                            File(track.artworkFile!),
+                            fit: BoxFit.cover,
+                            errorBuilder: (context, error, stackTrace) => _buildFallbackCover(colorScheme),
+                          )
+                        : _buildFallbackCover(colorScheme),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildNormalSquareBigArtwork(TrackItem? track, ColorScheme colorScheme, double size) {
+    final hasArtwork = track?.artworkFile != null && File(track!.artworkFile!).existsSync();
+
+    return Center(
+      child: GestureDetector(
+        onLongPress: () {
+          setState(() => _showLyrics = !_showLyrics);
+        },
+        child: Container(
+          width: size,
+          height: size,
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(24),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.45),
+                blurRadius: 30,
+                offset: const Offset(0, 10),
+              ),
+            ],
+          ),
+          child: Stack(
+            fit: StackFit.expand,
+            children: [
+              ClipRRect(
+                borderRadius: BorderRadius.circular(24),
+                child: hasArtwork
+                    ? Image.file(
+                        File(track.artworkFile!),
+                        fit: BoxFit.cover,
+                        errorBuilder: (context, error, stackTrace) => _buildFallbackCover(colorScheme),
+                      )
+                    : _buildFallbackCover(colorScheme),
+              ),
+              // Side subtitles / lyrics toggle button on lower right
+              Positioned(
+                right: 12,
+                bottom: 12,
+                child: GestureDetector(
+                  onTap: () => setState(() => _showLyrics = !_showLyrics),
+                  child: LiquidGlassContainer(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                    borderRadius: 14,
+                    surfaceAlpha: 0.38,
+                    blurSigma: 24,
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          _showLyrics ? Icons.album_rounded : Icons.subtitles_rounded,
+                          size: 16,
+                          color: Colors.white,
+                        ),
+                        const SizedBox(width: 5),
+                        Text(
+                          _showLyrics ? 'Cover' : 'Lyrics',
+                          style: AttuneTypography.soraBadge(fontSize: 10, color: Colors.white),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Dynamic shape picker determining expressive M3 contour per track
+CustomClipper<Path> _getFreeshapeClipper(String trackId) {
+  final idx = trackId.hashCode.abs() % 5;
+  switch (idx) {
+    case 0:
+      return const FreeshapeFlowerClipper(petals: 8, depth: 0.14);
+    case 1:
+      return const FreeshapeCloverClipper();
+    case 2:
+      return const FreeshapeStarClipper(points: 6);
+    case 3:
+      return const FreeshapeOrganicBlobClipper();
+    case 4:
+    default:
+      return const FreeshapeSquircleClipper();
+  }
+}
+
+/// Expressive Material You Freeshape Clippers
+class FreeshapeFlowerClipper extends CustomClipper<Path> {
+  final int petals;
+  final double depth;
+
+  const FreeshapeFlowerClipper({this.petals = 8, this.depth = 0.14});
+
+  @override
+  Path getClip(Size size) {
+    final center = Offset(size.width / 2, size.height / 2);
+    final radius = size.width / 2;
+    final path = Path();
+    const steps = 180;
+    for (int i = 0; i <= steps; i++) {
+      final theta = (i / steps) * 2 * math.pi;
+      final mod = (1.0 - depth) + depth * math.cos(petals * theta);
+      final r = radius * mod;
+      final x = center.dx + r * math.cos(theta);
+      final y = center.dy + r * math.sin(theta);
+      if (i == 0) {
+        path.moveTo(x, y);
+      } else {
+        path.lineTo(x, y);
+      }
+    }
+    path.close();
+    return path;
+  }
+
+  @override
+  bool shouldReclip(covariant FreeshapeFlowerClipper oldClipper) =>
+      oldClipper.petals != petals || oldClipper.depth != depth;
+}
+
+class FreeshapeCloverClipper extends CustomClipper<Path> {
+  const FreeshapeCloverClipper();
+
+  @override
+  Path getClip(Size size) {
+    final center = Offset(size.width / 2, size.height / 2);
+    final radius = size.width / 2;
+    final path = Path();
+    const steps = 180;
+    for (int i = 0; i <= steps; i++) {
+      final theta = (i / steps) * 2 * math.pi;
+      final mod = 0.82 + 0.18 * math.cos(4 * theta);
+      final r = radius * mod;
+      final x = center.dx + r * math.cos(theta);
+      final y = center.dy + r * math.sin(theta);
+      if (i == 0) {
+        path.moveTo(x, y);
+      } else {
+        path.lineTo(x, y);
+      }
+    }
+    path.close();
+    return path;
+  }
+
+  @override
+  bool shouldReclip(covariant CustomClipper<Path> oldClipper) => false;
+}
+
+class FreeshapeStarClipper extends CustomClipper<Path> {
+  final int points;
+  const FreeshapeStarClipper({this.points = 6});
+
+  @override
+  Path getClip(Size size) {
+    final center = Offset(size.width / 2, size.height / 2);
+    final radius = size.width / 2;
+    final path = Path();
+    const steps = 180;
+    for (int i = 0; i <= steps; i++) {
+      final theta = (i / steps) * 2 * math.pi;
+      final mod = 0.80 + 0.20 * math.cos(points * theta);
+      final r = radius * mod;
+      final x = center.dx + r * math.cos(theta);
+      final y = center.dy + r * math.sin(theta);
+      if (i == 0) {
+        path.moveTo(x, y);
+      } else {
+        path.lineTo(x, y);
+      }
+    }
+    path.close();
+    return path;
+  }
+
+  @override
+  bool shouldReclip(covariant CustomClipper<Path> oldClipper) => false;
+}
+
+class FreeshapeOrganicBlobClipper extends CustomClipper<Path> {
+  const FreeshapeOrganicBlobClipper();
+
+  @override
+  Path getClip(Size size) {
+    final w = size.width;
+    final h = size.height;
+    final path = Path();
+    path.moveTo(w * 0.42, 0);
+    path.cubicTo(w * 0.78, 0, w, h * 0.26, w, h * 0.56);
+    path.cubicTo(w, h * 0.86, w * 0.72, h, w * 0.44, h);
+    path.cubicTo(w * 0.16, h, 0, h * 0.76, 0, h * 0.44);
+    path.cubicTo(0, h * 0.16, w * 0.16, 0, w * 0.42, 0);
+    path.close();
+    return path;
+  }
+
+  @override
+  bool shouldReclip(covariant CustomClipper<Path> oldClipper) => false;
+}
+
+class FreeshapeSquircleClipper extends CustomClipper<Path> {
+  const FreeshapeSquircleClipper();
+
+  @override
+  Path getClip(Size size) {
+    final r = RRect.fromRectAndRadius(
+      Rect.fromLTWH(0, 0, size.width, size.height),
+      Radius.circular(size.width * 0.28),
+    );
+    final path = Path()..addRRect(r);
+    return path;
+  }
+
+  @override
+  bool shouldReclip(covariant CustomClipper<Path> oldClipper) => false;
 }

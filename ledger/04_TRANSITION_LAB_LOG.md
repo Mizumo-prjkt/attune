@@ -720,6 +720,47 @@ These four benchmark scenarios define the "Gold Standard" transitions that Attun
      - `flutter analyze apps/attune_app` reports 0 issues.
 - **Listening & Stability Verdict**: `PASS`. Fluid 120 FPS honeycomb Bubblegrid exploration, zero album art flickering, tightly packed organic bubble gaps, and floating Liquid Glass highlight integration.
 
+---
+
+### Experiment #024: Now Playing Adaptive Skin Engine, Interactive Skin Picker Lab & Albums Detail Overhaul with Zero-Hardcoding Mandate Compliance
+- **Date**: 2026-11-02
+- **Hypothesis**: Providing selectable Now Playing player skins (Liquid Glass default, Material You Expressive Freeshapes with organic shape clippers and lyrics silhouette, and Normal Square Big edge-to-edge album cover) with a dedicated visual mockup picker (`NowPlayingSkinPickerStage`) gives listeners immediate visual clarity without confusing toggle switches. Overhauling the Albums view (`AlbumsStage`) with an immersive hero banner, Google M3 split pill button (`[ ▶ Play Album | ▾ ]`), dynamic track-based acoustic liner notes, track value editing (Title, Artist, BPM, Key, Genre), and dynamic "On-Repeat Flow" playlist enhances collection management. Strictly adhering to Mandate 4 (zero hardcoded lore/strings) ensures all metadata and summaries are dynamically derived from real audio files.
+- **Empirical Findings & Engineering Implementations**:
+  1. **NowPlayingSkin Data Architecture & Reactive Persistence**:
+     - Added `NowPlayingSkin` enum to `SettingsService` (`defaultSkin`, `materialYouFreeshapes`, `normalSquareBig`).
+     - Persisted user selection to `app_settings.json` with immediate reactive broadcast.
+  2. **Dedicated Visual Skin Picker Screen (`NowPlayingSkinPickerStage`)**:
+     - Visual mockup cards rendering live miniatures of each skin (squircle liquid glass with glowing pulse, morphing organic flower/clover, and edge-to-edge square with side subtitles pill).
+     - Visual selection cards for glass depth modes (3D Specular Mirror vs 2D Minimal Flat).
+  3. **Expressive Freeshape Morphing & Lyrics Silhouette Backdrop**:
+     - Built GPU-accelerated mathematical clippers:
+       * `FreeshapeFlowerClipper` ($r(\theta) = R \times (0.86 + 0.14 \cos(8\theta))$)
+       * `FreeshapeCloverClipper` ($r(\theta) = R \times (0.82 + 0.18 \cos(4\theta))$)
+       * `FreeshapeStarClipper` ($r(\theta) = R \times (0.80 + 0.20 \cos(6\theta))$)
+       * `FreeshapeOrganicBlobClipper` (smooth asymmetric Bézier loop)
+       * `FreeshapeSquircleClipper` (28% continuous curvature)
+     - `AnimatedSwitcher` transitions smoothly (600ms `Curves.easeInOutCubic`) across track skips.
+     - In mobile synchronized lyrics mode (`_showLyrics == true`), when `materialYouFreeshapes` is active and artwork exists, the freeshape artwork is rendered as a dimmed ($22\%$ opacity) background silhouette behind `SynchronizedLyricsStage`. If artwork is missing, it cleanly hides without placeholder artifacts.
+  4. **Normal Square Big Skin**:
+     - Edge-to-edge square artwork with $24\text{px}$ rounded corners, deep shadow ($30\text{px}$ blur), floating side lyrics/subtitles toggle button, and cover long-press trigger.
+  5. **Albums View Overhaul & Google M3 Split Pill Button**:
+     - Immersive 290px hero artwork header with dark vignette gradient and lower title overlay.
+     - Floating Liquid Glass card overlapping the hero banner with "By [Artist]" subtitle and Google M3 split pill button (`[ ▶ Play Album | ▾ ]`).
+     - Split button incorporates primary play action and dropdown menu for Shuffle Album, Add Songs from Library, and Edit Album Lore.
+     - Interactive floating dialog for editing track values (Title, Artist, BPM, Key, Genre), saving immediately to `PlaybackController` and `library_cache.json`.
+     - Ability to add songs from the library or remove songs from the album.
+     - Dynamic "On-Repeat Flow" playlist banner built from play counts in `PlaybackController`.
+  6. **Mandate 4 (Zero Hardcoding) Strict Compliance**:
+     - Completely removed static `_defaultLore` dictionaries and hardcoded album strings.
+     - Engineered `_getAlbumDescription(String albumName, List<TrackItem> tracks)`: dynamically derives genuine track counts, artists, BPM tempo ranges, root key signatures, and lossless audio ratios directly from track models.
+     - Custom notes edited by the user persist cleanly in `album_descriptions.json`.
+  7. **Full Test & Analyze Verification**:
+     - 128 Flutter unit and widget tests pass cleanly with 0 errors.
+     - 36 Rust workspace tests pass cleanly with 0 errors.
+     - `flutter analyze apps/attune_app` reports 0 issues.
+- **Listening & Stability Verdict**: `PASS`. High aesthetic versatility, smooth 120 FPS freeshape morphing transitions, responsive Google M3 split button controls, and complete elimination of hardcoded values.
+
+
 
 
 

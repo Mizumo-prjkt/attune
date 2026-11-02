@@ -43,6 +43,7 @@ class PlaybackController extends ChangeNotifier {
 
   // Recent Playback History to prevent track repetition and bias in smart shuffle
   final List<String> _recentTrackIds = [];
+  final Map<String, int> _playCounts = {};
   static const int _maxRecentHistory = 15;
 
   void _recordRecentTrack(String? id) {
@@ -52,6 +53,7 @@ class PlaybackController extends ChangeNotifier {
     if (_recentTrackIds.length > _maxRecentHistory) {
       _recentTrackIds.removeAt(0);
     }
+    _playCounts[id] = (_playCounts[id] ?? 0) + 1;
   }
 
   static final Map<String, String> _standardKeyToCamelot = {
@@ -227,6 +229,85 @@ class PlaybackController extends ChangeNotifier {
   Map<String, dynamic>? get pendingRecipe => _pendingRecipe;
   SmartShuffleVerdict? get latestSmartShuffleVerdict => _latestSmartShuffleVerdict;
   List<SmartShuffleCandidateMatch> get lastEvaluatedCandidates => List.unmodifiable(_lastEvaluatedCandidates);
+  Map<String, int> get playCounts => Map.unmodifiable(_playCounts);
+
+  /// Returns automatically curated tracks based on repeat frequency and high-energy hooks
+  List<TrackItem> getRepeatHookTracks({int limit = 12}) {
+    if (_libraryTracks.isEmpty) return [];
+    final tracksWithPlays = _libraryTracks.where((t) => (_playCounts[t.id] ?? 0) > 0).toList();
+    if (tracksWithPlays.isNotEmpty) {
+      tracksWithPlays.sort((a, b) => (_playCounts[b.id] ?? 0).compareTo(_playCounts[a.id] ?? 0));
+      return tracksWithPlays.take(limit).toList();
+    }
+    // High-energy fallback seeds
+    final candidates = List<TrackItem>.from(_libraryTracks);
+    candidates.sort((a, b) {
+      final aBpm = a.hasBpm ? a.bpm : 100.0;
+      final bBpm = b.hasBpm ? b.bpm : 100.0;
+      return bBpm.compareTo(aBpm);
+    });
+    return candidates.take(limit).toList();
+  }
+
+  /// Updates user-edited metadata for a track, immediately persisting to library cache
+  void updateTrackMetadata({
+    required String trackId,
+    String? title,
+    String? artist,
+    String? album,
+    double? bpm,
+    String? musicalKey,
+    String? genre,
+  }) {
+    final rawIdx = _rawScannedTracks.indexWhere((t) => t.id == trackId);
+    if (rawIdx != -1) {
+      _rawScannedTracks[rawIdx] = _rawScannedTracks[rawIdx].copyWith(
+        title: title,
+        artist: artist,
+        album: album,
+        bpm: bpm,
+        musicalKey: musicalKey,
+        genre: genre,
+      );
+    }
+
+    final libIdx = _libraryTracks.indexWhere((t) => t.id == trackId);
+    if (libIdx != -1) {
+      _libraryTracks[libIdx] = _libraryTracks[libIdx].copyWith(
+        title: title,
+        artist: artist,
+        album: album,
+        bpm: bpm,
+        musicalKey: musicalKey,
+        genre: genre,
+      );
+    }
+
+    final queueIdx = _queue.indexWhere((t) => t.id == trackId);
+    if (queueIdx != -1) {
+      _queue[queueIdx] = _queue[queueIdx].copyWith(
+        title: title,
+        artist: artist,
+        album: album,
+        bpm: bpm,
+        musicalKey: musicalKey,
+        genre: genre,
+      );
+    }
+
+    AudioStorageService.instance.saveCachedTracks(_libraryTracks, immediate: true);
+    notifyListeners();
+  }
+
+  /// Adds a track from the library into an album
+  void addTrackToAlbum({required String trackId, required String albumName}) {
+    updateTrackMetadata(trackId: trackId, album: albumName);
+  }
+
+  /// Removes a track from its album, returning it to Singles & Loose Tracks
+  void removeTrackFromAlbum({required String trackId}) {
+    updateTrackMetadata(trackId: trackId, album: 'Singles & Loose Tracks');
+  }
 
   void setLivingBeatMeshEnabled(bool enabled) {
     if (_livingBeatMeshEnabled == enabled) return;

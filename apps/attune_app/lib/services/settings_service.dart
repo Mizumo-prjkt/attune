@@ -57,6 +57,35 @@ enum ForYouDesignMode {
   }
 }
 
+/// Now Playing screen layout & presentation skins
+enum NowPlayingSkin {
+  defaultSkin,
+  materialYouFreeshapes,
+  normalSquareBig;
+
+  String get displayName {
+    switch (this) {
+      case NowPlayingSkin.defaultSkin:
+        return 'Liquid Glass (Default)';
+      case NowPlayingSkin.materialYouFreeshapes:
+        return 'Material You Freeshapes';
+      case NowPlayingSkin.normalSquareBig:
+        return 'Normal Square Big';
+    }
+  }
+
+  String get description {
+    switch (this) {
+      case NowPlayingSkin.defaultSkin:
+        return 'Signature Attune liquid glass player with reactive glow and layered glass curvature.';
+      case NowPlayingSkin.materialYouFreeshapes:
+        return 'Expressive dynamic organic shapes morphing with each track, with silhouette backdrop lyrics.';
+      case NowPlayingSkin.normalSquareBig:
+        return 'Expansive edge-to-edge square artwork with quick side subtitle/lyrics access and clean controls.';
+    }
+  }
+}
+
 class HomeSectionConfig {
   final String id;
   final String titleKey;
@@ -173,6 +202,7 @@ class SettingsService extends ChangeNotifier {
   bool _lrclibFetchEnabled = false;
 
   // Skin & Liquid Glass
+  NowPlayingSkin _nowPlayingSkin = NowPlayingSkin.defaultSkin;
   double _glassLensBlurSigma = 36.0;
   double _glassSurfaceAlpha = 0.14;
   bool _glowBlobFollowsRhythm = true;
@@ -265,6 +295,7 @@ class SettingsService extends ChangeNotifier {
   bool get liquidGlass3dMirror => _liquidGlass3dMirror;
   bool get pendingLiquidGlass3dMirror => _pendingLiquidGlass3dMirror;
   bool get restartRequiredForGlass => _pendingLiquidGlass3dMirror != _liquidGlass3dMirror;
+  NowPlayingSkin get nowPlayingSkin => _nowPlayingSkin;
 
   List<HomeSectionConfig> get homeSections => List.unmodifiable(_homeSections);
   ForYouDesignMode get forYouDesignMode => _forYouDesignMode;
@@ -274,6 +305,13 @@ class SettingsService extends ChangeNotifier {
   int get minSongDurationSec => _minSongDurationSec;
 
   // Setters & Modifiers
+  void setNowPlayingSkin(NowPlayingSkin skin) {
+    if (_nowPlayingSkin == skin) return;
+    _nowPlayingSkin = skin;
+    notifyListeners();
+    _saveToDisk();
+  }
+
   void setForYouDesignMode(ForYouDesignMode mode) {
     if (_forYouDesignMode == mode) return;
     _forYouDesignMode = mode;
@@ -529,6 +567,11 @@ class SettingsService extends ChangeNotifier {
             _forYouDesignMode = ForYouDesignMode.values[forYouIdx];
           }
 
+          final skinIdx = map['now_playing_skin'] as int?;
+          if (skinIdx != null && skinIdx >= 0 && skinIdx < NowPlayingSkin.values.length) {
+            _nowPlayingSkin = NowPlayingSkin.values[skinIdx];
+          }
+
           if (map['home_sections'] is List) {
             final savedList = (map['home_sections'] as List).whereType<Map<String, dynamic>>().toList();
             final loaded = <HomeSectionConfig>[];
@@ -580,6 +623,7 @@ class SettingsService extends ChangeNotifier {
         'glass_surface_alpha': _glassSurfaceAlpha,
         'glow_blob_follows_rhythm': _glowBlobFollowsRhythm,
         'liquid_glass_3d_mirror': _pendingLiquidGlass3dMirror,
+        'now_playing_skin': _nowPlayingSkin.index,
         'for_you_design_mode': _forYouDesignMode.index,
         'home_sections': _homeSections.map((s) => s.toJson()).toList(),
         'allowed_directories': _allowedDirectories.toList(),
