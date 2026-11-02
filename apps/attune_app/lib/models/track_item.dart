@@ -84,6 +84,17 @@ class TrackItem {
     );
   }
 
+  /// Extracts lightweight summary from TAP profile, removing heavy frame-by-frame cue_zones
+  /// to guarantee the in-memory library and disk cache remain feather-light (< 150 KB instead of 20+ MB).
+  static Map<String, dynamic> extractCompactProfile(Map<String, dynamic> tap) {
+    return {
+      'schema_version': tap['schema_version'] ?? 1,
+      if (tap['track_id'] != null) 'track_id': tap['track_id'],
+      if (tap['global_summary'] != null) 'global_summary': tap['global_summary'],
+      if (tap['analysis_tier'] != null) 'analysis_tier': tap['analysis_tier'],
+    };
+  }
+
   Map<String, dynamic> toJson() {
     return {
       'id': id,
@@ -103,11 +114,12 @@ class TrackItem {
       'seedColorValue': seedColor.toARGB32(),
       'artworkAsset': artworkAsset,
       'artworkFile': artworkFile,
-      'tapProfile': tapProfile,
+      'tapProfile': tapProfile != null ? extractCompactProfile(tapProfile!) : null,
     };
   }
 
   factory TrackItem.fromJson(Map<String, dynamic> json) {
+    final rawTap = json['tapProfile'] as Map<String, dynamic>?;
     return TrackItem(
       id: json['id'] as String? ?? '',
       title: json['title'] as String? ?? 'Unknown Title',
@@ -126,7 +138,7 @@ class TrackItem {
       seedColor: Color((json['seedColorValue'] as num? ?? 0xFF6366F1).toInt()),
       artworkAsset: json['artworkAsset'] as String?,
       artworkFile: json['artworkFile'] as String?,
-      tapProfile: json['tapProfile'] as Map<String, dynamic>?,
+      tapProfile: rawTap != null ? extractCompactProfile(rawTap) : null,
     );
   }
 

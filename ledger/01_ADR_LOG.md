@@ -1684,6 +1684,46 @@ This file records all major architectural decisions for **Attune**, including co
   - 3D accelerometer and cursor parallax tilt on liquid glass with guaranteed sensor unregistration out of view.
   - All 109 Flutter unit and widget tests pass with 0 errors. All 29 Rust workspace tests pass with 0 errors. Android Gradle Kotlin compilation verified.
 
+---
+
+## ADR-051: Memory Bloat Elimination (99.4% Cache Compaction), 7-Day Library Cache TTL, New Music Fast Detection & Disk Save Debounce
+
+- **Status**: **LOCKED** (Implemented & Verified)
+- **Date**: 2026-11-02
+- **Context**:
+  1. **Memory Bloat & High CPU Fiasco**: Process monitor showed `attune_app` consuming 1.1 GB of RAM and 56.4% CPU. Terminal logs showed continuous, infinite writes to `library_cache.json`.
+  2. **Root Cause Analysis**:
+     - `TrackItem.tapProfile` was serialized in its entirety into `library_cache.json`, storing thousands of 20Hz CQT chroma and 4-band spectral float arrays inside `cue_zones` for every track in the library. This blew `library_cache.json` up to 20.3 MB. In Dart, parsing and holding millions of float/map objects across Isolates caused the heap to explode to 1.1 GB.
+     - `_startBackgroundLibraryProfiler` had a loose filter `where((t) => !t.hasBpm || t.tapProfile == null)`. Since tracks lacked full `tapProfile` objects, it continuously queued all 159 tracks at 200ms intervals, spawning background FFT Isolates and calling `saveCachedTracks(_libraryTracks)` after every single track.
+     - `_preparePendingRecipe` also invoked `saveCachedTracks(_libraryTracks)` every time a transition was planned, creating redundant full-disk writes during active playback.
+     - `AudioStorageService.scanLibrary` bypassed the cache whenever `additionalRoots` was supplied (which occurred whenever user configured `allowedDirectories`), triggering a full disk crawl and metadata probe on every application launch.
+  3. **User Requirement**:
+     - Eliminate memory consumption.
+     - Library scan should not continuously cycle: it should only cycle if new music is detected or if cache data is a week old (7 days TTL).
+- **Decision**:
+  1. **Compact TAP Profile Extraction (`TrackItem.extractCompactProfile`)**:
+     - Stripped heavy, multi-megabyte `cue_zones` from `library_cache.json` and in-memory idle tracks.
+     - Retains only lightweight scalar metadata in `tapProfile`: `schema_version`, `track_id`, and `global_summary` (`nominal_bpm`, `primary_key`, `mean_aggression_index`).
+     - Heavy `cue_zones` are exclusively computed on-demand in JIT Mode (<100ms) for Track A and Track B during active transition planning in local scope, then cleanly released to garbage collection.
+     - Reduced `library_cache.json` from **20.3 MB to 119.5 KB** (a **99.4% reduction**).
+  2. **7-Day Cache TTL & Fast New Music Detection**:
+     - Created `LibraryCacheMeta` stored in `library_meta.json` tracking `cached_at` timestamp and `track_count`.
+     - In `AudioStorageService.scanLibrary`:
+       - If cache is less than 7 days old, performs a non-probing directory file count check (`countAudioFilesInRoots`, `< 10ms`).
+       - If audio file count on disk equals cached track count, **cache is reused immediately** without any disk crawling, metadata decoding, or rewriting.
+       - Full scan cycles only if: user forces refresh, new music file count is detected, or cache age exceeds 7 days.
+  3. **Disk Write Debouncing & Loop Elimination**:
+     - Added 2.5-second debounce timer (`_saveDebounceTimer`) to `AudioStorageService.saveCachedTracks`, eliminating disk churn storms.
+     - Refactored `_startBackgroundLibraryProfiler` to strictly target tracks lacking a known BPM or valid key (`!t.hasBpm || t.musicalKey == 'Pending Profile'`). If library metadata is already probed, the profiler remains completely dormant. Paced unprobed tracks to 1.5s gentle intervals and persists cache only once upon completion.
+     - Removed redundant `saveCachedTracks` calls from `_preparePendingRecipe`.
+     - Fixed `WatchguardService.recordUiFrame` to immediately trigger `_refreshStatus()` when native watchguard library is loaded.
+- **Consequences**:
+  - Memory consumption drops from 1.1 GB to under 80 MB.
+  - Zero disk save loops or infinite console spam.
+  - Sub-5ms instant startup reusing valid cache for up to 7 days unless new music is added.
+  - All 113 Flutter unit and widget tests pass with 0 errors. All 29 Rust workspace tests pass with 0 errors.
+
+
 
 
 

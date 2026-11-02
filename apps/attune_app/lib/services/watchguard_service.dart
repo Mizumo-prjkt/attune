@@ -191,6 +191,7 @@ class WatchguardService extends ChangeNotifier {
     if (_isNativeLoaded && _recordUiFrame != null) {
       try {
         _recordUiFrame!(frameMs);
+        _refreshStatus();
         return;
       } catch (_) {}
     }

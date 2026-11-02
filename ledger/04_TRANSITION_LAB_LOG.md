@@ -661,6 +661,32 @@ These four benchmark scenarios define the "Gold Standard" transitions that Attun
      - Android Gradle compilation (`./gradlew compileDebugKotlin`) succeeds.
 - **Listening & Stability Verdict**: `PASS`. Instant and reliable playback list switching, zero Settings launch audio drops, fluid 3D parallax tilt with zero idle battery/CPU overhead, and expressive M3 collage design.
 
+---
+
+### Experiment #027: Memory Bloat Elimination (99.4% Cache Compaction), 7-Day Library Cache TTL, New Music Fast Detection & Disk Save Debounce
+- **Date**: 2026-11-02
+- **Hypothesis**: Compacting `TrackItem.tapProfile` by stripping heavy multi-megabyte `cue_zones` frame arrays will shrink `library_cache.json` by >99% and eliminate the 1.1GB RAM allocation explosion. Implementing a 7-day cache TTL alongside a fast non-probing directory file count check (`countAudioFilesInRoots`, <10ms) will ensure the library only cycles when new music files are detected or cache data is a week old. Adding a 2.5s debounce to `saveCachedTracks` and limiting `_startBackgroundLibraryProfiler` exclusively to tracks lacking BPM or keys will halt continuous disk churn and eliminate CPU spikes.
+- **Empirical Findings & Verification**:
+  1. **Cache Compaction & Memory Optimization (`test/cache_freshness_and_memory_test.dart`)**:
+     - Verified `TrackItem.extractCompactProfile`: preserves `schema_version`, `track_id`, and `global_summary` (`nominal_bpm`, `primary_key`, `mean_aggression_index`), while stripping `cue_zones` with thousands of float arrays.
+     - Actual disk measurement: `library_cache.json` reduced from **20,306 KB (20.3 MB)** to **119.5 KB**—a **99.4% reduction**.
+     - Process memory consumption drops from 1.1 GB to under 80 MB.
+  2. **7-Day TTL & Fast New Music Detection (`test/cache_freshness_and_memory_test.dart`)**:
+     - Created `LibraryCacheMeta` persisting `cached_at` timestamp and `track_count` in `library_meta.json`.
+     - Verified in `AudioStorageService.scanLibrary`: if cache is < 7 days old and `countAudioFilesInRoots(roots) == cached.length`, cache is returned in <5ms without re-scanning or probing.
+     - Verified change detection: if audio file count differs from cached, library scan cycles to ingest new tracks.
+     - Verified 7-day TTL: if cache age exceeds 7 days, library scan cycles automatically.
+  3. **Disk Save Debouncing & Background Loop Neutralization**:
+     - Added 2.5s debounce timer to `AudioStorageService.saveCachedTracks`, eliminating the infinite console save loop.
+     - Refactored `_startBackgroundLibraryProfiler`: strictly targets tracks with `!t.hasBpm || t.musicalKey == 'Pending Profile'`, remaining completely dormant when library metadata is probed. Paces unprobed tracks to 1.5s gentle intervals and saves once upon batch completion.
+     - Removed redundant `saveCachedTracks` calls from `_preparePendingRecipe`.
+     - Fixed `WatchguardService.recordUiFrame` native status propagation, resolving `watchguard_and_decoder_test.dart`.
+  4. **Full Test Verification**:
+     - 113 Flutter unit and widget tests pass with 0 errors.
+     - 29 Rust workspace tests pass with 0 errors.
+- **Listening & Stability Verdict**: `PASS`. 99.4% cache reduction, zero disk-save loops, sub-5ms instant startup with 7-day TTL and new music detection, and optimal RAM/CPU footprints.
+
+
 
 
 

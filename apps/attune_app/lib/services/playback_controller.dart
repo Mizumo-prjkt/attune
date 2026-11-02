@@ -459,7 +459,7 @@ class PlaybackController extends ChangeNotifier {
 
   bool _isBackgroundProfiling = false;
 
-  /// Low-priority background idle profiler scanning the full library progressively (Mandate 3).
+  /// Low-priority background idle profiler scanning unprobed library tracks progressively (Mandate 3).
   void _startBackgroundLibraryProfiler() {
     if (Platform.environment.containsKey('FLUTTER_TEST')) return;
     if (_isBackgroundProfiling) return;
@@ -467,15 +467,25 @@ class PlaybackController extends ChangeNotifier {
 
     Future.microtask(() async {
       try {
+        // ONLY profile tracks that genuinely lack a known BPM or valid musical key
         final toProfile = _libraryTracks
-            .where((t) => !t.hasBpm || t.tapProfile == null)
+            .where((t) => !t.hasBpm || t.musicalKey == 'Pending Profile')
             .toList();
+
+        if (toProfile.isEmpty) {
+          debugPrint('[PlaybackController] All library tracks have valid BPM and keys. Background profiling not needed.');
+          return;
+        }
+
+        debugPrint('[PlaybackController] Background profiling ${toProfile.length} unprobed tracks at 1.5s idle intervals...');
 
         for (final track in toProfile) {
           if (!_libraryTracks.any((t) => t.id == track.id)) continue;
-          await Future.delayed(const Duration(milliseconds: 200));
-          await profileTrackAsync(track);
+          await Future.delayed(const Duration(milliseconds: 1500));
+          await profileTrackAsync(track, saveImmediately: false);
         }
+        // Save once after the full batch completes
+        AudioStorageService.instance.saveCachedTracks(_libraryTracks, immediate: true);
       } catch (e) {
         debugPrint('[PlaybackController] Background library profiler caught: $e');
       } finally {
@@ -484,7 +494,7 @@ class PlaybackController extends ChangeNotifier {
     });
   }
 
-  Future<void> profileTrackAsync(TrackItem track) async {
+  Future<void> profileTrackAsync(TrackItem track, {bool saveImmediately = true}) async {
     if (Platform.environment.containsKey('FLUTTER_TEST')) return;
     try {
       final tap = await _bridge.profileTrack(track.filePath, tier: 1);
@@ -509,7 +519,7 @@ class PlaybackController extends ChangeNotifier {
           bpm: nominalBpm,
           musicalKey: primaryKey,
           duration: actualDuration,
-          tapProfile: tap,
+          tapProfile: TrackItem.extractCompactProfile(tap),
         );
 
         // Update in library and queue
@@ -526,7 +536,9 @@ class PlaybackController extends ChangeNotifier {
             _preparePendingRecipe();
           }
         }
-        AudioStorageService.instance.saveCachedTracks(_libraryTracks);
+        if (saveImmediately) {
+          AudioStorageService.instance.saveCachedTracks(_libraryTracks);
+        }
         notifyListeners();
       }
     } catch (e) {
@@ -1454,11 +1466,15 @@ class PlaybackController extends ChangeNotifier {
       return;
     }
 
+    Map<String, dynamic>? fullProfileA = current.tapProfile;
+    Map<String, dynamic>? fullProfileB = next.tapProfile;
+
     // On-Demand JIT Mode: Analyze head/tail cue zones for unprofiled tracks (<100 ms)
-    if (current.tapProfile == null) {
+    if (fullProfileA == null || fullProfileA['cue_zones'] == null) {
       try {
         final profileA = await _bridge.profileTrack(current.filePath, tier: 0);
         if (profileA != null) {
+          fullProfileA = profileA;
           final bpm = current.bpm > 0.0
               ? current.bpm
               : ((profileA['global_summary']?['nominal_bpm'] as num?)?.toDouble() ??
@@ -1469,7 +1485,8 @@ class PlaybackController extends ChangeNotifier {
               : (profileA['global_summary']?['primary_key'] as String? ??
                   profileA['global_summary']?['key_signature'] as String? ??
                   current.musicalKey);
-          final updated = current.copyWith(tapProfile: profileA, bpm: bpm, musicalKey: key);
+          final compactA = TrackItem.extractCompactProfile(profileA);
+          final updated = current.copyWith(tapProfile: compactA, bpm: bpm, musicalKey: key);
           final libIdx = _libraryTracks.indexWhere((t) => t.id == current.id);
           if (libIdx != -1) {
             _libraryTracks[libIdx] = updated;
@@ -1477,17 +1494,17 @@ class PlaybackController extends ChangeNotifier {
           if (_currentQueueIndex < _queue.length && _queue[_currentQueueIndex].id == current.id) {
             _queue[_currentQueueIndex] = updated;
           }
-          AudioStorageService.instance.saveCachedTracks(_libraryTracks);
         }
       } catch (e) {
         debugPrint('[PlaybackController] JIT profile A error: $e');
       }
     }
 
-    if (next.tapProfile == null) {
+    if (fullProfileB == null || fullProfileB['cue_zones'] == null) {
       try {
         final profileB = await _bridge.profileTrack(next.filePath, tier: 0);
         if (profileB != null) {
+          fullProfileB = profileB;
           final bpm = next.bpm > 0.0
               ? next.bpm
               : ((profileB['global_summary']?['nominal_bpm'] as num?)?.toDouble() ??
@@ -1498,7 +1515,8 @@ class PlaybackController extends ChangeNotifier {
               : (profileB['global_summary']?['primary_key'] as String? ??
                   profileB['global_summary']?['key_signature'] as String? ??
                   next.musicalKey);
-          final updated = next.copyWith(tapProfile: profileB, bpm: bpm, musicalKey: key);
+          final compactB = TrackItem.extractCompactProfile(profileB);
+          final updated = next.copyWith(tapProfile: compactB, bpm: bpm, musicalKey: key);
           final libIdx = _libraryTracks.indexWhere((t) => t.id == next.id);
           if (libIdx != -1) {
             _libraryTracks[libIdx] = updated;
@@ -1506,31 +1524,31 @@ class PlaybackController extends ChangeNotifier {
           if (_upNextQueueIndex < _queue.length && _queue[_upNextQueueIndex].id == next.id) {
             _queue[_upNextQueueIndex] = updated;
           }
-          AudioStorageService.instance.saveCachedTracks(_libraryTracks);
         }
       } catch (e) {
         debugPrint('[PlaybackController] JIT profile B error: $e');
       }
     }
 
+    if (fullProfileA != null && fullProfileB != null) {
+      try {
+        final recipe = await _bridge.planTransition(fullProfileA, fullProfileB);
+        if (recipe != null) {
+          _pendingRecipe = recipe;
+          final archetype = recipe['archetype'] as String? ?? 'ARCHETYPE_2_RIFF_HANDOFF';
+          _activeArchetype = archetype.replaceAll('ARCHETYPE_', '').replaceAll('_', ' ');
+          notifyListeners();
+          return;
+        }
+      } catch (e) {
+        debugPrint('[PlaybackController] Error preparing transition recipe: $e');
+      }
+    }
+
+    // Guarantee fallback recipe so smart shuffle transitions NEVER stall
     final curWithProfile = currentTrack;
     final nextWithProfile = upNextTrack;
     if (curWithProfile != null && nextWithProfile != null) {
-      if (curWithProfile.tapProfile != null && nextWithProfile.tapProfile != null) {
-        try {
-          final recipe = await _bridge.planTransition(curWithProfile.tapProfile!, nextWithProfile.tapProfile!);
-          if (recipe != null) {
-            _pendingRecipe = recipe;
-            final archetype = recipe['archetype'] as String? ?? 'ARCHETYPE_2_RIFF_HANDOFF';
-            _activeArchetype = archetype.replaceAll('ARCHETYPE_', '').replaceAll('_', ' ');
-            notifyListeners();
-            return;
-          }
-        } catch (e) {
-          debugPrint('[PlaybackController] Error preparing transition recipe: $e');
-        }
-      }
-      // Guarantee fallback recipe so smart shuffle transitions NEVER stall
       _pendingRecipe = _buildFallbackRecipe(curWithProfile, nextWithProfile);
       _activeArchetype = 'Equal-Power Crossfade';
       notifyListeners();

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:isolate';
@@ -483,11 +484,38 @@ class AudioStorageService {
     return File('${dir.path}/library_cache.json');
   }
 
+  File get _metaFile {
+    final dir = getAppDataDirectory();
+    return File('${dir.path}/library_meta.json');
+  }
+
   File get _configFile {
     final dir = getAppDataDirectory();
     return File('${dir.path}/config.json');
   }
 
+  /// Loads cache metadata including timestamp of last full scan.
+  LibraryCacheMeta? loadCacheMetadata() {
+    try {
+      final file = _metaFile;
+      if (file.existsSync()) {
+        final content = file.readAsStringSync();
+        if (content.isNotEmpty) {
+          final map = jsonDecode(content) as Map<String, dynamic>;
+          return LibraryCacheMeta.fromJson(map);
+        }
+      }
+    } catch (_) {}
+    return null;
+  }
+
+  /// Saves library cache metadata with timestamp and track count.
+  void saveCacheMetadata(LibraryCacheMeta meta) {
+    try {
+      final file = _metaFile;
+      file.writeAsStringSync(jsonEncode(meta.toJson()));
+    } catch (_) {}
+  }
 
   /// Loads cached track metadata from local disk for instant (< 5ms) startup.
   List<TrackItem> loadCachedTracks() {
@@ -506,12 +534,36 @@ class AudioStorageService {
     return [];
   }
 
-  /// Persists track list to local disk cache.
-  void saveCachedTracks(List<TrackItem> tracks) {
+  Timer? _saveDebounceTimer;
+  List<TrackItem>? _pendingTracksToSave;
+
+  /// Persists track list to local disk cache. Debounces multiple rapid calls by 2.5s
+  /// to eliminate continuous disk churn, I/O freezing, and memory spikes.
+  void saveCachedTracks(List<TrackItem> tracks, {bool immediate = false}) {
+    _pendingTracksToSave = List<TrackItem>.from(tracks);
+    _saveDebounceTimer?.cancel();
+
+    if (immediate) {
+      _commitSaveCachedTracks();
+    } else {
+      _saveDebounceTimer = Timer(const Duration(milliseconds: 2500), () {
+        _commitSaveCachedTracks();
+      });
+    }
+  }
+
+  void _commitSaveCachedTracks() {
+    final tracks = _pendingTracksToSave;
+    if (tracks == null || tracks.isEmpty) return;
+
     try {
       final file = _cacheFile;
       final jsonList = tracks.map((t) => t.toJson()).toList();
       file.writeAsStringSync(jsonEncode(jsonList));
+      saveCacheMetadata(LibraryCacheMeta(
+        cachedAt: DateTime.now(),
+        trackCount: tracks.length,
+      ));
       debugPrint('[AudioStorageService] Saved ${tracks.length} tracks to library cache: ${file.path}');
     } catch (e) {
       debugPrint('[AudioStorageService] Cache save notice: $e');
@@ -547,29 +599,85 @@ class AudioStorageService {
     }
   }
 
+  /// Fast audio file count across candidate roots without reading byte headers or probing metadata (< 10ms).
+  int countAudioFilesInRoots(List<String> candidateRoots) {
+    _ensureValidDirectory();
+    int count = 0;
+    final seen = <String>{};
+
+    for (final rootPath in candidateRoots) {
+      try {
+        final dir = Directory(rootPath);
+        if (!dir.existsSync()) continue;
+
+        final entities = dir.listSync(recursive: true, followLinks: true);
+        for (final entity in entities) {
+          if (entity is! File) continue;
+          final lower = entity.path.toLowerCase();
+          if (supportedAudioExtensions.any((ext) => lower.endsWith(ext))) {
+            try {
+              final canonical = entity.resolveSymbolicLinksSync();
+              if (seen.add(canonical)) {
+                count++;
+              }
+            } catch (_) {
+              if (seen.add(entity.path)) {
+                count++;
+              }
+            }
+          }
+        }
+      } catch (_) {}
+    }
+    return count;
+  }
+
   /// Scans library and returns sorted track items.
-  /// If [forceRefresh] is false and cache exists, returns cached tracks immediately!
+  /// Reuses cached library tracks without re-scanning or disk cycling unless:
+  /// 1. User explicitly requests [forceRefresh] = true
+  /// 2. New music files are detected in candidate roots (file count on disk != cached track count)
+  /// 3. Cache data is a week old (>= 7 days TTL)
   Future<List<TrackItem>> scanLibrary({bool forceRefresh = false, List<String>? additionalRoots}) async {
     _ensureValidDirectory();
+    final candidateRoots = getCandidateRoots(additionalRoots: additionalRoots);
 
-    // 1. Fast Path: Read from local disk cache immediately
-    if (!forceRefresh && additionalRoots == null) {
+    // 1. Fast Cache Path with 1-Week Expiry & New Music Detection
+    if (!forceRefresh) {
       final cached = loadCachedTracks();
       if (cached.isNotEmpty) {
-        debugPrint('[AudioStorageService] Loaded ${cached.length} tracks instantly from local cache.');
-        return cached;
+        final meta = loadCacheMetadata();
+        final now = DateTime.now();
+        final cacheAge = meta != null
+            ? now.difference(meta.cachedAt)
+            : (_cacheFile.existsSync() ? now.difference(_cacheFile.lastModifiedSync()) : Duration.zero);
+
+        final isAWeekOld = cacheAge.inDays >= 7;
+
+        if (!isAWeekOld) {
+          // Fast check: has new music been added or deleted on disk?
+          final currentFileCount = countAudioFilesInRoots(candidateRoots);
+          final hasNewMusic = currentFileCount != cached.length;
+
+          if (!hasNewMusic) {
+            debugPrint('[AudioStorageService] Cache is fresh (${cacheAge.inDays}d old, ${cached.length} tracks, 0 new files). Reusing cache without rescanning.');
+            return cached;
+          } else {
+            debugPrint('[AudioStorageService] New music detected ($currentFileCount files on disk vs ${cached.length} cached). Cycling library scan...');
+          }
+        } else {
+          debugPrint('[AudioStorageService] Library cache is over a week old (${cacheAge.inDays}d). Cycling library scan...');
+        }
       }
     }
 
     // 2. Multi-core background Isolate offload with robust fallback
     try {
-      final candidateRoots = getCandidateRoots(additionalRoots: additionalRoots);
       final tracks = Platform.environment.containsKey('FLUTTER_TEST')
           ? _scanLibraryInWorker(candidateRoots)
           : await Isolate.run(() => _scanLibraryInWorker(candidateRoots));
 
       if (tracks.isNotEmpty) {
-        saveCachedTracks(tracks);
+        saveCachedTracks(tracks, immediate: true);
         return tracks;
       }
     } catch (e) {
@@ -681,5 +789,32 @@ class AudioStorageService {
       return 'Electronic';
     }
     return 'Pop';
+  }
+}
+
+/// Metadata describing library cache state and scan timestamps.
+class LibraryCacheMeta {
+  final DateTime cachedAt;
+  final int trackCount;
+  final List<String> roots;
+
+  const LibraryCacheMeta({
+    required this.cachedAt,
+    required this.trackCount,
+    this.roots = const [],
+  });
+
+  Map<String, dynamic> toJson() => {
+    'cached_at': cachedAt.toIso8601String(),
+    'track_count': trackCount,
+    'roots': roots,
+  };
+
+  factory LibraryCacheMeta.fromJson(Map<String, dynamic> json) {
+    return LibraryCacheMeta(
+      cachedAt: DateTime.tryParse(json['cached_at'] as String? ?? '') ?? DateTime.fromMillisecondsSinceEpoch(0),
+      trackCount: (json['track_count'] as num? ?? 0).toInt(),
+      roots: (json['roots'] as List<dynamic>?)?.map((e) => e.toString()).toList() ?? const [],
+    );
   }
 }
