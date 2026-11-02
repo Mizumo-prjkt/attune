@@ -281,7 +281,7 @@ class AudioStorageService {
       Color(0xFF14B8A6), // Teal
     ];
     final seedColor = palette[title.hashCode.abs() % palette.length];
-    final trackId = '${title.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]'), '_')}_${title.hashCode.abs()}';
+    final trackId = '${title.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]'), '_')}_${file.path.hashCode.abs()}';
 
     return TrackItem(
       id: trackId,

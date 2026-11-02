@@ -120,5 +120,42 @@ void main() {
       // Verify still rendered without uncaught exception
       expect(find.text('Bubblegrid Selection'), findsOneWidget);
     });
+
+    testWidgets('Gracefully handles duplicate track IDs without throwing Duplicate keys exception', (tester) async {
+      PlaybackController.instance.setTracksForTesting([
+        const TrackItem(
+          id: 'romeo_to_cinderella_743707028',
+          filePath: '/dummy/romeo1.mp3',
+          title: 'Romeo to Cinderella',
+          artist: 'doriko',
+          album: 'Unfragment',
+          duration: Duration(minutes: 4),
+          bpm: 128.0,
+          musicalKey: '10B',
+          genre: 'Pop',
+        ),
+        const TrackItem(
+          id: 'romeo_to_cinderella_743707028',
+          filePath: '/dummy/romeo2.mp3',
+          title: 'Romeo to Cinderella',
+          artist: 'doriko',
+          album: 'Vocaloid Best',
+          duration: Duration(minutes: 4),
+          bpm: 128.0,
+          musicalKey: '10B',
+          genre: 'Pop',
+        ),
+      ]);
+
+      await tester.pumpWidget(
+        const MaterialApp(
+          home: BubbleNavigationStage(),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(tester.takeException(), isNull);
+      expect(find.text('Bubblegrid Selection'), findsOneWidget);
+    });
   });
 }

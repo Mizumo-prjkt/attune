@@ -1747,7 +1747,8 @@ This file records all major architectural decisions for **Attune**, including co
      - **Zero Album Art Flickering**:
        * Pre-validated artwork file existence on model initialization (`hasArtworkFile`), completely removing synchronous `File.existsSync()` disk calls from per-frame rendering.
        * Enabled `gaplessPlayback: true` and capped GPU texture decoding with `cacheWidth: 160, cacheHeight: 160`.
-       * Tagged each positioned bubble with `key: ValueKey(rb.item.id)` so Flutter element identity is perfectly preserved across Stack children sorting without repainting image streams.
+       * Tagged each positioned bubble with `key: ValueKey('bubble_${rb.index}_${rb.item.id}')` so keys are strictly unique across duplicates while preserving element identity and image streams across Stack children sorting.
+       * Updated `AudioStorageService` to hash `file.path` rather than `title.hashCode`, ensuring tracks with identical titles (e.g. multiple versions of a song) have distinct IDs.
        * Synchronously resolved `activeHighlightIndex` in `build`, eliminating asynchronous `WidgetsBinding.instance.addPostFrameCallback` churn.
      - Evaluated viewport culling per frame, skipping rendering for any bubble fully outside $([-40, W+40], [-40, H+40])$, ensuring solid 120 FPS performance on Impeller and Skia.
   3. **Interactive 2D Pan Momentum & Nearest Bubble Catch**:

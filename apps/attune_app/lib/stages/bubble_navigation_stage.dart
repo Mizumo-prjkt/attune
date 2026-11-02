@@ -311,7 +311,7 @@ class _BubbleNavigationStageState extends State<BubbleNavigationStage>
     });
 
     if (widget.initialHighlightTrackId != null) {
-      final targetIdx = _items.indexWhere((it) => it.id == widget.initialHighlightTrackId);
+      final targetIdx = _items.indexWhere((it) => it.track?.id == widget.initialHighlightTrackId || it.id == widget.initialHighlightTrackId);
       if (targetIdx != -1) {
         _centerOnIndex(targetIdx, animated: false);
       }
@@ -567,7 +567,7 @@ class _BubbleNavigationStageState extends State<BubbleNavigationStage>
                       children: visibleBubbles.map((rb) {
                         final isHighlighted = rb.index == activeHighlightIndex;
                         return Positioned(
-                          key: ValueKey(rb.item.id),
+                          key: ValueKey('bubble_${rb.index}_${rb.item.id}'),
                           left: rb.x - rb.diameter / 2.0,
                           top: rb.y - rb.diameter / 2.0,
                           width: rb.diameter,

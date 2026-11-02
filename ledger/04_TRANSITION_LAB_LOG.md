@@ -702,6 +702,7 @@ These four benchmark scenarios define the "Gold Standard" transitions that Attun
   2. **Anti-Flicker Architecture & Drag Performance**:
      - Pre-evaluated `hasArtworkFile` boolean once on item instantiation, eliminating synchronous `File.existsSync()` disk access during per-frame rendering.
      - Added `key: ValueKey(rb.item.id)` to all Stack children, preserving Flutter element identity and image stream bindings across Stack re-orderings.
+     - Disambiguated Stack bubble keys with `bubble_${rb.index}_${rb.item.id}` and updated `AudioStorageService` track ID hashing with `file.path`, eliminating `Duplicate Keys` assertions when libraries contain duplicate songs.
      - Added `gaplessPlayback: true` and capped GPU texture decoding at `cacheWidth: 160, cacheHeight: 160`.
      - Removed `WidgetsBinding.instance.addPostFrameCallback` calling `setState` during drag; `activeHighlightIndex` updates synchronously in `build`.
   3. **Touch Interactions, Momentum & Floating Liquid Glass Highlight Card**:
