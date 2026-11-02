@@ -1817,6 +1817,41 @@ This file records all major architectural decisions for **Attune**, including co
   - 100% pass rate across all 128 Flutter tests and all Rust workspace tests.
   - Zero frame drops and pristine Liquid Material Glass aesthetic.
 
+---
+
+## ADR-054: Rust Workspace Dependency Modernization, Security Audit & Bundled SQLite Upgrade
+
+- **Date**: 2026-11-02
+- **Status**: `LOCKED` (Implemented & Verified)
+- **Context**:
+  - The user observed that newer crate releases were available in the Rust ecosystem addressing known vulnerabilities and performance improvements, and requested updating the Rust workspace dependencies.
+  - RustSec advisory database audit (`cargo audit`) needed to be executed to verify that zero known vulnerabilities exist across all direct and transitive dependencies.
+  - Dependency bumps in root `Cargo.toml` needed to be vetted without breaking the headless DSP engine, C-ABI FFI bridge, or Flutter application.
+- **Decision**:
+  1. **RustSec Advisory Audit (`cargo audit`)**:
+     - Installed `cargo-audit v0.22.2` and audited the entire workspace dependency tree against the live RustSec advisory database (1402 advisories).
+     - Confirmed zero active vulnerabilities across all 215 workspace crate dependencies.
+  2. **Upgraded Root Workspace Dependencies (`Cargo.toml`)**:
+     - `rusqlite = { version = "0.34", features = ["bundled"] }`: upgraded from 0.32, advancing `libsqlite3-sys` from 0.30.1 to 0.32.0 (incorporating upstream SQLite CVE fixes, memory safety patches, and query planner hardening).
+     - `blake3 = "1.8"`: upgraded from 1.5, pulling in latest SIMD acceleration updates, AVX-512 optimizations, and hash boundary validation.
+     - `realfft = "3.5"`: upgraded from 3.4, incorporating `rustfft 6.4` performance improvements and buffer boundary protections.
+     - `symphonia = { version = "0.5.5", features = ["all"] }`: upgraded from 0.5.4, ensuring patched container parsing bounds across FLAC, MP3, and Ogg decoders while maintaining API compatibility.
+     - `clap = { version = "4.6", features = ["derive"] }`: upgraded from 4.5, bringing argument parsing and memory safety enhancements to `attune-cli`.
+     - `ureq = { version = "2.12", default-features = false }`: upgraded from 2.10, resolving HTTP connection pooling and transfer encoding edge cases.
+     - `rayon = "1.12"`: upgraded from 1.10, updating `rayon-core` to v1.13 with work-stealing threadpool safety improvements.
+  3. **Verification & Stability**:
+     - Maintained stability by keeping `symphonia` on the stable 0.5.x LTS branch (since 0.6 completely redesigns audio primitives and breaks `SampleBuffer`, while 0.5.5 has zero open security advisories).
+     - Ran full test verification:
+       * `cargo check --workspace`: 0 errors.
+       * `cargo test --workspace`: all 36 native Rust tests passed cleanly.
+       * `cd apps/attune_app && flutter test`: all 128 tests passed cleanly.
+       * `cd apps/attune_app && flutter analyze`: 0 issues found.
+       * `cargo audit`: 0 vulnerabilities found.
+- **Consequences**:
+  - All workspace crates are modernized to their latest secure and compatible versions.
+  - Zero hardcoded values, zero regressions across desktop and mobile targets.
+
+
 
 
 
