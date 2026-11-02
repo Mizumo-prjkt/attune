@@ -883,7 +883,8 @@ def launch_gui():
     )
     config_card.pack(fill=tk.X, pady=(0, 10))
 
-    cur_pub_ver, _ = get_pubspec_version()
+    cur_pub_ver, cur_pub_build = get_pubspec_version()
+    cur_rust_ver = get_rust_crate_version("attune-ffi")
 
     # Grid rows: only show option for override version id and suffix/localversion input
     tk.Label(config_card, text="Override Version ID:", bg=card_color, fg=fg_color).grid(row=0, column=0, sticky="w", pady=4)
