@@ -760,6 +760,22 @@ These four benchmark scenarios define the "Gold Standard" transitions that Attun
      - `flutter analyze apps/attune_app` reports 0 issues.
 - **Listening & Stability Verdict**: `PASS`. High aesthetic versatility, smooth 120 FPS freeshape morphing transitions, responsive Google M3 split button controls, and complete elimination of hardcoded values.
 
+---
+
+### Experiment #024: Elimination of Premature Mid-Track Smart Transitions, AudioBuffer Timeline Integrity, and Outro Cue-Zone Gating
+- **Date**: 2026-11-03
+- **Hypothesis**: Premature transitions occurring mid-song (e.g. at 1:25 of a 4-minute track) in Smart Shuffle are caused by distorted duration calculations in JIT profiling (FastHeadTail buffer stitching), uncontrolled reverse traversal into Track A's intro in Archetype 1, playhead anchoring in fallback recipes, and missing outro threshold safety gates. Restoring genuine `AudioBuffer` loading, restricting sustain searches to `exit_a`, anchoring fallback recipes to `duration - 1400ms`, and enforcing `minAllowedStartMs = max(0, duration - 45s)` will guarantee transitions occur strictly in the outro window.
+- **Empirical Findings & Mathematical Implementation**:
+  1. In `attune-ffi/src/lib.rs`, `load_head_tail` decoded the full file but then concatenated head (45s) and tail (45s) into a 90s buffer. `profile_track` stamped `duration_ms = 90_000` and placed the exit zone at $45\text{s} \to 90\text{s}$, producing recipes that fired at ~85s. Restoring direct `AudioDecoder::load_file` ensures `duration_ms` reflects the genuine file length ($T_{\text{dur}}$) and Rayon extracts the exit zone accurately at $[T_{\text{dur}} - 45\text{s}, T_{\text{dur}}]$.
+  2. In `attune-core/src/planner.rs`, Archetype 1 iterated `track_a.cue_zones.iter().rev()`. When the exit zone had no sustained pitch, it fell back to the entry zone (Track A intro), triggering transitions at 15s–25s. Restricting search strictly to `exit_a` and enforcing `s.start_ms >= duration_ms - 45_000` eliminates this failure mode.
+  3. In `PlaybackController`, fallback recipe timing was set to `_positionSec * 1000`. On a fresh track start, this evaluated to $\le 100\text{ms}$, immediately triggering the auto-transition. Fallback recipes now anchor strictly to `max(0, duration - 1400ms)`.
+  4. In `_pollNativeState`, auto-transition is gated by `startMs >= minAllowedStartMs` where $\text{minAllowedStartMs} = \max(0.0, (T_{\text{dur}} - 45.0) \times 1000)$.
+- **Empirical Verification**:
+  - `cargo test --workspace`: All 36 native Rust unit and integration tests pass cleanly.
+  - `flutter analyze apps/attune_app`: 0 issues found.
+  - `flutter test`: All 132 Flutter unit and widget tests pass cleanly, including new unit tests verifying outro anchoring (`startMs == 238600` for a 240s track) and safety gating.
+- **Listening & Stability Verdict**: `PASS`. Tracks play continuously throughout their entire body, and Smart Shuffle transitions engage smoothly and exclusively during the outro cue zone.
+
 
 
 

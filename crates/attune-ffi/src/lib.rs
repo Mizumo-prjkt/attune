@@ -240,32 +240,11 @@ pub extern "C" fn attune_profile_file(path_ptr: *const c_char, tier_code: i32) -
             _ => AnalysisTier::FullLocal,
         };
 
-        let buffer = if tier_code == 0 {
-            match AudioDecoder::load_head_tail(path_str, 45.0, 45.0) {
-                Ok((head, tail, _dur)) => {
-                    let mut combined = head.clone();
-                    for ch_idx in 0..combined.channels.len() {
-                        if let Some(tail_ch) = tail.channels.get(ch_idx) {
-                            combined.channels[ch_idx].extend_from_slice(tail_ch);
-                        }
-                    }
-                    combined
-                }
-                Err(_) => match AudioDecoder::load_file(path_str) {
-                    Ok(b) => b,
-                    Err(e) => {
-                        let err_json = serde_json::json!({ "error": format!("Audio load failed: {}", e) });
-                        return CString::new(err_json.to_string()).unwrap().into_raw();
-                    }
-                },
-            }
-        } else {
-            match AudioDecoder::load_file(path_str) {
-                Ok(b) => b,
-                Err(e) => {
-                    let err_json = serde_json::json!({ "error": format!("Audio load failed: {}", e) });
-                    return CString::new(err_json.to_string()).unwrap().into_raw();
-                }
+        let buffer = match AudioDecoder::load_file(path_str) {
+            Ok(b) => b,
+            Err(e) => {
+                let err_json = serde_json::json!({ "error": format!("Audio load failed: {}", e) });
+                return CString::new(err_json.to_string()).unwrap().into_raw();
             }
         };
 

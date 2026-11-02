@@ -41,19 +41,16 @@ impl TransitionPlanner {
         let agg_b = track_b.global_summary.mean_aggression_index;
         let delta_agg = (agg_a - agg_b).abs();
 
-        // 1. Check Archetype 1: Sustained-Pitch & Formant Morph
-        let sustain_a = track_a
-            .cue_zones
-            .iter()
-            .rev()
+        // 1. Check Archetype 1: Sustained-Pitch & Formant Morph (Outro Exit Zone -> Intro Entry Zone)
+        let sustain_a = exit_a
+            .into_iter()
             .flat_map(|z| z.sustained_pitch_regions.iter().rev())
-            .next();
+            .find(|s| s.start_ms >= track_a.track_id.duration_ms.saturating_sub(45_000));
 
-        let sustain_b = track_b
-            .cue_zones
-            .iter()
+        let sustain_b = entry_b
+            .into_iter()
             .flat_map(|z| z.sustained_pitch_regions.iter())
-            .next();
+            .find(|s| s.start_ms <= 45_000);
 
         if agg_a < 0.55 && agg_b < 0.55 {
             if let (Some(s_a), Some(s_b)) = (sustain_a, sustain_b) {

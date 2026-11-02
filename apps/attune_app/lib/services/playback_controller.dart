@@ -759,10 +759,11 @@ class PlaybackController extends ChangeNotifier {
                 skipNext(autoPlay: true);
               }
             } else if (_isPlaying && _shuffleMode == ShuffleMode.smart && _pendingRecipe != null && !_isTransitionPlanning) {
-              // Smart Algorithmic Transition: trigger at genuine recipe start time
+              // Smart Algorithmic Transition: trigger at genuine recipe start time within the outro cue zone
               final timing = _pendingRecipe!['timing'] as Map<String, dynamic>?;
               final startMs = (timing?['track_a_transition_start_ms'] as num?)?.toDouble();
-              if (startMs != null && _positionSec * 1000 >= startMs) {
+              final minAllowedStartMs = max(0.0, (_durationSec - 45.0) * 1000);
+              if (startMs != null && startMs >= minAllowedStartMs && _positionSec * 1000 >= startMs) {
                 _executeAutoTransition(_pendingRecipe!);
               }
             }
@@ -795,7 +796,15 @@ class PlaybackController extends ChangeNotifier {
     if (timing != null) {
       final startMs = (timing['track_a_transition_start_ms'] as num?)?.toDouble() ?? 0.0;
       final endMs = (timing['track_a_exit_end_ms'] as num?)?.toDouble() ?? 1400.0;
-      _lastTransitionDurationSec = ((endMs - startMs).abs() / 1000.0);
+      final transLen = (endMs - startMs).abs();
+      final validDuration = transLen.clamp(500.0, 8000.0);
+      _lastTransitionDurationSec = validDuration / 1000.0;
+      // Resynchronize timestamps if transition was triggered near end of track or after scheduled start
+      final currentPosMs = _positionSec * 1000.0;
+      if (startMs < currentPosMs - 1000.0) {
+        timing['track_a_transition_start_ms'] = currentPosMs.toInt();
+        timing['track_a_exit_end_ms'] = (currentPosMs + validDuration).toInt();
+      }
     }
     final code = _bridge.playerTriggerTransition(recipe);
     if (code == 0) {
@@ -1390,33 +1399,26 @@ class PlaybackController extends ChangeNotifier {
         recipe = await _bridge.planTransition(current.tapProfile!, next.tapProfile!);
       }
 
-      // For manual transition trigger, anchor start to current position
-      if (recipe != null) {
-        final timing = recipe['timing'] as Map<String, dynamic>?;
-        if (timing != null) {
-          final transLenMs = ((timing['track_a_exit_end_ms'] as num? ?? 1400) -
-                  (timing['track_a_transition_start_ms'] as num? ?? 0))
-              .abs()
-              .toInt()
-              .clamp(500, 5000);
-          final currentMs = (_positionSec * 1000).toInt();
-          timing['track_a_transition_start_ms'] = currentMs;
-          timing['track_a_exit_end_ms'] = currentMs + transLenMs;
-        }
-      }
-
       recipe ??= _buildFallbackRecipe(current, next);
+
+      // For manual transition trigger, anchor start to current position
+      final timing = recipe['timing'] as Map<String, dynamic>?;
+      if (timing != null) {
+        final transLenMs = ((timing['track_a_exit_end_ms'] as num? ?? 1400) -
+                (timing['track_a_transition_start_ms'] as num? ?? 0))
+            .abs()
+            .toInt()
+            .clamp(500, 5000);
+        final currentMs = (_positionSec * 1000).toInt();
+        timing['track_a_transition_start_ms'] = currentMs;
+        timing['track_a_exit_end_ms'] = currentMs + transLenMs;
+        _lastTransitionDurationSec = transLenMs / 1000.0;
+      }
 
       _isTransitioning = true;
       _activeArchetype =
           (recipe['archetype'] as String? ?? 'Riff Handoff').replaceAll('ARCHETYPE_', '').replaceAll('_', ' ');
       _lastTransitionArchetype = _activeArchetype;
-      final timing = recipe['timing'] as Map<String, dynamic>?;
-      if (timing != null) {
-        final startMs = (timing['track_a_transition_start_ms'] as num?)?.toDouble() ?? 0.0;
-        final endMs = (timing['track_a_exit_end_ms'] as num?)?.toDouble() ?? 1400.0;
-        _lastTransitionDurationSec = ((endMs - startMs).abs() / 1000.0);
-      }
       _bridge.playerTriggerTransition(recipe);
       notifyListeners();
     } finally {
@@ -1424,7 +1426,16 @@ class PlaybackController extends ChangeNotifier {
     }
   }
 
+  @visibleForTesting
+  Map<String, dynamic> buildFallbackRecipe(TrackItem current, TrackItem next) => _buildFallbackRecipe(current, next);
+
   Map<String, dynamic> _buildFallbackRecipe(TrackItem current, TrackItem next) {
+    final trackDurMs = current.duration.inMilliseconds > 0
+        ? current.duration.inMilliseconds
+        : (_durationSec * 1000).toInt();
+    final fallbackStartMs = max(0, trackDurMs - 1400);
+    final fallbackEndMs = trackDurMs > 0 ? trackDurMs : 1400;
+
     return {
       'schema_version': 1,
       'track_a_hash': current.id,
@@ -1432,8 +1443,8 @@ class PlaybackController extends ChangeNotifier {
       'archetype': 'ARCHETYPE_2_RIFF_HANDOFF',
       'confidence_score': 0.95,
       'timing': {
-        'track_a_transition_start_ms': (_positionSec * 1000).toInt(),
-        'track_a_exit_end_ms': ((_positionSec + 1.4) * 1000).toInt(),
+        'track_a_transition_start_ms': fallbackStartMs,
+        'track_a_exit_end_ms': fallbackEndMs,
         'track_b_entry_start_ms': 1000,
         'track_b_native_lock_ms': 2400,
       },
