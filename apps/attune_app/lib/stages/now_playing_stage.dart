@@ -220,6 +220,20 @@ class _NowPlayingStageState extends State<NowPlayingStage> with TickerProviderSt
                       Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
+                          if (track != null)
+                            IconButton(
+                              icon: Icon(
+                                controller.isFavorite(track.id)
+                                    ? Icons.favorite_rounded
+                                    : Icons.favorite_border_rounded,
+                                size: 22,
+                                color: controller.isFavorite(track.id)
+                                    ? const Color(0xFFFF4081)
+                                    : colorScheme.onSurface.withValues(alpha: 0.8),
+                              ),
+                              onPressed: () => controller.toggleFavorite(track.id),
+                              tooltip: controller.isFavorite(track.id) ? 'Favorited' : 'Favorite track',
+                            ),
                           IconButton(
                             icon: const Icon(Icons.equalizer_rounded, size: 22),
                             color: colorScheme.onSurface.withValues(alpha: 0.8),
@@ -293,19 +307,73 @@ class _NowPlayingStageState extends State<NowPlayingStage> with TickerProviderSt
                       activeLine = parsed.lines[idx];
                     }
 
+                    if (isNormalSquareBig) {
+                      return SizedBox(
+                        width: heroSize,
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            // Small space with current lyrics position (cream white / brightly colored syllables)
+                            if (isTimed && activeLine != null)
+                              _buildNormalSquareBigLyricSnippet(activeLine, posSec, colorScheme),
+                            Row(
+                              crossAxisAlignment: CrossAxisAlignment.center,
+                              children: [
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        track?.title ?? (controller.queue.isEmpty ? 'No Track Playing' : 'Rabbit Hole'),
+                                        style: AttuneTypography.soraTitleLarge(color: colorScheme.onSurface),
+                                        textAlign: TextAlign.left,
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                      const SizedBox(height: 4),
+                                      Text(
+                                        track?.artist ?? (controller.queue.isEmpty ? 'Queue is empty' : 'DECO*27 feat. Hatsune Miku'),
+                                        style: AttuneTypography.jakartaArtistSubtitle(
+                                          color: colorScheme.onSurface.withValues(alpha: 0.72),
+                                        ),
+                                        textAlign: TextAlign.left,
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                if (track != null) ...[
+                                  IconButton(
+                                    icon: Icon(
+                                      controller.isFavorite(track.id)
+                                          ? Icons.favorite_rounded
+                                          : Icons.favorite_border_rounded,
+                                      size: 26,
+                                      color: controller.isFavorite(track.id)
+                                          ? const Color(0xFFFF4081)
+                                          : colorScheme.onSurface.withValues(alpha: 0.7),
+                                    ),
+                                    tooltip: controller.isFavorite(track.id) ? 'Remove from favorites' : 'Favorite track',
+                                    onPressed: () => controller.toggleFavorite(track.id),
+                                  ),
+                                ],
+                              ],
+                            ),
+                          ],
+                        ),
+                      );
+                    }
+
                     return SizedBox(
                       width: heroSize,
                       child: Column(
-                        crossAxisAlignment:
-                            isNormalSquareBig ? CrossAxisAlignment.start : CrossAxisAlignment.center,
+                        crossAxisAlignment: CrossAxisAlignment.center,
                         children: [
-                          // Small space with current lyrics position (cream white / brightly colored syllables)
-                          if (isNormalSquareBig && isTimed && activeLine != null)
-                            _buildNormalSquareBigLyricSnippet(activeLine, posSec, colorScheme),
                           Text(
                             track?.title ?? (controller.queue.isEmpty ? 'No Track Playing' : 'Rabbit Hole'),
                             style: AttuneTypography.soraTitleLarge(color: colorScheme.onSurface),
-                            textAlign: isNormalSquareBig ? TextAlign.left : TextAlign.center,
+                            textAlign: TextAlign.center,
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                           ),
@@ -315,7 +383,7 @@ class _NowPlayingStageState extends State<NowPlayingStage> with TickerProviderSt
                             style: AttuneTypography.jakartaArtistSubtitle(
                               color: colorScheme.onSurface.withValues(alpha: 0.72),
                             ),
-                            textAlign: isNormalSquareBig ? TextAlign.left : TextAlign.center,
+                            textAlign: TextAlign.center,
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                           ),

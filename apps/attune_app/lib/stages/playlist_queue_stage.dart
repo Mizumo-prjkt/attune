@@ -94,6 +94,20 @@ class _PlaylistQueueStageState extends State<PlaylistQueueStage> {
                         ],
                       ),
                     ),
+                    IconButton(
+                      icon: Icon(
+                        controller.isFavorite(current.id)
+                            ? Icons.favorite_rounded
+                            : Icons.favorite_border_rounded,
+                        color: controller.isFavorite(current.id)
+                            ? const Color(0xFFFF4081)
+                            : colorScheme.onSurface.withValues(alpha: 0.5),
+                        size: 20,
+                      ),
+                      tooltip: controller.isFavorite(current.id) ? 'Remove from favorites' : 'Favorite current track',
+                      onPressed: () => controller.toggleFavorite(current.id),
+                    ),
+                    const SizedBox(width: 4),
                     Icon(
                       controller.isPlaying ? Icons.graphic_eq_rounded : Icons.pause_circle_outline_rounded,
                       color: colorScheme.primary,
@@ -103,22 +117,27 @@ class _PlaylistQueueStageState extends State<PlaylistQueueStage> {
                 ),
               ),
 
-            if (isSmartShuffle && current != null) const SizedBox(height: 12),
-
-            // 2. Subtle Inline Transition Connector Pill (Section 3.2) - Shown exclusively when Smart Shuffle is active
-            if (isSmartShuffle && current != null)
-              Center(
-                child: TransitionConnectorPill(
-                  archetype: controller.activeArchetype,
-                  durationSeconds: (controller.lastTransitionDurationSec != null && controller.lastTransitionDurationSec! > 0)
-                      ? controller.lastTransitionDurationSec!
-                      : 1.4,
-                  confidenceScore: 0.94,
-                  onTap: () => showTransitionDetailsDialog(context, controller, colorScheme),
+            // Guaranteed breathing room between Now Playing and chips/transition pill
+            if (current != null) ...[
+              if (isSmartShuffle) ...[
+                const SizedBox(height: 14),
+                Center(
+                  child: TransitionConnectorPill(
+                    archetype: controller.activeArchetype,
+                    durationSeconds: (controller.lastTransitionDurationSec != null && controller.lastTransitionDurationSec! > 0)
+                        ? controller.lastTransitionDurationSec!
+                        : 1.4,
+                    confidenceScore: 0.94,
+                    onTap: () => showTransitionDetailsDialog(context, controller, colorScheme),
+                  ),
                 ),
-              ),
-
-            if (isSmartShuffle && current != null) const SizedBox(height: 16),
+                const SizedBox(height: 18),
+              ] else ...[
+                const SizedBox(height: 18),
+              ],
+            ] else ...[
+              const SizedBox(height: 12),
+            ],
 
             // 3. Category Filter Chips
             SingleChildScrollView(
@@ -140,7 +159,7 @@ class _PlaylistQueueStageState extends State<PlaylistQueueStage> {
             const SizedBox(height: 14),
 
             // 4. Smart Shuffle Low Track Count Advisory Banner (<20 tracks)
-            if (isSmartShuffle && queue.length < 20) ...[
+            if (_selectedFilterIndex == 0 && isSmartShuffle && queue.length < 20) ...[
               LiquidGlassContainer(
                 padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
                 borderRadius: 18,
@@ -196,198 +215,315 @@ class _PlaylistQueueStageState extends State<PlaylistQueueStage> {
               const SizedBox(height: 14),
             ],
 
-            // 5. Quick Action Bar (Shuffle Mode, + Add Tracks, Clear Queue)
-            () {
-              String shuffleLabel;
-              IconData shuffleIcon;
-              bool isShuffleActive;
-              String? shuffleTooltip;
-              switch (controller.shuffleMode) {
-                case ShuffleMode.off:
-                  shuffleLabel = 'Shuffle Off';
-                  shuffleIcon = Icons.shuffle_rounded;
-                  isShuffleActive = false;
-                  shuffleTooltip = controller.isSmartShuffleSupported
-                      ? 'Linear playback order'
-                      : 'Linear playback order (Smart Shuffle unavailable in System Codec)';
-                  break;
-                case ShuffleMode.standard:
-                  shuffleLabel = controller.isSmartShuffleSupported ? 'Basic Shuffle' : 'Shuffle (Standard)';
-                  shuffleIcon = Icons.shuffle_rounded;
-                  isShuffleActive = true;
-                  shuffleTooltip = controller.isSmartShuffleSupported
-                      ? 'Randomized queue sequence'
-                      : 'Randomized queue sequence (Smart Shuffle unavailable in System Codec)';
-                  break;
-                case ShuffleMode.smart:
-                  shuffleLabel = 'Smart Shuffle';
-                  shuffleIcon = Icons.auto_awesome_rounded;
-                  isShuffleActive = true;
-                  shuffleTooltip = 'Profile & BPM-matched smart transition shuffle (reordering automated)';
-                  break;
-              }
+            // 5. Header / Action Bar depending on active filter
+            if (_selectedFilterIndex == 0)
+              () {
+                String shuffleLabel;
+                IconData shuffleIcon;
+                bool isShuffleActive;
+                String? shuffleTooltip;
+                switch (controller.shuffleMode) {
+                  case ShuffleMode.off:
+                    shuffleLabel = 'Shuffle Off';
+                    shuffleIcon = Icons.shuffle_rounded;
+                    isShuffleActive = false;
+                    shuffleTooltip = controller.isSmartShuffleSupported
+                        ? 'Linear playback order'
+                        : 'Linear playback order (Smart Shuffle unavailable in System Codec)';
+                    break;
+                  case ShuffleMode.standard:
+                    shuffleLabel = controller.isSmartShuffleSupported ? 'Basic Shuffle' : 'Shuffle (Standard)';
+                    shuffleIcon = Icons.shuffle_rounded;
+                    isShuffleActive = true;
+                    shuffleTooltip = controller.isSmartShuffleSupported
+                        ? 'Randomized queue sequence'
+                        : 'Randomized queue sequence (Smart Shuffle unavailable in System Codec)';
+                    break;
+                  case ShuffleMode.smart:
+                    shuffleLabel = 'Smart Shuffle';
+                    shuffleIcon = Icons.auto_awesome_rounded;
+                    isShuffleActive = true;
+                    shuffleTooltip = 'Profile & BPM-matched smart transition shuffle (reordering automated)';
+                    break;
+                }
 
-              return Wrap(
-                alignment: WrapAlignment.spaceBetween,
-                crossAxisAlignment: WrapCrossAlignment.center,
-                spacing: 8,
-                runSpacing: 8,
-                children: [
-                  _buildActionChip(
-                    icon: shuffleIcon,
-                    label: shuffleLabel,
-                    active: isShuffleActive,
-                    colorScheme: colorScheme,
-                    tooltip: shuffleTooltip,
-                    onTap: controller.cycleShuffleMode,
-                  ),
-                  Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      // Add Tracks Action
-                      GestureDetector(
-                        onTap: () {
-                          Navigator.of(context).push(
-                            MaterialPageRoute(builder: (_) => const QueueAddTracksStage()),
-                          );
-                        },
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                          decoration: BoxDecoration(
-                            color: colorScheme.primary.withValues(alpha: 0.16),
-                            borderRadius: BorderRadius.circular(10),
-                            border: Border.all(
-                              color: colorScheme.primary.withValues(alpha: 0.40),
-                              width: 1,
-                            ),
-                          ),
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Icon(Icons.add_rounded, size: 14, color: colorScheme.primary),
-                              const SizedBox(width: 4),
-                              Text(
-                                'Add Tracks',
-                                style: AttuneTypography.soraBadge(color: colorScheme.primary, fontSize: 11),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                      if (queue.isNotEmpty) ...[
-                        const SizedBox(width: 8),
-                        // Clear Queue Action
+                return Wrap(
+                  alignment: WrapAlignment.spaceBetween,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    _buildActionChip(
+                      icon: shuffleIcon,
+                      label: shuffleLabel,
+                      active: isShuffleActive,
+                      colorScheme: colorScheme,
+                      tooltip: shuffleTooltip,
+                      onTap: controller.cycleShuffleMode,
+                    ),
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        // Add Tracks Action
                         GestureDetector(
                           onTap: () {
-                            controller.clearQueue();
+                            Navigator.of(context).push(
+                              MaterialPageRoute(builder: (_) => const QueueAddTracksStage()),
+                            );
                           },
                           child: Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
                             decoration: BoxDecoration(
-                              color: Colors.white.withValues(alpha: 0.05),
+                              color: colorScheme.primary.withValues(alpha: 0.16),
                               borderRadius: BorderRadius.circular(10),
                               border: Border.all(
-                                color: Colors.white.withValues(alpha: 0.08),
+                                color: colorScheme.primary.withValues(alpha: 0.40),
                                 width: 1,
                               ),
                             ),
-                            child: Text(
-                              'Clear',
-                              style: AttuneTypography.jakartaBodySmall(
-                                color: colorScheme.onSurface.withValues(alpha: 0.50),
-                                fontSize: 11,
-                              ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(Icons.add_rounded, size: 14, color: colorScheme.primary),
+                                const SizedBox(width: 4),
+                                Text(
+                                  'Add Tracks',
+                                  style: AttuneTypography.soraBadge(color: colorScheme.primary, fontSize: 11),
+                                ),
+                              ],
                             ),
                           ),
                         ),
+                        if (queue.isNotEmpty) ...[
+                          const SizedBox(width: 8),
+                          // Clear Queue Action
+                          GestureDetector(
+                            onTap: () {
+                              controller.clearQueue();
+                            },
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+                              decoration: BoxDecoration(
+                                color: Colors.white.withValues(alpha: 0.05),
+                                borderRadius: BorderRadius.circular(10),
+                                border: Border.all(
+                                  color: Colors.white.withValues(alpha: 0.08),
+                                  width: 1,
+                                ),
+                              ),
+                              child: Text(
+                                'Clear',
+                                style: AttuneTypography.jakartaBodySmall(
+                                  color: colorScheme.onSurface.withValues(alpha: 0.50),
+                                  fontSize: 11,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
                       ],
-                    ],
+                    ),
+                  ],
+                );
+              }()
+            else if (_selectedFilterIndex == 1)
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    '${controller.favoriteTracks.length} FAVORITE TRACKS',
+                    style: AttuneTypography.soraBadge(color: colorScheme.primary, fontSize: 11),
                   ),
+                  if (controller.favoriteTracks.isNotEmpty)
+                    GestureDetector(
+                      onTap: () {
+                        for (final t in controller.favoriteTracks) {
+                          if (!controller.queue.any((q) => q.id == t.id)) {
+                            controller.addToQueue(t);
+                          }
+                        }
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text('Added ${controller.favoriteTracks.length} favorites to queue'),
+                            duration: const Duration(seconds: 1),
+                          ),
+                        );
+                      },
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                        decoration: BoxDecoration(
+                          color: colorScheme.primary.withValues(alpha: 0.16),
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(color: colorScheme.primary.withValues(alpha: 0.3)),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(Icons.playlist_add_rounded, size: 14, color: colorScheme.primary),
+                            const SizedBox(width: 4),
+                            Text(
+                              '+ Add All to Queue',
+                              style: AttuneTypography.soraBadge(color: colorScheme.primary, fontSize: 11),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
                 ],
-              );
-            }(),
+              )
+            else if (_selectedFilterIndex == 2)
+              Text(
+                '${controller.getRepeatHookTracks().length} RECENT & REPEAT TRACKS',
+                style: AttuneTypography.soraBadge(color: colorScheme.primary, fontSize: 11),
+              )
+            else if (_selectedFilterIndex == 3)
+              Text(
+                'SMART SHUFFLE MIX CANDIDATES',
+                style: AttuneTypography.soraBadge(color: colorScheme.primary, fontSize: 11),
+              ),
 
             const SizedBox(height: 12),
 
-            // 6. Queued Tracks List or Empty State
-            if (queue.isEmpty)
-              _buildEmptyQueueCard(context, colorScheme)
-            else if (isSmartShuffle)
-              // In Smart Shuffle: Reordering is locked; Smart Shuffle calculates candidate handoffs
-              ...List.generate(queue.length, (index) {
-                return _buildQueueItem(
-                  index: index,
-                  item: queue[index],
-                  controller: controller,
+            // 6. Tracks List or Empty State based on active filter
+            () {
+              List<dynamic> displayTracks;
+              String emptyTitle;
+              String emptySubtitle;
+              IconData emptyIcon;
+              bool isQueueView = _selectedFilterIndex == 0;
+              bool allowReorder = isQueueView && !isSmartShuffle;
+
+              switch (_selectedFilterIndex) {
+                case 1:
+                  displayTracks = controller.favoriteTracks;
+                  emptyTitle = 'No Favorite Tracks';
+                  emptySubtitle = 'Tap the heart icon on any song to add it to your Favorites.';
+                  emptyIcon = Icons.favorite_border_rounded;
+                  break;
+                case 2:
+                  displayTracks = controller.getRepeatHookTracks();
+                  emptyTitle = 'No Playback History Yet';
+                  emptySubtitle = 'Tracks you listen to frequently will appear here.';
+                  emptyIcon = Icons.history_rounded;
+                  break;
+                case 3:
+                  displayTracks = controller.lastEvaluatedCandidates.isNotEmpty
+                      ? controller.lastEvaluatedCandidates.map((c) => c.track).toList()
+                      : controller.getRepeatHookTracks();
+                  emptyTitle = 'No Smart Mix Candidates';
+                  emptySubtitle = 'Smart Shuffle will populate transition candidates during playback.';
+                  emptyIcon = Icons.auto_awesome_rounded;
+                  break;
+                case 0:
+                default:
+                  displayTracks = queue;
+                  emptyTitle = 'Your Play Queue is Empty';
+                  emptySubtitle = 'Add songs from your library to start listening, or tap below to browse and build your queue.';
+                  emptyIcon = Icons.queue_music_rounded;
+                  break;
+              }
+
+              if (displayTracks.isEmpty) {
+                return _buildEmptyStateCard(
+                  context: context,
                   colorScheme: colorScheme,
-                  canReorder: false,
+                  title: emptyTitle,
+                  subtitle: emptySubtitle,
+                  icon: emptyIcon,
+                  showAddButton: isQueueView,
                 );
-              })
-            else
-              // Standard / Shuffle Off: Interactive Reorderable List
-              ReorderableListView.builder(
+              }
+
+              if (!allowReorder) {
+                return Column(
+                  children: List.generate(displayTracks.length, (index) {
+                    return _buildQueueItem(
+                      index: index,
+                      item: displayTracks[index],
+                      controller: controller,
+                      colorScheme: colorScheme,
+                      canReorder: false,
+                      isQueueView: isQueueView,
+                    );
+                  }),
+                );
+              }
+
+              // Standard / Shuffle Off Queue: Interactive Reorderable List
+              return ReorderableListView.builder(
                 shrinkWrap: true,
                 physics: const NeverScrollableScrollPhysics(),
-                itemCount: queue.length,
+                itemCount: displayTracks.length,
                 onReorderItem: (oldIndex, newIndex) {
                   controller.reorderQueue(oldIndex, newIndex);
                 },
                 itemBuilder: (context, index) {
                   return KeyedSubtree(
-                    key: ValueKey('queue_item_${queue[index].id}_$index'),
+                    key: ValueKey('queue_item_${displayTracks[index].id}_$index'),
                     child: _buildQueueItem(
                       index: index,
-                      item: queue[index],
+                      item: displayTracks[index],
                       controller: controller,
                       colorScheme: colorScheme,
                       canReorder: true,
+                      isQueueView: true,
                     ),
                   );
                 },
-              ),
+              );
+            }(),
           ],
         );
       },
     );
   }
 
-  Widget _buildEmptyQueueCard(BuildContext context, ColorScheme colorScheme) {
+  Widget _buildEmptyStateCard({
+    required BuildContext context,
+    required ColorScheme colorScheme,
+    required String title,
+    required String subtitle,
+    required IconData icon,
+    bool showAddButton = false,
+  }) {
     return LiquidGlassContainer(
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 32),
       borderRadius: 22,
       surfaceAlpha: 0.10,
       child: Column(
         children: [
-          Icon(Icons.queue_music_rounded, size: 48, color: colorScheme.primary.withValues(alpha: 0.45)),
+          Icon(icon, size: 48, color: colorScheme.primary.withValues(alpha: 0.45)),
           const SizedBox(height: 14),
           Text(
-            'Your Play Queue is Empty',
+            title,
             style: AttuneTypography.soraTitleMedium(color: colorScheme.onSurface),
           ),
           const SizedBox(height: 6),
           Text(
-            'Add songs from your library to start listening, or tap below to browse and build your queue.',
+            subtitle,
             style: AttuneTypography.jakartaBodySmall(
               color: colorScheme.onSurface.withValues(alpha: 0.60),
             ),
             textAlign: TextAlign.center,
           ),
-          const SizedBox(height: 18),
-          FilledButton.icon(
-            style: FilledButton.styleFrom(
-              backgroundColor: colorScheme.primary,
-              foregroundColor: colorScheme.onPrimary,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+          if (showAddButton) ...[
+            const SizedBox(height: 18),
+            FilledButton.icon(
+              style: FilledButton.styleFrom(
+                backgroundColor: colorScheme.primary,
+                foregroundColor: colorScheme.onPrimary,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+              ),
+              icon: const Icon(Icons.add_rounded, size: 20),
+              label: Text('Add Tracks to Queue', style: AttuneTypography.soraBadge(color: colorScheme.onPrimary)),
+              onPressed: () {
+                Navigator.of(context).push(
+                  MaterialPageRoute(builder: (_) => const QueueAddTracksStage()),
+                );
+              },
             ),
-            icon: const Icon(Icons.add_rounded, size: 20),
-            label: Text('Add Tracks to Queue', style: AttuneTypography.soraBadge(color: colorScheme.onPrimary)),
-            onPressed: () {
-              Navigator.of(context).push(
-                MaterialPageRoute(builder: (_) => const QueueAddTracksStage()),
-              );
-            },
-          ),
+          ],
         ],
       ),
     );
@@ -399,8 +535,9 @@ class _PlaylistQueueStageState extends State<PlaylistQueueStage> {
     required PlaybackController controller,
     required ColorScheme colorScheme,
     required bool canReorder,
+    bool isQueueView = true,
   }) {
-    final isCurrent = index == controller.currentQueueIndex;
+    final isCurrent = isQueueView && index == controller.currentQueueIndex;
     final durMin = item.duration.inMinutes;
     final durSec = (item.duration.inSeconds % 60).toString().padLeft(2, '0');
 
@@ -475,20 +612,60 @@ class _PlaylistQueueStageState extends State<PlaylistQueueStage> {
             ),
             const SizedBox(width: 4),
 
-            // Remove Track from Queue Action
+            // 1-Tap Heart Favorite Toggle
             IconButton(
               icon: Icon(
-                Icons.close_rounded,
-                size: 16,
-                color: colorScheme.onSurface.withValues(alpha: 0.35),
+                controller.isFavorite(item.id)
+                    ? Icons.favorite_rounded
+                    : Icons.favorite_border_rounded,
+                size: 18,
+                color: controller.isFavorite(item.id)
+                    ? const Color(0xFFFF4081)
+                    : colorScheme.onSurface.withValues(alpha: 0.35),
               ),
               padding: EdgeInsets.zero,
               constraints: const BoxConstraints(minWidth: 26, minHeight: 26),
-              tooltip: 'Remove from queue',
+              tooltip: controller.isFavorite(item.id) ? 'Remove from favorites' : 'Add to favorites',
               onPressed: () {
-                controller.removeFromQueue(index);
+                controller.toggleFavorite(item.id);
               },
             ),
+
+            // Action button: Remove if queue view, Add to queue if other view
+            if (isQueueView)
+              IconButton(
+                icon: Icon(
+                  Icons.close_rounded,
+                  size: 16,
+                  color: colorScheme.onSurface.withValues(alpha: 0.35),
+                ),
+                padding: EdgeInsets.zero,
+                constraints: const BoxConstraints(minWidth: 26, minHeight: 26),
+                tooltip: 'Remove from queue',
+                onPressed: () {
+                  controller.removeFromQueue(index);
+                },
+              )
+            else
+              IconButton(
+                icon: Icon(
+                  Icons.playlist_add_rounded,
+                  size: 18,
+                  color: colorScheme.primary.withValues(alpha: 0.8),
+                ),
+                padding: EdgeInsets.zero,
+                constraints: const BoxConstraints(minWidth: 26, minHeight: 26),
+                tooltip: 'Add to queue',
+                onPressed: () {
+                  controller.addToQueue(item);
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text('Added "${item.title}" to queue'),
+                      duration: const Duration(seconds: 1),
+                    ),
+                  );
+                },
+              ),
 
             if (canReorder) ...[
               const SizedBox(width: 2),
@@ -500,7 +677,7 @@ class _PlaylistQueueStageState extends State<PlaylistQueueStage> {
                   color: colorScheme.onSurface.withValues(alpha: 0.35),
                 ),
               ),
-            ] else ...[
+            ] else if (isQueueView && controller.shuffleMode == ShuffleMode.smart) ...[
               const SizedBox(width: 2),
               Tooltip(
                 message: 'Smart Shuffle dynamically selects upcoming tracks based on Camelot harmony & BPM',

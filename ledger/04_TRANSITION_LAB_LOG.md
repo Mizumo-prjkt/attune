@@ -828,6 +828,33 @@ These four benchmark scenarios define the "Gold Standard" transitions that Attun
   - `flutter test`: All 144 Flutter unit and widget tests pass cleanly across all suites.
 - **Listening & Stability Verdict**: `PASS`. Clean readability, complete group track customization, seamless queue verdict inspection, and rock-solid native audio tweaks.
 
+---
+
+### Experiment #027: Queue Layout Spacing, 1-Tap Track Favorites, Multi-Artist Management, Track Sorting & Catalog Metadata
+- **Date**: 2026-11-03
+- **Hypothesis**: Enforcing an 18px separation in `PlaylistQueueStage` will resolve the touching card/pills layout regression regardless of whether Smart Shuffle is active; wiring `controller.favoriteTrackIds` with disk persistence and connecting the `Favorites` filter chip will allow users to bookmark tracks across the player; enabling multi-artist chips and track sorting in `AlbumEditorStage` will give full flexibility over album curation; and capturing catalog identifiers (Record Label, Barcode, Release Type, Release Date, Language, MusicBrainz ID) will prepare the data layer for automated online wiki lookups.
+- **Empirical Findings & Mathematical Implementation**:
+  1. **Queue Layout Spacing**:
+     - Verified that in `playlist_queue_stage.dart`, the conditional `if (isSmartShuffle && current != null)` omitted any spacing when shuffle was disabled, resulting in 0px margin between the Now Playing card and the category filter chips.
+     - Refactored to guaranteed `SizedBox(height: 18)` spacing when `current != null`, properly separating the header, the optional `TransitionConnectorPill` (when Smart Shuffle is active), and the category filter chips (`Up Next`, `Favorites`, `History`, `Smart Mix`).
+  2. **Track Favorites Architecture**:
+     - `PlaybackController` maintains `_favoriteTrackIds` (`Set<String>`) loaded from and saved to `${appDataDirectory}/favorites.json`.
+     - 1-tap toggling via `toggleFavorite(trackId)` and `setFavorite(trackId, bool)`.
+     - Category filter chip `Favorites` (index 1) displays `controller.favoriteTracks` with count header, "+ Add All to Queue" button, and friendly empty state.
+     - Integrated heart favorite buttons into queue item tiles, `NowPlayingStage` top action bar, and `Normal Square Big` title row.
+  3. **Multi-Artist & Track Sorting in Album Groups**:
+     - `AlbumEditorStage` introduces `_additionalArtists` with dynamic chips adding/removing.
+     - `_applyTrackSort(TrackSortOption)` sorts tracks dynamically by Artist (A-Z, Z-A), Title (A-Z), BPM (Fast to Slow), Duration (Long to Short), and Original Track Index.
+     - Added Up/Down repositioning buttons per track for granular order adjustments.
+  4. **Catalog Identifiers & Display**:
+     - `AlbumCustomMetadata` serialized with `recordLabel`, `catalogNumber`, `albumType`, `releaseDate`, `language`, `musicBrainzId`, and `onlineQueryUrl`.
+     - `AlbumsStage` renders `Feat. ...` and catalog/MBID badges on the album detail card.
+- **Empirical Verification**:
+  - `flutter analyze apps/attune_app`: 0 issues found.
+  - `flutter test`: All 146 Flutter tests pass cleanly (including updated `album_editor_stage_test.dart`).
+  - `cargo test --workspace`: All 44 native Rust workspace tests pass cleanly.
+- **Listening & Stability Verdict**: `PASS`. Flawless layout spacing, instantaneous 1-tap favorites management, rich multi-artist collaboration support, and robust catalog metadata.
+
 
 
 

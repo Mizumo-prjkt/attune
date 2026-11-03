@@ -1984,6 +1984,51 @@ This file records all major architectural decisions for **Attune**, including co
   - All 144 Flutter unit/widget tests and all 44 native Rust workspace tests pass cleanly.
   - `flutter analyze apps/attune_app` reports 0 issues.
 
+---
+
+## ADR-059: Queue Spacing Fix, 1-Tap Track Favorites System, Multi-Artist Management, Track Sorting & Online Catalog Metadata
+
+- **Status**: **LOCKED** (Implemented & Verified)
+- **Date**: 2026-11-03
+- **Context**:
+  1. **Queue Layout Spacing Issue**:
+     - In `PlaylistQueueStage`, the Now Playing header card and the category filter pills (`Up Next`, `Favorites`, `History`, `Smart Mix`) were directly touching with 0 vertical margin when Smart Shuffle was off, and had cramped spacing when the transition connector pill was active.
+  2. **Track Favorites Feature**:
+     - Users needed the ability to favorite/unfavorite any track across the player, with favorites persisted locally to disk (`favorites.json`).
+     - Tapping the `Favorites` chip in `PlaylistQueueStage` needed to filter the list to show all favorited tracks with an empty state when none are selected, plus a "+ Add All to Queue" shortcut.
+     - Heart favorite toggle buttons needed to be easily accessible directly on queue item rows and in `NowPlayingStage`.
+  3. **Artist Management & Track Sorting in Album Groups**:
+     - Albums frequently feature multiple contributing, guest, or collaborating artists (collaborators, producers, remixers).
+     - In `AlbumEditorStage`, users needed an area to add multiple artists via chips with 1-tap removal.
+     - In the album group tracks list, users needed the ability to individually sort tracks by Artist (A-Z, Z-A), Title, BPM, Duration, or Track Index, and adjust individual song positions with Up/Down buttons.
+  4. **Catalog Identifiers & Online Query Preparation**:
+     - In preparation for future online wiki/metadata fetching (MusicBrainz, Discogs, Vocaloid DB), album metadata needed to be expanded with standard catalog identifiers: Record Label, Catalog Number / Barcode, Album Release Type (Studio Album, EP, Single, Compilation, Soundtrack, Live Album, Remix Album), Release Date (YYYY-MM-DD), Primary Language, MusicBrainz Release ID, and Online Source URL.
+- **Decision**:
+  1. **Queue Spacing & Category Filter Overhaul (`PlaylistQueueStage`)**:
+     - Guaranteed minimum 18px vertical margin between Now Playing card (or `TransitionConnectorPill` if Smart Shuffle is active) and the category filter chips.
+     - Wired `_selectedFilterIndex`:
+       - `0` ('Up Next'): displays current queue with shuffle controls and reordering (when not in smart shuffle).
+       - `1` ('Favorites'): displays `controller.favoriteTracks`, "+ Add All to Queue" button, and friendly empty state.
+       - `2` ('History'): displays `controller.getRepeatHookTracks()`.
+       - `3` ('Smart Mix'): displays smart mix candidate tracks.
+     - Added 1-tap heart favorite toggle button to `_buildQueueItem`. When viewing non-queue categories (like Favorites), the remove button changes to a quick "+ Add to Queue" icon button.
+  2. **Now Playing Stage Favorite Toggle**:
+     - Added heart favorite toggle button in `NowPlayingStage` top action bar (adjacent to equalizer and skin picker).
+     - In `Normal Square Big` skin, wrapped title and artist in a row with a prominent favorite button on the right.
+     - Wired both to `controller.toggleFavorite(track.id)`.
+  3. **Multi-Artist & Track Sorting in `AlbumEditorStage`**:
+     - Added "Contributing / Additional Artists" chips input with `_newArtistController`, `+ Add` button, and removable chips.
+     - Added `_buildSortMenuButton` (`TrackSortOption`: `artistAsc`, `artistDesc`, `titleAsc`, `bpmDesc`, `durationDesc`, `original`) to sort tracks instantly in the group.
+     - Added individual Up (`Icons.arrow_upward_rounded`) and Down (`Icons.arrow_downward_rounded`) buttons on track items for manual adjustments.
+  4. **Online Query & Catalog Identifiers**:
+     - Added `ONLINE QUERY & CATALOG IDENTIFIERS` section in `AlbumEditorStage` with inputs for `recordLabel`, `catalogNumber`, `albumType` (dropdown), `releaseDate`, `language`, `musicBrainzId`, and `onlineQueryUrl`.
+     - Saved all attributes in `AlbumCustomMetadata` and persisted via `album_descriptions.json`.
+     - Updated `AlbumsStage` to display featured artists (`Feat. ...`) and catalog/MBID badges on the album detail card.
+- **Consequences**:
+  - Full adherence to Mandate 4 (zero hardcoding) and Knowledge Ledger protocol.
+  - All 146 Flutter tests and all 44 native Rust workspace tests pass cleanly.
+  - `flutter analyze apps/attune_app` reports 0 issues.
+
 
 
 

@@ -687,11 +687,17 @@ class _AlbumsStageState extends State<AlbumsStage> {
         : '${totalSeconds ~/ 60} min ${totalSeconds % 60} sec';
 
     final metaParts = <String>[];
+    if (customMetadata?.albumType != null && customMetadata!.albumType!.isNotEmpty) {
+      metaParts.add(customMetadata.albumType!);
+    }
     if (customMetadata?.year != null && customMetadata!.year!.isNotEmpty) {
       metaParts.add(customMetadata.year!);
     }
     if (customMetadata?.genre != null && customMetadata!.genre!.isNotEmpty) {
       metaParts.add(customMetadata.genre!);
+    }
+    if (customMetadata?.recordLabel != null && customMetadata!.recordLabel!.isNotEmpty) {
+      metaParts.add(customMetadata.recordLabel!);
     }
     metaParts.add('${tracks.length} songs');
     metaParts.add(durationStr);
@@ -872,6 +878,19 @@ class _AlbumsStageState extends State<AlbumsStage> {
                               ),
                             ],
                           ),
+                          if (customMetadata?.additionalArtists.isNotEmpty == true) ...[
+                            const SizedBox(height: 2),
+                            Text(
+                              'Feat. ${customMetadata!.additionalArtists.join(", ")}',
+                              style: AttuneTypography.jakartaBodySmall(
+                                fontSize: 12,
+                                color: colorScheme.primary.withValues(alpha: 0.9),
+                                fontWeight: FontWeight.w600,
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ],
                           const SizedBox(height: 4),
                           Text(
                             metaSubline,
@@ -880,6 +899,42 @@ class _AlbumsStageState extends State<AlbumsStage> {
                               color: colorScheme.onSurface.withValues(alpha: 0.65),
                             ),
                           ),
+                          if (customMetadata != null &&
+                              ((customMetadata.catalogNumber != null && customMetadata.catalogNumber!.isNotEmpty) ||
+                               (customMetadata.musicBrainzId != null && customMetadata.musicBrainzId!.isNotEmpty))) ...[
+                            const SizedBox(height: 6),
+                            Wrap(
+                              spacing: 6,
+                              children: [
+                                if (customMetadata.catalogNumber != null && customMetadata.catalogNumber!.isNotEmpty)
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                                    decoration: BoxDecoration(
+                                      color: Colors.white.withValues(alpha: 0.06),
+                                      borderRadius: BorderRadius.circular(6),
+                                      border: Border.all(color: Colors.white12),
+                                    ),
+                                    child: Text(
+                                      'Cat: ${customMetadata.catalogNumber}',
+                                      style: AttuneTypography.jakartaBodySmall(fontSize: 10, color: colorScheme.onSurface.withValues(alpha: 0.6)),
+                                    ),
+                                  ),
+                                if (customMetadata.musicBrainzId != null && customMetadata.musicBrainzId!.isNotEmpty)
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                                    decoration: BoxDecoration(
+                                      color: colorScheme.primary.withValues(alpha: 0.12),
+                                      borderRadius: BorderRadius.circular(6),
+                                      border: Border.all(color: colorScheme.primary.withValues(alpha: 0.3)),
+                                    ),
+                                    child: Text(
+                                      'MBID',
+                                      style: AttuneTypography.soraBadge(fontSize: 9, color: colorScheme.primary),
+                                    ),
+                                  ),
+                              ],
+                            ),
+                          ],
                         ],
                       ),
                     ),

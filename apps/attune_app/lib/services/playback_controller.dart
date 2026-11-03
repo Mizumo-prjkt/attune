@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
 import 'package:flutter/material.dart';
@@ -6,6 +7,7 @@ import '../models/track_item.dart';
 import '../models/smart_shuffle_verdict.dart';
 import 'audio_storage_service.dart';
 import 'engine_bridge.dart';
+import 'environment_delegator.dart';
 import 'notification_service.dart';
 import 'permission_service.dart';
 import 'settings_service.dart';
@@ -169,6 +171,7 @@ class PlaybackController extends ChangeNotifier {
       }
       notifyListeners();
     });
+    _loadFavoritesFromStorage();
     if (!Platform.environment.containsKey('FLUTTER_TEST')) {
       _loadCachedTracksImmediately();
       Future.microtask(() {
@@ -230,6 +233,71 @@ class PlaybackController extends ChangeNotifier {
   SmartShuffleVerdict? get latestSmartShuffleVerdict => _latestSmartShuffleVerdict;
   List<SmartShuffleCandidateMatch> get lastEvaluatedCandidates => List.unmodifiable(_lastEvaluatedCandidates);
   Map<String, int> get playCounts => Map.unmodifiable(_playCounts);
+
+  // Favorites Management
+  final Set<String> _favoriteTrackIds = {};
+  Set<String> get favoriteTrackIds => Set.unmodifiable(_favoriteTrackIds);
+  bool isFavorite(String trackId) => _favoriteTrackIds.contains(trackId);
+
+  List<TrackItem> get favoriteTracks =>
+      _libraryTracks.where((t) => _favoriteTrackIds.contains(t.id)).toList();
+
+  File get _favoritesFile {
+    final dir = AppEnvironmentDelegator.current.appDataDirectory;
+    return File('${dir.path}/favorites.json');
+  }
+
+  void _loadFavoritesFromStorage() {
+    try {
+      final file = _favoritesFile;
+      if (file.existsSync()) {
+        final content = file.readAsStringSync();
+        if (content.isNotEmpty) {
+          final list = jsonDecode(content);
+          if (list is List) {
+            _favoriteTrackIds.clear();
+            _favoriteTrackIds.addAll(list.cast<String>());
+          }
+        }
+      }
+    } catch (e) {
+      debugPrint('[PlaybackController] Error loading favorites: $e');
+    }
+  }
+
+  void _saveFavoritesToStorage() {
+    try {
+      final file = _favoritesFile;
+      if (!file.parent.existsSync()) {
+        file.parent.createSync(recursive: true);
+      }
+      file.writeAsStringSync(jsonEncode(_favoriteTrackIds.toList()));
+    } catch (e) {
+      debugPrint('[PlaybackController] Error saving favorites: $e');
+    }
+  }
+
+  void toggleFavorite(String trackId) {
+    if (trackId.isEmpty) return;
+    if (_favoriteTrackIds.contains(trackId)) {
+      _favoriteTrackIds.remove(trackId);
+    } else {
+      _favoriteTrackIds.add(trackId);
+    }
+    _saveFavoritesToStorage();
+    notifyListeners();
+  }
+
+  void setFavorite(String trackId, bool isFav) {
+    if (trackId.isEmpty) return;
+    if (isFav) {
+      _favoriteTrackIds.add(trackId);
+    } else {
+      _favoriteTrackIds.remove(trackId);
+    }
+    _saveFavoritesToStorage();
+    notifyListeners();
+  }
 
   /// Returns automatically curated tracks based on repeat frequency and high-energy hooks
   List<TrackItem> getRepeatHookTracks({int limit = 12}) {

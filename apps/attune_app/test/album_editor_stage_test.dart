@@ -159,5 +159,106 @@ void main() {
       expect(find.text('✦ Smart Shuffle Verdict'), findsOneWidget);
       expect(find.text('∿ Transition DSP Recipe'), findsOneWidget);
     });
+
+    testWidgets('Favorites filter tab and heart toggle in PlaylistQueueStage', (WidgetTester tester) async {
+      final controller = PlaybackController.instance;
+      controller.clearQueue();
+      controller.addTracksToQueue(sampleTracks);
+      controller.playTrack(sampleTracks[0]);
+
+      // Ensure favorites starts empty
+      controller.setFavorite('song_1', false);
+      controller.setFavorite('song_2', false);
+
+      await tester.pumpWidget(
+        const MaterialApp(
+          home: Scaffold(
+            body: PlaylistQueueStage(),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      // Tap Favorites filter chip
+      final favoritesChip = find.text('Favorites');
+      expect(favoritesChip, findsOneWidget);
+      await tester.tap(favoritesChip);
+      await tester.pumpAndSettle();
+
+      // Empty state shown
+      expect(find.text('No Favorite Tracks'), findsOneWidget);
+
+      // Now favorite song_1
+      controller.setFavorite('song_1', true);
+      await tester.pumpAndSettle();
+
+      expect(find.text('1 FAVORITE TRACKS'), findsOneWidget);
+      expect(find.text('Super Trouper'), findsWidgets);
+
+      // Switch back to Up Next
+      await tester.tap(find.text('Up Next'));
+      await tester.pumpAndSettle();
+      expect(find.text('Super Trouper'), findsWidgets);
+    });
+
+    testWidgets('AlbumEditorStage multi-artists, sorting, and online catalog metadata', (WidgetTester tester) async {
+      tester.view.physicalSize = const Size(1080, 3000);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(() {
+        tester.view.resetPhysicalSize();
+        tester.view.resetDevicePixelRatio();
+      });
+
+      AlbumCustomMetadata? savedMetadata;
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: AlbumEditorStage(
+            initialAlbumName: 'Super Trouper',
+            initialTracks: sampleTracks,
+            initialMetadata: const AlbumCustomMetadata(
+              year: '1980',
+              genre: 'Pop',
+              recordLabel: 'Polar Music',
+              catalogNumber: 'POLS-322',
+              albumType: 'Studio Album',
+              releaseDate: '1980-11-03',
+              language: 'English',
+              musicBrainzId: 'mb-uuid-1234',
+            ),
+            onSaved: (oldAlbum, newAlbum, meta, finalTracks) {
+              savedMetadata = meta;
+            },
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      // Verify Online Query & Catalog section
+      expect(find.text('ONLINE QUERY & CATALOG IDENTIFIERS'), findsOneWidget);
+      expect(find.text('Polar Music'), findsOneWidget);
+      expect(find.text('POLS-322'), findsOneWidget);
+
+      // Add a contributing artist
+      final artistInput = find.widgetWithText(TextField, 'Add contributing artist name...');
+      expect(artistInput, findsOneWidget);
+      await tester.enterText(artistInput, 'Benny Andersson');
+      await tester.tap(find.text('Add'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Benny Andersson'), findsOneWidget);
+
+      // Verify sorting button is present
+      expect(find.text('Track Index'), findsOneWidget);
+
+      // Save
+      await tester.tap(find.text('Save'));
+      await tester.pumpAndSettle();
+
+      expect(savedMetadata, isNotNull);
+      expect(savedMetadata!.additionalArtists, contains('Benny Andersson'));
+      expect(savedMetadata!.recordLabel, equals('Polar Music'));
+      expect(savedMetadata!.catalogNumber, equals('POLS-322'));
+    });
   });
 }
