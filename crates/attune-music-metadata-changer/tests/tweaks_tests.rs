@@ -1,13 +1,13 @@
 use std::ffi::{CStr, CString};
 use std::f32::consts::PI;
 
-use attune_track_tweaks::audio::{decode_audio_file, write_wav_file, AudioData};
-use attune_track_tweaks::dsp::{
+use attune_music_metadata_changer::audio::{decode_audio_file, write_wav_file, AudioData};
+use attune_music_metadata_changer::dsp::{
     apply_speed_factor, detect_silence_bounds, normalize_gain, normalize_gain_copy, slice_region,
     trim_silence,
 };
-use attune_track_tweaks::ffi::*;
-use attune_track_tweaks::metadata::{read_track_metadata, write_track_metadata, TrackMetadata};
+use attune_music_metadata_changer::ffi::*;
+use attune_music_metadata_changer::metadata::{read_track_metadata, write_track_metadata, TrackMetadata};
 
 /// Generates synthetic stereo audio with a sine tone
 fn generate_synthetic_audio(
@@ -389,4 +389,41 @@ fn test_flac_and_mp3_metadata_untouched_audio() {
     // Clean up
     let _ = std::fs::remove_file(flac_path);
     let _ = std::fs::remove_file(mp3_path);
+}
+
+#[test]
+fn test_comma_separated_artists_and_catalog_metadata() {
+    let mut meta = TrackMetadata::default();
+    // Test comma separation in ARTIST tag
+    meta.set_tag("ARTIST", "DECO*27, PinocchioP, kz");
+    assert_eq!(meta.artist.as_deref(), Some("DECO*27"));
+    assert_eq!(meta.additional_artists, vec!["PinocchioP", "kz"]);
+
+    // Test explicit FEAT / ARTISTS tags
+    meta.set_tag("FEAT", "Hatsune Miku, GUMI");
+    assert_eq!(meta.additional_artists, vec!["PinocchioP", "kz", "Hatsune Miku", "GUMI"]);
+
+    // Test catalog and online identifiers
+    meta.set_tag("LABEL", "Victor Entertainment");
+    meta.set_tag("CATALOGNUMBER", "VICL-63200");
+    meta.set_tag("ALBUMTYPE", "Studio Album");
+    meta.set_tag("RELEASEDATE", "2026-02-14");
+    meta.set_tag("LANGUAGE", "Japanese");
+    meta.set_tag("MUSICBRAINZ_ALBUMID", "8f6b7c2a-9e12-4f3b-8c1a-2d3e4f5a6b7c");
+    meta.set_tag("ONLINE_QUERY_URL", "https://musicbrainz.org/release/8f6b7c2a");
+
+    assert_eq!(meta.record_label.as_deref(), Some("Victor Entertainment"));
+    assert_eq!(meta.catalog_number.as_deref(), Some("VICL-63200"));
+    assert_eq!(meta.album_type.as_deref(), Some("Studio Album"));
+    assert_eq!(meta.release_date.as_deref(), Some("2026-02-14"));
+    assert_eq!(meta.language.as_deref(), Some("Japanese"));
+    assert_eq!(meta.musicbrainz_id.as_deref(), Some("8f6b7c2a-9e12-4f3b-8c1a-2d3e4f5a6b7c"));
+    assert_eq!(meta.online_query_url.as_deref(), Some("https://musicbrainz.org/release/8f6b7c2a"));
+
+    // Verify canonical attune_metadata_changer_* FFI entrypoint
+    unsafe {
+        let ver = attune_metadata_changer_version();
+        let ver_str = CStr::from_ptr(ver).to_str().unwrap();
+        assert_eq!(ver_str, "0.1.0");
+    }
 }

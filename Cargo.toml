@@ -6,7 +6,7 @@ members = [
     "crates/attune-cli",
     "crates/attune-ffi",
     "crates/watchguard",
-    "crates/attune-track-tweaks",
+    "crates/attune-music-metadata-changer",
 ]
 
 [workspace.package]

@@ -1,13 +1,13 @@
 [package]
-name = "attune-track-tweaks"
+name = "attune-music-metadata-changer"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
 license.workspace = true
-description = "Sound track tweaks, metadata editing without touching audio, normalization, slicing, silence trimming, and speed adjustment for Attune"
+description = "Sound track metadata modification, container tagging without touching audio streams, normalization, slicing, silence trimming, and speed adjustment for Attune"
 
 [lib]
-name = "attune_track_tweaks"
+name = "attune_music_metadata_changer"
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]

@@ -2029,6 +2029,55 @@ This file records all major architectural decisions for **Attune**, including co
   - All 146 Flutter tests and all 44 native Rust workspace tests pass cleanly.
   - `flutter analyze apps/attune_app` reports 0 issues.
 
+---
+
+## ADR-060: Comma-Separated Multi-Artist Management, Native Crate Renaming (`attune-music-metadata-changer`), MusicBrainz RFC Compliance & ReccoBeats Public API Fallback
+
+- **Status**: **LOCKED** (Implemented & Verified)
+- **Date**: 2026-11-03
+- **Context**:
+  1. **Comma Separation for Artists**:
+     - In real-world audio libraries and music metadata, collaborative releases frequently group multiple artists together separated by commas (e.g. `DECO*27, PinocchioP`).
+     - Previously, the Primary Artist field treated such strings as a single opaque artist name, and adding contributing artists required entering each name one by one without comma splitting.
+     - Users needed comma separation (`","`) to be treated as a primary delimiter across both the Primary Artist input and the Contributing Artists input.
+  2. **Renaming Native Crate from `attune-track-tweaks` to `attune-music-metadata-changer`**:
+     - The crate name `attune-track-tweaks` did not accurately describe its primary role in non-destructive song metadata alteration, container tag updating, and audio stream integrity preservation.
+     - A more appropriate and precise crate name was required: `attune-music-metadata-changer` (`libattune_music_metadata_changer.so`/`.dll`).
+     - Crate needed expanded metadata schema for multi-artists and online catalog identifiers (record label, catalog number, album type, release date, language, MBID, and query URL).
+  3. **MusicBrainz API Integration & Strict User-Agent Compliance**:
+     - In preparation for automated online music metadata retrieval, an API client was needed to query MusicBrainz Web Service v2 (`https://musicbrainz.org/ws/2/release/`).
+     - MusicBrainz enforces strict User-Agent headers (`AppName/Version ( URL or ContactEmail )`) and a 1 request/second client-side rate limit. Violations result in HTTP 429 or 503 blocking.
+  4. **Transparent ReccoBeats API Fallback Provider**:
+     - To guarantee zero downtime if MusicBrainz is temporarily rate-limited, blocked, or missing niche releases (e.g. indie Vocaloid / Doujin music), a secondary public metadata provider was required: ReccoBeats API (`https://api.reccobeats.com/v1`, free to use without API keys).
+- **Decision**:
+  1. **Artist Comma Delimiter Handling (`OnlineMusicMetadata.splitArtists` & UI)**:
+     - Implemented `OnlineMusicMetadata.splitArtists(String raw)`: splits on `RegExp(r'[,/;&]|\bfeat(?:\.|\b)|\bft(?:\.|\b)', caseSensitive: false)`, trims leading/trailing punctuation, and returns `(primary: ..., additional: [...])`.
+     - In `AlbumEditorStage`, when Primary Artist contains commas, a dynamic `[ Split Artists (,) ]` badge appears, allowing 1-tap extraction of the primary artist and moving collaborators into `_additionalArtists`.
+     - In the Contributing Artists field, typing or pasting a comma-delimited string automatically splits and adds each artist chip.
+  2. **Crate Renaming & Rust C-ABI Modernization (`attune-music-metadata-changer`)**:
+     - Renamed directory to `crates/attune-music-metadata-changer` and workspace member in root `Cargo.toml`.
+     - Configured `name = "attune-music-metadata-changer"` and `lib.name = "attune_music_metadata_changer"`.
+     - Expanded `TrackMetadata` with `additional_artists: Vec<String>`, `record_label`, `catalog_number`, `album_type`, `release_date`, `language`, `musicbrainz_id`, `musicbrainz_track_id`, and `online_query_url`.
+     - In `set_tag("ARTIST", ...)`, auto-splits commas into primary and additional artists.
+     - Updated Vorbis comment writer (vendor `"Attune Music Metadata Changer"`) and ID3v2 tag writer to output `ARTISTS`, `LABEL`, `CATALOGNUMBER`, `ALBUMTYPE`, `RELEASEDATE`, `LANGUAGE`, `MUSICBRAINZ_ALBUMID`.
+     - Exported canonical `attune_metadata_changer_*` FFI functions with legacy `attune_track_tweaks_*` aliases for backwards compatibility.
+  3. **MusicBrainz API Service with Strict RFC Compliance**:
+     - Created `apps/attune_app/lib/services/music_metadata_service.dart`.
+     - Configured compliant User-Agent: `Attune/0.1.0 ( https://github.com/Mizumo-prjkt/attune )`.
+     - Implemented 1050ms rate throttling gate (`_lastMusicBrainzRequestTime`).
+     - Gracefully handles HTTP 429/503 responses without crashing.
+  4. **ReccoBeats Free API Fallback**:
+     - Base URL: `https://api.reccobeats.com/v1`.
+     - Queries `/album/search?searchText=...` and falls back to `/track/search?query=...` when MusicBrainz returns 429/503 or empty releases.
+     - Parses album name, primary artist, additional artists (comma-separated), release date, label, and cover art URL.
+  5. **1-Tap Online Metadata Action in `AlbumEditorStage`**:
+     - Added `[ ✦ Fetch Online Metadata (MusicBrainz / ReccoBeats) ]` button with progress spinner.
+     - Populates Release Year, Genre, Record Label, Catalog Number, Album Type, Release Date, Language, MusicBrainz ID, Source URL, Cover Art, and factual description.
+- **Consequences**:
+  - Full adherence to Mandate 4 (zero hardcoding, fail gracefully with transparency) and Knowledge Ledger protocol.
+  - All 154 Flutter tests and all 45 native Rust workspace tests pass cleanly.
+  - `flutter analyze apps/attune_app` reports 0 issues.
+
 
 
 

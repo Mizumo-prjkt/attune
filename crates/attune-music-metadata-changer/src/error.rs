@@ -1,7 +1,7 @@
 use thiserror::Error;
 
 #[derive(Error, Debug)]
-pub enum TrackTweaksError {
+pub enum MetadataChangerError {
     #[error("I/O error: {0}")]
     Io(#[from] std::io::Error),
 
@@ -26,3 +26,6 @@ pub enum TrackTweaksError {
     #[error("Metadata parse/write error: {0}")]
     Metadata(String),
 }
+
+/// Backwards-compatible type alias
+pub type TrackTweaksError = MetadataChangerError;

@@ -14,6 +14,8 @@ use crate::error::TrackTweaksError;
 pub struct TrackMetadata {
     pub title: Option<String>,
     pub artist: Option<String>,
+    #[serde(default)]
+    pub additional_artists: Vec<String>,
     pub album: Option<String>,
     pub album_artist: Option<String>,
     pub genre: Option<String>,
@@ -27,6 +29,16 @@ pub struct TrackMetadata {
     pub lyrics: Option<String>,
     pub bpm: Option<f32>,
     pub musical_key: Option<String>,
+
+    // Catalog & Online Identifiers
+    pub record_label: Option<String>,
+    pub catalog_number: Option<String>,
+    pub album_type: Option<String>,
+    pub release_date: Option<String>,
+    pub language: Option<String>,
+    pub musicbrainz_id: Option<String>,
+    pub musicbrainz_track_id: Option<String>,
+    pub online_query_url: Option<String>,
 
     // Non-destructive track tweaks stored in song metadata:
     pub replaygain_track_gain_db: Option<f32>,
@@ -50,7 +62,38 @@ impl TrackMetadata {
             "TITLE" | "TRACKTITLE" | "TRACK_TITLE" | "INAM" | "TIT2" => {
                 self.title = Some(val_trimmed.to_string())
             }
-            "ARTIST" | "IART" | "TPE1" => self.artist = Some(val_trimmed.to_string()),
+            "ARTIST" | "IART" | "TPE1" => {
+                // If contains comma, consider comma as a separation for multiple artists
+                if val_trimmed.contains(',') {
+                    let parts: Vec<&str> = val_trimmed
+                        .split(',')
+                        .map(|s| s.trim())
+                        .filter(|s| !s.is_empty())
+                        .collect();
+                    if !parts.is_empty() {
+                        self.artist = Some(parts[0].to_string());
+                        for extra in &parts[1..] {
+                            if !self.additional_artists.iter().any(|a| a.eq_ignore_ascii_case(extra)) {
+                                self.additional_artists.push(extra.to_string());
+                            }
+                        }
+                    }
+                } else {
+                    self.artist = Some(val_trimmed.to_string());
+                }
+            }
+            "ARTISTS" | "ADDITIONAL_ARTISTS" | "FEATURED_ARTISTS" | "FEAT" => {
+                let parts: Vec<&str> = val_trimmed
+                    .split(',')
+                    .map(|s| s.trim())
+                    .filter(|s| !s.is_empty())
+                    .collect();
+                for part in parts {
+                    if !self.additional_artists.iter().any(|a| a.eq_ignore_ascii_case(part)) {
+                        self.additional_artists.push(part.to_string());
+                    }
+                }
+            }
             "ALBUM" | "IPRD" | "TALB" => self.album = Some(val_trimmed.to_string()),
             "ALBUM_ARTIST" | "ALBUMARTIST" | "TPE2" => {
                 self.album_artist = Some(val_trimmed.to_string())
@@ -96,6 +139,30 @@ impl TrackMetadata {
                 }
             }
             "KEY" | "MUSICAL_KEY" | "TKEY" => self.musical_key = Some(val_trimmed.to_string()),
+            "LABEL" | "ORGANIZATION" | "PUBLISHER" | "TPUB" => {
+                self.record_label = Some(val_trimmed.to_string());
+            }
+            "CATALOGNUMBER" | "CATALOG_NUMBER" | "BARCODE" | "ISRC" | "TSRC" => {
+                self.catalog_number = Some(val_trimmed.to_string());
+            }
+            "RELEASETYPE" | "ALBUMTYPE" | "MUSICBRAINZ_ALBUMTYPE" => {
+                self.album_type = Some(val_trimmed.to_string());
+            }
+            "RELEASEDATE" | "RELEASE_DATE" => {
+                self.release_date = Some(val_trimmed.to_string());
+            }
+            "LANGUAGE" | "TLAN" => {
+                self.language = Some(val_trimmed.to_string());
+            }
+            "MUSICBRAINZ_ALBUMID" | "MUSICBRAINZ_RELEASEID" => {
+                self.musicbrainz_id = Some(val_trimmed.to_string());
+            }
+            "MUSICBRAINZ_TRACKID" => {
+                self.musicbrainz_track_id = Some(val_trimmed.to_string());
+            }
+            "ONLINE_QUERY_URL" | "WIKI_URL" | "URL" => {
+                self.online_query_url = Some(val_trimmed.to_string());
+            }
             "REPLAYGAIN_TRACK_GAIN" | "REPLAYGAIN_TRACK_GAIN_DB" => {
                 let clean = val_trimmed.replace("dB", "").trim().to_string();
                 if let Ok(g) = clean.parse::<f32>() {
@@ -468,7 +535,7 @@ fn write_flac_metadata(path: &Path, meta: &TrackMetadata) -> Result<(), TrackTwe
 
 fn build_vorbis_comment_block(meta: &TrackMetadata) -> Vec<u8> {
     let mut out = Vec::new();
-    let vendor = "Attune Track Tweaks";
+    let vendor = "Attune Music Metadata Changer";
     out.extend_from_slice(&(vendor.len() as u32).to_le_bytes());
     out.extend_from_slice(vendor.as_bytes());
 
@@ -478,6 +545,12 @@ fn build_vorbis_comment_block(meta: &TrackMetadata) -> Vec<u8> {
     }
     if let Some(ref a) = meta.artist {
         comments.push(format!("ARTIST={}", a));
+    }
+    if !meta.additional_artists.is_empty() {
+        comments.push(format!("ARTISTS={}", meta.additional_artists.join(", ")));
+        for extra in &meta.additional_artists {
+            comments.push(format!("FEAT={}", extra));
+        }
     }
     if let Some(ref alb) = meta.album {
         comments.push(format!("ALBUM={}", alb));
@@ -515,6 +588,30 @@ fn build_vorbis_comment_block(meta: &TrackMetadata) -> Vec<u8> {
     }
     if let Some(ref k) = meta.musical_key {
         comments.push(format!("KEY={}", k));
+    }
+    if let Some(ref l) = meta.record_label {
+        comments.push(format!("LABEL={}", l));
+    }
+    if let Some(ref cat) = meta.catalog_number {
+        comments.push(format!("CATALOGNUMBER={}", cat));
+    }
+    if let Some(ref at) = meta.album_type {
+        comments.push(format!("ALBUMTYPE={}", at));
+    }
+    if let Some(ref rd) = meta.release_date {
+        comments.push(format!("RELEASEDATE={}", rd));
+    }
+    if let Some(ref lang) = meta.language {
+        comments.push(format!("LANGUAGE={}", lang));
+    }
+    if let Some(ref mbid) = meta.musicbrainz_id {
+        comments.push(format!("MUSICBRAINZ_ALBUMID={}", mbid));
+    }
+    if let Some(ref mbtid) = meta.musicbrainz_track_id {
+        comments.push(format!("MUSICBRAINZ_TRACKID={}", mbtid));
+    }
+    if let Some(ref u) = meta.online_query_url {
+        comments.push(format!("ONLINE_QUERY_URL={}", u));
     }
     if let Some(rg) = meta.replaygain_track_gain_db {
         comments.push(format!("REPLAYGAIN_TRACK_GAIN={:+.2} dB", rg));
@@ -629,6 +726,37 @@ fn build_id3v24_tag(meta: &TrackMetadata) -> Vec<u8> {
     }
     if let Some(ref k) = meta.musical_key {
         append_id3_text_frame(&mut frames_data, b"TKEY", k);
+    }
+    if let Some(ref l) = meta.record_label {
+        append_id3_text_frame(&mut frames_data, b"TPUB", l);
+    }
+    if let Some(ref lang) = meta.language {
+        append_id3_text_frame(&mut frames_data, b"TLAN", lang);
+    }
+    if let Some(ref cat) = meta.catalog_number {
+        append_id3_text_frame(&mut frames_data, b"TSRC", cat);
+    }
+    if let Some(ref rd) = meta.release_date {
+        append_id3_text_frame(&mut frames_data, b"TDRC", rd);
+    }
+    if !meta.additional_artists.is_empty() {
+        append_id3_txxx_frame(
+            &mut frames_data,
+            "ARTISTS",
+            &meta.additional_artists.join(", "),
+        );
+    }
+    if let Some(ref at) = meta.album_type {
+        append_id3_txxx_frame(&mut frames_data, "ALBUMTYPE", at);
+    }
+    if let Some(ref mbid) = meta.musicbrainz_id {
+        append_id3_txxx_frame(&mut frames_data, "MusicBrainz Album Id", mbid);
+    }
+    if let Some(ref mbtid) = meta.musicbrainz_track_id {
+        append_id3_txxx_frame(&mut frames_data, "MusicBrainz Track Id", mbtid);
+    }
+    if let Some(ref u) = meta.online_query_url {
+        append_id3_txxx_frame(&mut frames_data, "ONLINE_QUERY_URL", u);
     }
 
     // Comment frame COMM

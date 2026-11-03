@@ -2,6 +2,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import '../models/album_custom_metadata.dart';
 import '../models/track_item.dart';
+import '../services/music_metadata_service.dart';
 import '../services/playback_controller.dart';
 import '../theme/liquid_glass.dart';
 import '../theme/typography.dart';
@@ -56,6 +57,8 @@ class _AlbumEditorStageState extends State<AlbumEditorStage> {
   late TextEditingController _languageController;
   late TextEditingController _musicBrainzIdController;
   late TextEditingController _onlineQueryUrlController;
+
+  bool _isFetchingOnline = false;
 
   late List<TrackItem> _albumTracks;
   late List<TrackItem> _originalAlbumTracks;
@@ -119,13 +122,142 @@ class _AlbumEditorStageState extends State<AlbumEditorStage> {
     super.dispose();
   }
 
-  void _addAdditionalArtist() {
-    final text = _newArtistController.text.trim();
-    if (text.isNotEmpty && !_additionalArtists.contains(text)) {
-      setState(() {
-        _additionalArtists.add(text);
-        _newArtistController.clear();
-      });
+  void _addAdditionalArtist([String? rawText]) {
+    final text = (rawText ?? _newArtistController.text).trim();
+    if (text.isEmpty) return;
+    final split = OnlineMusicMetadata.splitArtists(text);
+    final candidates = [
+      if (split.primary.isNotEmpty && split.primary != 'Unknown Artist') split.primary,
+      ...split.additional,
+    ];
+    setState(() {
+      for (final artist in candidates) {
+        final clean = artist.trim();
+        if (clean.isNotEmpty && !_additionalArtists.contains(clean)) {
+          _additionalArtists.add(clean);
+        }
+      }
+      _newArtistController.clear();
+    });
+  }
+
+  void _splitPrimaryArtistByComma() {
+    final text = _artistController.text.trim();
+    if (text.isEmpty) return;
+    final split = OnlineMusicMetadata.splitArtists(text);
+    setState(() {
+      _artistController.text = split.primary;
+      for (final artist in split.additional) {
+        final clean = artist.trim();
+        if (clean.isNotEmpty && !_additionalArtists.contains(clean)) {
+          _additionalArtists.add(clean);
+        }
+      }
+    });
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('Separated primary artist "${split.primary}" and ${split.additional.length} contributing artist(s)'),
+        behavior: SnackBarBehavior.floating,
+        duration: const Duration(seconds: 2),
+      ),
+    );
+  }
+
+  Future<void> _fetchOnlineMetadata() async {
+    final albumName = _titleController.text.trim();
+    final artistName = _artistController.text.trim();
+    if (albumName.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Please enter an album title to query online.'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      return;
+    }
+
+    setState(() => _isFetchingOnline = true);
+    try {
+      final meta = await MusicMetadataService.instance.fetchAlbumMetadata(
+        albumName: albumName,
+        artistName: artistName.isNotEmpty ? artistName : null,
+      );
+
+      if (!mounted) return;
+
+      if (meta != null) {
+        setState(() {
+          if (meta.releaseYear != null && meta.releaseYear!.isNotEmpty) {
+            _yearController.text = meta.releaseYear!;
+          }
+          if (meta.genre != null && meta.genre!.isNotEmpty) {
+            _genreController.text = meta.genre!;
+          }
+          if (meta.recordLabel != null && meta.recordLabel!.isNotEmpty) {
+            _recordLabelController.text = meta.recordLabel!;
+          }
+          if (meta.catalogNumber != null && meta.catalogNumber!.isNotEmpty) {
+            _catalogNumberController.text = meta.catalogNumber!;
+          }
+          if (meta.albumType != null && meta.albumType!.isNotEmpty) {
+            _albumTypeController.text = meta.albumType!;
+          }
+          if (meta.releaseDate != null && meta.releaseDate!.isNotEmpty) {
+            _releaseDateController.text = meta.releaseDate!;
+          }
+          if (meta.language != null && meta.language!.isNotEmpty) {
+            _languageController.text = meta.language!;
+          }
+          if (meta.musicBrainzId != null && meta.musicBrainzId!.isNotEmpty) {
+            _musicBrainzIdController.text = meta.musicBrainzId!;
+          }
+          if (meta.onlineQueryUrl != null && meta.onlineQueryUrl!.isNotEmpty) {
+            _onlineQueryUrlController.text = meta.onlineQueryUrl!;
+          }
+          if (_splashController.text.isEmpty && meta.coverArtUrl != null && meta.coverArtUrl!.isNotEmpty) {
+            _splashController.text = meta.coverArtUrl!;
+          }
+          // Incorporate additional artists if any
+          for (final a in meta.additionalArtists) {
+            final clean = a.trim();
+            if (clean.isNotEmpty && !_additionalArtists.contains(clean)) {
+              _additionalArtists.add(clean);
+            }
+          }
+          if (meta.description != null && meta.description!.isNotEmpty) {
+            _descController.text = meta.description!;
+          }
+        });
+
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Auto-filled metadata from ${meta.sourceProvider}: "${meta.title}"'),
+            behavior: SnackBarBehavior.floating,
+            duration: const Duration(seconds: 3),
+          ),
+        );
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('No catalog match found on MusicBrainz or ReccoBeats. Manual input available.'),
+            behavior: SnackBarBehavior.floating,
+            duration: Duration(seconds: 3),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Catalog query error: $e'),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isFetchingOnline = false);
+      }
     }
   }
 
@@ -515,8 +647,46 @@ class _AlbumEditorStageState extends State<AlbumEditorStage> {
                             _buildTextField(_titleController, 'Album Title (e.g. Super Trouper)', colorScheme),
                             const SizedBox(height: 14),
 
-                            _buildInputLabel('Primary Artist'),
-                            _buildTextField(_artistController, 'Artist Name', colorScheme),
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                _buildInputLabel('Primary Artist'),
+                                if (_artistController.text.contains(','))
+                                  GestureDetector(
+                                    onTap: _splitPrimaryArtistByComma,
+                                    child: Container(
+                                      margin: const EdgeInsets.only(bottom: 6),
+                                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
+                                      decoration: BoxDecoration(
+                                        color: colorScheme.primary.withValues(alpha: 0.16),
+                                        borderRadius: BorderRadius.circular(12),
+                                        border: Border.all(color: colorScheme.primary.withValues(alpha: 0.35)),
+                                      ),
+                                      child: Row(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          Icon(Icons.call_split_rounded, size: 13, color: colorScheme.primary),
+                                          const SizedBox(width: 4),
+                                          Text(
+                                            'Split Artists (,)',
+                                            style: AttuneTypography.jakartaBodySmall(
+                                              color: colorScheme.primary,
+                                              fontSize: 11,
+                                              fontWeight: FontWeight.bold,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ),
+                              ],
+                            ),
+                            _buildTextField(
+                              _artistController,
+                              'Artist Name',
+                              colorScheme,
+                              onChanged: (_) => setState(() {}),
+                            ),
                             const SizedBox(height: 14),
 
                             // Multi-artist management
@@ -526,8 +696,13 @@ class _AlbumEditorStageState extends State<AlbumEditorStage> {
                                 Expanded(
                                   child: _buildTextField(
                                     _newArtistController,
-                                    'Add contributing artist name...',
+                                    'Add contributing artist name (comma-separated)...',
                                     colorScheme,
+                                    onChanged: (val) {
+                                      if (val.contains(',')) {
+                                        _addAdditionalArtist(val);
+                                      }
+                                    },
                                     onSubmitted: (_) => _addAdditionalArtist(),
                                   ),
                                 ),
@@ -635,6 +810,39 @@ class _AlbumEditorStageState extends State<AlbumEditorStage> {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
+                            Container(
+                              width: double.infinity,
+                              margin: const EdgeInsets.only(bottom: 16),
+                              child: FilledButton.tonalIcon(
+                                style: FilledButton.styleFrom(
+                                  backgroundColor: colorScheme.primary.withValues(alpha: 0.16),
+                                  foregroundColor: colorScheme.primary,
+                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                                ),
+                                icon: _isFetchingOnline
+                                    ? SizedBox(
+                                        width: 16,
+                                        height: 16,
+                                        child: CircularProgressIndicator(
+                                          strokeWidth: 2,
+                                          valueColor: AlwaysStoppedAnimation(colorScheme.primary),
+                                        ),
+                                      )
+                                    : const Icon(Icons.auto_awesome_rounded, size: 18),
+                                label: Text(
+                                  _isFetchingOnline
+                                      ? 'Querying MusicBrainz & ReccoBeats...'
+                                      : 'Fetch Online Metadata (MusicBrainz / ReccoBeats)',
+                                  style: AttuneTypography.soraBadge(
+                                    color: colorScheme.primary,
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                                onPressed: _isFetchingOnline ? null : _fetchOnlineMetadata,
+                              ),
+                            ),
                             Row(
                               children: [
                                 Expanded(

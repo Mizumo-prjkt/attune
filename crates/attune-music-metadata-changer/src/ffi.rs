@@ -14,7 +14,7 @@ pub const ERR_INVALID_PARAM: i32 = -4;
 pub const ERR_WRITE_FAILED: i32 = -5;
 pub const ERR_PANIC: i32 = -99;
 
-/// Returns the attune-track-tweaks crate version string.
+/// Returns the attune-music-metadata-changer crate version string.
 /// Caller does not need to free this static string.
 #[no_mangle]
 pub extern "C" fn attune_track_tweaks_version() -> *const c_char {
@@ -333,4 +333,77 @@ fn parse_cstr<'a>(ptr: *const c_char) -> Result<&'a str, i32> {
             Err(_) => Err(ERR_INVALID_UTF8),
         }
     }
+}
+
+// =========================================================================
+// Canonical `attune_metadata_changer_*` C-ABI Entrypoints
+// =========================================================================
+
+#[no_mangle]
+pub extern "C" fn attune_metadata_changer_version() -> *const c_char {
+    attune_track_tweaks_version()
+}
+
+#[no_mangle]
+pub extern "C" fn attune_metadata_changer_free_string(s: *mut c_char) {
+    attune_track_tweaks_free_string(s);
+}
+
+#[no_mangle]
+pub extern "C" fn attune_metadata_changer_normalize(
+    input_path: *const c_char,
+    output_path: *const c_char,
+    target_peak_db: f32,
+) -> i32 {
+    attune_track_tweaks_normalize(input_path, output_path, target_peak_db)
+}
+
+#[no_mangle]
+pub extern "C" fn attune_metadata_changer_trim_silence(
+    input_path: *const c_char,
+    output_path: *const c_char,
+    threshold_db: f32,
+) -> i32 {
+    attune_track_tweaks_trim_silence(input_path, output_path, threshold_db)
+}
+
+#[no_mangle]
+pub extern "C" fn attune_metadata_changer_slice(
+    input_path: *const c_char,
+    output_path: *const c_char,
+    start_ms: u64,
+    end_ms: u64,
+) -> i32 {
+    attune_track_tweaks_slice(input_path, output_path, start_ms, end_ms)
+}
+
+#[no_mangle]
+pub extern "C" fn attune_metadata_changer_speed(
+    input_path: *const c_char,
+    output_path: *const c_char,
+    speed_factor: f32,
+) -> i32 {
+    attune_track_tweaks_speed(input_path, output_path, speed_factor)
+}
+
+#[no_mangle]
+pub extern "C" fn attune_metadata_changer_read_metadata_json(file_path: *const c_char) -> *mut c_char {
+    attune_track_tweaks_read_metadata(file_path)
+}
+
+#[no_mangle]
+pub extern "C" fn attune_metadata_changer_write_metadata_json(
+    file_path: *const c_char,
+    metadata_json: *const c_char,
+) -> i32 {
+    attune_track_tweaks_write_metadata(file_path, metadata_json)
+}
+
+#[no_mangle]
+pub extern "C" fn attune_metadata_changer_set_tag(
+    file_path: *const c_char,
+    tag_name: *const c_char,
+    tag_value: *const c_char,
+) -> i32 {
+    attune_track_tweaks_update_tag(file_path, tag_name, tag_value)
 }

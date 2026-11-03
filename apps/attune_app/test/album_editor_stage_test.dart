@@ -236,11 +236,12 @@ void main() {
 
       // Verify Online Query & Catalog section
       expect(find.text('ONLINE QUERY & CATALOG IDENTIFIERS'), findsOneWidget);
+      expect(find.text('Fetch Online Metadata (MusicBrainz / ReccoBeats)'), findsOneWidget);
       expect(find.text('Polar Music'), findsOneWidget);
       expect(find.text('POLS-322'), findsOneWidget);
 
       // Add a contributing artist
-      final artistInput = find.widgetWithText(TextField, 'Add contributing artist name...');
+      final artistInput = find.widgetWithText(TextField, 'Add contributing artist name (comma-separated)...');
       expect(artistInput, findsOneWidget);
       await tester.enterText(artistInput, 'Benny Andersson');
       await tester.tap(find.text('Add'));
@@ -259,6 +260,75 @@ void main() {
       expect(savedMetadata!.additionalArtists, contains('Benny Andersson'));
       expect(savedMetadata!.recordLabel, equals('Polar Music'));
       expect(savedMetadata!.catalogNumber, equals('POLS-322'));
+    });
+
+    testWidgets('AlbumEditorStage splits comma-delimited artists on Primary Artist and Contributors', (WidgetTester tester) async {
+      tester.view.physicalSize = const Size(1080, 3000);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(() {
+        tester.view.resetPhysicalSize();
+        tester.view.resetDevicePixelRatio();
+      });
+
+      AlbumCustomMetadata? savedMetadata;
+
+      final multiArtistTracks = [
+        const TrackItem(
+          id: 'song_collab',
+          title: '(Not) A Devil',
+          artist: 'DECO*27, PinocchioP',
+          album: '(Not) A Devil',
+          filePath: '/music/not_a_devil.flac',
+          duration: Duration(minutes: 2, seconds: 43),
+          bpm: 149.2,
+          musicalKey: 'F# Minor',
+          genre: 'Vocaloid',
+          isLossless: true,
+        ),
+      ];
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: AlbumEditorStage(
+            initialAlbumName: '(Not) A Devil',
+            initialTracks: multiArtistTracks,
+            onSaved: (oldAlbum, newAlbum, meta, finalTracks) {
+              savedMetadata = meta;
+            },
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      // Primary Artist starts with 'DECO*27, PinocchioP'
+      // Should show the 'Split Artists (,)' badge
+      final splitBadge = find.text('Split Artists (,)');
+      expect(splitBadge, findsOneWidget);
+
+      // Tap split badge
+      await tester.tap(splitBadge);
+      await tester.pumpAndSettle();
+
+      // PinocchioP is now in contributing artists list!
+      expect(find.text('PinocchioP'), findsOneWidget);
+
+      // Add comma-delimited artists in new artist field
+      final artistInput = find.widgetWithText(TextField, 'Add contributing artist name (comma-separated)...');
+      await tester.enterText(artistInput, 'GUMI, Megurine Luka');
+      await tester.tap(find.text('Add'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('GUMI'), findsOneWidget);
+      expect(find.text('Megurine Luka'), findsOneWidget);
+
+      // Save
+      await tester.tap(find.text('Save'));
+      await tester.pumpAndSettle();
+
+      expect(savedMetadata, isNotNull);
+      expect(savedMetadata!.additionalArtists, contains('PinocchioP'));
+      expect(savedMetadata!.additionalArtists, contains('GUMI'));
+      expect(savedMetadata!.additionalArtists, contains('Megurine Luka'));
     });
   });
 }

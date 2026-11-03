@@ -855,6 +855,32 @@ These four benchmark scenarios define the "Gold Standard" transitions that Attun
   - `cargo test --workspace`: All 44 native Rust workspace tests pass cleanly.
 - **Listening & Stability Verdict**: `PASS`. Flawless layout spacing, instantaneous 1-tap favorites management, rich multi-artist collaboration support, and robust catalog metadata.
 
+---
+
+### Experiment #028: Comma-Separated Multi-Artist Management, Native Crate Renaming (`attune-music-metadata-changer`), MusicBrainz RFC Compliance & ReccoBeats Public API Fallback
+- **Date**: 2026-11-03
+- **Hypothesis**: Treating commas (`","`) as artist delimiters will allow natural parsing of collaborative and multi-artist music tags (e.g. `DECO*27, PinocchioP`) without forcing manual re-entry; renaming `crates/attune-track-tweaks` to `crates/attune-music-metadata-changer` (`libattune_music_metadata_changer.so`) will accurately reflect its container metadata modification role while preserving backwards-compatible FFI bindings; implementing `MusicMetadataService` with RFC-compliant User-Agent (`Attune/0.1.0`) and rate limits will enable safe MusicBrainz queries; and configuring ReccoBeats as an automatic fallback will eliminate single-provider failure when queries are rate-limited (HTTP 429) or unavailable.
+- **Empirical Findings & Mathematical Implementation**:
+  1. **Comma Separation Across UI & Data Layers**:
+     - `OnlineMusicMetadata.splitArtists` splits strings on `RegExp(r'[,/;&]|\bfeat(?:\.|\b)|\bft(?:\.|\b)', caseSensitive: false)` and strips extraneous whitespace and punctuation.
+     - In `AlbumEditorStage`, if `_artistController.text` contains commas, a dynamic pill `[ Split Artists (,) ]` displays adjacent to the label. Tapping it extracts the primary artist (`DECO*27`) and appends the collaborators (`PinocchioP`) to `_additionalArtists`.
+     - In the new artist text field, entering comma-separated artists immediately adds each artist as an individual chip.
+  2. **Native Crate Renaming (`crates/attune-music-metadata-changer`)**:
+     - Renamed crate in `Cargo.toml` and directory structure.
+     - Updated `TrackMetadata` with `additional_artists: Vec<String>`, `record_label`, `catalog_number`, `album_type`, `release_date`, `language`, `musicbrainz_id`, `musicbrainz_track_id`, and `online_query_url`.
+     - Vorbis Comment block writer outputs standard `ARTISTS`, `LABEL`, `CATALOGNUMBER`, `ALBUMTYPE`, `RELEASEDATE`, `LANGUAGE`, and `MUSICBRAINZ_ALBUMID`.
+     - ID3v2 tag writer outputs corresponding text frames (`TXXX:ARTISTS`, `TPUB`, `TCON`, `TLEN`, `TLAN`).
+     - Safe C-ABI exports `attune_metadata_changer_*` alongside legacy aliases.
+  3. **MusicBrainz Compliance & ReccoBeats Fallback**:
+     - `MusicMetadataService` declares `User-Agent: Attune/0.1.0 ( https://github.com/Mizumo-prjkt/attune )` and enforces 1050ms interval between calls.
+     - Transparent fallback to `https://api.reccobeats.com/v1/album/search` and `/v1/track/search` handles HTTP 429 rate limiting, HTTP 503 service unavailability, or empty MusicBrainz releases without throwing exceptions or blocking the UI.
+     - Integrated `[ ✦ Fetch Online Metadata (MusicBrainz / ReccoBeats) ]` button in `AlbumEditorStage` with progress indicators and transparent SnackBar alerts.
+- **Empirical Verification**:
+  - `cargo test --workspace`: All 45 native Rust tests pass cleanly across all crates (including 9 in `attune-music-metadata-changer`).
+  - `flutter analyze apps/attune_app`: 0 issues found.
+  - `flutter test`: All 154 Flutter tests pass cleanly (including dedicated `music_metadata_service_test.dart` verifying comma parsing, User-Agent compliance, and ReccoBeats fallback).
+- **Listening & Stability Verdict**: `PASS`. Seamless multi-artist comma handling, compliant and resilient online metadata discovery, and clean native crate naming.
+
 
 
 
