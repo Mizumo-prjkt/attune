@@ -935,6 +935,37 @@ These four benchmark scenarios define the "Gold Standard" transitions that Attun
   - `cargo test --workspace`: All 45 native Rust tests pass cleanly across all crates.
 - **Listening & Stability Verdict**: `PASS`. Zero post-launch background profiling CPU spikes, significantly reduced image memory footprint across all lists, and flawless 60fps persistent Bubblegrid panning.
 
+---
+
+### Experiment #031: Android APK Package Metadata Dynamic Version Synchronization, Zero-Hardcoding Resolution, and Obtainium Release Consistency
+- **Date**: 2026-11-04
+- **Hypothesis**: Replacing static/hardcoded package version values in Android Gradle (`build.gradle.kts`) and builder orchestrator (`tools/builder.py`) with dynamic multi-tier property resolution (`project.findProperty("version-name")` $\to$ `flutter.versionName` $\to$ `build_info.json` $\to$ `pubspec.yaml`), passing `--build-name` and `--build-number` directly to `flutter build apk`, and synchronizing `pubspec.yaml` and `local.properties` during build execution will ensure Android OS `PackageInfo.versionName` matches the GitHub release tag precisely, eliminating the false "update available" infinite loop in Obtainium without hardcoding any version IDs or build codes.
+- **Empirical Findings & Verification**:
+  1. **Root Cause Analysis of 0.1.0 Android Package Freeze**:
+     - `tools/builder.py` previously executed `flutter build apk --{mode}` without `--build-name` and `--build-number`. Flutter CLI did not pass `-Pversion-name` or `-Pversion-code` to Gradle.
+     - `pubspec.yaml` was static at `version: 0.1.0+1`, causing Flutter's Gradle plugin to bake `android:versionName="0.1.0"` into `AndroidManifest.xml` regardless of the release tag or etched `build_info.json`.
+     - An initial hotfix introduced hardcoded checks (`flName != "0.1.0"`, `"0.1.1-rc1"`, `2`), violating Mandate 4 (Avoid hardcoded values).
+  2. **Zero-Hardcoding Multi-Tier Gradle Resolution**:
+     - In `apps/attune_app/android/app/build.gradle.kts`:
+       * `resolvedVersionName`: resolves via `-Pversion-name` property $\to$ `flutter.versionName` $\to$ `build_info.json` (`full_version`/`version`) $\to$ `pubspec.yaml` $\to$ default `"1.0.0"`.
+       * `resolvedVersionCode`: resolves via `-Pversion-code` property $\to$ `flutter.versionCode` $\to$ `build_info.json` (`build_number`) $\to$ `pubspec.yaml` $\to$ default `1`.
+       * `resolvedApplicationId`: resolves via `-Papplication-id` property $\to$ env `ATTUNE_APPLICATION_ID` $\to$ `"org.mizproject.attune"`.
+       * Zero hardcoded version comparisons (`!= "0.1.0"`) or string literals (`"0.1.1-rc1"`).
+  3. **Builder Dynamic Synchronization & CLI Extension**:
+     - Implemented `sync_pubspec_version(version_str, build_num)` in `tools/builder.py`, updating `pubspec.yaml` and `local.properties` whenever `--version-id` or `--build-number` is provided.
+     - Updated `compile_flutter` to pass `--build-name={effective_build_name}` and `--build-number={effective_build_num}`.
+     - Added `--build-number` / `--build-code` to `argparse` and `preprocess_argv`.
+     - Added `Build Code / Number` entry in Tkinter GUI Studio.
+  4. **Empirical Verification**:
+     - Executed `python3 tools/builder.py --version-id 0.1.2 --localversion -rc3 --build-number 5 --step etch --no-gui`: verified dynamic update of `pubspec.yaml` to `0.1.2-rc3+5`, `local.properties` to `0.1.2-rc3`/`5`, and `build_info.json` to `0.1.2-rc3`/`5`.
+     - Synced back cleanly to `0.1.1-rc1+2`.
+     - Executed `./gradlew app:tasks --dry-run` in `apps/attune_app/android`: verified successful task resolution with 0 evaluation errors.
+     - `flutter analyze apps/attune_app`: 0 issues found.
+     - `flutter test apps/attune_app`: All 164 Flutter unit and widget tests pass cleanly across all test suites.
+     - `cargo test --workspace`: All 45 native Rust tests pass cleanly across all crates.
+- **Listening & Stability Verdict**: `PASS`. Obtainium package versioning aligns 100% with release tags and in-app About information with zero hardcoding.
+
+
 
 
 

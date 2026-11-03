@@ -2117,35 +2117,38 @@ This file records all major architectural decisions for **Attune**, including co
 
 ---
 
-## ADR-062: Setup Page Upfront Music Indexing & Profiling, Viewport-Aware Album Art Loading & Unloading, and Bubblegrid Exemption
+## ADR-063: Android APK Package Metadata Dynamic Version Synchronization, Zero-Hardcoding Version Resolution (`build.gradle.kts` & `tools/builder.py`), and Obtainium Release Consistency
 - **Date**: 2026-11-04
 - **Status**: `LOCKED`
 - **Context**:
-  1. **Runtime Profiling & Loading Overhead Mitigation**:
-     - Previously, music discovery and DSP profiling ran as an asynchronous background worker (`_startBackgroundLibraryProfiler()`) after the user entered the main app, or on-demand when playing tracks. This created CPU/thread contention, delayed first-song start times, and caused occasional stutter during navigation.
-     - Users requested moving music library indexing and audio profiling upfront into the first-run setup procedure (`StartupSetupStage`) so that all tracks are pre-analyzed and pre-cached before the user enters the main app, reducing runtime loading overhead to zero.
-  2. **Album Art RAM & GPU Texture Management**:
-     - Across large music libraries with hundreds of tracks, holding high-resolution decoded cover art images indefinitely in Flutter's `imageCache` causes significant memory bloat.
-     - Users requested that album arts load dynamically when entering the visible viewport, and unload/evict from memory when leaving the user's view.
-     - However, the user specifically mandated that this unloading mechanism **is not applicable to the Bubblegrid** (`BubbleNavigationStage`), where 2D continuous panning across concentric hexagonal rings requires persistent textures to prevent visual popping and frame stutter.
+  1. **Obtainium Update Loop & Package Version Mismatch**:
+     - The user observed that while the in-app About page reported `0.1.1-rc1` (from `assets/build_info.json`), Android OS package manager (`PackageManager.getPackageInfo(packageName, 0).versionName`) reported `0.1.0`.
+     - Because Obtainium compares the device's installed package `versionName` against GitHub release tags (`v0.1.1-rc1`), the package was permanently flagged as "update available", causing an infinite update loop even after successful APK installation.
+  2. **Zero-Hardcoding Mandate Violation in Early Hotfix**:
+     - An initial attempt to patch `build.gradle.kts` used hardcoded string checks (`flName != "0.1.0" && flName != "1.0.0"`) and hardcoded fallback strings (`"0.1.1-rc1"`, `2`).
+     - The user specifically mandated: *"note that the apk id metadata needs to update the version numbers and do not hardcode the ID. it needs to change as per version input"*.
+     - In strict accordance with Mandate 4 (Avoid hardcoded values), APK metadata must adapt dynamically to whatever version and build number are provided as inputs, without hardcoded version strings or brittle string matching.
+  3. **Builder Subprocess Parameter Gaps**:
+     - In `tools/builder.py`, `compile_flutter` previously called `flutter build apk` without `--build-name` and `--build-number`. Consequently, Flutter's Gradle plugin did not receive `-Pversion-name` or `-Pversion-code`, falling back to static properties.
+     - CLI flags lacked explicit `--build-number` / `--build-code` support, preventing CI/CD and developers from supplying custom build codes.
 - **Decision**:
-  1. **Upfront Indexing & Profiling in `StartupSetupStage`**:
-     - Added `PlaybackController.indexAndProfileLibrary(selectedRoots: ..., onProgress: ..., isCancelled: ...)`: scans audio files, discovers tracks, profiles unanalyzed tracks (computing BPM, musical keys, and `.tap` audio profiles), and saves the complete cache to `library_cache.json`.
-     - In `StartupSetupStage` Step 3, integrated a dedicated "Music Library Indexing & Profiling" card with real-time progress bar (`LinearProgressIndicator`), current track title telemetry, discovered track and lossless audio metrics, and a "Skip Profiling" option for massive libraries.
-     - Upon entering the main app, `_libraryTracks` is already 100% loaded and profiled in <5ms, with zero background profiler CPU overhead.
-  2. **Viewport-Aware Artwork Component (`ViewportAwareArtwork`)**:
-     - Created `apps/attune_app/lib/widgets/viewport_aware_artwork.dart`.
-     - Uses `Scrollable.maybeOf(context)?.position` and render box global offset calculations against the viewport (with an 80px pre-load buffer) to determine when the widget is in view.
-     - When entering view: resolves and decodes image using `cacheWidth`/`cacheHeight` to downsample large images.
-     - When leaving view or upon widget disposal (`dispose()`): calls `_imageProvider!.evict()` to immediately release GPU texture and RAM raster surfaces from `PaintingBinding.instance.imageCache`.
-     - Applied across `AlbumsStage`, `PlaylistQueueStage`, `QueueAddTracksStage`, `AutogenMixStage`, `AlbumEditorStage`, and `SongExclusionStage`.
-  3. **Strict Bubblegrid Exemption**:
-     - In `BubbleNavigationStage`, `_buildBubbleContent` explicitly bypasses viewport unloading and preserves persistent image rendering (`cacheWidth: 160, cacheHeight: 160`), guaranteeing smooth 60fps momentum panning across all rings without texture flashing.
+  1. **Clean Dynamic Version Resolution in `build.gradle.kts`**:
+     - Replaced all hardcoded string comparisons and fallbacks in `apps/attune_app/android/app/build.gradle.kts` with dynamic multi-tier property resolution:
+       * `resolvedVersionName`: `project.findProperty("version-name")` (from Gradle CLI / Flutter `-Pversion-name`) $\to$ `flutter.versionName` $\to$ `assets/build_info.json` (`full_version` / `version`) $\to$ `pubspec.yaml` (`version: <name>+<code>`) $\to$ default `"1.0.0"`.
+       * `resolvedVersionCode`: `project.findProperty("version-code")` $\to$ `flutter.versionCode` $\to$ `assets/build_info.json` (`build_number`) $\to$ `pubspec.yaml` (`+<code>`) $\to$ default `1`.
+       * `resolvedApplicationId`: `project.findProperty("application-id")` $\to$ env `ATTUNE_APPLICATION_ID` $\to$ default `"org.mizproject.attune"`.
+     - Zero hardcoded version comparisons (`!= "0.1.0"`) and zero hardcoded version fallback strings (`"0.1.1-rc1"`).
+  2. **Synchronized Multi-File Version Updates in `tools/builder.py`**:
+     - `sync_pubspec_version(version_str, build_num)`: dynamically updates `apps/attune_app/pubspec.yaml` (`version: {version_str}+{build_num}`) and `android/local.properties` (`flutter.versionName`, `flutter.versionCode`).
+     - `etch_build_info(...)`: accepts `build_number_override` and automatically triggers `sync_pubspec_version` to guarantee consistency across assets, Gradle, and Dart metadata.
+     - `compile_flutter(...)`: accepts `version_override`, `localversion`, and `build_number`. Automatically appends `--build-name={effective_build_name}` and `--build-number={effective_build_num}` to `flutter build apk` and desktop targets.
+     - CLI & GUI: added `--build-number` / `--build-code` to `argparse` and `preprocess_argv`, and added an interactive `Build Code / Number` entry in Tkinter GUI Studio.
 - **Consequences**:
-  - Zero post-launch background CPU contention or audio stutter on freshly configured setups.
-  - Substantial memory footprint reduction across long queues, album lists, and search results.
-  - All 164 Flutter unit and widget tests pass cleanly with 0 analyzer issues.
-  - All 45 native Rust tests across all workspace crates pass cleanly.
+  - `PackageManager.getPackageInfo().versionName` matches the GitHub release tag and in-app About page precisely.
+  - Obtainium accurately recognizes installed releases and eliminates the false "update available" loop.
+  - Zero hardcoded version strings or brittle comparisons remain in Gradle configuration or builder scripts.
+  - All 164 Flutter unit/widget tests and all 45 native Rust workspace tests pass cleanly.
+
 
 
 

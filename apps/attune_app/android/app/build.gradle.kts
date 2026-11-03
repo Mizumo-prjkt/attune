@@ -21,12 +21,90 @@ android {
         resValues = true
     }
 
+    val resolvedApplicationId: String = project.findProperty("application-id")?.toString()?.trim()
+        ?.takeIf { it.isNotEmpty() }
+        ?: System.getenv("ATTUNE_APPLICATION_ID")?.trim()?.takeIf { it.isNotEmpty() }
+        ?: "org.mizproject.attune"
+
+    val resolvedVersionName: String = run {
+        // 1. Explicit property passed from Gradle command line (e.g. -Pversion-name=...)
+        val propName = project.findProperty("version-name")?.toString()?.trim()
+        if (!propName.isNullOrEmpty()) {
+            return@run propName
+        }
+        // 2. Value resolved by Flutter Gradle plugin (from --build-name or pubspec.yaml)
+        val flName = flutter.versionName?.trim()
+        if (!flName.isNullOrEmpty()) {
+            return@run flName
+        }
+        // 3. Fallback: inspect assets/build_info.json etched by builder
+        val buildInfoFile = rootProject.file("../assets/build_info.json")
+        if (buildInfoFile.exists()) {
+            try {
+                val content = buildInfoFile.readText()
+                val match = Regex(""""full_version"\s*:\s*"([^"]+)"""").find(content)
+                    ?: Regex(""""version"\s*:\s*"([^"]+)"""").find(content)
+                if (match != null && match.groupValues[1].isNotBlank()) {
+                    return@run match.groupValues[1].trim()
+                }
+            } catch (_: Exception) {}
+        }
+        // 4. Fallback: inspect pubspec.yaml directly
+        val pubspecFile = rootProject.file("../pubspec.yaml")
+        if (pubspecFile.exists()) {
+            try {
+                val match = Regex("""^version:\s*([^\s+]+)""", RegexOption.MULTILINE).find(pubspecFile.readText())
+                if (match != null && match.groupValues[1].isNotBlank()) {
+                    return@run match.groupValues[1].trim()
+                }
+            } catch (_: Exception) {}
+        }
+        "1.0.0"
+    }
+
+    val resolvedVersionCode: Int = run {
+        // 1. Explicit property passed from Gradle command line (e.g. -Pversion-code=...)
+        val propCode = project.findProperty("version-code")?.toString()?.toIntOrNull()
+        if (propCode != null && propCode > 0) {
+            return@run propCode
+        }
+        // 2. Value resolved by Flutter Gradle plugin (from --build-number or pubspec.yaml)
+        val flCode = flutter.versionCode
+        if (flCode > 0) {
+            return@run flCode
+        }
+        // 3. Fallback: inspect assets/build_info.json etched by builder
+        val buildInfoFile = rootProject.file("../assets/build_info.json")
+        if (buildInfoFile.exists()) {
+            try {
+                val content = buildInfoFile.readText()
+                val match = Regex(""""build_number"\s*:\s*"([^"]+)"""").find(content)
+                val code = match?.groupValues?.get(1)?.toIntOrNull()
+                if (code != null && code > 0) {
+                    return@run code
+                }
+            } catch (_: Exception) {}
+        }
+        // 4. Fallback: inspect pubspec.yaml directly
+        val pubspecFile = rootProject.file("../pubspec.yaml")
+        if (pubspecFile.exists()) {
+            try {
+                val match = Regex("""^version:\s*[^\s+]+\+(\d+)""", RegexOption.MULTILINE).find(pubspecFile.readText())
+                val code = match?.groupValues?.get(1)?.toIntOrNull()
+                if (code != null && code > 0) {
+                    return@run code
+                }
+            } catch (_: Exception) {}
+        }
+        1
+    }
+
     defaultConfig {
-        applicationId = "org.mizproject.attune"
+        applicationId = resolvedApplicationId
         minSdk = 26
         targetSdk = flutter.targetSdkVersion
-        versionCode = flutter.versionCode
-        versionName = flutter.versionName
+        versionCode = resolvedVersionCode
+        versionName = resolvedVersionName
 
         resValue("string", "app_name", "Attune")
 

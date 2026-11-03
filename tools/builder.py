@@ -87,18 +87,80 @@ def get_git_info():
 
 
 def get_pubspec_version():
-    """Reads app version from apps/attune_app/pubspec.yaml."""
+    """Reads app version and build number from apps/attune_app/pubspec.yaml."""
     pubspec_path = REPO_ROOT / "apps" / "attune_app" / "pubspec.yaml"
     if not pubspec_path.exists():
-        return "0.1.0", "1"
+        build_info_path = REPO_ROOT / "apps" / "attune_app" / "assets" / "build_info.json"
+        if build_info_path.exists():
+            try:
+                data = json.loads(build_info_path.read_text(encoding="utf-8"))
+                return data.get("full_version") or data.get("version", "1.0.0"), str(data.get("build_number", "1"))
+            except Exception:
+                pass
+        return "1.0.0", "1"
     try:
         content = pubspec_path.read_text(encoding="utf-8")
-        match = re.search(r"^version:\s*([0-9]+\.[0-9]+\.[0-9]+)(?:\+([0-9]+))?", content, re.MULTILINE)
+        match = re.search(r"^version:\s*([0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?)(?:\+([0-9]+))?", content, re.MULTILINE)
         if match:
             return match.group(1), match.group(2) or "1"
     except Exception:
         pass
-    return "0.1.0", "1"
+    return "1.0.0", "1"
+
+
+def sync_pubspec_version(version_str, build_num=None, log_callback=None):
+    """
+    Synchronizes apps/attune_app/pubspec.yaml and android/local.properties
+    with the exact target version and build number.
+    Ensures that Android PackageInfo.versionName and Obtainium see the exact
+    version matching the release tag rather than being stuck on an older version.
+    """
+    def log(msg):
+        if log_callback:
+            log_callback(msg)
+        else:
+            print(msg)
+
+    pubspec_path = REPO_ROOT / "apps" / "attune_app" / "pubspec.yaml"
+    cur_ver, cur_build = get_pubspec_version()
+    effective_build = str(build_num).strip() if build_num is not None and str(build_num).strip() else cur_build
+
+    if pubspec_path.exists():
+        try:
+            content = pubspec_path.read_text(encoding="utf-8")
+            new_version_line = f"version: {version_str}+{effective_build}"
+            updated_content, count = re.subn(r"^version:\s*.*$", new_version_line, content, flags=re.MULTILINE)
+            if count > 0:
+                pubspec_path.write_text(updated_content, encoding="utf-8")
+                log(f"[Sync] Updated {pubspec_path.name} to: {new_version_line}")
+        except Exception as e:
+            log(f"[Sync] Warning: Failed to update pubspec.yaml: {e}")
+
+    # Also update android/local.properties if present
+    local_props = REPO_ROOT / "apps" / "attune_app" / "android" / "local.properties"
+    if local_props.exists():
+        try:
+            lines = local_props.read_text(encoding="utf-8").splitlines()
+            new_lines = []
+            has_name = False
+            has_code = False
+            for line in lines:
+                if line.startswith("flutter.versionName="):
+                    new_lines.append(f"flutter.versionName={version_str}")
+                    has_name = True
+                elif line.startswith("flutter.versionCode="):
+                    new_lines.append(f"flutter.versionCode={effective_build}")
+                    has_code = True
+                else:
+                    new_lines.append(line)
+            if not has_name:
+                new_lines.append(f"flutter.versionName={version_str}")
+            if not has_code:
+                new_lines.append(f"flutter.versionCode={effective_build}")
+            local_props.write_text("\n".join(new_lines) + "\n", encoding="utf-8")
+            log(f"[Sync] Updated android/local.properties (versionName={version_str}, versionCode={effective_build})")
+        except Exception as e:
+            log(f"[Sync] Note: Could not update local.properties: {e}")
 
 
 def get_rust_crate_version(crate_name="attune-ffi"):
@@ -303,18 +365,30 @@ def assess_toolchains():
     return results
 
 
-def etch_build_info(target_os=None, mode="release", localversion="", version_override="", rust_version_override=""):
+def etch_build_info(target_os=None, mode="release", localversion="", version_override="", rust_version_override="", build_number_override="", log_callback=None):
     """
     Etches compiler versions, environment variables, build flags, commit hash,
     and MIT licensing into apps/attune_app/assets/build_info.json.
+    Synchronizes pubspec.yaml and local.properties so Android and Flutter always reflect the input version.
     """
+    def log(msg):
+        if log_callback:
+            log_callback(msg)
+        else:
+            print(msg)
+
     git_info = get_git_info()
-    pub_ver, build_num = get_pubspec_version()
+    pub_ver, pub_build = get_pubspec_version()
     version = version_override if version_override else pub_ver
+    build_num = str(build_number_override).strip() if build_number_override and str(build_number_override).strip() else pub_build
+    full_ver = f"{version}{localversion}"
     rust_ffi_version = rust_version_override if rust_version_override else get_rust_crate_version("attune-ffi")
 
     effective_target_os = (target_os or platform.system()).lower()
     toolchains = assess_toolchains()
+
+    # Automatically synchronize pubspec.yaml and local.properties with target version input
+    sync_pubspec_version(full_ver, build_num, log_callback=log)
 
     build_info = {
         "application_name": "Attune",
@@ -322,8 +396,8 @@ def etch_build_info(target_os=None, mode="release", localversion="", version_ove
         "build_number": build_num,
         "localversion": localversion,
         "suffix_version": localversion,
-        "release_tag": f"v{version}{localversion}",
-        "full_version": f"{version}{localversion}",
+        "release_tag": f"v{full_ver}",
+        "full_version": full_ver,
         "rust_ffi_version": rust_ffi_version,
         "git_commit": git_info["git_commit"],
         "git_commit_full": git_info["git_commit_full"],
@@ -352,7 +426,7 @@ def etch_build_info(target_os=None, mode="release", localversion="", version_ove
     assets_dir.mkdir(parents=True, exist_ok=True)
     out_file = assets_dir / "build_info.json"
     out_file.write_text(json.dumps(build_info, indent=2), encoding="utf-8")
-    print(f"[Etch] Successfully etched compiler and build metadata into {out_file} (v{version}{localversion})")
+    log(f"[Etch] Successfully etched compiler and build metadata into {out_file} (v{full_ver}+{build_num})")
     return build_info
 
 
@@ -570,8 +644,8 @@ def compile_rust(mode="release", target_os=None, log_callback=None):
     return lib_path
 
 
-def compile_flutter(target_os="linux", mode="release", log_callback=None):
-    """Compiles Flutter application (desktop or Android APK)."""
+def compile_flutter(target_os="linux", mode="release", version_override="", localversion="", build_number=None, log_callback=None):
+    """Compiles Flutter application (desktop or Android APK) passing exact build-name and build-number."""
     def log(msg):
         if log_callback:
             log_callback(msg)
@@ -579,7 +653,15 @@ def compile_flutter(target_os="linux", mode="release", log_callback=None):
             print(msg)
 
     effective_target_os = (target_os or platform.system()).lower()
-    log(f"[Flutter] Compiling Flutter app for {effective_target_os} in {mode} mode...")
+    pub_ver, cur_build = get_pubspec_version()
+    base_ver = version_override if version_override else pub_ver
+    effective_build_name = f"{base_ver}{localversion}" if localversion else base_ver
+    effective_build_num = str(build_number).strip() if build_number and str(build_number).strip() else cur_build
+
+    # Always ensure pubspec.yaml and local.properties match the requested version and build number
+    sync_pubspec_version(effective_build_name, effective_build_num, log_callback=log)
+
+    log(f"[Flutter] Compiling Flutter app for {effective_target_os} in {mode} mode (version: {effective_build_name}+{effective_build_num})...")
     flutter_dir = REPO_ROOT / "apps" / "attune_app"
 
     if effective_target_os == "android" and mode.lower() == "release":
@@ -590,9 +672,19 @@ def compile_flutter(target_os="linux", mode="release", log_callback=None):
             log("[Flutter] Note: Run 'python tools/generate_keystore.py' or 'python tools/builder.py --generate-keystore' to generate a release keystore.")
 
     if effective_target_os == "android":
-        cmd = ["flutter", "build", "apk", f"--{mode.lower()}"]
+        cmd = [
+            "flutter", "build", "apk",
+            f"--{mode.lower()}",
+            f"--build-name={effective_build_name}",
+            f"--build-number={effective_build_num}",
+        ]
     else:
-        cmd = ["flutter", "build", effective_target_os, f"--{mode.lower()}"]
+        cmd = [
+            "flutter", "build", effective_target_os,
+            f"--{mode.lower()}",
+            f"--build-name={effective_build_name}",
+            f"--build-number={effective_build_num}",
+        ]
 
     proc = subprocess.Popen(
         cmd,
@@ -886,13 +978,13 @@ def launch_gui():
     cur_pub_ver, cur_pub_build = get_pubspec_version()
     cur_rust_ver = get_rust_crate_version("attune-ffi")
 
-    # Grid rows: only show option for override version id and suffix/localversion input
+    # Grid rows: only show option for override version id, suffix/localversion, and build number input
     tk.Label(config_card, text="Override Version ID:", bg=card_color, fg=fg_color).grid(row=0, column=0, sticky="w", pady=4)
     ent_override_ver = tk.Entry(config_card, width=16, bg="#2D3748", fg=fg_color, insertbackground=fg_color)
     ent_override_ver.insert(0, cur_pub_ver)
     ent_override_ver.grid(row=0, column=1, sticky="w", padx=6, pady=4)
 
-    tk.Label(config_card, text="(Sets base version ID & release tags, e.g. 0.1.0, 1.0.0)", bg=card_color, fg="#718096", font=("Segoe UI", 8)).grid(row=0, column=2, sticky="w", padx=(10, 0))
+    tk.Label(config_card, text="(Sets base version ID & release tags, e.g. 0.1.1, 1.0.0)", bg=card_color, fg="#718096", font=("Segoe UI", 8)).grid(row=0, column=2, sticky="w", padx=(10, 0))
 
     tk.Label(config_card, text="Suffix Version ID:", bg=card_color, fg=fg_color).grid(row=1, column=0, sticky="w", pady=4)
     ent_suffix_ver = tk.Entry(config_card, width=16, bg="#2D3748", fg=fg_color, insertbackground=fg_color)
@@ -900,6 +992,13 @@ def launch_gui():
     ent_suffix_ver.grid(row=1, column=1, sticky="w", padx=6, pady=4)
 
     tk.Label(config_card, text="(Optional suffix appended to version, e.g. -rc1, -beta, -git)", bg=card_color, fg="#718096", font=("Segoe UI", 8)).grid(row=1, column=2, sticky="w", padx=(10, 0))
+
+    tk.Label(config_card, text="Build Code / Number:", bg=card_color, fg=fg_color).grid(row=2, column=0, sticky="w", pady=4)
+    ent_build_num = tk.Entry(config_card, width=16, bg="#2D3748", fg=fg_color, insertbackground=fg_color)
+    ent_build_num.insert(0, cur_pub_build)
+    ent_build_num.grid(row=2, column=1, sticky="w", padx=6, pady=4)
+
+    tk.Label(config_card, text="(Android versionCode & build metadata, e.g. 2, 3)", bg=card_color, fg="#718096", font=("Segoe UI", 8)).grid(row=2, column=2, sticky="w", padx=(10, 0))
 
     set_tag_var = tk.BooleanVar(value=True)
     chk_set_tag = tk.Checkbutton(
@@ -913,7 +1012,7 @@ def launch_gui():
         activeforeground=accent_color,
         font=("Segoe UI", 9),
     )
-    chk_set_tag.grid(row=2, column=0, columnspan=3, sticky="w", pady=(4, 0))
+    chk_set_tag.grid(row=3, column=0, columnspan=3, sticky="w", pady=(4, 0))
 
     # Build Mode & Target OS Selection Card
     target_card = tk.LabelFrame(
@@ -961,12 +1060,13 @@ def launch_gui():
     def on_etch():
         loc = ent_suffix_ver.get().strip()
         ver = ent_override_ver.get().strip()
+        bld = ent_build_num.get().strip()
         m = mode_var.get()
         t = target_os_var.get()
         modes = ["debug", "release"] if m == "both" else [m]
         for sub_m in modes:
-            info = etch_build_info(target_os=t, mode=sub_m, localversion=loc, version_override=ver, rust_version_override=ver)
-            gui_log(f"Etched build info ({sub_m}): v{info['full_version']} target {t} commit {info['git_commit']}")
+            info = etch_build_info(target_os=t, mode=sub_m, localversion=loc, version_override=ver, rust_version_override=ver, build_number_override=bld, log_callback=gui_log)
+            gui_log(f"Etched build info ({sub_m}): v{info['full_version']}+{info['build_number']} target {t} commit {info['git_commit']}")
 
     def on_patch_notes():
         loc = ent_suffix_ver.get().strip()
@@ -988,12 +1088,15 @@ def launch_gui():
             gui_log(f"✗ Rust build error: {e}")
 
     def on_compile_flutter():
+        loc = ent_suffix_ver.get().strip()
+        ver = ent_override_ver.get().strip()
+        bld = ent_build_num.get().strip()
         m = mode_var.get()
         t = target_os_var.get()
         modes = ["debug", "release"] if m == "both" else [m]
         try:
             for sub_m in modes:
-                compile_flutter(target_os=t, mode=sub_m, log_callback=gui_log)
+                compile_flutter(target_os=t, mode=sub_m, version_override=ver, localversion=loc, build_number=bld, log_callback=gui_log)
                 gui_log(f"✓ Flutter build succeeded for {t} ({sub_m}).")
         except Exception as e:
             gui_log(f"✗ Flutter build error: {e}")
@@ -1001,11 +1104,12 @@ def launch_gui():
     def on_full_build():
         loc = ent_suffix_ver.get().strip()
         ver = ent_override_ver.get().strip()
+        bld = ent_build_num.get().strip()
         m = mode_var.get()
         t = target_os_var.get()
         modes = ["debug", "release"] if m == "both" else [m]
         gui_log("==================================================")
-        gui_log(f"Starting Full Attune Build: {t} {m} v{ver}{loc}")
+        gui_log(f"Starting Full Attune Build: {t} {m} v{ver}{loc}+{bld}")
         gui_log("==================================================")
         try:
             generate_patch_notes(max_commits=25, localversion=loc, version_override=ver)
@@ -1014,9 +1118,9 @@ def launch_gui():
             all_artifacts = []
             for sub_m in modes:
                 gui_log(f"\n--- [Pipeline Mode: {sub_m.upper()}] ---")
-                etch_build_info(target_os=t, mode=sub_m, localversion=loc, version_override=ver, rust_version_override=ver)
+                etch_build_info(target_os=t, mode=sub_m, localversion=loc, version_override=ver, rust_version_override=ver, build_number_override=bld, log_callback=gui_log)
                 compile_rust(mode=sub_m, target_os=t, log_callback=gui_log)
-                compile_flutter(target_os=t, mode=sub_m, log_callback=gui_log)
+                compile_flutter(target_os=t, mode=sub_m, version_override=ver, localversion=loc, build_number=bld, log_callback=gui_log)
                 artifacts = package_bundle(target_os=t, mode=sub_m, localversion=loc, version_override=ver, log_callback=gui_log)
                 all_artifacts.extend(artifacts)
             gui_log(f"\n🎉 Full build & packaging completed! Artifacts ({len(all_artifacts)}): {all_artifacts}")
@@ -1096,6 +1200,8 @@ def preprocess_argv(argv):
         "--version-id",
         "--rust-version",
         "--localversion",
+        "--build-number",
+        "--build-code",
         "--step",
         "--bundle",
     }
@@ -1174,6 +1280,13 @@ def main():
         "--localversion",
         default="",
         help="Suffix version ID (e.g. -git, -rc1, -miku)",
+    )
+    parser.add_argument(
+        "--build-number",
+        "--build-code",
+        dest="build_number",
+        default="",
+        help="Explicit integer build number / versionCode (defaults to pubspec.yaml build number)",
     )
     parser.add_argument(
         "--set-tag",
@@ -1304,15 +1417,20 @@ def main():
 
 
     # CLI Pipeline Execution
-    pub_ver, _ = get_pubspec_version()
+    pub_ver, pub_build = get_pubspec_version()
     effective_ver = args.version if args.version else pub_ver
     local_sfx = args.localversion or ""
     if local_sfx and effective_ver.endswith(local_sfx):
         effective_ver = effective_ver[:-len(local_sfx)]
+    build_num = args.build_number if args.build_number else pub_build
+    full_ver = f"{effective_ver}{local_sfx}"
+
+    # Sync pubspec.yaml and local.properties early with version input
+    sync_pubspec_version(full_ver, build_num)
 
     print("==============================================================================")
     print(" Attune Build & Packaging Orchestrator (Headless CLI)")
-    print(f" Target: {args.target} (effective: {target_os}) | Mode: {display_mode} | Version: '{effective_ver}' | Suffix: '{local_sfx}'")
+    print(f" Target: {args.target} (effective: {target_os}) | Mode: {display_mode} | Version: '{effective_ver}' | Suffix: '{local_sfx}' | Build: '{build_num}'")
     print(" Distributed under the MIT License")
     print("==============================================================================")
 
@@ -1354,6 +1472,7 @@ def main():
                 localversion=local_sfx,
                 version_override=effective_ver,
                 rust_version_override=args.rust_version,
+                build_number_override=build_num,
             )
 
         if step in ("all", "rust"):
@@ -1362,7 +1481,13 @@ def main():
 
         if step in ("all", "flutter"):
             print(f"\n--- [Step: Compile Flutter Application ({cur_mode})] ---")
-            compile_flutter(target_os=target_os, mode=cur_mode)
+            compile_flutter(
+                target_os=target_os,
+                mode=cur_mode,
+                version_override=effective_ver,
+                localversion=local_sfx,
+                build_number=build_num,
+            )
 
         if step in ("all", "package"):
             print(f"\n--- [Step: Package Standalone Bundles ({cur_mode})] ---")
