@@ -1,7 +1,8 @@
-//! Thin desktop player wrapper around the real-time `DualDeckMixer` + cpal driver.
+//! Real-time desktop player engine wrapping `DualDeckMixer`, cpal output, and JIT transition planning.
 //!
-//! Audio decoding happens on a worker thread; a generation counter discards
-//! stale decodes when the user skips quickly between tracks.
+//! Audio decoding happens on a background worker thread; a generation counter
+//! discards stale decodes when the user skips quickly between tracks.
+//! Seamless DJ transitions between Deck A and Deck B are planned via `JitPlanner`.
 
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
@@ -9,7 +10,11 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 
 use attune_core::engine::mixer::MixerSnapshot;
-use attune_core::{AudioDecoder, AudioOutputDriver, DeckId, DualDeckMixer};
+use attune_core::schema::TransitionArchetype;
+use attune_core::{
+    AudioDecoder, AudioOutputDriver, DeckId, DualDeckMixer, JitPlanner, MasterFxParams,
+    TransitionRecipe,
+};
 
 /// Fallback mixer rate only used when no output device can be queried (headless).
 const HEADLESS_FALLBACK_SAMPLE_RATE: u32 = 48_000;
@@ -22,6 +27,20 @@ pub enum LoadState {
     Failed(String),
 }
 
+/// Metadata summary of a pending transition recipe primed on Deck B.
+#[derive(Debug, Clone)]
+pub struct PendingTransitionInfo {
+    #[allow(dead_code)]
+    pub incoming_path: PathBuf,
+    pub incoming_title: String,
+    pub incoming_artist: String,
+    pub recipe: TransitionRecipe,
+    pub archetype_name: &'static str,
+    pub duration_sec: f32,
+    pub confidence_pct: u32,
+    pub scheduled_start_ms: u64,
+}
+
 pub struct Player {
     mixer: Arc<Mutex<DualDeckMixer>>,
     // Holds the cpal stream alive; `None` means headless (no output device).
@@ -31,6 +50,7 @@ pub struct Player {
     load_state: Arc<Mutex<LoadState>>,
     // User gain in dB stored as f32 bits; re-applied after each load (load resets deck gain).
     gain_db_bits: Arc<AtomicU32>,
+    pending_transition: Arc<Mutex<Option<PendingTransitionInfo>>>,
 }
 
 impl Player {
@@ -61,6 +81,7 @@ impl Player {
             generation: Arc::new(AtomicU64::new(0)),
             load_state: Arc::new(Mutex::new(LoadState::Idle)),
             gain_db_bits: Arc::new(AtomicU32::new(0f32.to_bits())),
+            pending_transition: Arc::new(Mutex::new(None)),
         }
     }
 
@@ -79,6 +100,8 @@ impl Player {
     /// Decodes `path` in the background and starts playback on Deck A once ready.
     pub fn play_file(&self, path: PathBuf, ctx: eframe::egui::Context) {
         let my_gen = self.generation.fetch_add(1, Ordering::SeqCst) + 1;
+        self.clear_pending_transition();
+
         if let Ok(mut m) = self.mixer.lock() {
             m.transition = None;
             m.deck_a.clear();
@@ -122,6 +145,130 @@ impl Player {
                 ctx.request_repaint();
             })
             .expect("failed to spawn decode thread");
+    }
+
+    /// Preloads the incoming track into Deck B and plans a JIT transition recipe in the background.
+    pub fn prepare_transition(
+        &self,
+        incoming_path: PathBuf,
+        incoming_title: String,
+        incoming_artist: String,
+        ctx: eframe::egui::Context,
+    ) {
+        let buf_a_clone = {
+            let Ok(m) = self.mixer.lock() else { return };
+            m.deck_a.audio().cloned()
+        };
+        let Some(buf_a) = buf_a_clone else { return };
+
+        let mixer = Arc::clone(&self.mixer);
+        let pending = Arc::clone(&self.pending_transition);
+
+        thread::Builder::new()
+            .name("attune-jit-planner".into())
+            .spawn(move || {
+                let Ok(buf_b) = AudioDecoder::load_file(&incoming_path) else {
+                    log::warn!("Could not load incoming track for transition: {}", incoming_path.display());
+                    return;
+                };
+
+                let planner = JitPlanner::new();
+                let recipe = planner.plan_jit(&buf_a, "outgoing", &buf_b, "incoming");
+
+                let archetype_name = match recipe.archetype {
+                    TransitionArchetype::SustainBridge => "1 Sustain Bridge",
+                    TransitionArchetype::RiffHandoff => "2 Riff Handoff",
+                    TransitionArchetype::EqSwap => "3 EQ Swap",
+                    TransitionArchetype::TailFreeze => "4 Tail Freeze",
+                    TransitionArchetype::ColdCut => "5 Cold Cut",
+                    TransitionArchetype::GenerativeMelodicFill => "6 Melodic Fill",
+                };
+
+                let duration_sec = (recipe
+                    .timing
+                    .track_a_exit_end_ms
+                    .saturating_sub(recipe.timing.track_a_transition_start_ms) as f32
+                    / 1000.0)
+                    .max(0.5);
+                let confidence_pct = (recipe.confidence_score * 100.0).clamp(10.0, 99.0) as u32;
+                let scheduled_start_ms = recipe.timing.track_a_transition_start_ms;
+
+                if let Ok(mut m) = mixer.lock() {
+                    m.load_track_b(buf_b);
+                }
+
+                if let Ok(mut p) = pending.lock() {
+                    *p = Some(PendingTransitionInfo {
+                        incoming_path,
+                        incoming_title,
+                        incoming_artist,
+                        recipe,
+                        archetype_name,
+                        duration_sec,
+                        confidence_pct,
+                        scheduled_start_ms,
+                    });
+                }
+                ctx.request_repaint();
+            })
+            .expect("failed to spawn JIT planner thread");
+    }
+
+    /// Checks if the playing track has reached the scheduled transition point.
+    /// If reached, triggers the transition in `DualDeckMixer` and returns the recipe.
+    pub fn check_auto_transition(&self) -> Option<PendingTransitionInfo> {
+        let mut pending_guard = self.pending_transition.lock().ok()?;
+        let info = pending_guard.as_ref()?;
+
+        let mut mixer = self.mixer.lock().ok()?;
+        if mixer.is_transitioning() {
+            return None;
+        }
+
+        let pos = mixer.deck_a.current_position_ms();
+        let audible_end = mixer.deck_a.audible_end_ms;
+        let is_scheduled = pos >= info.scheduled_start_ms;
+        let is_safety_end = audible_end > 3000 && pos >= audible_end.saturating_sub(2500);
+
+        if is_scheduled || is_safety_end {
+            mixer.trigger_transition(info.recipe.clone());
+            let triggered = info.clone();
+            *pending_guard = None;
+            Some(triggered)
+        } else {
+            None
+        }
+    }
+
+    /// Manually triggers the primed transition immediately.
+    pub fn trigger_transition_now(&self) -> Option<PendingTransitionInfo> {
+        let mut pending_guard = self.pending_transition.lock().ok()?;
+        let info = pending_guard.take()?;
+
+        let mut mixer = self.mixer.lock().ok()?;
+        mixer.trigger_transition(info.recipe.clone());
+        Some(info)
+    }
+
+    pub fn pending_transition(&self) -> Option<PendingTransitionInfo> {
+        self.pending_transition.lock().ok().and_then(|p| p.clone())
+    }
+
+    pub fn clear_pending_transition(&self) {
+        if let Ok(mut p) = self.pending_transition.lock() {
+            *p = None;
+        }
+        if let Ok(mut m) = self.mixer.lock() {
+            if !m.is_transitioning() {
+                m.deck_b.clear();
+            }
+        }
+    }
+
+    pub fn set_master_fx_params(&self, params: MasterFxParams) {
+        if let Ok(mut m) = self.mixer.lock() {
+            m.master_fx.set_params(params);
+        }
     }
 
     pub fn play(&self) {

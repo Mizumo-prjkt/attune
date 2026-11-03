@@ -2204,3 +2204,43 @@ This file records all major architectural decisions for **Attune**, including co
   - Windows/Linux get a native single binary with no Flutter engine and no `libattune_engine.so` side-load.
   - Not ported yet: Smart Shuffle + `.ptr` transitions, JIT/background profiling, lyrics, EQ/Master FX UI, albums/favourites, Liquid Material Glass skin, and packaging in `tools/builder.py`/CI.
   - Flutter desktop targets stay buildable until the egui build reaches parity.
+
+## ADR-065: egui Desktop Usable Milestone — Smart Shuffle JIT Transitions, 10-Band Graphic EQ & Master FX DSP Rack, Drag-and-Drop, and Unified Standalone Packaging
+- **Date**: 2026-11-04
+- **Status**: `LOCKED`
+- **Context**:
+  1. The user requested progressing the Rust eGUI desktop frontend (`crates/attune-desktop`) from its initial barebones state to a fully usable, feature-complete state for Windows and Linux as Flutter desktop is phased out.
+  2. Attune's defining differentiator is intelligent DJ transitions and audio profile matching, which must run natively and headlessly in-process on desktop.
+  3. Audiophiles and music lovers on desktop require tactile equalization, bass reinforcement, vocal air clarity, and spatial stereo expansion.
+- **Decision**:
+  1. **Smart Shuffle DJ Transition Engine (`smart_shuffle.rs`)**:
+     - 3-tier shuffle mode: `Off`, `Linear`, `Smart`.
+     - Multi-dimensional candidate evaluation algorithm: dynamic tempo compatibility (identical, tight, half-time 0.5x, double-time 2.0x), harmonic key alignment via Circle of Fifths / Camelot Wheel (`normalize_to_camelot`), genre groupings, and recency penalty ring buffer (`SmartShuffleHistory`) to eliminate repetitive track bias.
+     - Automated JIT transition pipeline: when the playing track enters its outro (remaining time <= 32 seconds), a background worker loads the winner candidate into Deck B, invokes `JitPlanner::plan_jit` to generate the `TransitionRecipe`, and arms auto-transition.
+     - Real-time transition trigger at `track_a_transition_start_ms` (with audible end safety fallback).
+     - Live transition pill in the transport bar showing archetype, duration, and confidence match score (`⚡ 2 RIFF HANDOFF • 1.4s (94% match) >`) with animated progress bar during execution.
+     - Interactive Smart Shuffle Verdict modal displaying why the candidate won (tempo, key, genre, recency, overall score).
+     - Advisory warning banner when queue contains < 20 songs.
+  2. **10-Band Graphic Equalizer & Master FX DSP Rack (`master_fx_ui.rs`)**:
+     - Interactive full-screen/modal window with real-time curve visualizer.
+     - 10 cascaded ISO frequency sliders (31Hz to 16kHz) from -12dB to +12dB.
+     - Attune Pure Bass+ sub-harmonic synthesizer controls (toggle, gain 0–12dB, cutoff 40–140Hz).
+     - Attune Clarity & Vocal Air high-shelf exciter controls (toggle, wet 0–35%).
+     - Mid-Side Stereo Expander (0.5x to 2.0x width) and Headroom Pre-Amp pad (-12dB to +4dB).
+     - 6 calibrated audio mastering presets: Flat, Bass Boost, Vocal Clarity, Electronic / Dance, Rock / Punch, Acoustic / Warm.
+     - Direct in-process updates to `mixer.master_fx.set_params(...)`.
+  3. **Audio File & Folder Drag-and-Drop**:
+     - Native desktop window event integration (`ctx.input(|i| i.raw.dropped_files)`).
+     - Dropping a directory switches the music library and initiates non-blocking scanning.
+     - Dropping audio files immediately adds probed tracks to the library with metadata tags.
+  4. **Queue Manipulation & Audio Telemetry**:
+     - Action buttons: "Play Now", "Play Next" (insert directly after active track), and "Add to Queue".
+     - Queue reordering (Up/Down) for linear modes; reordering locked with explanation in Smart Shuffle mode.
+     - Telemetry display in transport bar: hardware/headless status, sample rate, peak amplitude in dBFS, buffer underruns, and clipping counts.
+  5. **Orchestrator & Distribution Integration (`tools/builder.py`)**:
+     - `compile_rust` includes `-p attune-desktop` for host desktop targets.
+     - `package_bundle` automatically packages standalone native executables (`Attune-Desktop-{full_ver}-Linux-x86_64` on Linux and `Attune-Desktop-{full_ver}-Windows-x64.exe` on Windows).
+- **Consequences**:
+  - `attune-desktop` is fully usable as a standalone, lightweight, DJ-grade music player on Linux and Windows without any Flutter dependencies.
+  - Zero hardcoding compliance (Mandate 4) strictly maintained across paths, fonts, sample rates, and versions.
+  - All 44 native Rust tests and all 164 Flutter tests pass cleanly.

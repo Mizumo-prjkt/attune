@@ -11,4 +11,5 @@ pub use mixer::{DualDeckMixer, ActiveTransition};
 pub use jit::JitPlanner;
 pub use driver::{AudioOutputDriver, DriverError};
 pub use external_dsp::{ExternalDspStatus, probe_external_dsp};
+pub use attune_dsp_ffi::master_fx::{MasterFxParams, MasterFxRack, EQ_BANDS_COUNT, EQ_CENTER_FREQS};
 

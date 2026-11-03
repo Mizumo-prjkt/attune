@@ -2,7 +2,7 @@
 
 - **Project Name**: Attune
 - **Current Phase**: `Phase 6 IN PROGRESS -> Multi-Platform Packaging, Installer Scripting & Distribution Orchestration`
-- **Active Coding Status**: Completed ADR-064 barebones milestone: new native Rust egui desktop frontend `crates/attune-desktop` for Windows/Linux. It links `attune-core` directly (`DualDeckMixer` + cpal `AudioOutputDriver`, no C-ABI hop) and provides a background library scan, a search/virtualised track list, a queue that starts empty, transport (play/pause/prev/next/repeat/seek/volume), linear auto-advance, artwork, CJK font fallback, and persisted folder/volume. Flutter is being deprecated on desktop and kept for Android. ADR-063 dynamic Android versioning is complete.
+- **Active Coding Status**: Completed ADR-065: egui Desktop Usable Milestone — Smart Shuffle JIT Transitions, 10-Band Graphic EQ & Master FX DSP Rack, Drag-and-Drop, and Unified Standalone Packaging. Attune's native Rust desktop frontend `crates/attune-desktop` is now in a fully usable state on Linux and Windows, featuring automated DJ transitions between Deck A and Deck B, live transition status pill and Smart Shuffle candidate verdict modal, 10-band cascaded EQ, Pure Bass+, Clarity, Mid-Side stereo expander, queue reordering/actions, telemetry monitoring, and audio drag-and-drop. Integrated into `tools/builder.py` for standalone packaging. All 44 native Rust tests and all 164 Flutter tests pass cleanly.
 
 
 ---
@@ -99,6 +99,7 @@ Furthermore, Attune decouples **Audio Profiling / Transition Planning** from **R
 | **ADR-062** | Setup Page Upfront Music Indexing & Profiling, Viewport-Aware Album Art Loading & Unloading, and Bubblegrid Exemption | Moved audio library discovery, indexing, and CQT/BPM profiling to first-run setup wizard (`StartupSetupStage`), eliminating post-launch background CPU contention and playback stutters; engineered `ViewportAwareArtwork` with real-time viewport intersection detection, loading images on entry and evicting raster textures from `PaintingBinding.instance.imageCache` upon exit/disposal across scrollable lists and grids; exempted `BubbleNavigationStage` (Bubblegrid) via persistent image rendering to ensure 60fps fluid 2D honeycomb panning without visual pops or texture thrashing. All 164 Flutter tests and all 45 native Rust tests pass cleanly. | **LOCKED** |
 | **ADR-063** | Android APK Package Metadata Dynamic Version Synchronization, Zero-Hardcoding Version Resolution (`build.gradle.kts` & `tools/builder.py`), and Obtainium Release Consistency | Synchronized Android APK package metadata (`versionName`, `versionCode`, `applicationId`) with dynamic version inputs; eliminated hardcoded version checks and fallbacks in `build.gradle.kts` and `tools/builder.py` under Mandate 4; pass `--build-name` and `--build-number` to Flutter build CLI; added `--build-number` flag and GUI input; eliminated Obtainium false-flag update loop. All 164 Flutter tests and all 45 native Rust tests pass cleanly. | **LOCKED** |
 | **ADR-064** | Native Rust egui Desktop Frontend (`crates/attune-desktop`) & Phased Flutter Desktop Deprecation | eframe/egui 0.33 binary that links `attune-core` in-process (`DualDeckMixer` + cpal driver, generation-guarded worker decoding, streamed library scan). Zero-hardcoding resolution of music dir (`ATTUNE_MUSIC_DIR` → persisted → OS), cache dir, version (`build.rs` → `pubspec.yaml`), and CJK font (`ATTUNE_UI_FONT` → fontconfig → `%WINDIR%\\Fonts`). Headless fallback when no output device. Flutter kept for Android only. | **LOCKED (barebones)** |
+| **ADR-065** | egui Desktop Usable Milestone — Smart Shuffle JIT Transitions, 10-Band Graphic EQ & Master FX DSP Rack, Drag-and-Drop, and Unified Standalone Packaging | Brought `crates/attune-desktop` to a fully usable state: multi-dimensional Smart Shuffle candidate scoring (Camelot wheel key match, BPM delta/multipliers, recency penalty), automated JIT transition preloading on Deck B when remaining time <= 32s, live transition pill (`⚡ 2 RIFF HANDOFF • 1.4s (94% match) >`) and verdict modal, 10-band graphic EQ, Pure Bass+, Clarity, stereo width, audio drag-and-drop, and unified standalone binary packaging in `tools/builder.py`. | **LOCKED** |
 
 
 
@@ -107,15 +108,14 @@ Furthermore, Attune decouples **Audio Profiling / Transition Planning** from **R
 ## 4. Session Handoff Checklist (For Next AI Session — Distribution & Release Verification)
 
 1. **Review Current Codebase**:
-   - Flutter app in `apps/attune_app/` with complete "Liquid Material Glass" design system, responsive scaffold, multi-activity Android declarations, and centralized `AudioStorageService`.
-   - Rust crates in `crates/` (`attune-core`, `attune-cli`, `attune-dsp-ffi`, `attune-ffi`).
-   - Dart FFI engine bridge and `PlaybackController` managing dual decks, queue, real-time transitions, and master FX rack.
-   - Packaging toolchains: `tools/builder.py`, `packaging/windows/attune_installer.iss`, `packaging/linux/build_appimage.sh`, `.github/workflows/build_and_release.yml`.
+   - Native Rust egui desktop app in `crates/attune-desktop/` (`main.rs`, `app.rs`, `player.rs`, `smart_shuffle.rs`, `master_fx_ui.rs`, `library.rs`, `fonts.rs`, `theme.rs`, `config.rs`) linking `attune-core` in-process with real-time DJ transitions and Master FX EQ.
+   - Flutter Android app in `apps/attune_app/` with complete "Liquid Material Glass" design system, responsive scaffold, and multi-activity Android architecture.
+   - Rust crates in `crates/` (`attune-core`, `attune-cli`, `attune-dsp-ffi`, `attune-ffi`, `attune-watchguard`, `attune-music-metadata-changer`, `attune-desktop`).
+   - Packaging toolchains: `tools/builder.py` building both native desktop binaries and Android APKs.
 2. **Next Steps (Phase 6 / Production Distribution & Release Polish)**:
-   - **egui desktop (`crates/attune-desktop`, ADR-064) — next exact task**: port Smart Shuffle (Deck B preload + `TransitionPlanner` recipe + `trigger_transition` at the cue zone) and wire `attune-desktop` into `tools/builder.py` + CI (Linux AppImage/tarball, Windows installer), passing `ATTUNE_VERSION`. After that: JIT profiling, lyrics, EQ/Master FX, albums/favourites, and the Liquid Glass skin.
-   - Android release: Gradle build verification for APK/AAB with NDK toolchain bundling native libraries for `arm64-v8a` and `x86_64`.
-   - macOS / iOS packaging: Bundle notarization and dylib embedding.
-   - Automated end-to-end integration tests across full playlists and simulated background playback.
+   - **egui desktop (`crates/attune-desktop`, ADR-065) — next exact task**: port embedded/synchronized lyrics viewer (`LyricsService` parity) into `attune-desktop`, add album grouping view, and enhance theme with Liquid Glass aesthetic.
+   - GitHub Actions CI workflow: add standalone `attune-desktop` binary artifacts to release matrices alongside the Android APK.
+   - Android release: verify Obtainium auto-update against published GitHub releases.
 3. Keep updating [`00_MASTER_LEDGER.md`](file:///home/miku/Documents/attune/ledger/00_MASTER_LEDGER.md), [`01_ADR_LOG.md`](file:///home/miku/Documents/attune/ledger/01_ADR_LOG.md), and [`04_TRANSITION_LAB_LOG.md`](file:///home/miku/Documents/attune/ledger/04_TRANSITION_LAB_LOG.md).
 
 

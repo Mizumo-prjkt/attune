@@ -586,7 +586,7 @@ def compile_rust(mode="release", target_os=None, log_callback=None):
         return produced[0]
 
     # Host desktop build (linux, windows, macos)
-    cmd = ["cargo", "build", "-p", "attune-ffi", "-p", "attune-watchguard"]
+    cmd = ["cargo", "build", "-p", "attune-ffi", "-p", "attune-watchguard", "-p", "attune-desktop"]
     if mode.lower() == "release":
         cmd.append("--release")
 
@@ -831,7 +831,26 @@ def package_bundle(target_os="linux", mode="release", localversion="", bundle_ty
                 if expected_appimage.exists():
                     artifacts.append(expected_appimage)
 
+        # 3. Standalone Native Rust egui Desktop Executable (ADR-064)
+        native_desktop_bin = REPO_ROOT / "target" / mode.lower() / "attune-desktop"
+        if native_desktop_bin.exists():
+            dest_native = dist_dir / f"Attune-Desktop-{full_ver}-Linux-x86_64"
+            shutil.copy2(native_desktop_bin, dest_native)
+            os.chmod(dest_native, 0o755)
+            log(f"[Package] Packaged standalone native egui desktop binary: {dest_native}")
+            if dest_native not in artifacts:
+                artifacts.append(dest_native)
+
     elif target_os.lower() == "windows":
+        # 0. Standalone Native Rust egui Desktop Executable (ADR-064)
+        native_desktop_exe = REPO_ROOT / "target" / mode.lower() / "attune-desktop.exe"
+        if native_desktop_exe.exists():
+            dest_native_exe = dist_dir / f"Attune-Desktop-{full_ver}-Windows-x64.exe"
+            shutil.copy2(native_desktop_exe, dest_native_exe)
+            log(f"[Package] Packaged standalone native egui desktop executable: {dest_native_exe}")
+            if dest_native_exe not in artifacts:
+                artifacts.append(dest_native_exe)
+
         # 1. Portable .zip bundle
         runner_dir = REPO_ROOT / "apps" / "attune_app" / "build" / "windows" / "x64" / "runner" / mode.capitalize()
         if runner_dir.exists() and ("all" in bundle_types or "zip" in bundle_types):

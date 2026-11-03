@@ -9,7 +9,9 @@ mod app;
 mod config;
 mod fonts;
 mod library;
+mod master_fx_ui;
 mod player;
+mod smart_shuffle;
 mod theme;
 
 fn main() -> eframe::Result<()> {
@@ -25,8 +27,8 @@ fn main() -> eframe::Result<()> {
         viewport: eframe::egui::ViewportBuilder::default()
             .with_title("Attune")
             .with_app_id("org.mizproject.attune")
-            .with_inner_size([1100.0, 720.0])
-            .with_min_inner_size([760.0, 480.0]),
+            .with_inner_size([1180.0, 760.0])
+            .with_min_inner_size([780.0, 500.0]),
         ..Default::default()
     };
 

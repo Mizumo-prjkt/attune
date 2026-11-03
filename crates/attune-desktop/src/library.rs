@@ -20,6 +20,7 @@ pub struct TrackEntry {
     pub key: Option<String>,
     pub format: String,
     pub sample_rate: u32,
+    #[allow(dead_code)]
     pub bit_depth: u32,
     pub artwork_path: Option<PathBuf>,
 }
@@ -27,7 +28,7 @@ pub struct TrackEntry {
 impl TrackEntry {
     /// Builds an entry from a probed file; falls back to filename/"Unknown" only
     /// when tags are genuinely missing (never fabricated BPM/duration).
-    fn from_probe(path: &Path) -> Self {
+    pub fn from_probe(path: &Path) -> Self {
         let file_stem = path
             .file_stem()
             .map(|s| s.to_string_lossy().to_string())

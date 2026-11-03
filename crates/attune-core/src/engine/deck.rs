@@ -65,6 +65,11 @@ impl Deck {
         self.output_sample_rate
     }
 
+    /// Access the loaded audio buffer, if present
+    pub fn audio(&self) -> Option<&AudioBuffer> {
+        self.audio.as_ref()
+    }
+
     pub fn set_output_sample_rate(&mut self, sample_rate: u32) {
         if sample_rate > 0 && sample_rate != self.output_sample_rate {
             self.output_sample_rate = sample_rate;
