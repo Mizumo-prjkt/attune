@@ -76,6 +76,9 @@ jobs:
           # Strip leading 'v' for semantic versioning
           CLEAN_VER="${RAW_VER#v}"
           SUFFIX="${{ inputs.localversion || '' }}"
+          if [ -n "$SUFFIX" ]; then
+            CLEAN_VER="${CLEAN_VER%"$SUFFIX"}"
+          fi
           FINAL_VER="${CLEAN_VER}${SUFFIX}"
           TAG_NAME="v${FINAL_VER}"
 
