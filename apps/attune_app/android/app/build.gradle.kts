@@ -21,11 +21,6 @@ android {
         resValues = true
     }
 
-    val resolvedApplicationId: String = project.findProperty("application-id")?.toString()?.trim()
-        ?.takeIf { it.isNotEmpty() }
-        ?: System.getenv("ATTUNE_APPLICATION_ID")?.trim()?.takeIf { it.isNotEmpty() }
-        ?: "org.mizproject.attune"
-
     val resolvedVersionName: String = run {
         // 1. Explicit property passed from Gradle command line (e.g. -Pversion-name=...)
         val propName = project.findProperty("version-name")?.toString()?.trim()
@@ -100,7 +95,7 @@ android {
     }
 
     defaultConfig {
-        applicationId = resolvedApplicationId
+        applicationId = "org.mizproject.attune"
         minSdk = 26
         targetSdk = flutter.targetSdkVersion
         versionCode = resolvedVersionCode

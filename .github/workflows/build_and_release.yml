@@ -8,12 +8,17 @@ on:
   workflow_dispatch:
     inputs:
       version_id:
-        description: "Version for release (e.g. 0.1.0)"
-        required: true
+        description: "Version for release (e.g. 0.1.1, defaults to pubspec.yaml version)"
+        required: false
         type: string
-        default: "0.1.0"
+        default: ""
       localversion:
         description: "Suffix version ID (e.g. -rc1, -beta)"
+        required: false
+        type: string
+        default: ""
+      build_number:
+        description: "Integer build code / versionCode (e.g. 2, defaults to pubspec.yaml code)"
         required: false
         type: string
         default: ""
@@ -50,6 +55,7 @@ jobs:
     outputs:
       version: ${{ steps.resolve.outputs.version }}
       tag_name: ${{ steps.resolve.outputs.tag_name }}
+      build_number: ${{ steps.resolve.outputs.build_number }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -64,7 +70,7 @@ jobs:
           elif [ "${{ github.ref_type }}" = "tag" ]; then
             RAW_VER="${{ github.ref_name }}"
           else
-            RAW_VER="0.1.0"
+            RAW_VER=$(grep -m1 '^version:' apps/attune_app/pubspec.yaml | sed -E 's/^version:\s*([^+]+).*/\1/')
           fi
 
           # Strip leading 'v' for semantic versioning
@@ -73,9 +79,16 @@ jobs:
           FINAL_VER="${CLEAN_VER}${SUFFIX}"
           TAG_NAME="v${FINAL_VER}"
 
+          BUILD_NUM="${{ inputs.build_number || '' }}"
+          if [ -z "$BUILD_NUM" ]; then
+            BUILD_NUM=$(grep -m1 '^version:' apps/attune_app/pubspec.yaml | sed -nE 's/.*\+([0-9]+)/\1/p')
+            BUILD_NUM="${BUILD_NUM:-2}"
+          fi
+
           echo "version=${FINAL_VER}" >> $GITHUB_OUTPUT
           echo "tag_name=${TAG_NAME}" >> $GITHUB_OUTPUT
-          echo "### 📦 Release Version: \`${FINAL_VER}\` (Tag: \`${TAG_NAME}\`)" >> $GITHUB_STEP_SUMMARY
+          echo "build_number=${BUILD_NUM}" >> $GITHUB_OUTPUT
+          echo "### 📦 Release Version: \`${FINAL_VER}+${BUILD_NUM}\` (Tag: \`${TAG_NAME}\`)" >> $GITHUB_STEP_SUMMARY
 
   build:
     name: ${{ matrix.name }}
@@ -235,23 +248,23 @@ jobs:
         env:
           APPIMAGE_EXTRACT_AND_RUN: 1
         run: |
-          python3 tools/builder.py --target appimage --build-type "${{ matrix.build_type }}" --version-id "${{ needs.meta.outputs.version }}" --download-tools --test
+          python3 tools/builder.py --target appimage --build-type "${{ matrix.build_type }}" --version-id "${{ needs.meta.outputs.version }}" --build-number "${{ needs.meta.outputs.build_number }}" --download-tools --test
 
       - name: Build, Test & Package (Linux Tarball)
         if: steps.check_variant.outputs.should_run == 'true' && runner.os == 'Linux' && matrix.target == 'linux'
         run: |
-          python3 tools/builder.py --target linux --bundle zip --build-type "${{ matrix.build_type }}" --version-id "${{ needs.meta.outputs.version }}" --package --test
+          python3 tools/builder.py --target linux --bundle zip --build-type "${{ matrix.build_type }}" --version-id "${{ needs.meta.outputs.version }}" --build-number "${{ needs.meta.outputs.build_number }}" --package --test
 
       - name: Build, Test & Package (Windows)
         if: steps.check_variant.outputs.should_run == 'true' && runner.os == 'Windows'
         shell: pwsh
         run: |
-          python tools/builder.py --target windows --build-type "${{ matrix.build_type }}" --version-id "${{ needs.meta.outputs.version }}" --package --installer --sign --test
+          python tools/builder.py --target windows --build-type "${{ matrix.build_type }}" --version-id "${{ needs.meta.outputs.version }}" --build-number "${{ needs.meta.outputs.build_number }}" --package --installer --sign --test
 
       - name: Build, Test & Package (Android)
         if: steps.check_variant.outputs.should_run == 'true' && matrix.target == 'android'
         run: |
-          python3 tools/builder.py --target android --build-type "${{ matrix.build_type }}" --version-id "${{ needs.meta.outputs.version }}" --package
+          python3 tools/builder.py --target android --build-type "${{ matrix.build_type }}" --version-id "${{ needs.meta.outputs.version }}" --build-number "${{ needs.meta.outputs.build_number }}" --package
 
       # ---------------- Stage and Upload Artifacts ----------------
       - name: Stage Artifacts (Linux & Android)
