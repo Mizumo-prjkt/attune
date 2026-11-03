@@ -6,6 +6,7 @@ import '../services/music_metadata_service.dart';
 import '../services/playback_controller.dart';
 import '../theme/liquid_glass.dart';
 import '../theme/typography.dart';
+import '../widgets/image_file_picker_dialog.dart';
 
 enum TrackSortOption {
   original,
@@ -333,12 +334,84 @@ class _AlbumEditorStageState extends State<AlbumEditorStage> {
         'Features $losslessCount lossless audio master tracks$tempoStr$keyStr.';
   }
 
+  Future<void> _pickUserImageFile() async {
+    final selected = await ImageFilePickerDialog.show(context);
+    if (!mounted) return;
+    if (selected != null && selected.isNotEmpty) {
+      setState(() {
+        _splashController.text = selected;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Selected custom splash art: ${selected.split(Platform.pathSeparator).last}'),
+          behavior: SnackBarBehavior.floating,
+          duration: const Duration(seconds: 2),
+        ),
+      );
+    }
+  }
+
+  Widget _buildSplashThumbnail(ColorScheme colorScheme, List<String> trackArtworks) {
+    final text = _splashController.text.trim();
+    if (text.isNotEmpty) {
+      if (text.startsWith('http://') || text.startsWith('https://')) {
+        return Image.network(
+          text,
+          fit: BoxFit.cover,
+          errorBuilder: (ctx, err, stack) => _buildFallbackThumbnail(colorScheme, trackArtworks),
+        );
+      }
+      final file = File(text);
+      if (file.existsSync()) {
+        return Image.file(
+          file,
+          fit: BoxFit.cover,
+          errorBuilder: (ctx, err, stack) => _buildFallbackThumbnail(colorScheme, trackArtworks),
+        );
+      }
+    }
+    return _buildFallbackThumbnail(colorScheme, trackArtworks);
+  }
+
+  Widget _buildFallbackThumbnail(ColorScheme colorScheme, List<String> trackArtworks) {
+    if (trackArtworks.isNotEmpty && File(trackArtworks.first).existsSync()) {
+      return Image.file(File(trackArtworks.first), fit: BoxFit.cover);
+    }
+    return Icon(Icons.album_rounded, size: 36, color: colorScheme.primary);
+  }
+
   void _saveAlbum() {
     final newAlbumName = _titleController.text.trim().isNotEmpty ? _titleController.text.trim() : widget.initialAlbumName;
+
+    // Validate splash art: reject non-existent files or invalid extensions
+    final splashText = _splashController.text.trim();
+    String? validatedSplash;
+    if (splashText.isNotEmpty) {
+      final isUrl = splashText.startsWith('http://') || splashText.startsWith('https://');
+      final file = File(splashText);
+      final isImageExt = ['.png', '.jpg', '.jpeg', '.webp', '.gif', '.bmp']
+          .any((ext) => splashText.toLowerCase().endsWith(ext));
+
+      if (isUrl) {
+        validatedSplash = splashText;
+      } else if (file.existsSync() && isImageExt) {
+        validatedSplash = splashText;
+      } else {
+        validatedSplash = null;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Invalid splash art URI/file was rejected. Kept original album artwork.'),
+            behavior: SnackBarBehavior.floating,
+            duration: Duration(seconds: 3),
+          ),
+        );
+      }
+    }
+
     final updatedMeta = AlbumCustomMetadata(
       year: _yearController.text.trim().isNotEmpty ? _yearController.text.trim() : null,
       genre: _genreController.text.trim().isNotEmpty ? _genreController.text.trim() : null,
-      customSplashArt: _splashController.text.trim().isNotEmpty ? _splashController.text.trim() : null,
+      customSplashArt: validatedSplash,
       description: _descController.text.trim().isNotEmpty ? _descController.text.trim() : null,
       additionalArtists: _additionalArtists,
       recordLabel: _recordLabelController.text.trim().isNotEmpty ? _recordLabelController.text.trim() : null,
@@ -941,14 +1014,10 @@ class _AlbumEditorStageState extends State<AlbumEditorStage> {
                                 ClipRRect(
                                   borderRadius: BorderRadius.circular(14),
                                   child: Container(
-                                    width: 72,
-                                    height: 72,
+                                    width: 76,
+                                    height: 76,
                                     color: Colors.black.withValues(alpha: 0.35),
-                                    child: _splashController.text.isNotEmpty && File(_splashController.text).existsSync()
-                                        ? Image.file(File(_splashController.text), fit: BoxFit.cover)
-                                        : (trackArtworks.isNotEmpty
-                                            ? Image.file(File(trackArtworks.first), fit: BoxFit.cover)
-                                            : Icon(Icons.album_rounded, size: 36, color: colorScheme.primary)),
+                                    child: _buildSplashThumbnail(colorScheme, trackArtworks),
                                   ),
                                 ),
                                 const SizedBox(width: 14),
@@ -956,12 +1025,119 @@ class _AlbumEditorStageState extends State<AlbumEditorStage> {
                                   child: Column(
                                     crossAxisAlignment: CrossAxisAlignment.start,
                                     children: [
-                                      _buildInputLabel('Custom Splash Art (Absolute File Path)'),
+                                      Row(
+                                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                        children: [
+                                          _buildInputLabel('Custom Splash Art (File Path or Image URL)'),
+                                          if (_splashController.text.isNotEmpty)
+                                            GestureDetector(
+                                              onTap: () => setState(() => _splashController.clear()),
+                                              child: Padding(
+                                                padding: const EdgeInsets.only(bottom: 4.0),
+                                                child: Text(
+                                                  'Clear',
+                                                  style: AttuneTypography.jakartaBodySmall(
+                                                    color: Colors.white54,
+                                                    fontSize: 11,
+                                                  ),
+                                                ),
+                                              ),
+                                            ),
+                                        ],
+                                      ),
                                       _buildTextField(
                                         _splashController,
-                                        'Paste image file path...',
+                                        'Paste image file path or web URL...',
                                         colorScheme,
+                                        key: const Key('custom_splash_input'),
                                         onChanged: (val) => setState(() {}),
+                                      ),
+                                      const SizedBox(height: 8),
+                                      Row(
+                                        children: [
+                                          FilledButton.tonalIcon(
+                                            style: FilledButton.styleFrom(
+                                              backgroundColor: colorScheme.primary.withValues(alpha: 0.18),
+                                              foregroundColor: colorScheme.primary,
+                                              visualDensity: VisualDensity.compact,
+                                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                                            ),
+                                            icon: const Icon(Icons.upload_file_rounded, size: 15),
+                                            label: const Text('Browse Device Image', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
+                                            onPressed: _pickUserImageFile,
+                                          ),
+                                          const SizedBox(width: 8),
+                                          if (_splashController.text.trim().isNotEmpty) ...[
+                                            Expanded(
+                                              child: Builder(
+                                                builder: (context) {
+                                                  final val = _splashController.text.trim();
+                                                  final isUrl = val.startsWith('http://') || val.startsWith('https://');
+                                                  final isFile = !isUrl && File(val).existsSync();
+                                                  final isImageExt = ['.png', '.jpg', '.jpeg', '.webp', '.gif', '.bmp']
+                                                      .any((ext) => val.toLowerCase().endsWith(ext));
+
+                                                  if (isUrl) {
+                                                    return Row(
+                                                      children: [
+                                                        Icon(Icons.link_rounded, size: 13, color: colorScheme.primary),
+                                                        const SizedBox(width: 4),
+                                                        Expanded(
+                                                          child: Text(
+                                                            'Online Image URI',
+                                                            style: AttuneTypography.jakartaBodySmall(
+                                                              fontSize: 10,
+                                                              color: colorScheme.primary,
+                                                            ),
+                                                            maxLines: 1,
+                                                            overflow: TextOverflow.ellipsis,
+                                                          ),
+                                                        ),
+                                                      ],
+                                                    );
+                                                  } else if (isFile && isImageExt) {
+                                                    return Row(
+                                                      children: [
+                                                        const Icon(Icons.check_circle_outline_rounded, size: 13, color: Color(0xFF4CAF50)),
+                                                        const SizedBox(width: 4),
+                                                        Expanded(
+                                                          child: Text(
+                                                            'Valid Local Image',
+                                                            style: AttuneTypography.jakartaBodySmall(
+                                                              fontSize: 10,
+                                                              color: const Color(0xFF4CAF50),
+                                                            ),
+                                                            maxLines: 1,
+                                                            overflow: TextOverflow.ellipsis,
+                                                          ),
+                                                        ),
+                                                      ],
+                                                    );
+                                                  } else {
+                                                    return Row(
+                                                      children: [
+                                                        const Icon(Icons.warning_amber_rounded, size: 13, color: Colors.amber),
+                                                        const SizedBox(width: 4),
+                                                        Expanded(
+                                                          child: Text(
+                                                            'Not a valid image file',
+                                                            style: AttuneTypography.jakartaBodySmall(
+                                                              fontSize: 10,
+                                                              color: Colors.amber,
+                                                            ),
+                                                            maxLines: 1,
+                                                            overflow: TextOverflow.ellipsis,
+                                                          ),
+                                                        ),
+                                                      ],
+                                                    );
+                                                  }
+                                                },
+                                              ),
+                                            ),
+                                          ],
+                                        ],
                                       ),
                                     ],
                                   ),
@@ -1358,11 +1534,13 @@ class _AlbumEditorStageState extends State<AlbumEditorStage> {
     TextEditingController controller,
     String hint,
     ColorScheme colorScheme, {
+    Key? key,
     bool isNumber = false,
     void Function(String)? onChanged,
     void Function(String)? onSubmitted,
   }) {
     return TextField(
+      key: key,
       controller: controller,
       keyboardType: isNumber ? TextInputType.number : TextInputType.text,
       onChanged: onChanged,

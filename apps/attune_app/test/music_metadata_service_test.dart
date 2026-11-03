@@ -31,6 +31,12 @@ class MockHttpClientRequest implements HttpClientRequest {
   @override
   final HttpHeaders headers = MockHttpHeaders();
 
+  @override
+  bool followRedirects = true;
+
+  @override
+  int maxRedirects = 5;
+
   final Future<HttpClientResponse> Function()? onClose;
 
   MockHttpClientRequest({this.onClose});
@@ -59,6 +65,15 @@ class MockHttpHeaders implements HttpHeaders {
   String? value(String name) => _headers[name.toLowerCase()];
 
   @override
+  ContentType? get contentType {
+    final val = value('content-type');
+    if (val != null) {
+      return ContentType.parse(val);
+    }
+    return null;
+  }
+
+  @override
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
@@ -66,8 +81,14 @@ class MockHttpClientResponse extends Stream<List<int>> implements HttpClientResp
   @override
   final int statusCode;
   final String body;
+  @override
+  final HttpHeaders headers;
 
-  MockHttpClientResponse({required this.statusCode, required this.body});
+  MockHttpClientResponse({
+    required this.statusCode,
+    required this.body,
+    HttpHeaders? headers,
+  }) : headers = headers ?? MockHttpHeaders();
 
   @override
   StreamSubscription<List<int>> listen(
@@ -213,9 +234,15 @@ void main() {
         onGetUrl: (uri) async {
           requestCount++;
           final isMusicBrainz = uri.host.contains('musicbrainz.org');
+          final isCoverVerification = uri.path.endsWith('.jpg') || uri.path.endsWith('/front');
+
           return MockHttpClientRequest(
             onClose: () async {
-              if (isMusicBrainz) {
+              if (isCoverVerification) {
+                final h = MockHttpHeaders();
+                h.set('content-type', 'image/jpeg');
+                return MockHttpClientResponse(statusCode: 200, body: 'fake_image_bytes', headers: h);
+              } else if (isMusicBrainz) {
                 // Simulate 429 Too Many Requests
                 return MockHttpClientResponse(statusCode: 429, body: 'Rate limit exceeded');
               } else {
@@ -246,7 +273,7 @@ void main() {
         customHttpClient: mockClient,
       );
 
-      expect(requestCount, equals(2)); // Tried MB -> Failed 429 -> Succeeded on ReccoBeats
+      expect(requestCount, greaterThanOrEqualTo(2)); // Tried MB -> Failed 429 -> Succeeded on ReccoBeats -> Verified image
       expect(result, isNotNull);
       expect(result!.sourceProvider, equals('ReccoBeats'));
       expect(result.title, equals('(Not) A Devil'));
@@ -255,6 +282,149 @@ void main() {
       expect(result.recordLabel, equals('OTONARI'));
       expect(result.releaseYear, equals('2023'));
       expect(result.coverArtUrl, equals('https://reccobeats.com/covers/not_a_devil.jpg'));
+    });
+
+    test('Rabbit Hole by DECO*27: Rejects cover art when MusicBrainz has no front image saved', () async {
+      final service = MusicMetadataService.instance;
+
+      final mockClient = MockHttpClient(
+        onGetUrl: (uri) async {
+          return MockHttpClientRequest(
+            onClose: () async {
+              final mbResponse = jsonEncode({
+                'releases': [
+                  {
+                    'id': 'deco-rabbit-hole-mbid',
+                    'title': 'Rabbit Hole',
+                    'date': '2024-02-27',
+                    'artist-credit': [
+                      {
+                        'artist': {'name': 'DECO*27'}
+                      }
+                    ],
+                    // Explicitly NO front cover art on Cover Art Archive
+                    'cover-art-archive': {
+                      'front': false,
+                      'artwork': false,
+                      'count': 0,
+                    },
+                    'release-group': {
+                      'primary-type': 'Single',
+                    }
+                  }
+                ]
+              });
+              return MockHttpClientResponse(statusCode: 200, body: mbResponse);
+            },
+          );
+        },
+      );
+
+      final result = await service.fetchAlbumMetadata(
+        albumName: 'Rabbit Hole',
+        artistName: 'DECO*27',
+        customHttpClient: mockClient,
+      );
+
+      expect(result, isNotNull);
+      expect(result!.title, equals('Rabbit Hole'));
+      expect(result.primaryArtist, equals('DECO*27'));
+      // Cover art must be rejected (null) so existing album track artwork is preserved!
+      expect(result.coverArtUrl, isNull);
+    });
+
+    test('Cover Art Archive 404 or HTML error response is rejected as non-image', () async {
+      final service = MusicMetadataService.instance;
+
+      final mockClient = MockHttpClient(
+        onGetUrl: (uri) async {
+          return MockHttpClientRequest(
+            onClose: () async {
+              if (uri.host.contains('coverartarchive.org')) {
+                // Cover Art Archive returns 404 Not Found HTML page
+                final h = MockHttpHeaders();
+                h.set('content-type', 'text/html; charset=utf-8');
+                return MockHttpClientResponse(
+                  statusCode: 404,
+                  body: '<html><body>404 Not Found</body></html>',
+                  headers: h,
+                );
+              } else {
+                // MusicBrainz WS2 release metadata claims front: true
+                final mbResponse = jsonEncode({
+                  'releases': [
+                    {
+                      'id': 'fake-release-mbid-404',
+                      'title': 'Some Release',
+                      'artist-credit': [
+                        {
+                          'artist': {'name': 'Artist'}
+                        }
+                      ],
+                      'cover-art-archive': {
+                        'front': true,
+                        'artwork': true,
+                        'count': 1,
+                      }
+                    }
+                  ]
+                });
+                return MockHttpClientResponse(statusCode: 200, body: mbResponse);
+              }
+            },
+          );
+        },
+      );
+
+      final result = await service.fetchAlbumMetadata(
+        albumName: 'Some Release',
+        artistName: 'Artist',
+        customHttpClient: mockClient,
+      );
+
+      expect(result, isNotNull);
+      // Because Cover Art Archive returned 404, verification rejected it
+      expect(result!.coverArtUrl, isNull);
+    });
+
+    test('isImageUriValid validates local files and HTTP image responses', () async {
+      // 1. Non-existent file
+      final nonExistent = await MusicMetadataService.isImageUriValid('/tmp/does_not_exist_xyz.png');
+      expect(nonExistent, isFalse);
+
+      // 2. Non-image file extension
+      final notImage = await MusicMetadataService.isImageUriValid('/tmp/some_file.txt');
+      expect(notImage, isFalse);
+
+      // 3. HTTP 200 image response
+      final mockClient = MockHttpClient(
+        onGetUrl: (uri) async {
+          return MockHttpClientRequest(
+            onClose: () async {
+              final h = MockHttpHeaders();
+              if (uri.path.contains('success_image')) {
+                h.set('content-type', 'image/png');
+                return MockHttpClientResponse(statusCode: 200, body: 'image_data', headers: h);
+              } else {
+                h.set('content-type', 'text/html');
+                return MockHttpClientResponse(statusCode: 404, body: 'error', headers: h);
+              }
+            },
+          );
+        },
+      );
+
+      final validUrl = await MusicMetadataService.isImageUriValid(
+        'https://example.com/success_image.png',
+        customHttpClient: mockClient,
+      );
+      expect(validUrl, isTrue);
+
+      final invalidUrl = await MusicMetadataService.isImageUriValid(
+        'https://example.com/broken_page.html',
+        customHttpClient: mockClient,
+      );
+      expect(invalidUrl, isFalse);
     });
   });
 }

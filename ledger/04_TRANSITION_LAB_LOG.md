@@ -881,6 +881,35 @@ These four benchmark scenarios define the "Gold Standard" transitions that Attun
   - `flutter test`: All 154 Flutter tests pass cleanly (including dedicated `music_metadata_service_test.dart` verifying comma parsing, User-Agent compliance, and ReccoBeats fallback).
 - **Listening & Stability Verdict**: `PASS`. Seamless multi-artist comma handling, compliant and resilient online metadata discovery, and clean native crate naming.
 
+---
+
+### Experiment #029: User-Uploaded Album Splash Art (`ImageFilePickerDialog`), Cover Art Archive Verification & Rabbit Hole 404 Rejection
+- **Date**: 2026-11-03
+- **Hypothesis**: Implementing an interactive Liquid Material Glass image file picker (`ImageFilePickerDialog`) will provide users an intuitive device directory browser for selecting custom album splash art; verifying MusicBrainz Cover Art Archive `front == true` and actively probing candidate URLs with HTTP `image/*` MIME validation will eliminate broken image links and 404 HTML responses for releases lacking front artwork (such as *Rabbit Hole* by DECO*27), preserving the track's embedded local audio artwork; and validating custom splash art paths in `AlbumEditorStage` with live validation badges (`[ Valid Local Image ]`, `[ Online Image URI ]`, `[ Not a valid image file ]`) and graceful fallback on save will ensure 100% compliance with Mandate 4 (zero hardcoding, fail gracefully with transparency).
+- **Empirical Findings & Mathematical Implementation**:
+  1. **Device Image File Picker (`ImageFilePickerDialog`)**:
+     - Built `apps/attune_app/lib/widgets/image_file_picker_dialog.dart` with Liquid Glass styling matching `DirectoryPickerDialog`.
+     - Provides platform-aware quick shortcuts (`Pictures`, `Downloads`, `DCIM`, `Music`), parent directory traversal, subfolder drilldown, image filtering (`.png`, `.jpg`, `.jpeg`, `.webp`, `.gif`, `.bmp`), live thumbnail previews, and file size badges.
+     - Returns selected file path on user tap or null on dismiss.
+  2. **Cover Art Archive Front Verification & HTTP Image Probing (`MusicMetadataService`)**:
+     - In `_queryMusicBrainz`: inspects `release['cover-art-archive']`. If `front != true` (as with *Rabbit Hole* by DECO*27), `verifiedCoverArtUrl` resolves immediately to `null`.
+     - In `_verifyImageUri`: sends an HTTP HEAD/GET request with `followRedirects = true; maxRedirects = 4;`. Validates `response.statusCode == 200` and `response.headers.contentType?.mimeType.startsWith('image/') == true`. Rejects 404, 500, HTML responses, and non-image MIME types.
+     - In `_queryReccoBeats` and `_queryReccoBeatsTrack`: probes `rawCoverUrl` with `_verifyImageUri` before setting `coverArtUrl`.
+     - Exported `isImageUriValid(String uriString, {HttpClient? customHttpClient})` validating local file existence and valid image extension or remote network image URI.
+  3. **Album Splash Art UI Overhaul (`AlbumEditorStage`)**:
+     - Integrated `_buildSplashThumbnail` supporting local files (`Image.file`), network URLs (`Image.network`), track embedded artwork, and fallback album icons with glass frame border.
+     - Added `[ 📁 Browse Device Image ]` button launching `ImageFilePickerDialog.show(context)` and populating `_splashController.text`.
+     - Added a `Clear` button to remove custom splash art.
+     - Added live validation feedback badge (`[ Valid Local Image ]`, `[ Online Image URI ]`, `[ Not a valid image file ]`).
+     - In `_saveAlbum()`: validates `_splashController.text`. If a path is provided but invalid, rejects it (`null`) and displays a floating SnackBar warning, falling back to original album art in strict compliance with Mandate 4.
+- **Empirical Verification**:
+  - `apps/attune_app/test/music_metadata_service_test.dart`: All 10 unit tests pass cleanly, specifically verifying that *Rabbit Hole* by DECO*27 rejects cover art when CAA has `front: false`, rejects 404 HTML error pages, and accepts valid image responses.
+  - `apps/attune_app/test/album_editor_stage_test.dart`: All 7 widget tests pass cleanly, verifying browse button presence, live validation warning badges, invalid splash art rejection on save, and valid web image URI preservation.
+  - `flutter analyze apps/attune_app`: 0 issues found.
+  - `flutter test apps/attune_app`: All 159 Flutter unit and widget tests pass cleanly across all test suites.
+  - `cargo test --workspace`: All 45 native Rust tests pass cleanly across all crates.
+- **Listening & Stability Verdict**: `PASS`. Rock-solid cover art verification, zero 404 broken image regressions, fluid and tactile device image picking, and transparent validation feedback.
+
 
 
 

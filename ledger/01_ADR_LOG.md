@@ -2078,6 +2078,43 @@ This file records all major architectural decisions for **Attune**, including co
   - All 154 Flutter tests and all 45 native Rust workspace tests pass cleanly.
   - `flutter analyze apps/attune_app` reports 0 issues.
 
+---
+
+## ADR-061: User-Uploaded Album Splash Art (`ImageFilePickerDialog`), Cover Art Archive Verification & Rabbit Hole 404 Rejection
+- **Date**: 2026-11-03
+- **Status**: `LOCKED`
+- **Context**:
+  1. **User Custom Splash Art Selection**:
+     - Users wanted the ability to choose custom album splash art from device storage via an intuitive file browser rather than manually typing raw paths, while retaining the ability to paste direct file paths or web image URLs.
+  2. **MusicBrainz Cover Art Archive Missing Artwork & 404 Error Protection**:
+     - Many releases on MusicBrainz (such as *Rabbit Hole* by DECO*27, or obscure/indie doujin releases) do not possess front cover art in the Cover Art Archive (`cover-art-archive.front == false`).
+     - Previously, constructing the candidate URL `https://coverartarchive.org/release/<mbid>/front` blindly resulted in an HTTP 404 response returning an HTML error page. If assigned to `coverArtUrl`, this would fail to render or overwrite the track's embedded local audio artwork with a broken image.
+  3. **Mandate 4 (Zero Hardcoding & Graceful Degradation)**:
+     - The system must actively inspect both local files and network URIs to verify that the target is a genuine, accessible image (HTTP 200 with `Content-Type: image/*` or existing local file with valid image extension) before applying it. If invalid, the system must fail gracefully with transparent user feedback and fall back to original embedded audio artwork.
+- **Decision**:
+  1. **Interactive Liquid Material Glass Image Picker (`ImageFilePickerDialog`)**:
+     - Built `apps/attune_app/lib/widgets/image_file_picker_dialog.dart` following the design conventions of `DirectoryPickerDialog`.
+     - Supports platform-aware quick shortcuts (`Pictures`, `Downloads`, `DCIM`, `Music`), parent directory navigation, subfolder listing, and image filtering (`.png`, `.jpg`, `.jpeg`, `.webp`, `.gif`, `.bmp`).
+     - Displays live image thumbnails and formatted file size indicators.
+     - Static launcher `ImageFilePickerDialog.show(BuildContext context)` returns the selected file path.
+  2. **Cover Art Archive Front Verification & HTTP Image Probing in `MusicMetadataService`**:
+     - In `_queryMusicBrainz`: checks the release's `cover-art-archive` metadata. If `front != true`, sets `verifiedCoverArtUrl = null` immediately, preserving embedded track artwork and avoiding spurious network requests.
+     - If `front == true`, probes the candidate URL using `_verifyImageUri(String uriString, HttpClient client)`.
+     - `_verifyImageUri` sets `followRedirects = true; maxRedirects = 4;` and asserts `response.statusCode == 200` and `response.headers.contentType?.mimeType.startsWith('image/') == true`. Rejects 404, 500, HTML responses, and non-image MIME types.
+     - In `_queryReccoBeats` and `_queryReccoBeatsTrack`: probes `rawCoverUrl` with `_verifyImageUri` before setting `coverArtUrl`.
+     - Exported `isImageUriValid(String uriString, {HttpClient? customHttpClient})` validating both local file paths (`File(path).existsSync()` + image extension check) and remote network image URIs.
+  3. **Album Splash Art UI Overhaul (`AlbumEditorStage`)**:
+     - Integrated `_buildSplashThumbnail` supporting local files (`Image.file`), network URLs (`Image.network`), track embedded artwork, and fallback album icons with glass frame border.
+     - Added `[ 📁 Browse Device Image ]` button launching `ImageFilePickerDialog.show(context)` and populating `_splashController.text`.
+     - Added a `Clear` button to remove custom splash art.
+     - Added live validation feedback badge (`[ Valid Local Image ]`, `[ Online Image URI ]`, `[ Not a valid image file ]`).
+     - In `_saveAlbum()`: validates `_splashController.text`. If a path is provided but invalid, rejects it (`null`) and displays a floating SnackBar warning, falling back to original album art in strict compliance with Mandate 4.
+- **Consequences**:
+  - Eliminates broken cover art caused by missing MusicBrainz Cover Art Archive entries (e.g. *Rabbit Hole* by DECO*27).
+  - Users have full autonomy to select splash art from local device storage or the web with real-time visual validation.
+  - All 159 Flutter unit and widget tests pass cleanly with 0 analyzer issues.
+  - All 45 native Rust tests across all workspace crates pass cleanly.
+
 
 
 

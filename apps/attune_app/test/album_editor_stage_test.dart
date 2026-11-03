@@ -330,5 +330,112 @@ void main() {
       expect(savedMetadata!.additionalArtists, contains('GUMI'));
       expect(savedMetadata!.additionalArtists, contains('Megurine Luka'));
     });
+
+    testWidgets('AlbumEditorStage user uploaded image picker and invalid splash art rejection', (WidgetTester tester) async {
+      tester.view.physicalSize = const Size(1080, 3000);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(() {
+        tester.view.resetPhysicalSize();
+        tester.view.resetDevicePixelRatio();
+      });
+
+      AlbumCustomMetadata? savedMetadata;
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: AlbumEditorStage(
+            initialAlbumName: 'Rabbit Hole',
+            initialTracks: [
+              const TrackItem(
+                id: 'song_rabbit',
+                title: 'Rabbit Hole',
+                artist: 'DECO*27',
+                album: 'Rabbit Hole',
+                filePath: '/music/rabbit_hole.flac',
+                duration: Duration(minutes: 2, seconds: 39),
+                bpm: 171.4,
+                musicalKey: 'G# Minor',
+                genre: 'Vocaloid',
+                isLossless: true,
+              ),
+            ],
+            onSaved: (oldAlbum, newAlbum, meta, finalTracks) {
+              savedMetadata = meta;
+            },
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      // Verify Browse Device Image button is present
+      expect(find.text('Browse Device Image'), findsOneWidget);
+
+      // 1. Enter invalid file path (non-existent)
+      final splashInput = find.byKey(const Key('custom_splash_input'));
+      expect(splashInput, findsOneWidget);
+      await tester.enterText(splashInput, '/tmp/non_existent_fake_cover.png');
+      await tester.pumpAndSettle();
+
+      // Validation indicator warns the user
+      expect(find.text('Not a valid image file'), findsOneWidget);
+
+      // Save: The invalid splash art must be rejected (null), preserving original album art
+      await tester.tap(find.text('Save'));
+      await tester.pumpAndSettle();
+
+      expect(savedMetadata, isNotNull);
+      expect(savedMetadata!.customSplashArt, isNull);
+    });
+
+    testWidgets('AlbumEditorStage accepts valid web image URL and displays browse button', (WidgetTester tester) async {
+      tester.view.physicalSize = const Size(1080, 3000);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(() {
+        tester.view.resetPhysicalSize();
+        tester.view.resetDevicePixelRatio();
+      });
+
+      AlbumCustomMetadata? savedMetadata;
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: AlbumEditorStage(
+            initialAlbumName: 'Rabbit Hole',
+            initialTracks: [
+              const TrackItem(
+                id: 'song_rabbit',
+                title: 'Rabbit Hole',
+                artist: 'DECO*27',
+                album: 'Rabbit Hole',
+                filePath: '/music/rabbit_hole.flac',
+                duration: Duration(minutes: 2, seconds: 39),
+                bpm: 171.4,
+                musicalKey: 'G# Minor',
+                genre: 'Vocaloid',
+                isLossless: true,
+              ),
+            ],
+            onSaved: (oldAlbum, newAlbum, meta, finalTracks) {
+              savedMetadata = meta;
+            },
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      final newSplashInput = find.byKey(const Key('custom_splash_input'));
+      expect(newSplashInput, findsOneWidget);
+      await tester.enterText(newSplashInput, 'https://example.com/artwork.jpg');
+      await tester.pumpAndSettle();
+
+      expect(find.text('Online Image URI'), findsOneWidget);
+
+      // Save: Online image URI is preserved
+      await tester.tap(find.text('Save'));
+      await tester.pumpAndSettle();
+
+      expect(savedMetadata, isNotNull);
+      expect(savedMetadata!.customSplashArt, equals('https://example.com/artwork.jpg'));
+    });
   });
 }

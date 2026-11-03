@@ -255,7 +255,24 @@ class MusicMetadataService {
         }
       }
 
-      final coverArtUrl = mbid.isNotEmpty ? 'https://coverartarchive.org/release/$mbid/front' : null;
+      // Check cover art archive availability in MusicBrainz metadata
+      bool hasFrontArt = false;
+      if (best['cover-art-archive'] is Map) {
+        final caa = best['cover-art-archive'] as Map;
+        final front = caa['front'];
+        final artwork = caa['artwork'];
+        final count = caa['count'] as num? ?? 0;
+        if (front == true || (artwork == true && count > 0)) {
+          hasFrontArt = true;
+        }
+      }
+
+      String? verifiedCoverArtUrl;
+      if (hasFrontArt && mbid.isNotEmpty) {
+        final candidateUrl = 'https://coverartarchive.org/release/$mbid/front';
+        verifiedCoverArtUrl = await _verifyImageUri(candidateUrl, client);
+      }
+
       final onlineQueryUrl = mbid.isNotEmpty ? 'https://musicbrainz.org/release/$mbid' : null;
 
       // Dynamic factual description
@@ -278,7 +295,7 @@ class MusicMetadataService {
         albumType: albumType,
         language: language,
         musicBrainzId: mbid,
-        coverArtUrl: coverArtUrl,
+        coverArtUrl: verifiedCoverArtUrl,
         onlineQueryUrl: onlineQueryUrl,
         sourceProvider: 'MusicBrainz',
         description: desc,
@@ -352,9 +369,14 @@ class MusicMetadataService {
 
       final releaseDate = album['release_date']?.toString() ?? album['releaseDate']?.toString();
       final yearStr = (releaseDate != null && releaseDate.length >= 4) ? releaseDate.substring(0, 4) : null;
-      final coverUrl = album['image_url']?.toString() ?? album['cover_url']?.toString() ?? album['imageUrl']?.toString();
+      final rawCoverUrl = album['image_url']?.toString() ?? album['cover_url']?.toString() ?? album['imageUrl']?.toString();
       final albumType = album['album_type']?.toString() ?? 'Album';
       final label = album['label']?.toString();
+
+      String? verifiedCoverUrl;
+      if (rawCoverUrl != null && rawCoverUrl.isNotEmpty) {
+        verifiedCoverUrl = await _verifyImageUri(rawCoverUrl, client);
+      }
 
       final desc = 'Album "$title" by $primaryArtist'
           '${additionalArtists.isNotEmpty ? " (feat. ${additionalArtists.join(", ")})" : ""}. '
@@ -374,7 +396,7 @@ class MusicMetadataService {
         albumType: albumType,
         language: null,
         musicBrainzId: null,
-        coverArtUrl: coverUrl,
+        coverArtUrl: verifiedCoverUrl,
         onlineQueryUrl: albumId.isNotEmpty ? 'https://reccobeats.com/album/$albumId' : null,
         sourceProvider: 'ReccoBeats',
         description: desc,
@@ -423,6 +445,12 @@ class MusicMetadataService {
 
       final split = OnlineMusicMetadata.splitArtists(rawArtist);
 
+      String? verifiedTrackCover;
+      final rawTrackCover = track['image_url']?.toString();
+      if (rawTrackCover != null && rawTrackCover.isNotEmpty) {
+        verifiedTrackCover = await _verifyImageUri(rawTrackCover, client);
+      }
+
       return OnlineMusicMetadata(
         title: title,
         primaryArtist: split.primary,
@@ -436,12 +464,83 @@ class MusicMetadataService {
         albumType: 'Single / Track',
         language: null,
         musicBrainzId: null,
-        coverArtUrl: track['image_url']?.toString(),
+        coverArtUrl: verifiedTrackCover,
         onlineQueryUrl: 'https://reccobeats.com',
         sourceProvider: 'ReccoBeats',
       );
     } catch (_) {
       return null;
+    }
+  }
+
+  /// Probes an image URI (HTTP/HTTPS) and verifies it returns HTTP 200 with an image/* content type.
+  /// If it returns HTTP 404, 500, non-200, HTML, or any non-image content type, it is rejected and returns null.
+  Future<String?> _verifyImageUri(String uriString, HttpClient client) async {
+    try {
+      final uri = Uri.tryParse(uriString);
+      if (uri == null || (!uri.isScheme('http') && !uri.isScheme('https'))) {
+        return null;
+      }
+      final request = await client.getUrl(uri);
+      request.headers.set('User-Agent', musicBrainzUserAgent);
+      request.followRedirects = true;
+      request.maxRedirects = 4;
+
+      final response = await request.close().timeout(const Duration(seconds: 4));
+      if (response.statusCode != 200) {
+        debugPrint('[MusicMetadataService] Cover art URI rejected: HTTP ${response.statusCode} for $uriString');
+        return null;
+      }
+
+      final contentType = response.headers.contentType?.mimeType.toLowerCase();
+      if (contentType == null || !contentType.startsWith('image/')) {
+        debugPrint('[MusicMetadataService] Cover art URI rejected: Non-image Content-Type "$contentType" for $uriString');
+        return null;
+      }
+
+      return uriString;
+    } catch (e) {
+      debugPrint('[MusicMetadataService] Cover art URI verification failed for $uriString: $e');
+      return null;
+    }
+  }
+
+  /// Validates whether a file path or URL points to a genuine, existing image.
+  /// For local files: checks existence, non-empty size, and image file extension (.jpg, .jpeg, .png, .webp, .gif, .bmp).
+  /// For HTTP/HTTPS URLs: verifies HTTP 200 and image/* Content-Type.
+  static Future<bool> isImageUriValid(String uriString, {HttpClient? customHttpClient}) async {
+    final trimmed = uriString.trim();
+    if (trimmed.isEmpty) return false;
+
+    final uri = Uri.tryParse(trimmed);
+    if (uri != null && (uri.isScheme('http') || uri.isScheme('https'))) {
+      final client = customHttpClient ?? HttpClient();
+      client.connectionTimeout = const Duration(seconds: 4);
+      try {
+        final request = await client.getUrl(uri);
+        request.headers.set('User-Agent', musicBrainzUserAgent);
+        request.followRedirects = true;
+        request.maxRedirects = 4;
+        final response = await request.close().timeout(const Duration(seconds: 4));
+        if (response.statusCode != 200) return false;
+        final cType = response.headers.contentType?.mimeType.toLowerCase();
+        return cType != null && cType.startsWith('image/');
+      } catch (_) {
+        return false;
+      } finally {
+        if (customHttpClient == null) client.close();
+      }
+    } else {
+      final file = File(trimmed);
+      if (!file.existsSync()) return false;
+      final lower = file.path.toLowerCase();
+      final validExtensions = ['.jpg', '.jpeg', '.png', '.webp', '.gif', '.bmp'];
+      if (!validExtensions.any((ext) => lower.endsWith(ext))) return false;
+      try {
+        return file.lengthSync() > 0;
+      } catch (_) {
+        return false;
+      }
     }
   }
 
