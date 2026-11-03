@@ -971,3 +971,15 @@ These four benchmark scenarios define the "Gold Standard" transitions that Attun
 
 
 
+
+### Experiment #032: egui Desktop Frontend Barebones Bring-up (`attune-desktop`)
+- **Date**: 2026-11-04
+- **Setup**: Linux (KDE Plasma, Wayland + XWayland), ALSA default device, `~/Music` library (159 files: FLAC/MP3/M4A, heavy on Japanese titles).
+- **Observations**:
+  1. First build compiled cleanly against the eframe 0.33 API. Release and debug builds both succeed.
+  2. Smoke launch: `AudioOutputDriver: host=ALSA, sample_rate=48000 Hz, channels=2, format=F32` came up with a hardware driver. Discovery found all 159 files with no UI stall.
+  3. **Failure found**: Japanese titles (e.g. DECO*27 tracks) showed as tofu boxes because egui's default fonts have no CJK glyphs. **Fix**: runtime fontconfig lookup loaded `NotoSansCJK-Regular.ttc` as a fallback.
+  4. **Failure found**: `add_sized` centred the title/artist columns. **Fix**: switched to fixed-width `allocate_ui_with_layout(left_to_right)` columns.
+  5. **Failure found**: the UI showed `v0.1.0` (crate version) while the release is `0.1.1-rc1`. **Fix**: `build.rs` now reads `pubspec.yaml`.
+  6. The 7 unit tests (search matching, time formatting, probe fallback without fabricated values, music dir resolution order, version) pass. Clippy is clean on the new crate (`--no-deps`). Separately, workspace clippy fails on 2 existing `FRAC_1_SQRT_2` approximation lints in `attune-dsp-ffi` that predate this work and are out of scope.
+- **Verdict**: `PASS (barebones)`. Next up: Smart Shuffle transitions over `DualDeckMixer::trigger_transition`, plus builder/CI packaging.

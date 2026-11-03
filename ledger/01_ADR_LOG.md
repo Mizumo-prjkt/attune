@@ -2181,3 +2181,26 @@ This file records all major architectural decisions for **Attune**, including co
 
 
 
+
+## ADR-064: Native Rust egui Desktop Frontend (`crates/attune-desktop`) & Phased Deprecation of Flutter on Windows/Linux
+- **Date**: 2026-11-04
+- **Status**: `LOCKED` (barebones milestone); feature parity `OPEN`
+- **Context**:
+  1. The user is slowly deprecating the Flutter codebase on Windows and Linux. Flutter stays as the Android frontend only.
+  2. Desktop Flutter needed the `attune-ffi` C-ABI + Dart FFI hop, JSON state polling, and a heavy Flutter engine for something that can run in-process in Rust.
+  3. Requirement: put the GUI under `crates/` and get a barebones, usable build working first.
+- **Decision**:
+  1. New workspace member `crates/attune-desktop` (bin `attune-desktop`) built on **eframe/egui 0.33** (`glow` backend, `wayland` + `x11`, `persistence`), `egui_extras` image loaders (JPEG/PNG/WebP artwork), `rfd` for the native folder picker, and `dirs` for OS-standard paths.
+  2. **Links `attune-core` directly**: `DualDeckMixer` + `AudioOutputDriver` (cpal) owned in-process by `player::Player`. No C-ABI hop, no JSON polling. State comes from `DualDeckMixer::snapshot()` (lock held for under 1 µs).
+  3. Decoding runs on a worker thread, guarded by a **generation counter** so fast skips throw away stale decodes. Library scanning (`LibraryScanner::discover_audio_files` + `AudioDecoder::probe_metadata`) streams results over an `mpsc` channel, so the render thread never blocks.
+  4. **Mandate 4 compliance**:
+     - Music folder resolves `ATTUNE_MUSIC_DIR` → persisted user choice → `dirs::audio_dir()` → otherwise unresolved, and the UI asks the user. The UI shows which source won.
+     - `ATTUNE_CACHE_DIR` defaults to `dirs::cache_dir()/attune` (set once at startup, before any threads) so artwork stops landing in `/tmp`.
+     - Version comes from `ATTUNE_VERSION` env → `apps/attune_app/pubspec.yaml` (via `build.rs`, the same single source as ADR-063) → `CARGO_PKG_VERSION`.
+     - CJK glyph fallback is found at runtime (`ATTUNE_UI_FONT` → `fc-match` on Linux → `%WINDIR%\Fonts` on Windows). No font is bundled or hardcoded.
+     - No output device: the player falls back to headless mode with a visible warning banner. `catch_unwind` wraps driver init.
+  5. **Barebones scope**: library list (virtualised `show_rows`, search, hover details), queue that starts empty (ADR-057 parity, add/remove/clear), transport (play/pause, prev with 3 s restart rule, next, Repeat Off/All/One, seek scrubber, volume in dB re-applied after each load), linear auto-advance, artwork thumbnail, output/underrun telemetry, Space shortcut, and persisted folder/volume.
+- **Consequences**:
+  - Windows/Linux get a native single binary with no Flutter engine and no `libattune_engine.so` side-load.
+  - Not ported yet: Smart Shuffle + `.ptr` transitions, JIT/background profiling, lyrics, EQ/Master FX UI, albums/favourites, Liquid Material Glass skin, and packaging in `tools/builder.py`/CI.
+  - Flutter desktop targets stay buildable until the egui build reaches parity.
