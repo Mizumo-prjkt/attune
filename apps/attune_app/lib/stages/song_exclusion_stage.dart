@@ -1,4 +1,3 @@
-import 'dart:io';
 import 'package:flutter/material.dart';
 import '../models/track_item.dart';
 import '../services/playback_controller.dart';
@@ -6,6 +5,7 @@ import '../services/platform_navigation.dart';
 import '../services/settings_service.dart';
 import '../theme/liquid_glass.dart';
 import '../theme/typography.dart';
+import '../widgets/viewport_aware_artwork.dart';
 
 enum _ExclusionFilterTab {
   all,
@@ -65,24 +65,20 @@ class _SongExclusionStageState extends State<SongExclusionStage> {
         child: Stack(
           alignment: Alignment.center,
           children: [
-            if (track.artworkFile != null && File(track.artworkFile!).existsSync())
-              Image.file(
-                File(track.artworkFile!),
-                width: 48,
-                height: 48,
-                fit: BoxFit.cover,
-                errorBuilder: (context, error, stackTrace) => Icon(
-                  isExcluded ? Icons.music_off_rounded : Icons.music_note_rounded,
-                  color: isExcluded ? Colors.redAccent : Colors.white54,
-                  size: 22,
-                ),
-              )
-            else
-              Icon(
+            ViewportAwareArtwork(
+              artworkFile: track.artworkFile,
+              artworkAsset: track.artworkAsset,
+              width: 48,
+              height: 48,
+              borderRadius: BorderRadius.circular(10),
+              cacheWidth: 100,
+              cacheHeight: 100,
+              placeholder: Icon(
                 isExcluded ? Icons.music_off_rounded : Icons.music_note_rounded,
                 color: isExcluded ? Colors.redAccent : Colors.white54,
                 size: 22,
               ),
+            ),
             if (isExcluded)
               Container(
                 width: 48,

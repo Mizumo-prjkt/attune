@@ -1,10 +1,10 @@
-import 'dart:io';
 import 'package:flutter/material.dart';
 import '../services/playback_controller.dart';
 import '../theme/liquid_glass.dart';
 import '../theme/typography.dart';
 import '../widgets/transition_connector_pill.dart';
 import '../widgets/transition_details_dialog.dart';
+import '../widgets/viewport_aware_artwork.dart';
 import 'queue_add_tracks_stage.dart';
 
 /// PlaylistQueueStage implementing Stage 2 of 05_UI_DESIGN_SPEC.md:
@@ -48,23 +48,27 @@ class _PlaylistQueueStageState extends State<PlaylistQueueStage> {
                   children: [
                     ClipRRect(
                       borderRadius: BorderRadius.circular(12),
-                      child: Container(
+                      child: ViewportAwareArtwork(
+                        artworkFile: current.artworkFile,
+                        artworkAsset: current.artworkAsset,
                         width: 48,
                         height: 48,
-                        color: colorScheme.surfaceContainerHighest.withValues(alpha: 0.3),
-                        child: current.artworkFile != null && File(current.artworkFile!).existsSync()
-                            ? Image.file(File(current.artworkFile!), fit: BoxFit.cover)
-                            : Container(
-                                decoration: BoxDecoration(
-                                  gradient: LinearGradient(
-                                    colors: [
-                                      current.seedColor,
-                                      colorScheme.secondary,
-                                    ],
-                                  ),
-                                ),
-                                child: const Icon(Icons.equalizer_rounded, color: Colors.white, size: 24),
-                              ),
+                        borderRadius: BorderRadius.circular(12),
+                        cacheWidth: 128,
+                        cacheHeight: 128,
+                        placeholder: Container(
+                          width: 48,
+                          height: 48,
+                          decoration: BoxDecoration(
+                            gradient: LinearGradient(
+                              colors: [
+                                current.seedColor,
+                                colorScheme.secondary,
+                              ],
+                            ),
+                          ),
+                          child: const Icon(Icons.equalizer_rounded, color: Colors.white, size: 24),
+                        ),
                       ),
                     ),
                     const SizedBox(width: 14),
@@ -562,19 +566,26 @@ class _PlaylistQueueStageState extends State<PlaylistQueueStage> {
             const SizedBox(width: 8),
             ClipRRect(
               borderRadius: BorderRadius.circular(10),
-              child: Container(
+              child: ViewportAwareArtwork(
+                artworkFile: item.artworkFile,
+                artworkAsset: item.artworkAsset,
                 width: 38,
                 height: 38,
-                color: item.seedColor.withValues(alpha: 0.4),
-                child: item.artworkFile != null && File(item.artworkFile!).existsSync()
-                    ? Image.file(File(item.artworkFile!), fit: BoxFit.cover)
-                    : Center(
-                        child: Icon(
-                          isCurrent ? Icons.play_arrow_rounded : Icons.music_note_rounded,
-                          color: Colors.white,
-                          size: 18,
-                        ),
-                      ),
+                borderRadius: BorderRadius.circular(10),
+                cacheWidth: 96,
+                cacheHeight: 96,
+                placeholder: Container(
+                  width: 38,
+                  height: 38,
+                  color: item.seedColor.withValues(alpha: 0.4),
+                  child: Center(
+                    child: Icon(
+                      isCurrent ? Icons.play_arrow_rounded : Icons.music_note_rounded,
+                      color: Colors.white,
+                      size: 18,
+                    ),
+                  ),
+                ),
               ),
             ),
             const SizedBox(width: 10),

@@ -439,6 +439,10 @@ class _BubbleNavigationStageState extends State<BubbleNavigationStage>
     );
   }
 
+  // ARCHITECTURAL MANDATE: The viewport-aware unloading mechanism is strictly
+  // NOT applied to bubblegrid, preserving persistent image raster textures
+  // across all concentric rings so that 2D momentum panning remains 60fps fluid
+  // without image blanking or flickering.
   Widget _buildBubbleContent(BubbleItem item, double size) {
     if (item.hasArtworkFile && item.artworkFile != null) {
       return Image.file(

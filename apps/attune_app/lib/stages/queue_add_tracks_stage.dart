@@ -1,8 +1,8 @@
-import 'dart:io';
 import 'package:flutter/material.dart';
 import '../services/playback_controller.dart';
 import '../theme/liquid_glass.dart';
 import '../theme/typography.dart';
+import '../widgets/viewport_aware_artwork.dart';
 
 /// Dedicated full-screen stage for adding tracks from the local audio library
 /// into the active playback queue. Replaces popup modals with a rich Material You 3 / Liquid Glass interface.
@@ -309,15 +309,22 @@ class _QueueAddTracksStageState extends State<QueueAddTracksStage> {
                                             // Artwork Thumbnail
                                             ClipRRect(
                                               borderRadius: BorderRadius.circular(10),
-                                              child: Container(
+                                              child: ViewportAwareArtwork(
+                                                artworkFile: track.artworkFile,
+                                                artworkAsset: track.artworkAsset,
                                                 width: 42,
                                                 height: 42,
-                                                color: track.seedColor.withValues(alpha: 0.35),
-                                                child: track.artworkFile != null && File(track.artworkFile!).existsSync()
-                                                    ? Image.file(File(track.artworkFile!), fit: BoxFit.cover)
-                                                    : const Center(
-                                                        child: Icon(Icons.music_note_rounded, color: Colors.white, size: 20),
-                                                      ),
+                                                borderRadius: BorderRadius.circular(10),
+                                                cacheWidth: 100,
+                                                cacheHeight: 100,
+                                                placeholder: Container(
+                                                  width: 42,
+                                                  height: 42,
+                                                  color: track.seedColor.withValues(alpha: 0.35),
+                                                  child: const Center(
+                                                    child: Icon(Icons.music_note_rounded, color: Colors.white, size: 20),
+                                                  ),
+                                                ),
                                               ),
                                             ),
                                             const SizedBox(width: 12),

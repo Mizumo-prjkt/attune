@@ -7,6 +7,7 @@ import '../services/playback_controller.dart';
 import '../theme/liquid_glass.dart';
 import '../theme/typography.dart';
 import '../widgets/image_file_picker_dialog.dart';
+import '../widgets/viewport_aware_artwork.dart';
 
 enum TrackSortOption {
   original,
@@ -552,15 +553,20 @@ class _AlbumEditorStageState extends State<AlbumEditorStage> {
                                   children: [
                                     ClipRRect(
                                       borderRadius: BorderRadius.circular(8),
-                                      child: SizedBox(
+                                      child: ViewportAwareArtwork(
+                                        artworkFile: track.artworkFile,
+                                        artworkAsset: track.artworkAsset,
                                         width: 40,
                                         height: 40,
-                                        child: track.artworkFile != null && File(track.artworkFile!).existsSync()
-                                            ? Image.file(File(track.artworkFile!), fit: BoxFit.cover)
-                                            : Container(
-                                                color: colorScheme.primary.withValues(alpha: 0.2),
-                                                child: Icon(Icons.music_note_rounded, color: colorScheme.primary, size: 20),
-                                              ),
+                                        borderRadius: BorderRadius.circular(8),
+                                        cacheWidth: 96,
+                                        cacheHeight: 96,
+                                        placeholder: Container(
+                                          width: 40,
+                                          height: 40,
+                                          color: colorScheme.primary.withValues(alpha: 0.2),
+                                          child: Icon(Icons.music_note_rounded, color: colorScheme.primary, size: 20),
+                                        ),
                                       ),
                                     ),
                                     const SizedBox(width: 12),
@@ -1313,15 +1319,20 @@ class _AlbumEditorStageState extends State<AlbumEditorStage> {
                                   const SizedBox(width: 12),
                                   ClipRRect(
                                     borderRadius: BorderRadius.circular(8),
-                                    child: SizedBox(
+                                    child: ViewportAwareArtwork(
+                                      artworkFile: track.artworkFile,
+                                      artworkAsset: track.artworkAsset,
                                       width: 40,
                                       height: 40,
-                                      child: track.artworkFile != null && File(track.artworkFile!).existsSync()
-                                          ? Image.file(File(track.artworkFile!), fit: BoxFit.cover)
-                                          : Container(
-                                              color: colorScheme.primary.withValues(alpha: 0.2),
-                                              child: Icon(Icons.music_note_rounded, color: colorScheme.primary, size: 20),
-                                            ),
+                                      borderRadius: BorderRadius.circular(8),
+                                      cacheWidth: 96,
+                                      cacheHeight: 96,
+                                      placeholder: Container(
+                                        width: 40,
+                                        height: 40,
+                                        color: colorScheme.primary.withValues(alpha: 0.2),
+                                        child: Icon(Icons.music_note_rounded, color: colorScheme.primary, size: 20),
+                                      ),
                                     ),
                                   ),
                                   const SizedBox(width: 12),

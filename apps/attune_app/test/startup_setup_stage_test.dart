@@ -81,5 +81,49 @@ void main() {
       await tester.pumpAndSettle();
       expect(completed, isTrue);
     });
+
+    testWidgets('Step 3 renders Pre-Index & Audio Profiling and triggers Index & Profile Library Now',
+        (WidgetTester tester) async {
+      tester.view.physicalSize = const Size(1200, 2000);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(() {
+        tester.view.resetPhysicalSize();
+        tester.view.resetDevicePixelRatio();
+      });
+
+      bool completed = false;
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: StartupSetupStage(
+            onSetupComplete: () => completed = true,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      // Navigate to Step 2 (Engine / Profiling)
+      await tester.tap(find.text('Continue to Notifications'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Continue to Engine'));
+      await tester.pumpAndSettle();
+
+      // Verify Pre-Index & Audio Profiling card is present
+      expect(find.text('Pre-Index & Audio Profiling'), findsOneWidget);
+      expect(find.text('Index & Profile Library Now'), findsOneWidget);
+
+      // Tap Index & Profile Library Now
+      await tester.tap(find.text('Index & Profile Library Now'));
+      await tester.pumpAndSettle();
+
+      // Shows completed indexing state
+      expect(find.text('Library Successfully Indexed & Profiled'), findsOneWidget);
+
+      // Tap Finish & Enter Attune
+      await tester.tap(find.text('Finish & Enter Attune'));
+      await tester.pumpAndSettle();
+
+      expect(completed, isTrue);
+    });
   });
 }

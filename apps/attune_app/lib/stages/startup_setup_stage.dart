@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import '../models/track_item.dart';
 import '../services/audio_storage_service.dart';
 import '../services/permission_service.dart';
 import '../services/playback_controller.dart';
@@ -29,6 +30,17 @@ class _StartupSetupStageState extends State<StartupSetupStage> {
   bool _notificationGranted = false;
   bool _wakelockGranted = false;
   final TextEditingController _customDirController = TextEditingController();
+
+  bool _isIndexing = false;
+  bool _isIndexed = false;
+  double _indexingProgress = 0.0;
+  String _indexingStatus = 'Ready to index & profile library';
+  int _indexedCount = 0;
+  int _totalToProfile = 0;
+  int _discoveredCount = 0;
+  int _losslessCount = 0;
+  String? _currentProfilingTitle;
+  bool _cancelRequested = false;
 
   @override
   void initState() {
@@ -75,6 +87,63 @@ class _StartupSetupStageState extends State<StartupSetupStage> {
     super.dispose();
   }
 
+  Future<void> _startIndexingAndProfiling() async {
+    if (_isIndexing || _isIndexed) return;
+    setState(() {
+      _isIndexing = true;
+      _cancelRequested = false;
+      _indexingProgress = 0.05;
+      _indexingStatus = 'Scanning audio directories...';
+    });
+
+    try {
+      if (!kIsWeb && Platform.isAndroid) {
+        await PlatformPermissionService.instance.requestStorage();
+      }
+
+      await PlaybackController.instance.indexAndProfileLibrary(
+        selectedRoots: _selectedRoots.toList(),
+        onProgress: ({
+          required String status,
+          required int processed,
+          required int total,
+          required double progress,
+          TrackItem? currentTrack,
+          int? discoveredCount,
+          int? losslessCount,
+        }) {
+          if (!mounted) return;
+          setState(() {
+            _indexingStatus = status;
+            _indexedCount = processed;
+            _totalToProfile = total;
+            _indexingProgress = progress;
+            if (discoveredCount != null) _discoveredCount = discoveredCount;
+            if (losslessCount != null) _losslessCount = losslessCount;
+            if (currentTrack != null) {
+              _currentProfilingTitle = '${currentTrack.title} — ${currentTrack.artist}';
+            }
+          });
+        },
+        isCancelled: () => _cancelRequested,
+      );
+
+      if (mounted) {
+        setState(() {
+          _isIndexed = true;
+          _isIndexing = false;
+        });
+      }
+    } catch (e) {
+      debugPrint('[StartupSetupStage] Error during indexing: $e');
+      if (mounted) {
+        setState(() {
+          _isIndexing = false;
+        });
+      }
+    }
+  }
+
   Future<void> _completeSetup() async {
     setState(() => _isIngesting = true);
 
@@ -86,8 +155,10 @@ class _StartupSetupStageState extends State<StartupSetupStage> {
       // 1. Mark setup as completed in config
       AudioStorageService.instance.setSetupCompleted(true, selectedRoots: _selectedRoots.toList());
 
-      // 2. Trigger initial library scan
-      await PlaybackController.instance.scanLocalAudioDirectories(forceRefresh: true);
+      // 2. Trigger initial library scan or complete profiling if not yet done
+      if (!_isIndexed && !_isIndexing) {
+        await _startIndexingAndProfiling();
+      }
     } finally {
       if (mounted) {
         setState(() => _isIngesting = false);
@@ -674,6 +745,144 @@ class _StartupSetupStageState extends State<StartupSetupStage> {
               ],
             ),
           ),
+
+        const SizedBox(height: 14),
+
+        // Music Library Indexing & Profiling Card
+        Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: _isIndexed
+                ? const Color(0xFF10B981).withValues(alpha: 0.12)
+                : colorScheme.primary.withValues(alpha: 0.08),
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(
+              color: _isIndexed
+                  ? const Color(0xFF10B981).withValues(alpha: 0.4)
+                  : colorScheme.primary.withValues(alpha: 0.25),
+            ),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Icon(
+                    _isIndexed
+                        ? Icons.check_circle_rounded
+                        : _isIndexing
+                            ? Icons.auto_awesome_rounded
+                            : Icons.library_music_rounded,
+                    color: _isIndexed ? const Color(0xFF10B981) : colorScheme.primary,
+                    size: 20,
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      _isIndexed
+                          ? 'Library Successfully Indexed & Profiled'
+                          : _isIndexing
+                              ? 'Indexing & Profiling Library...'
+                              : 'Pre-Index & Audio Profiling',
+                      style: AttuneTypography.soraSubheading(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                        color: colorScheme.onSurface,
+                      ),
+                    ),
+                  ),
+                  if (_isIndexing)
+                    TextButton(
+                      style: TextButton.styleFrom(
+                        visualDensity: VisualDensity.compact,
+                        foregroundColor: Colors.white70,
+                      ),
+                      onPressed: () => setState(() => _cancelRequested = true),
+                      child: const Text('Skip Profiling'),
+                    ),
+                ],
+              ),
+              const SizedBox(height: 6),
+              Text(
+                _isIndexed
+                    ? 'All audio cue points, BPMs, and keys are pre-calculated and cached on disk. Zero loading overhead and zero background stutters upon launch.'
+                    : _isIndexing
+                        ? _indexingStatus
+                        : 'Indexes selected folders, extracts metadata, and pre-profiles BPM, musical keys, and cue points now to eliminate loading delays during playback.',
+                style: AttuneTypography.jakartaBody(
+                  fontSize: 11,
+                  color: colorScheme.onSurface.withValues(alpha: 0.7),
+                ),
+              ),
+              if (_isIndexing) ...[
+                const SizedBox(height: 12),
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(8),
+                  child: LinearProgressIndicator(
+                    value: _indexingProgress.clamp(0.0, 1.0),
+                    minHeight: 6,
+                    backgroundColor: Colors.white12,
+                    valueColor: AlwaysStoppedAnimation<Color>(colorScheme.primary),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(
+                      '${(_indexingProgress * 100).toInt()}% • $_indexedCount / $_totalToProfile tracks',
+                      style: AttuneTypography.soraSubheading(
+                        fontSize: 11,
+                        color: colorScheme.primary,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    if (_discoveredCount > 0)
+                      Text(
+                        'Found: $_discoveredCount • Lossless: $_losslessCount',
+                        style: AttuneTypography.jakartaBodySmall(
+                          fontSize: 10,
+                          color: colorScheme.onSurface.withValues(alpha: 0.6),
+                        ),
+                      ),
+                  ],
+                ),
+                if (_currentProfilingTitle != null) ...[
+                  const SizedBox(height: 4),
+                  Text(
+                    _currentProfilingTitle!,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: AttuneTypography.jakartaBodySmall(
+                      fontSize: 10,
+                      color: colorScheme.onSurface.withValues(alpha: 0.5),
+                    ),
+                  ),
+                ],
+              ] else if (!_isIndexed) ...[
+                const SizedBox(height: 12),
+                SizedBox(
+                  width: double.infinity,
+                  child: FilledButton.tonalIcon(
+                    style: FilledButton.styleFrom(
+                      backgroundColor: colorScheme.primary.withValues(alpha: 0.15),
+                      foregroundColor: colorScheme.primary,
+                      padding: const EdgeInsets.symmetric(vertical: 10),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    ),
+                    onPressed: _startIndexingAndProfiling,
+                    icon: const Icon(Icons.speed_rounded, size: 18),
+                    label: Text(
+                      'Index & Profile Library Now',
+                      style: AttuneTypography.soraSubheading(fontSize: 12, fontWeight: FontWeight.w600),
+                    ),
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ),
 
         const SizedBox(height: 24),
 

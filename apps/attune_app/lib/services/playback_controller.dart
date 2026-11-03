@@ -623,6 +623,124 @@ class PlaybackController extends ChangeNotifier {
     }
   }
 
+  /// Indexes and profiles the music library upfront during setup or manual re-index.
+  /// Moves heavy DSP profiling and CQT/BPM extraction to setup time to eliminate
+  /// background loading overhead, CPU competition, and playback stuttering.
+  Future<void> indexAndProfileLibrary({
+    List<String>? selectedRoots,
+    void Function({
+      required String status,
+      required int processed,
+      required int total,
+      required double progress,
+      TrackItem? currentTrack,
+      int? discoveredCount,
+      int? losslessCount,
+    })? onProgress,
+    bool Function()? isCancelled,
+  }) async {
+    _isScanning = true;
+    notifyListeners();
+
+    try {
+      onProgress?.call(
+        status: 'Scanning directories for audio files...',
+        processed: 0,
+        total: 0,
+        progress: 0.05,
+      );
+
+      final allowed = selectedRoots ?? SettingsService.instance.allowedDirectories.toList();
+      final scannedTracks = await AudioStorageService.instance.scanLibrary(
+        forceRefresh: true,
+        additionalRoots: allowed.isNotEmpty ? allowed : null,
+      );
+
+      _rawScannedTracks.clear();
+      _rawScannedTracks.addAll(scannedTracks);
+      applyLibraryFilters(populateQueue: false);
+
+      final losslessCount = _libraryTracks.where((t) => t.isLossless).length;
+      final discoveredCount = _libraryTracks.length;
+
+      if (_libraryTracks.isEmpty) {
+        onProgress?.call(
+          status: 'No audio files found in selected directories.',
+          processed: 0,
+          total: 0,
+          progress: 1.0,
+          discoveredCount: 0,
+          losslessCount: 0,
+        );
+        return;
+      }
+
+      final toProfile = _libraryTracks
+          .where((t) => !t.hasBpm || t.musicalKey == 'Pending Profile' || t.tapProfile == null)
+          .toList();
+
+      if (toProfile.isEmpty || Platform.environment.containsKey('FLUTTER_TEST')) {
+        AudioStorageService.instance.saveCachedTracks(_libraryTracks, immediate: true);
+        onProgress?.call(
+          status: 'All $discoveredCount tracks indexed with audio profiles!',
+          processed: discoveredCount,
+          total: discoveredCount,
+          progress: 1.0,
+          discoveredCount: discoveredCount,
+          losslessCount: losslessCount,
+        );
+        return;
+      }
+
+      onProgress?.call(
+        status: 'Starting audio profiling for ${toProfile.length} tracks...',
+        processed: 0,
+        total: toProfile.length,
+        progress: 0.1,
+        discoveredCount: discoveredCount,
+        losslessCount: losslessCount,
+      );
+
+      for (int i = 0; i < toProfile.length; i++) {
+        if (isCancelled?.call() == true) {
+          debugPrint('[PlaybackController] Indexing & profiling cancelled by user. Saving partial cache.');
+          break;
+        }
+
+        final track = toProfile[i];
+        final progress = 0.1 + 0.85 * ((i + 1) / toProfile.length);
+
+        onProgress?.call(
+          status: 'Profiling: ${track.title}',
+          processed: i + 1,
+          total: toProfile.length,
+          progress: progress,
+          currentTrack: track,
+          discoveredCount: discoveredCount,
+          losslessCount: losslessCount,
+        );
+
+        await profileTrackAsync(track, saveImmediately: false);
+      }
+
+      AudioStorageService.instance.saveCachedTracks(_libraryTracks, immediate: true);
+
+      onProgress?.call(
+        status: 'Library indexing & profiling complete ($discoveredCount tracks)!',
+        processed: toProfile.length,
+        total: toProfile.length,
+        progress: 1.0,
+        discoveredCount: discoveredCount,
+        losslessCount: losslessCount,
+      );
+    } catch (e) {
+      debugPrint('[PlaybackController] Error during indexAndProfileLibrary: $e');
+    } finally {
+      _isScanning = false;
+      notifyListeners();
+    }
+  }
+
   bool _isBackgroundProfiling = false;
 
   /// Low-priority background idle profiler scanning unprobed library tracks progressively (Mandate 3).
