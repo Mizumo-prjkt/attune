@@ -13,17 +13,59 @@ use std::sync::mpsc::Receiver;
 
 use eframe::egui::{self, Color32};
 
+use crate::components::glass::render_audio_quality_badge;
+use crate::components::lyrics_parser::{self, LyricsSheet};
 use crate::config::{self, MusicDirSource};
 use crate::library::{self, fmt_ms, ScanEvent, TrackEntry};
 use crate::master_fx_ui::MasterFxUi;
 use crate::player::{LoadState, Player};
 use crate::smart_shuffle::{self, CandidateEvaluation, ShuffleMode, SmartShuffleHistory};
+use crate::stages::about::AboutStage;
+use crate::stages::albums::AlbumsStage;
+use crate::stages::bubblegrid::BubblegridStage;
+use crate::stages::lyrics::LyricsStage;
+use crate::stages::now_playing::{NowPlayingSkin, NowPlayingStage};
+use crate::theme::DynamicPalette;
 
 const STORAGE_KEY_MUSIC_DIR: &str = "attune.music_dir";
 const STORAGE_KEY_VOLUME_DB: &str = "attune.volume_db";
 const STORAGE_KEY_SHUFFLE: &str = "attune.shuffle_mode";
 const STORAGE_KEY_REPEAT: &str = "attune.repeat_mode";
+const STORAGE_KEY_STAGE: &str = "attune.stage_view";
+const STORAGE_KEY_NOW_PLAYING_SKIN: &str = "attune.now_playing_skin";
 const VOLUME_DB_RANGE: std::ops::RangeInclusive<f32> = -40.0..=0.0;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum StageView {
+    NowPlaying,
+    Library,
+    Albums,
+    Lyrics,
+    Bubblegrid,
+    About,
+}
+
+impl StageView {
+    pub const ALL: [StageView; 6] = [
+        StageView::NowPlaying,
+        StageView::Library,
+        StageView::Albums,
+        StageView::Lyrics,
+        StageView::Bubblegrid,
+        StageView::About,
+    ];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            StageView::NowPlaying => "▶ Now Playing",
+            StageView::Library => "♫ Library",
+            StageView::Albums => "💿 Albums",
+            StageView::Lyrics => "💬 Lyrics",
+            StageView::Bubblegrid => "🫧 Bubblegrid",
+            StageView::About => "ℹ About",
+        }
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 enum RepeatMode {
@@ -74,6 +116,16 @@ pub struct AttuneApp {
     was_in_transition: bool,
     // Master FX DSP Rack
     master_fx_ui: MasterFxUi,
+    // Stages & Liquid Glass UI
+    current_stage: StageView,
+    now_playing_stage: NowPlayingStage,
+    albums_stage: AlbumsStage,
+    lyrics_stage: LyricsStage,
+    bubblegrid_stage: BubblegridStage,
+    current_lyrics: LyricsSheet,
+    dynamic_palette: DynamicPalette,
+    animation_time: f32,
+    show_queue_panel: bool,
 }
 
 impl AttuneApp {
@@ -100,9 +152,21 @@ impl AttuneApp {
             .and_then(|s| eframe::get_value::<RepeatMode>(s, STORAGE_KEY_REPEAT))
             .unwrap_or(RepeatMode::Off);
 
+        let current_stage = cc
+            .storage
+            .and_then(|s| eframe::get_value::<StageView>(s, STORAGE_KEY_STAGE))
+            .unwrap_or(StageView::NowPlaying);
+        let now_playing_skin = cc
+            .storage
+            .and_then(|s| eframe::get_value::<NowPlayingSkin>(s, STORAGE_KEY_NOW_PLAYING_SKIN))
+            .unwrap_or(NowPlayingSkin::LiquidGlass);
+
         let (music_dir, music_dir_source) = config::resolve_music_dir(persisted_dir);
         let player = Player::new();
         player.set_gain_db(volume_db);
+
+        let mut now_playing_stage = NowPlayingStage::new();
+        now_playing_stage.skin = now_playing_skin;
 
         let mut app = Self {
             player,
@@ -126,6 +190,15 @@ impl AttuneApp {
             show_verdict_modal: false,
             was_in_transition: false,
             master_fx_ui: MasterFxUi::new(),
+            current_stage,
+            now_playing_stage,
+            albums_stage: AlbumsStage::new(),
+            lyrics_stage: LyricsStage::new(),
+            bubblegrid_stage: BubblegridStage::new(),
+            current_lyrics: LyricsSheet::empty(),
+            dynamic_palette: DynamicPalette::default(),
+            animation_time: 0.0,
+            show_queue_panel: true,
         };
         app.start_scan(&cc.egui_ctx);
         app
@@ -226,6 +299,21 @@ impl AttuneApp {
         self.prep_transition_started = false;
         self.was_in_transition = false;
         self.smart_history.record_played(track.path.clone());
+
+        // Dynamic Palette Extraction
+        if let Some(art) = &track.artwork_path {
+            if let Some(pal) = DynamicPalette::from_image(art) {
+                self.dynamic_palette = pal;
+            }
+        }
+
+        // Companion Lyrics Resolution
+        self.current_lyrics = lyrics_parser::resolve_companion_lyrics(&track.path)
+            .unwrap_or_else(LyricsSheet::empty);
+
+        // Update Now Playing animations and shape
+        self.now_playing_stage.on_track_changed(track);
+
         self.player.play_file(track.path.clone(), ctx.clone());
     }
 
@@ -448,6 +536,11 @@ impl AttuneApp {
                     self.master_fx_ui.is_open = !self.master_fx_ui.is_open;
                 }
 
+                let q_btn = ui.selectable_label(self.show_queue_panel, "☰ Queue");
+                if q_btn.clicked() {
+                    self.show_queue_panel = !self.show_queue_panel;
+                }
+
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     let resp = ui.add(
                         egui::TextEdit::singleline(&mut self.search)
@@ -474,6 +567,9 @@ impl AttuneApp {
     }
 
     fn queue_panel(&mut self, ctx: &egui::Context) {
+        if !self.show_queue_panel {
+            return;
+        }
         let is_smart = self.shuffle == ShuffleMode::Smart;
 
         egui::SidePanel::right("queue_panel")
@@ -567,7 +663,7 @@ impl AttuneApp {
             });
     }
 
-    fn transport_bar(&mut self, ctx: &egui::Context) {
+    fn transport_bar(&mut self, ctx: &egui::Context) -> (u64, u64, bool) {
         let snap = self.player.snapshot();
         let (position_ms, duration_ms, is_playing, finished, sample_rate, underruns, clippings, peak, active_trans) =
             match &snap {
@@ -670,6 +766,7 @@ impl AttuneApp {
                         Some(t) => {
                             ui.add(egui::Label::new(egui::RichText::new(&t.title).strong().size(15.0)).truncate());
                             ui.add(egui::Label::new(egui::RichText::new(&t.artist).weak()).truncate());
+                            render_audio_quality_badge(ui, &t.format, t.sample_rate);
                             let mut meta = vec![t.format.clone()];
                             if t.sample_rate > 0 {
                                 meta.push(format!("{:.1} kHz", t.sample_rate as f32 / 1000.0));
@@ -797,105 +894,231 @@ impl AttuneApp {
         if is_playing || matches!(load_state, LoadState::Decoding(_)) || has_active_trans {
             ctx.request_repaint_after(std::time::Duration::from_millis(80));
         }
+
+        (position_ms, duration_ms, is_playing)
     }
 
-    fn library_panel(&mut self, ctx: &egui::Context) {
-        egui::CentralPanel::default().show(ctx, |ui| {
-            ui.horizontal(|ui| {
-                ui.strong("Library");
-                ui.label(egui::RichText::new(format!("{} tracks", self.tracks.len())).weak());
-                if self.scan_rx.is_some() {
-                    ui.spinner();
-                    ui.label(format!("Scanning {}/{}", self.tracks.len(), self.scan_expected));
+    fn nav_rail(&mut self, ctx: &egui::Context) {
+        egui::SidePanel::left("nav_rail")
+            .resizable(false)
+            .exact_width(176.0)
+            .show(ctx, |ui| {
+                ui.add_space(8.0);
+                ui.horizontal(|ui| {
+                    ui.heading(egui::RichText::new("✦ Attune").strong().color(crate::theme::ACCENT));
+                });
+                ui.label(egui::RichText::new(format!("Desktop v{}", config::app_version())).weak().small());
+
+                ui.add_space(14.0);
+
+                for stage in StageView::ALL {
+                    let is_selected = self.current_stage == stage;
+                    let text = egui::RichText::new(stage.label()).size(14.0);
+                    let text = if is_selected {
+                        text.color(crate::theme::ACCENT).strong()
+                    } else {
+                        text.color(Color32::from_white_alpha(190))
+                    };
+
+                    let btn = egui::Button::new(text)
+                        .min_size(egui::vec2(ui.available_width(), 34.0))
+                        .fill(if is_selected {
+                            Color32::from_rgba_premultiplied(0x14, 0x30, 0x2A, 200)
+                        } else {
+                            Color32::TRANSPARENT
+                        });
+
+                    if ui.add(btn).clicked() {
+                        self.current_stage = stage;
+                    }
+                    ui.add_space(3.0);
+                }
+
+                ui.add_space(16.0);
+                ui.separator();
+                ui.add_space(10.0);
+
+                // Quick toggles in rail
+                let fx_label = if self.master_fx_ui.params.enabled { "🎛 Equalizer (ON)" } else { "🎛 Equalizer" };
+                if ui.button(egui::RichText::new(fx_label).size(13.0)).clicked() {
+                    self.master_fx_ui.is_open = !self.master_fx_ui.is_open;
+                }
+
+                ui.add_space(4.0);
+                let q_label = if self.show_queue_panel { "☰ Hide Queue" } else { "☰ Show Queue" };
+                if ui.button(egui::RichText::new(q_label).size(13.0)).clicked() {
+                    self.show_queue_panel = !self.show_queue_panel;
                 }
             });
+    }
 
-            if let Some(msg) = &self.status {
-                ui.label(egui::RichText::new(msg).weak());
-            }
-            if self.music_dir.is_none() && ui.button("Choose Music Folder…").clicked() {
-                self.pick_music_dir(ctx);
-            }
-            ui.separator();
+    fn central_stage(
+        &mut self,
+        ctx: &egui::Context,
+        position_ms: u64,
+        duration_ms: u64,
+        is_playing: bool,
+    ) {
+        egui::CentralPanel::default().show(ctx, |ui| {
+            // Living Ambient Mesh Background
+            let rect = ui.max_rect();
+            crate::theme::paint_living_ambient_mesh(ui, rect, &self.dynamic_palette, self.animation_time);
 
-            let q = self.search.trim().to_lowercase();
-            let filtered: Vec<usize> = (0..self.tracks.len()).filter(|&i| self.tracks[i].matches(&q)).collect();
-            let current_idx = self.current_track_idx();
+            match self.current_stage {
+                StageView::NowPlaying => {
+                    let cur_track = self.current_track().cloned();
+                    self.now_playing_stage.show(
+                        ui,
+                        cur_track.as_ref(),
+                        &self.player,
+                        &self.current_lyrics,
+                        position_ms,
+                        duration_ms,
+                        is_playing,
+                    );
+                }
+                StageView::Library => {
+                    self.library_content(ui, ctx);
+                }
+                StageView::Albums => {
+                    let mut play_track = None;
+                    let mut play_album = None;
+                    let mut enqueue_album = None;
 
-            let mut play_now = None;
-            let mut play_next = None;
-            let mut enqueue = None;
-            let row_height = 24.0;
+                    self.albums_stage.show(
+                        ui,
+                        &mut self.tracks,
+                        &mut |idx| play_track = Some(idx),
+                        &mut |indices| play_album = Some(indices.to_vec()),
+                        &mut |indices| enqueue_album = Some(indices.to_vec()),
+                    );
 
-            egui::ScrollArea::vertical().auto_shrink([false, false]).show_rows(
-                ui,
-                row_height,
-                filtered.len(),
-                |ui, range| {
-                    for &idx in &filtered[range] {
-                        let t = &self.tracks[idx];
-                        ui.horizontal(|ui| {
-                            ui.set_height(row_height);
-
-                            // Queue buttons
-                            if ui.small_button("+").on_hover_text("Add to queue").clicked() {
-                                enqueue = Some(idx);
-                            }
-                            if ui.small_button("↳").on_hover_text("Play next").clicked() {
-                                play_next = Some(idx);
-                            }
-
-                            let title = egui::RichText::new(&t.title);
-                            let title = if current_idx == Some(idx) {
-                                title.color(crate::theme::ACCENT).strong()
-                            } else {
-                                title
-                            };
-
-                            let left = egui::Layout::left_to_right(egui::Align::Center);
-                            let title_w = ui.available_width() * 0.44;
-                            let resp = ui
-                                .allocate_ui_with_layout(egui::vec2(title_w, row_height), left, |ui| {
-                                    ui.set_width(title_w);
-                                    ui.add(egui::Label::new(title).truncate().sense(egui::Sense::click()))
-                                })
-                                .inner;
-
-                            let resp = resp.on_hover_text(t.detail_line());
-                            if resp.double_clicked() {
-                                play_now = Some(idx);
-                            }
-
-                            let artist_w = ui.available_width() * 0.58;
-                            ui.allocate_ui_with_layout(egui::vec2(artist_w, row_height), left, |ui| {
-                                ui.set_width(artist_w);
-                                ui.add(egui::Label::new(egui::RichText::new(&t.artist).weak()).truncate());
-                            });
-
-                            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                                ui.label(egui::RichText::new(fmt_ms(t.duration_ms)).monospace().weak());
-                                if let Some(key) = &t.key {
-                                    ui.label(egui::RichText::new(key).small().weak());
-                                }
-                                if let Some(bpm) = t.bpm {
-                                    ui.label(egui::RichText::new(format!("{bpm:.0}")).small().weak());
-                                }
-                            });
-                        });
+                    if let Some(idx) = play_track {
+                        self.play_track_now(idx, ctx);
                     }
-                },
-            );
-
-            if let Some(idx) = play_now {
-                self.play_track_now(idx, ctx);
-            }
-            if let Some(idx) = play_next {
-                self.play_track_next(idx);
-            }
-            if let Some(idx) = enqueue {
-                self.enqueue(idx);
+                    if let Some(indices) = play_album {
+                        if !indices.is_empty() {
+                            self.queue.clear();
+                            self.queue.extend_from_slice(&indices);
+                            self.play_queue_pos(0, ctx);
+                        }
+                    }
+                    if let Some(indices) = enqueue_album {
+                        self.queue.extend_from_slice(&indices);
+                    }
+                }
+                StageView::Lyrics => {
+                    self.lyrics_stage.show(ui, &self.current_lyrics, position_ms);
+                }
+                StageView::Bubblegrid => {
+                    let mut play_track = None;
+                    self.bubblegrid_stage.show(ui, &self.tracks, &mut |idx| play_track = Some(idx));
+                    if let Some(idx) = play_track {
+                        self.play_track_now(idx, ctx);
+                    }
+                }
+                StageView::About => {
+                    AboutStage::show(ui);
+                }
             }
         });
+    }
+
+    fn library_content(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
+        ui.horizontal(|ui| {
+            ui.heading(egui::RichText::new("Music Library").strong().color(crate::theme::ACCENT));
+            ui.label(egui::RichText::new(format!("{} tracks", self.tracks.len())).weak());
+            if self.scan_rx.is_some() {
+                ui.spinner();
+                ui.label(format!("Scanning {}/{}", self.tracks.len(), self.scan_expected));
+            }
+        });
+
+        if let Some(msg) = &self.status {
+            ui.label(egui::RichText::new(msg).weak());
+        }
+        if self.music_dir.is_none() && ui.button("Choose Music Folder…").clicked() {
+            self.pick_music_dir(ctx);
+        }
+        ui.separator();
+
+        let q = self.search.trim().to_lowercase();
+        let filtered: Vec<usize> = (0..self.tracks.len()).filter(|&i| self.tracks[i].matches(&q)).collect();
+        let current_idx = self.current_track_idx();
+
+        let mut play_now = None;
+        let mut play_next = None;
+        let mut enqueue = None;
+        let row_height = 26.0;
+
+        egui::ScrollArea::vertical().auto_shrink([false, false]).show_rows(
+            ui,
+            row_height,
+            filtered.len(),
+            |ui, range| {
+                for &idx in &filtered[range] {
+                    let t = &self.tracks[idx];
+                    ui.horizontal(|ui| {
+                        ui.set_height(row_height);
+
+                        // Queue buttons
+                        if ui.small_button("+").on_hover_text("Add to queue").clicked() {
+                            enqueue = Some(idx);
+                        }
+                        if ui.small_button("↳").on_hover_text("Play next").clicked() {
+                            play_next = Some(idx);
+                        }
+
+                        let title = egui::RichText::new(&t.title);
+                        let title = if current_idx == Some(idx) {
+                            title.color(crate::theme::ACCENT).strong()
+                        } else {
+                            title
+                        };
+
+                        let left = egui::Layout::left_to_right(egui::Align::Center);
+                        let title_w = ui.available_width() * 0.44;
+                        let resp = ui
+                            .allocate_ui_with_layout(egui::vec2(title_w, row_height), left, |ui| {
+                                ui.set_width(title_w);
+                                ui.add(egui::Label::new(title).truncate().sense(egui::Sense::click()))
+                            })
+                            .inner;
+
+                        let resp = resp.on_hover_text(t.detail_line());
+                        if resp.double_clicked() {
+                            play_now = Some(idx);
+                        }
+
+                        let artist_w = ui.available_width() * 0.58;
+                        ui.allocate_ui_with_layout(egui::vec2(artist_w, row_height), left, |ui| {
+                            ui.set_width(artist_w);
+                            ui.add(egui::Label::new(egui::RichText::new(&t.artist).weak()).truncate());
+                        });
+
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            ui.label(egui::RichText::new(fmt_ms(t.duration_ms)).monospace().weak());
+                            if let Some(key) = &t.key {
+                                ui.label(egui::RichText::new(key).small().weak());
+                            }
+                            if let Some(bpm) = t.bpm {
+                                ui.label(egui::RichText::new(format!("{bpm:.0}")).small().weak());
+                            }
+                        });
+                    });
+                }
+            },
+        );
+
+        if let Some(idx) = play_now {
+            self.play_track_now(idx, ctx);
+        }
+        if let Some(idx) = play_next {
+            self.play_track_next(idx);
+        }
+        if let Some(idx) = enqueue {
+            self.enqueue(idx);
+        }
     }
 
     fn verdict_modal(&mut self, ctx: &egui::Context) {
@@ -962,13 +1185,19 @@ impl AttuneApp {
 
 impl eframe::App for AttuneApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        let dt = ctx.input(|i| i.stable_dt).min(0.1);
+        self.animation_time += dt;
+        self.now_playing_stage.update_animations(dt);
+
         self.drain_scan();
         self.handle_dropped_files(ctx);
         self.handle_shortcuts(ctx);
+
         self.top_bar(ctx);
-        self.transport_bar(ctx);
+        let (position_ms, duration_ms, is_playing) = self.transport_bar(ctx);
+        self.nav_rail(ctx);
         self.queue_panel(ctx);
-        self.library_panel(ctx);
+        self.central_stage(ctx, position_ms, duration_ms, is_playing);
 
         // Sub-modals
         let player = &self.player;
@@ -987,5 +1216,7 @@ impl eframe::App for AttuneApp {
         eframe::set_value(storage, STORAGE_KEY_VOLUME_DB, &self.volume_db);
         eframe::set_value(storage, STORAGE_KEY_SHUFFLE, &self.shuffle);
         eframe::set_value(storage, STORAGE_KEY_REPEAT, &self.repeat);
+        eframe::set_value(storage, STORAGE_KEY_STAGE, &self.current_stage);
+        eframe::set_value(storage, STORAGE_KEY_NOW_PLAYING_SKIN, &self.now_playing_stage.skin);
     }
 }

@@ -996,3 +996,25 @@ These four benchmark scenarios define the "Gold Standard" transitions that Attun
   6. **Telemetry**: Confirmed real-time reporting of peak amplitude (-dBFS), buffer underruns, and clipping counts.
   7. **All Tests**: All 10 `attune-desktop` tests, 20 `attune-core` tests, 9 `attune-music-metadata-changer` tests, and 5 `attune-watchguard` tests pass cleanly. `flutter analyze` reports 0 issues.
 - **Verdict**: `PASS`. `crates/attune-desktop` is in a fully usable state for Linux and Windows.
+
+### Experiment #034: egui Desktop UI Concepts Porting — Navigation Rail, 3 Now Playing Skins, Synchronized Lyrics, Albums & Metadata/Splash Art Editor, Bubblegrid
+- **Date**: 2026-11-04
+- **Setup**: Linux (KDE Plasma, Wayland), ALSA 48 kHz output, release binary `./target/release/attune-desktop`, 159-track test library (`~/Music`).
+- **Observations**:
+  1. **Album & Group Editor (`AlbumEditorStage`)**: Tested visual parity with reference designs. Form rendered with high-contrast Liquid Glass cards:
+     - `ALBUM METADATA`: Tested primary artist comma separation splitting (`"DECO*27, PinocchioP"` auto-split into primary `"DECO*27"` and contributing tag `"PinocchioP"`). Tested `+ Add` button and chip removal.
+     - `ONLINE QUERY & CATALOG IDENTIFIERS`: Validated text fields and `Album Release Type` dropdown (`Studio Album`, `Single`, etc.).
+     - `ALBUM SPLASH ART`: Custom splash art path field with native `rfd` file picker, validation badges (`[✓ Valid Local Image File]`), and `Quick-Select Cover from Tracks in Album` thumbnail selector with glowing cyan border (`#2DD4BF`).
+     - `TRACKS IN ALBUM`: Group track listing with remove track action and library song picker modal.
+     - Saving writes ID3v2/Vorbis tags directly via `attune_music_metadata_changer::write_track_metadata` and updates in-memory `TrackEntry` records.
+  2. **Navigation Rail & Multi-Pane Shell**: Verified Left Navigation Rail (`▶ Now Playing`, `♫ Library`, `💿 Albums`, `💬 Lyrics`, `🫧 Bubblegrid`, `🎛 Equalizer`, `ℹ About`) switching stages cleanly in central stage while maintaining persistent transport bar and collapsible right queue panel.
+  3. **Living Ambient Mesh**: Verified dynamic palette extraction from cover art thumbnails (`DynamicPalette::from_image`, < 1 ms on 32x32 thumbnail) and smooth living 3-orb ambient mesh rendering without frame cadence drops.
+  4. **3 Now Playing Skins**:
+     - *Default Liquid Glass*: Hero cover art, specular glass cards, transport controls, and honest audio quality badges.
+     - *Material You Expressive Freeshapes*: Polar harmonic tessellation ($r(\theta, t) = (1-t)r_0(\theta) + t r_1(\theta)$) morphing smoothly across 5 organic archetypes with recency tracking.
+     - *Normal Square Big*: Large square album cover with left-aligned typography and `#FFFDD0` cream white synchronized lyric snippet.
+  5. **Synchronized Lyrics Engine**: Tested millisecond timestamp tracking, active singing line glowing glass highlight, auto-scroll centering, and free-scroll lock toggle.
+  6. **Bubblegrid Honeycomb Navigation**: Concentric hexagonal lattice layout with cosine fisheye magnification lens ($1.45\times \to 0.65\times$) and 2D pan dragging.
+  7. **All Tests**: 15 unit tests in `attune-desktop` passing, 57 workspace tests passing, 0 clippy warnings.
+- **Verdict**: `PASS`. Attune Desktop egui frontend now features full UI concept parity with the Flutter experience.
+

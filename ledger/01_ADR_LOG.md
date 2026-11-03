@@ -2244,3 +2244,49 @@ This file records all major architectural decisions for **Attune**, including co
   - `attune-desktop` is fully usable as a standalone, lightweight, DJ-grade music player on Linux and Windows without any Flutter dependencies.
   - Zero hardcoding compliance (Mandate 4) strictly maintained across paths, fonts, sample rates, and versions.
   - All 44 native Rust tests and all 164 Flutter tests pass cleanly.
+
+---
+
+## ADR-066: Porting UI Concepts to Rust egui Desktop (Liquid Material Glass, Navigation Rail, 3 Now Playing Skins, Synchronized Lyrics, Albums & Dedicated Metadata/Splash Art Editor, Bubblegrid Honeycomb, and About Distribution)
+- **Date**: 2026-11-04
+- **Status**: `LOCKED`
+- **Context**:
+  1. The user requested porting the rich Attune UI concepts from the Flutter codebase to the native Rust egui desktop frontend (`crates/attune-desktop`) as Flutter is phased out on Windows and Linux and kept strictly for Android.
+  2. The user specifically provided visual reference screenshots for the dedicated **Album & Group Editor** screen:
+     - Header: `EDIT ALBUM & GROUP` with album title subtitle and prominent `[✓ Save]` action button.
+     - `ALBUM METADATA`: Album Title, Primary Artist (with automatic comma-separated artist splitting), Contributing / Additional Artists tag chips with `[+ Add]` and individual `[×]` remove, Release Year, and Genre.
+     - `ONLINE QUERY & CATALOG IDENTIFIERS`: Record Label / Publisher, Catalog Number / Barcode, Album Release Type dropdown (`Studio Album`, `Single`, `EP`, `Compilation`, `Live Album`, `Remix Album`, `Soundtrack`, `Other`), Release Date (YYYY-MM-DD), Primary Language, and MusicBrainz Release ID.
+     - `ALBUM SPLASH ART`: Custom splash art absolute path with native `rfd` file picker, image validation status badges (`[✓ Valid Local Image File]`, `[🌐 Online Image URI]`, `[⚠ File does not exist on disk]`), and Quick-Select Cover thumbnail selector from tracks belonging to this album with glowing cyan border (`#2DD4BF`).
+     - `TRACKS IN ALBUM & GROUP MANAGEMENT`: full track listing with song unlinking and `+ Add Songs to Album` library picker modal.
+     - Direct file tag persistence via `attune_music_metadata_changer::write_track_metadata` across FLAC, MP3, and WAV files.
+  3. The desktop shell also required full integration of the core Attune UI concepts:
+     - Left Navigation Rail with responsive stage routing (`▶ Now Playing`, `♫ Library`, `💿 Albums`, `💬 Lyrics`, `🫧 Bubblegrid`, `🎛 Equalizer`, `ℹ About`).
+     - Living Ambient Glass Background Mesh with dynamic palette extraction from active cover art (`DynamicPalette::from_image`).
+     - 3 Now Playing skins: Default Liquid Glass, Material You Expressive Freeshapes (polar harmonic shape morphing $r(\theta, t) = (1-t)r_0(\theta) + t r_1(\theta)$ with recency ring-buffer penalty), and Normal Square Big (square art, left-aligned typography, and `#FFFDD0` cream white timed lyrics snippet).
+     - Synchronized Lyrics Engine with millisecond timestamp parsing, active singing line glowing glass highlight, auto-scroll centering, and free-scroll lock toggle.
+     - Albums & Collections grid with M3 split pill button `[ ▶ Play Album | + Add to Queue ]` and launcher for `Edit Album & Group`.
+     - Bubblegrid Honeycomb navigation with concentric hexagonal lattice, cosine fisheye magnification lens, and 2D momentum pan physics.
+     - About stage disclosing AI pair programming with Google DeepMind Antigravity AI assistant and Obtainium Android auto-updates deep link.
+     - Persistent Bottom Transport Bar with honest audio quality badges (`Very Good Quality Audio`, `Good Quality Audio`, `Proprietary Audio Codec`), scrubber, playback controls, and live transition pill.
+- **Decision**:
+  1. Created `crates/attune-desktop/src/components/`:
+     - `glass.rs`: `AudioQualityCategory` classification, honest quality pill badge renderer (`render_audio_quality_badge`), specular glass card (`liquid_glass_card`).
+     - `freeshape.rs`: Polar harmonic shape generator (`FreeshapeArchetype::ALL`), continuous morphing engine with recency tracking (`FreeshapeRecencyTracker`), and GPU polygon backdrop painter (`paint_freeshape_backdrop`).
+     - `lyrics_parser.rs`: Millisecond timestamp parser for standard LRC tags, `LyricsSheet` container, `active_line_index` lookup, and companion `.lrc`/`.txt` filesystem resolver.
+  2. Created `crates/attune-desktop/src/stages/`:
+     - `now_playing.rs`: 3 Now Playing skins (`LiquidGlass`, `ExpressiveFreeshapes`, `NormalSquareBig` with `#FFFDD0` cream white timed lyrics snippet).
+     - `lyrics.rs`: Full synchronized sheet, auto-scroll with lock toggle, active line glass highlight.
+     - `albums.rs`: Grouping by album/artist, album grid cards, detail view with Google M3 split pill button `[ ▶ Play Album | + Add to Queue ]` and `[ ✏ Edit Album & Group ]` launcher.
+     - `album_editor.rs`: Dedicated Album & Group Editor with Album Metadata (Title, Primary Artist, comma separation splitting, Contributing Artists chips, Year, Genre), Online Query & Catalog Identifiers (Publisher, Barcode, Release Type dropdown, Release Date, Language, MusicBrainz ID), Album Splash Art (Path, file picker, validation badges, Quick-Select cover carousel with cyan border), track management, and tag writing via `attune_music_metadata_changer::write_track_metadata`.
+     - `bubblegrid.rs`: Hexagonal concentric honeycomb lattice with cosine fisheye magnification ($1.45\times \to 0.65\times$), 2D pan dragging, and floating highlight card.
+     - `about.rs`: Author, AI collaboration disclosure, Obtainium card & direct link.
+  3. Integrated all stages into `crates/attune-desktop/src/app.rs`:
+     - `StageView` enum routing central panel stage while preserving the persistent transport bar and collapsible right queue dock.
+     - Dynamic palette extraction from playing track artwork (`DynamicPalette::from_image`).
+     - Living ambient background mesh painted behind central stage (`theme::paint_living_ambient_mesh`).
+     - Companion lyrics resolution on track change into `LyricsSheet`.
+     - Honest audio quality badge rendered in transport bar.
+- **Consequences**:
+  - Complete UI concept parity achieved natively in Rust egui desktop frontend.
+  - Zero hardcoding compliance (Mandate 4) strictly maintained across paths, fonts, sample rates, and versions.
+  - All 15 unit tests in `attune-desktop` and all 57 tests across the entire Rust workspace pass cleanly.
