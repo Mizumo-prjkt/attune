@@ -2633,6 +2633,48 @@ This file records all major architectural decisions for **Attune**, including co
   - All 19 unit tests in `attune-desktop` and 100% of workspace tests (46 tests across 6 crates) pass cleanly.
   - Standalone release binary `target/release/attune-desktop` compiled in 18.9s.
 
+---
+
+## ADR-075: Desktop Streaming Album Stage Layout — Dynamic Color-Extracted Gradient Hero, Large Left Cover Art, 4-Column Track Table, 56px Mint Circular Action Bar & Zero-Hardcoded Duration Formatting
+
+- **Status**: **LOCKED** (Implemented & Verified)
+- **Date**: 2026-11-04
+- **Context**:
+  - The previous album detail view centered artwork inside a constrained 540px container, which was visually disconnected from modern desktop streaming audio player conventions.
+  - The user requested adopting the proven desktop streaming album view layout, featuring a large left-aligned cover image, horizontal metadata alignment, full-width gradient hero header, circular action buttons, and a clean tabular tracklist.
+  - Crucially, all branding names of third-party streaming services must be strictly omitted and never referenced anywhere in code, commits, or documentation.
+- **Decision**:
+  1. **Edge-to-Edge Atmospheric Header Gradient**:
+     - `.album-detail-view` extends across the full content area with negative margins (`margin: -24px -32px 0 -32px; width: calc(100% + 64px)`), eliminating container letterboxing.
+     - Dynamically extracts the dominant vibrant color from the album artwork thumbnail using `DynamicPalette::from_image` to generate a smooth atmospheric top gradient:
+       `linear-gradient(180deg, {hero_color_rgb} 0%, rgba(18, 18, 18, 0.72) 280px, var(--bg-canvas) 460px)`.
+  2. **Top Navigation & Hero Header**:
+     - 34px circular dark translucent back button (`.album-circle-back-btn`) with `chevron_left` icon returning to the album grid.
+     - 232px x 232px square album artwork (`.album-cover-box`) on the left with 4px subtle rounded corners and realistic deep ambient shadow (`0 4px 60px rgba(0, 0, 0, 0.55)`).
+     - Bottom-aligned metadata block (`.album-meta-col`):
+       - Overline: `span.album-meta-type` ("Album").
+       - Clamped high-impact title: `h1.album-meta-title` (clamp(32px, 5.5vw, 68px), font-weight 900, white).
+       - Subline: circular artist avatar (24px), bold artist name, optional extracted release year, track count, and formatted total duration (`format_total_duration`, e.g., "24 min 44 sec").
+  3. **Action Bar**:
+     - 56px mint circular Play button (`.album-big-play-btn`) with hover scaling, shadow elevation, and instant play/pause toggle (`on_toggle_play`).
+     - Subdued icon action buttons (`.album-icon-btn`): shuffle, album-wide favorites toggle, album metadata & artwork editor trigger (`on_edit_album`), and add-all-to-queue (`more_horiz`).
+     - Right-aligned "+ Add Songs" glass pill button.
+  4. **4-Column Tracklist Table**:
+     - Column 1 (`#`): 48px width. Displays track number in muted gray, active `volume_up` indicator in mint when playing, and transforms into a hover play button (`play_arrow`) on row mouseover.
+     - Column 2 (`Title`): Song title in crisp white (or mint if active) and artist name below.
+     - Column 3 (`Audio Profile`): Displays format, sample rate (e.g. `FLAC • 48 kHz`), and optional Camelot key / BPM.
+     - Column 4 (`Duration` & Actions): Row duration with monospace tabular figures, favorite heart button (visible on hover or when active in rose), and `more_horiz` queue addition button.
+     - Double-clicking any row starts immediate playback.
+  5. **Dynamic Album Lore & Liner Notes**:
+     - Displayed cleanly in `.album-detail-footer` below the track table, maintaining audio profile transparency.
+     - Added comprehensive unit test `test_format_total_duration`.
+- **Consequences**:
+  - The album stage delivers a premier, responsive desktop streaming experience matching modern expectations.
+  - Zero hardcoding compliance (Mandate 4) strictly maintained across all duration math and color extraction.
+  - All 20 unit tests in `attune-desktop` and 100% of workspace tests (47 tests across 6 crates) pass cleanly.
+  - Standalone release binary `target/release/attune-desktop` compiles in 22.7s.
+
+
 
 
 

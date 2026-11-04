@@ -1192,6 +1192,28 @@ These four benchmark scenarios define the "Gold Standard" transitions that Attun
      - Standalone release binary `target/release/attune-desktop` compiled in 18.90s with exit code 0.
 - **Verdict**: `PASS`. Desktop iconography is unified, modern, vector-crisp, and 100% offline-ready with zero emoji discrepancies.
 
+### Experiment #043: Desktop Streaming Album Stage Layout — Dynamic Color-Extracted Gradient Hero, Large Left Cover Art, 4-Column Track Table, 56px Mint Circular Action Bar & Zero-Hardcoded Duration Formatting
+- **Date**: 2026-11-04
+- **Setup**: Linux (Wayland, Arch Linux), WebKitGTK / Wry desktop webview, release binary `./target/release/attune-desktop`, 1024x535 window.
+- **Observations & Empirical Verification**:
+  1. **Atmospheric Dynamic Gradient Header**:
+     - Verified `DynamicPalette::from_image` successfully samples dominant color from local album cover thumbnail on disk.
+     - Header renders full-width edge-to-edge gradient (`linear-gradient(180deg, {hero_color} 0%, rgba(18, 18, 18, 0.72) 280px, var(--bg-canvas) 460px)`) without letterbox gaps or card containment artifacts.
+  2. **Hero Typography & Layout**:
+     - Square 232px artwork container with 4px border radius and `0 4px 60px rgba(0, 0, 0, 0.55)` drop shadow cleanly anchored on left.
+     - Bottom-aligned metadata hierarchy: "Album" overline, clamped high-impact album title (clamp(32px, 5.5vw, 68px)), 24px circular artist avatar, artist name, optional extracted release year, track count, and dynamic duration string (`format_total_duration`).
+  3. **Action Bar & Table Interactions**:
+     - 56px mint circular Play button with instant play/pause switching and smooth hover scaling.
+     - Hovering over track table rows reveals `play_arrow` in place of track index; active playing track displays `volume_up` in accent mint (`#2dd4bf`).
+     - Double-clicking track row triggers immediate playback.
+     - Duration, favorite heart toggle, and queue options menu align cleanly with column headers.
+  4. **Verification**:
+     - 20 unit tests in `attune-desktop` passed.
+     - 100% of workspace tests (47 tests across 6 packages) passed cleanly.
+     - Standalone release binary `target/release/attune-desktop` compiled in 22.67s with exit code 0.
+- **Verdict**: `PASS`. Album stage achieves complete fidelity with modern desktop streaming layouts, providing full-width responsiveness, dynamic color extraction, and zero-hardcoded metadata formatting.
+
+
 
 
 

@@ -619,9 +619,19 @@ pub fn App() -> Element {
                                 tracks: tracks.read().clone(),
                                 current_track_path: current_track.read().as_ref().map(|t| t.path.clone()),
                                 is_playing: *is_playing.read(),
+                                favorites: favorites.read().clone(),
                                 on_play_track: move |t| play_track(t),
                                 on_play_tracks: move |list| play_track_list(list),
                                 on_queue_track: move |t| queue.write().push(t),
+                                on_toggle_favorite: move |path: PathBuf| {
+                                    let mut favs = favorites.read().clone();
+                                    if favs.contains(&path) { favs.remove(&path); } else { favs.insert(path); }
+                                    favorites.set(favs);
+                                },
+                                on_toggle_play: move |_| {
+                                    let p = player.read();
+                                    if *is_playing.read() { p.pause(); } else { p.play(); }
+                                },
                                 on_edit_album: move |group| navigate_to(StageView::AlbumEditor(group)),
                             }
                         },
