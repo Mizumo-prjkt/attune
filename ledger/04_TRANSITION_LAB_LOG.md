@@ -1101,6 +1101,27 @@ These four benchmark scenarios define the "Gold Standard" transitions that Attun
      - Release binary `target/release/attune-desktop` compiled cleanly with code 0 in 18.5s.
 - **Verdict**: `PASS`. Memory leak resolved (initial launch <150 MB RSS); process telemetry accurately tracks CPU, GPU, and audio IRQ frequency.
 
+### Experiment #039: Studio-Grade 10-Band Equalizer Refinements — Frequency Response Spline Curve Visualizer, Zero-Overshoot Vertical Sliders Rack, and Human-Understandable Tactile Switch Toggles
+- **Date**: 2026-11-04
+- **Setup**: Linux (Wayland, Arch Linux), WebKitGTK / Wry desktop webview, release binary `./target/release/attune-desktop`, 1024x535 reference window.
+- **Observations & Empirical Verification**:
+  1. **10-Band Slider Overshoot Elimination**:
+     - *Issue*: In 1024px window, Card 2 width was ~700px, but 10 sliders with `width: 110px; transform: rotate(-90deg)` took $10 \times 110\text{px} = 1100\text{px}$ of horizontal DOM layout space, causing 4k, 8k, and 16k to overflow 400px past the card border.
+     - *Fix*: Native vertical inputs (`-webkit-appearance: slider-vertical; appearance: slider-vertical; writing-mode: vertical-lr; direction: rtl; width: 22px; height: 115px;`) with `flex: 1; min-width: 0; box-sizing: border-box; overflow: hidden;`.
+     - *Measurement*: In WebKit2, `scrollWidth` dropped from 1212px down to exactly 612px, matching `clientWidth = 612px` (zero pixels of overflow).
+  2. **Frequency Response Spline Curve Visualizer**:
+     - Rendered dynamic SVG with `viewBox="0 0 1000 120"`, 0 dB reference line ($y = 60$), +12 dB / -12 dB bounds, and 10 vertical guide lines aligned with the center of each slider column.
+     - Implemented `compute_eq_curve_paths` generating a smooth cubic Bezier spline with gradient area fill down to 0 dB and glowing control dots.
+     - Fully reactive: updates at 60 FPS as sliders move; dims with a bypass overlay when Master FX is switched off.
+  3. **Human-Understandable Tactile Switch Toggles**:
+     - Replaced text pill buttons with `.switch-toggle-row`: label, animated sliding track + thumb, and ON/OFF/BYPASSED status indicator across Master FX, Pure Bass+, and Attune Clarity.
+  4. **Verification**:
+     - 18 unit tests in `attune-desktop` passed (including `test_compute_eq_curve_paths_flat`, `test_compute_eq_curve_paths_boost_and_cut`, and `test_preset_application`).
+     - 100% of workspace tests across all crates passed.
+     - Release binary `target/release/attune-desktop` built in 20.3s with exit code 0.
+- **Verdict**: `PASS`. 10 bands fit 100% within the card; frequency response curve visually reflects all gains; Master FX toggle is clear and human-understandable.
+
+
 
 
 

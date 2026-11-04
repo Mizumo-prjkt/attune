@@ -623,3 +623,161 @@ body, html {
 ::-webkit-scrollbar-thumb:hover {
   background: rgba(255, 255, 255, 0.28);
 }
+
+/* Tactile Switch Toggle Component */
+.switch-toggle-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+  user-select: none;
+  padding: 4px 10px;
+  border-radius: 20px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--border-glass);
+  transition: all 0.15s ease;
+}
+
+.switch-toggle-row:hover {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.18);
+}
+
+.switch-label {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  letter-spacing: 0.02em;
+}
+
+.switch-track {
+  position: relative;
+  width: 42px;
+  height: 22px;
+  border-radius: 11px;
+  background: rgba(255, 255, 255, 0.12);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  transition: all 0.22s cubic-bezier(0.4, 0, 0.2, 1);
+  box-sizing: border-box;
+}
+
+.switch-track.active {
+  background: rgba(45, 212, 191, 0.35);
+  border-color: var(--accent-mint);
+  box-shadow: 0 0 10px rgba(45, 212, 191, 0.3);
+}
+
+.switch-thumb {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #a1a1aa;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+  transition: all 0.22s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.switch-track.active .switch-thumb {
+  left: 22px;
+  background: #ffffff;
+  box-shadow: 0 0 6px rgba(45, 212, 191, 0.8), 0 1px 3px rgba(0, 0, 0, 0.4);
+}
+
+.switch-status {
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.switch-status.active {
+  color: var(--accent-mint);
+}
+
+.switch-status.bypassed {
+  color: var(--text-muted);
+}
+
+/* Equalizer Frequency Curve Visualizer */
+.eq-curve-visualizer {
+  width: 100%;
+  height: 125px;
+  position: relative;
+  background: rgba(0, 0, 0, 0.35);
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  margin-bottom: 16px;
+  overflow: hidden;
+  box-sizing: border-box;
+  transition: all 0.2s ease;
+}
+
+/* 10-Band Graphic Equalizer Sliders */
+.eq-sliders-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: stretch;
+  gap: 4px;
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  padding: 14px 6px 12px 6px;
+  background: rgba(0, 0, 0, 0.28);
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.04);
+  overflow: hidden;
+}
+
+.eq-band-col {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: space-between;
+  flex: 1;
+  min-width: 0;
+  height: 175px;
+  box-sizing: border-box;
+}
+
+.eq-band-gain {
+  font-size: 10.5px;
+  font-family: monospace;
+  font-weight: 600;
+  text-align: center;
+  white-space: nowrap;
+}
+
+.eq-slider-well {
+  flex: 1;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  min-width: 0;
+}
+
+.eq-slider-input {
+  -webkit-appearance: slider-vertical;
+  appearance: slider-vertical;
+  writing-mode: vertical-lr;
+  direction: rtl;
+  width: 22px;
+  height: 115px;
+  padding: 0;
+  margin: 0 auto;
+  cursor: pointer;
+  accent-color: var(--accent-mint);
+  background: transparent;
+}
+
+.eq-band-freq {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  text-align: center;
+  white-space: nowrap;
+  margin-top: 4px;
+}

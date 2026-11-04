@@ -2476,5 +2476,39 @@ This file records all major architectural decisions for **Attune**, including co
   - Zero hardcoded values compliance strictly maintained (Mandate 4).
   - All 15 unit tests in `attune-desktop` and 100% of workspace tests pass.
 
+---
+
+## ADR-071: Studio-Grade 10-Band Equalizer Refinements — Frequency Response Spline Curve Visualizer, Zero-Overshoot Vertical Sliders Rack, and Human-Understandable Tactile Switch Toggles
+
+- **Status**: **LOCKED** (Implemented & Verified)
+- **Date**: 2026-11-04
+- **Context**:
+  - User review on `crates/attune-desktop` equalizer stage reported:
+    1. The 10-band equalizer sliders were overshooting outside the card boundary (4k, 8k, 16k overflowed past the right border into the background).
+    2. Lack of visual representation / graph for the 10-band frequency response curve.
+    3. The Master FX button (`[ Master FX: ACTIVE ]`) was unintuitive and needed replacement with a human-understandable switch toggle.
+- **Decision**:
+  1. **Elimination of 10-Band Slider Overshoot**:
+     - *Root Cause*: CSS `transform: rotate(-90deg)` on `<input type="range">` with `width: 110px` preserved its 110px horizontal box model footprint in document flow. Flex layout required $10 \times 110\text{px} = 1100\text{px}$, which exceeded the ~700px card width in 1024px windows and pushed the last 3 bands 400px outside the card.
+     - *Solution*: Replaced transformed layout with native vertical sliders using `-webkit-appearance: slider-vertical; appearance: slider-vertical; writing-mode: vertical-lr; direction: rtl; width: 22px; height: 115px;`. Added `flex: 1; min-width: 0; box-sizing: border-box; overflow: hidden;` across columns and rack container.
+     - *Empirical Verification*: WebKit2 DOM metrics confirmed `scrollWidth == clientWidth == 612px` (reduced from 1212px scroll width down to 612px, zero pixels of overflow).
+  2. **Frequency Response Spline Curve Visualizer (`compute_eq_curve_paths`)**:
+     - Engineered SVG frequency curve with `viewBox="0 0 1000 120"`:
+       - 0 dB dashed reference baseline ($y = 60$) with +12 dB ($y = 12$) and -12 dB ($y = 108$) grid lines and labels.
+       - 10 vertical guide lines aligned with the center of each frequency band column at $x = 50 + i \times 100$.
+       - Smooth cubic Bezier spline connecting the 10 bands with horizontal tangents, preventing ringing or artificial overshoot.
+       - Glowing cyan-to-transparent gradient area fill between the curve and the 0 dB baseline (`url(#eq-curve-grad)`).
+       - Glowing stroke curve (`var(--accent-mint)`) with drop-shadow filter and 10 control node dots glowing on boost/cut.
+       - Visual bypass overlay when Master FX is switched off.
+  3. **Human-Understandable Tactile Switch Toggles**:
+     - Replaced text pill button with `.switch-toggle-row`: contains clear label "Master FX", tactile sliding track with animated white circular thumb (`.switch-track.active .switch-thumb`), and bright status text ("ON" in mint vs "BYPASSED" in muted gray).
+     - Applied identical switch toggles to Pure Bass+ and Attune Clarity sub-modules for cohesive console UX.
+- **Consequences**:
+  - 10 bands fit 100% within the card on any window size without layout distortion.
+  - Frequency response curve provides real-time, 60fps visual feedback of equalization.
+  - Switch toggle provides immediate, intuitive control over Master FX state.
+  - All 18 unit tests in `attune-desktop` and 100% of workspace tests pass.
+
+
 
 

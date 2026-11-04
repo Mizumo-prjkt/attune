@@ -100,6 +100,40 @@ fn format_freq(freq: f32) -> String {
     }
 }
 
+/// Computes the SVG smooth cubic spline path, closed fill path, and 10 control points
+/// for the frequency response curve.
+/// SVG viewBox is (0 0 1000 120).
+/// Center (0 dB) is at y = 60.0.
+/// Range is -12 dB (y = 108.0) to +12 dB (y = 12.0).
+pub fn compute_eq_curve_paths(band_gains_db: &[f32; EQ_BANDS_COUNT]) -> (String, String, Vec<(f32, f32)>) {
+    let mut points = Vec::with_capacity(EQ_BANDS_COUNT);
+    for (i, &gain) in band_gains_db.iter().enumerate() {
+        let x = 50.0 + (i as f32) * 100.0;
+        let clamped_gain = gain.clamp(-12.0, 12.0);
+        // Map [-12.0, +12.0] dB to y in [108.0, 12.0]
+        let y = 60.0 - (clamped_gain / 12.0) * 48.0;
+        points.push((x, y));
+    }
+
+    let y0 = points[0].1;
+    let y_last = points[EQ_BANDS_COUNT - 1].1;
+
+    // Build smooth cubic Bezier path
+    let mut stroke_path = format!("M 0,{:.1} L 50,{:.1}", y0, y0);
+    for i in 0..(EQ_BANDS_COUNT - 1) {
+        let p0 = points[i];
+        let p1 = points[i + 1];
+        let cx = (p0.0 + p1.0) / 2.0;
+        stroke_path.push_str(&format!(" C {:.1},{:.1} {:.1},{:.1} {:.1},{:.1}", cx, p0.1, cx, p1.1, p1.0, p1.1));
+    }
+    stroke_path.push_str(&format!(" L 1000,{:.1}", y_last));
+
+    // Build fill path down to 0 dB line (y = 60.0)
+    let fill_path = format!("{} L 1000,60.0 L 0,60.0 Z", stroke_path);
+
+    (stroke_path, fill_path, points)
+}
+
 #[component]
 pub fn Equalizer(
     params: MasterFxParams,
@@ -113,20 +147,21 @@ pub fn Equalizer(
     }));
 
     let p = local_params.read().clone();
+    let (stroke_path, fill_path, curve_points) = compute_eq_curve_paths(&p.band_gains_db);
 
     rsx! {
         div { class: "equalizer-stage",
             style: "display: flex; flex-direction: column; gap: 24px; padding-bottom: 40px; max-width: 900px; margin: 0 auto; width: 100%;",
 
-            // Stage Header
-            div { style: "display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border-glass); padding-bottom: 16px;",
+            // Stage Header with Human-Understandable Switch Toggle
+            div { style: "display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border-glass); padding-bottom: 16px; flex-wrap: wrap; gap: 12px;",
                 div {
                     h1 { style: "font-size: 26px; font-weight: 700;", "Equalizer & Master FX" }
                     p { style: "color: var(--text-secondary); font-size: 13px; margin-top: 4px;",
                         "Studio-Grade 6-Stage Mastering Rack • Real-Time DSP Audio Processing"
                     }
                 }
-                div { style: "display: flex; gap: 12px; align-items: center;",
+                div { style: "display: flex; gap: 14px; align-items: center;",
                     button {
                         class: "btn-pill",
                         onclick: move |_| {
@@ -137,16 +172,27 @@ pub fn Equalizer(
                         },
                         "↺ Reset to Flat"
                     }
-                    button {
-                        class: if p.enabled { "btn-pill active" } else { "btn-pill" },
-                        style: if !p.enabled { "opacity: 0.6;" } else { "" },
+
+                    // Human-Understandable Master FX Switch Toggle
+                    div {
+                        class: "switch-toggle-row",
+                        role: "switch",
+                        aria_checked: "{p.enabled}",
+                        title: if p.enabled { "Click to bypass Master FX" } else { "Click to activate Master FX" },
                         onclick: move |_| {
                             let mut next = local_params.read().clone();
                             next.enabled = !next.enabled;
                             local_params.set(next.clone());
                             on_change.call(next);
                         },
-                        if p.enabled { "Master FX: ACTIVE" } else { "Master FX: BYPASSED" }
+                        span { class: "switch-label", "Master FX" }
+                        div { class: if p.enabled { "switch-track active" } else { "switch-track" },
+                            div { class: "switch-thumb" }
+                        }
+                        span {
+                            class: if p.enabled { "switch-status active" } else { "switch-status bypassed" },
+                            if p.enabled { "ON" } else { "BYPASSED" }
+                        }
                     }
                 }
             }
@@ -200,12 +246,12 @@ pub fn Equalizer(
                 }
             }
 
-            // Card 2: 10-Band Graphic Equalizer (Sliders Rack)
-            div { style: "background: var(--bg-card); padding: 22px; border-radius: 16px; border: 1px solid var(--border-glass);",
-                div { style: "display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;",
+            // Card 2: 10-Band Graphic Equalizer with Visual Frequency Curve & Zero-Overshoot Sliders
+            div { style: "background: var(--bg-card); padding: 22px; border-radius: 16px; border: 1px solid var(--border-glass); box-sizing: border-box; overflow: hidden;",
+                div { style: "display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;",
                     div {
                         h3 { style: "font-size: 16px; font-weight: 600;", "10-Band Graphic Equalizer" }
-                        p { style: "font-size: 12px; color: var(--text-muted); margin-top: 2px;", "Studio peaking IIR filters (-12 dB to +12 dB range)" }
+                        p { style: "font-size: 12px; color: var(--text-muted); margin-top: 2px;", "Studio peaking IIR filters (-12 dB to +12 dB range) • Real-Time Frequency Response" }
                     }
                     button {
                         class: "btn-pill",
@@ -220,8 +266,122 @@ pub fn Equalizer(
                     }
                 }
 
-                // 10 vertical sliders
-                div { style: "display: flex; justify-content: space-between; align-items: flex-end; gap: 8px; height: 200px; padding: 10px 10px 24px 10px; background: rgba(0,0,0,0.25); border-radius: 12px; border: 1px solid rgba(255,255,255,0.04);",
+                // Visual Frequency Response Curve Graph
+                div {
+                    class: "eq-curve-visualizer",
+                    style: if !p.enabled { "opacity: 0.45; filter: grayscale(70%);" } else { "" },
+
+                    svg {
+                        view_box: "0 0 1000 120",
+                        preserve_aspect_ratio: "none",
+                        style: "width: 100%; height: 100%; display: block;",
+
+                        defs {
+                            linearGradient {
+                                id: "eq-curve-grad",
+                                x1: "0",
+                                y1: "0",
+                                x2: "0",
+                                y2: "1",
+                                stop { offset: "0%", stop_color: "var(--accent-mint)", stop_opacity: "0.32" }
+                                stop { offset: "100%", stop_color: "var(--accent-mint)", stop_opacity: "0.02" }
+                            }
+                        }
+
+                        // Horizontal Reference Grid
+                        line { x1: "0", y1: "12", x2: "1000", y2: "12", stroke: "rgba(255,255,255,0.06)", stroke_width: "1" }
+                        text { x: "12", y: "16", fill: "rgba(255,255,255,0.35)", font_size: "10", font_family: "monospace", font_weight: "600", "+12 dB" }
+
+                        line { x1: "0", y1: "60", x2: "1000", y2: "60", stroke: "rgba(255,255,255,0.16)", stroke_width: "1.2", stroke_dasharray: "6,4" }
+                        text { x: "12", y: "64", fill: "rgba(255,255,255,0.45)", font_size: "10", font_family: "monospace", font_weight: "600", "0 dB" }
+
+                        line { x1: "0", y1: "108", x2: "1000", y2: "108", stroke: "rgba(255,255,255,0.06)", stroke_width: "1" }
+                        text { x: "12", y: "112", fill: "rgba(255,255,255,0.35)", font_size: "10", font_family: "monospace", font_weight: "600", "-12 dB" }
+
+                        // Vertical Band Guide Lines
+                        for (i, &freq) in EQ_CENTER_FREQS.iter().enumerate() {
+                            {
+                                let x = 50.0 + (i as f32) * 100.0;
+                                let freq_str = format_freq(freq);
+                                rsx! {
+                                    line {
+                                        key: "vguide-{i}",
+                                        x1: "{x}",
+                                        y1: "10",
+                                        x2: "{x}",
+                                        y2: "110",
+                                        stroke: "rgba(255,255,255,0.04)",
+                                        stroke_width: "1",
+                                    }
+                                    text {
+                                        key: "vtext-{i}",
+                                        x: "{x}",
+                                        y: "114",
+                                        text_anchor: "middle",
+                                        fill: "rgba(255,255,255,0.22)",
+                                        font_size: "9",
+                                        font_family: "sans-serif",
+                                        font_weight: "600",
+                                        "{freq_str}"
+                                    }
+                                }
+                            }
+                        }
+
+                        // Shaded Area Fill
+                        path {
+                            d: "{fill_path}",
+                            fill: "url(#eq-curve-grad)",
+                        }
+
+                        // Frequency Response Spline Curve
+                        path {
+                            d: "{stroke_path}",
+                            fill: "none",
+                            stroke: "var(--accent-mint)",
+                            stroke_width: "2.5",
+                            stroke_linecap: "round",
+                            stroke_linejoin: "round",
+                        }
+
+                        // Control Node Dots
+                        for (i, &(x, y)) in curve_points.iter().enumerate() {
+                            {
+                                let is_boost_or_cut = p.band_gains_db[i].abs() > 0.1;
+                                rsx! {
+                                    if is_boost_or_cut {
+                                        circle {
+                                            key: "dot-glow-{i}",
+                                            cx: "{x}",
+                                            cy: "{y}",
+                                            r: "7",
+                                            fill: "rgba(45, 212, 191, 0.25)",
+                                        }
+                                    }
+                                    circle {
+                                        key: "dot-{i}",
+                                        cx: "{x}",
+                                        cy: "{y}",
+                                        r: if is_boost_or_cut { "3.5" } else { "2.5" },
+                                        fill: if is_boost_or_cut { "#ffffff" } else { "rgba(255,255,255,0.6)" },
+                                        stroke: if is_boost_or_cut { "var(--accent-mint)" } else { "transparent" },
+                                        stroke_width: "1.5",
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    if !p.enabled {
+                        div {
+                            style: "position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); background: rgba(9, 11, 16, 0.85); border: 1px solid rgba(255,255,255,0.12); border-radius: 20px; padding: 6px 16px; font-size: 11px; font-weight: 700; color: var(--text-muted); letter-spacing: 0.08em; pointer-events: none; text-transform: uppercase;",
+                            "Master FX Bypassed — EQ Inactive"
+                        }
+                    }
+                }
+
+                // 10 Vertical Sliders Rack (Zero Overshoot)
+                div { class: "eq-sliders-row",
                     for (band_idx, &freq) in EQ_CENTER_FREQS.iter().enumerate() {
                         {
                             let gain = p.band_gains_db[band_idx];
@@ -231,17 +391,19 @@ pub fn Equalizer(
                             rsx! {
                                 div {
                                     key: "{band_idx}",
-                                    style: "display: flex; flex-direction: column; align-items: center; justify-content: space-between; height: 100%; flex: 1;",
-                                    span { style: "font-size: 10px; font-family: monospace; color: if gain.abs() > 0.1 { \"var(--accent-mint)\" } else { \"var(--text-muted)\" }; font-weight: 600;",
+                                    class: "eq-band-col",
+                                    span {
+                                        class: "eq-band-gain",
+                                        style: if gain.abs() > 0.1 { "color: var(--accent-mint);" } else { "color: var(--text-muted);" },
                                         "{gain_str}"
                                     }
-                                    div { style: "flex: 1; display: flex; align-items: center; justify-content: center; width: 100%; position: relative; margin: 8px 0;",
+                                    div { class: "eq-slider-well",
                                         input {
                                             r#type: "range",
+                                            class: "eq-slider-input",
                                             min: "-120",
                                             max: "120",
                                             value: "{(gain * 10.0) as i32}",
-                                            style: "transform: rotate(-90deg); width: 110px; cursor: pointer; accent-color: var(--accent-mint);",
                                             oninput: move |evt| {
                                                 if let Ok(v) = evt.value().parse::<f32>() {
                                                     let mut next = local_params.read().clone();
@@ -252,7 +414,7 @@ pub fn Equalizer(
                                             },
                                         }
                                     }
-                                    span { style: "font-size: 11px; color: var(--text-secondary); font-weight: 600; margin-top: 4px;",
+                                    span { class: "eq-band-freq",
                                         "{freq_label}"
                                     }
                                 }
@@ -271,16 +433,23 @@ pub fn Equalizer(
                             h3 { style: "font-size: 15px; font-weight: 600;", "Pure Bass+ Synthesizer" }
                             p { style: "font-size: 11.5px; color: var(--text-muted);", "Sub-harmonic acoustic low-end generator" }
                         }
-                        button {
-                            class: if p.bass_enabled { "btn-pill active" } else { "btn-pill" },
-                            style: "font-size: 11px; padding: 4px 10px;",
+                        div {
+                            class: "switch-toggle-row",
+                            role: "switch",
+                            aria_checked: "{p.bass_enabled}",
                             onclick: move |_| {
                                 let mut next = local_params.read().clone();
                                 next.bass_enabled = !next.bass_enabled;
                                 local_params.set(next.clone());
                                 on_change.call(next);
                             },
-                            if p.bass_enabled { "ENABLED" } else { "OFF" }
+                            div { class: if p.bass_enabled { "switch-track active" } else { "switch-track" },
+                                div { class: "switch-thumb" }
+                            }
+                            span {
+                                class: if p.bass_enabled { "switch-status active" } else { "switch-status bypassed" },
+                                if p.bass_enabled { "ON" } else { "OFF" }
+                            }
                         }
                     }
 
@@ -340,16 +509,23 @@ pub fn Equalizer(
                             h3 { style: "font-size: 15px; font-weight: 600;", "Attune Clarity & Vocal Air" }
                             p { style: "font-size: 11.5px; color: var(--text-muted);", "Harmonic exciter for high-end sparkle" }
                         }
-                        button {
-                            class: if p.clarity_enabled { "btn-pill active" } else { "btn-pill" },
-                            style: "font-size: 11px; padding: 4px 10px;",
+                        div {
+                            class: "switch-toggle-row",
+                            role: "switch",
+                            aria_checked: "{p.clarity_enabled}",
                             onclick: move |_| {
                                 let mut next = local_params.read().clone();
                                 next.clarity_enabled = !next.clarity_enabled;
                                 local_params.set(next.clone());
                                 on_change.call(next);
                             },
-                            if p.clarity_enabled { "ENABLED" } else { "OFF" }
+                            div { class: if p.clarity_enabled { "switch-track active" } else { "switch-track" },
+                                div { class: "switch-thumb" }
+                            }
+                            span {
+                                class: if p.clarity_enabled { "switch-status active" } else { "switch-status bypassed" },
+                                if p.clarity_enabled { "ON" } else { "OFF" }
+                            }
                         }
                     }
 
@@ -435,3 +611,45 @@ pub fn Equalizer(
         }
     }
 }
+
+#[cfg(test)]
+pub mod tests {
+    use super::*;
+
+    #[test]
+    fn test_compute_eq_curve_paths_flat() {
+        let gains = [0.0; EQ_BANDS_COUNT];
+        let (stroke, fill, points) = compute_eq_curve_paths(&gains);
+        assert_eq!(points.len(), EQ_BANDS_COUNT);
+        for p in points {
+            assert!((p.1 - 60.0).abs() < 1e-4, "Flat points must be at y=60.0");
+        }
+        assert!(stroke.starts_with("M 0,60.0 L 50,60.0"));
+        assert!(stroke.ends_with("L 1000,60.0"));
+        assert!(fill.ends_with("L 1000,60.0 L 0,60.0 Z"));
+    }
+
+    #[test]
+    fn test_compute_eq_curve_paths_boost_and_cut() {
+        let mut gains = [0.0; EQ_BANDS_COUNT];
+        gains[0] = 12.0;  // Max boost -> y = 12.0
+        gains[9] = -12.0; // Max cut -> y = 108.0
+        let (_stroke, _fill, points) = compute_eq_curve_paths(&gains);
+        assert!((points[0].1 - 12.0).abs() < 1e-4);
+        assert!((points[9].1 - 108.0).abs() < 1e-4);
+    }
+
+    #[test]
+    fn test_preset_application() {
+        let mut params = MasterFxParams::default();
+        Preset::BassBoost.apply(&mut params);
+        assert!(params.bass_enabled);
+        assert!(params.band_gains_db[0] > 0.0);
+
+        Preset::Flat.apply(&mut params);
+        assert_eq!(params.band_gains_db, [0.0; EQ_BANDS_COUNT]);
+        assert!(!params.bass_enabled);
+        assert!(!params.clarity_enabled);
+    }
+}
+
