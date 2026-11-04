@@ -1141,24 +1141,33 @@ These four benchmark scenarios define the "Gold Standard" transitions that Attun
      - Release binary `target/release/attune-desktop` compiled cleanly with exit code 0.
 - **Verdict**: `PASS`. Transport bar is balanced and centered with dynamic progress fills; 10-band sliders render cleanly without inversion or focus outlines; all external branding references removed.
 
-### Experiment #041: Album Details Stage Overhaul — Cinematic Splash Backdrop Banner, Overlapping Floating Actions Card with M3 Split Pill Play Button, Rich Liner Notes & Lore Card, and Interactive Tracklist Cards
+### Experiment #041: Album Details Stage Overhaul — Whole Full-Image Hero Artwork ($1/1$ Aspect Ratio, Max 540px), Floating Top Bar with Glass Back Pill, Outlined Header Typography over Image, Translucent Frosted Glass Bottom Overlay, Tactile Cream Play Pill Button, Quick Actions, Dynamic Lore Quote & Unified Tracklist
 - **Date**: 2026-11-04
 - **Setup**: Linux (Wayland, Arch Linux), WebKitGTK / Wry desktop webview, release binary `./target/release/attune-desktop`, 1024x535 reference window.
 - **Observations & Empirical Verification**:
-  1. **Cinematic Splash Backdrop Banner**:
-     - 270px hero banner with cover art backdrop, dark vignette gradient overlay, and glass floating `← Collections` button.
-     - Lower title overlay with `ALBUM` badge and bold heading.
-  2. **Overlapping Actions Card**:
-     - Floating card at `margin-top: -32px` with `👤 By {artist}`, track count, and tactile M3 Split Pill Button (`[ ▶ Play Album | ▾ ]`), shuffle, and edit actions.
-  3. **Rich Liner Notes & Lore**:
-     - `format_album_lore` computes dynamic summary of track count, lossless audio formats, and DSP analysis status.
-  4. **Interactive Tracklist**:
-     - Individual liquid glass track cards with track numbers, active playing highlights, metadata (format, BPM, key), monospace durations, track options menu (`⋮`), and circular play/pause buttons.
-  5. **Verification**:
+  1. **Whole Full-Image Hero Container**:
+     - Preserved full cover art without cropping into a letterboxed banner or nested card.
+     - Sized at `max-width: 540px` with `aspect-ratio: 1 / 1` and `border-radius: 28px`.
+     - Ambient drop shadow (`0 20px 50px rgba(0, 0, 0, 0.65)`).
+  2. **Floating Top Bar**:
+     - Glass floating `← Collections` button in the top-left with immediate navigation back to the album collection grid.
+     - Glass `ALBUM` badge chip in the top-right.
+  3. **Outlined Header Typography**:
+     - `.album-hero-title-outlined` rendered directly over the artwork above the frosted panel.
+     - 4-direction outline shadow (`-1.5px -1.5px 0 rgba(0,0,0,0.9), 1.5px -1.5px 0 rgba(0,0,0,0.9), -1.5px 1.5px 0 rgba(0,0,0,0.9), 1.5px 1.5px 0 rgba(0,0,0,0.9)`) guarantees crisp readability over any color palette.
+  4. **Translucent Frosted Bottom Overlay**:
+     - Frosted glass panel spanning the lower 35% of the artwork (`backdrop-filter: blur(32px)`, `border-top: 1px solid rgba(255, 255, 255, 0.30)`).
+     - Contains `By {group.artist}` and track count.
+     - Tactile Play pill button (`.album-play-pill-btn`, `#fde8d0` cream background, `border-radius: 9999px`, bold dark text).
+     - Glass action pills for `🔀 Shuffle` and `✏️ Edit Info`.
+     - Dynamic italicized lore quote (`“{lore_description}”`).
+  5. **Unified Interactive Tracklist**:
+     - Individual liquid glass track cards with track numbers, active playing highlights, audio formats, monospace durations, track options menu (`⋮`), and circular play/pause buttons.
+  6. **Verification**:
      - 19 unit tests in `attune-desktop` passed.
-     - 100% of workspace tests across all crates passed.
-     - Release binary `target/release/attune-desktop` built with exit code 0.
-- **Verdict**: `PASS`. Album detail view achieves visual and functional parity with the reference design.
+     - 100% of workspace tests (46 tests across 6 packages) passed.
+     - Release binary `target/release/attune-desktop` built in 19.89s with exit code 0.
+- **Verdict**: `PASS`. Album detail view achieves exact visual and functional fidelity with the user's reference mockup (`media_1793770153411_739f7a90.png`).
 
 
 

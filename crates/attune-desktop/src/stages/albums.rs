@@ -58,126 +58,84 @@ pub fn Albums(
                     let art_data_url = group.artwork_data_url.clone();
 
                     rsx! {
-                        div { style: "display: flex; flex-direction: column; gap: 20px; width: 100%; max-width: 960px; margin: 0 auto; padding-bottom: 40px;",
-                            // 1. Top Splash Backdrop Banner
-                            div { class: "album-hero-banner",
+                        div { style: "display: flex; flex-direction: column; gap: 28px; width: 100%; max-width: 620px; margin: 0 auto; padding-bottom: 40px;",
+                            // 1. Whole Album Hero Image with Translucent Bottom Overlay
+                            div { class: "album-whole-hero",
+                                // Background Full Artwork
                                 if let Some(art) = art_data_url.as_ref() {
                                     img {
-                                        class: "album-hero-img",
+                                        class: "album-hero-full-img",
                                         src: "{art}",
                                         alt: "{group.name}",
                                     }
                                 } else {
-                                    div { class: "album-hero-fallback", "💿" }
-                                }
-                                div { class: "album-hero-overlay" }
-
-                                // Back button pill (Top Left): "← Collections"
-                                button {
-                                    class: "album-back-pill",
-                                    onclick: move |_| selected_album.set(None),
-                                    span { style: "font-size: 14px;", "←" }
-                                    span { "Collections" }
+                                    div { class: "album-hero-full-fallback", "💿" }
                                 }
 
-                                // Prominent Title Overlay (Lower Banner Area)
-                                div { class: "album-hero-meta",
-                                    div { class: "album-type-badge", "ALBUM" }
-                                    h1 { class: "album-hero-title", "{group.name}" }
-                                }
-                            }
-
-                            // 2. Overlapping Floating Liquid Glass Actions Card
-                            div { class: "album-actions-card",
-                                // Top Header Row: "👤 By {artist}" & "{count} songs" & Edit button
-                                div { class: "album-meta-header",
-                                    div { style: "display: flex; align-items: center; gap: 8px;",
-                                        span { style: "color: var(--accent-mint); font-size: 16px;", "👤" }
-                                        span { style: "font-weight: 700; font-size: 16px; color: #ffffff;", "By {group.artist}" }
-                                    }
-                                    div { style: "display: flex; align-items: center; gap: 14px;",
-                                        span { style: "color: var(--accent-mint); font-size: 13px; font-weight: 600;", "{track_count} songs" }
-                                        button {
-                                            class: "btn-icon-subtle",
-                                            title: "Edit Album Metadata & Splash Art",
-                                            onclick: {
-                                                let g = group.clone();
-                                                move |_| on_edit_album.call(g.clone())
-                                            },
-                                            "✏️"
-                                        }
-                                    }
-                                }
-
-                                // Bottom Button Row: M3 Split Pill [ ▶ Play Album | ▾ ], Shuffle, Edit
-                                div { class: "album-button-row",
-                                    div { class: "m3-split-pill",
-                                        button {
-                                            class: "m3-split-main",
-                                            title: "Play entire album",
-                                            onclick: {
-                                                let all = group.tracks.clone();
-                                                move |_| on_play_tracks.call(all.clone())
-                                            },
-                                            span { "▶" }
-                                            span { "Play Album" }
-                                        }
-                                        div { class: "m3-split-divider" }
-                                        button {
-                                            class: "m3-split-dropdown",
-                                            title: "Quick shuffle",
-                                            onclick: {
-                                                let mut shuffled = group.tracks.clone();
-                                                shuffled.reverse();
-                                                move |_| on_play_tracks.call(shuffled.clone())
-                                            },
-                                            "▾"
-                                        }
-                                    }
+                                // Top Floating Bar (Back button + ALBUM badge)
+                                div { class: "album-hero-topbar",
                                     button {
-                                        class: "btn-pill",
-                                        onclick: {
-                                            let mut shuffled = group.tracks.clone();
-                                            shuffled.reverse();
-                                            move |_| on_play_tracks.call(shuffled.clone())
-                                        },
-                                        "🔀 Shuffle Album"
+                                        class: "album-back-pill",
+                                        onclick: move |_| selected_album.set(None),
+                                        span { style: "font-size: 14px;", "←" }
+                                        span { "Collections" }
                                     }
-                                    button {
-                                        class: "btn-pill",
-                                        style: "border-color: rgba(45,212,191,0.3); color: var(--accent-mint);",
-                                        onclick: {
-                                            let g = group.clone();
-                                            move |_| on_edit_album.call(g.clone())
-                                        },
-                                        "✏️ Edit Album Info"
+                                    div { class: "album-type-badge-glass", "ALBUM" }
+                                }
+
+                                // Bottom Container: Title on image + Translucent Frosted Glass Overlay
+                                div { class: "album-hero-bottom-container",
+                                    // Title with crisp outline directly above the frosted overlay
+                                    h1 { class: "album-hero-title-outlined", "{group.name}" }
+
+                                    // Translucent Bottom Section over the Album Art
+                                    div { class: "album-hero-translucent-bottom",
+                                        // Artist & Track Count
+                                        div { class: "album-hero-artist-row",
+                                            span { class: "album-hero-artist-text", "By {group.artist}" }
+                                            span { class: "album-hero-track-count", "{track_count} songs" }
+                                        }
+
+                                        // Play & Actions Row
+                                        div { class: "album-hero-controls-row",
+                                            button {
+                                                class: "album-play-pill-btn",
+                                                title: "Play entire album",
+                                                onclick: {
+                                                    let all = group.tracks.clone();
+                                                    move |_| on_play_tracks.call(all.clone())
+                                                },
+                                                span { "▶" }
+                                                span { "Play" }
+                                            }
+                                            button {
+                                                class: "album-glass-pill-btn",
+                                                onclick: {
+                                                    let mut shuffled = group.tracks.clone();
+                                                    shuffled.reverse();
+                                                    move |_| on_play_tracks.call(shuffled.clone())
+                                                },
+                                                "🔀 Shuffle"
+                                            }
+                                            button {
+                                                class: "album-glass-pill-btn",
+                                                onclick: {
+                                                    let g = group.clone();
+                                                    move |_| on_edit_album.call(g.clone())
+                                                },
+                                                "✏️ Edit Info"
+                                            }
+                                        }
+
+                                        // Lore Quote in quotes at the bottom
+                                        p { class: "album-hero-lore-quote",
+                                            "“{lore_description}”"
+                                        }
                                     }
                                 }
                             }
 
-                            // 3. Rich Liner Notes / Description Card
-                            div { class: "album-lore-card",
-                                div { style: "display: flex; justify-content: space-between; align-items: center;",
-                                    div { style: "display: flex; align-items: center; gap: 8px;",
-                                        span { style: "font-size: 15px;", "📖" }
-                                        span { class: "album-card-section-title", "ALBUM LINER NOTES & LORE" }
-                                    }
-                                    button {
-                                        class: "btn-icon-subtle",
-                                        title: "Edit Album Notes & Lore",
-                                        onclick: {
-                                            let g = group.clone();
-                                            move |_| on_edit_album.call(g.clone())
-                                        },
-                                        "✏️"
-                                    }
-                                }
-                                p { class: "album-lore-text",
-                                    "{lore_description}"
-                                }
-                            }
-
-                            // 4. Tracklist Section: Header + Track Cards
+                            // 2. Tracklist Section: Header + Track Cards
                             div { class: "album-tracklist-section",
                                 div { style: "display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; padding: 0 4px;",
                                     span { class: "album-card-section-title", "TRACKLIST ({track_count})" }

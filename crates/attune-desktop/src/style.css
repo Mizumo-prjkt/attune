@@ -865,54 +865,63 @@ body, html {
    Album Stage & Details Overhaul (Liquid Glass)
    ========================================================================== */
 
-.album-hero-banner {
+.album-whole-hero {
   position: relative;
   width: 100%;
-  height: 270px;
-  border-radius: 24px;
+  max-width: 540px;
+  margin: 0 auto;
+  aspect-ratio: 1 / 1;
+  border-radius: 28px;
   overflow: hidden;
-  margin-bottom: -32px;
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.65), 0 0 1px rgba(255, 255, 255, 0.25);
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
   background: var(--bg-card);
-  border: 1px solid var(--border-glass);
 }
 
-.album-hero-img {
+.album-hero-full-img {
+  position: absolute;
+  inset: 0;
   width: 100%;
   height: 100%;
   object-fit: cover;
   object-position: center;
-  filter: brightness(0.60) saturate(1.15);
-  transform: scale(1.02);
+  z-index: 1;
 }
 
-.album-hero-fallback {
+.album-hero-full-fallback {
+  position: absolute;
+  inset: 0;
   width: 100%;
   height: 100%;
-  background: linear-gradient(135deg, rgba(45, 212, 191, 0.2) 0%, rgba(168, 85, 247, 0.15) 100%);
+  background: linear-gradient(135deg, rgba(45, 212, 191, 0.25) 0%, rgba(168, 85, 247, 0.2) 100%);
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 72px;
+  font-size: 84px;
+  z-index: 1;
 }
 
-.album-hero-overlay {
-  position: absolute;
-  inset: 0;
-  background: linear-gradient(to bottom, rgba(9, 11, 16, 0.20) 0%, rgba(9, 11, 16, 0.65) 60%, var(--bg-canvas) 100%);
-  pointer-events: none;
+/* Top bar floating controls inside hero */
+.album-hero-topbar {
+  position: relative;
+  z-index: 5;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 18px 20px;
+  pointer-events: auto;
 }
 
 .album-back-pill {
-  position: absolute;
-  top: 20px;
-  left: 20px;
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  background: rgba(22, 29, 43, 0.72);
+  background: rgba(15, 20, 32, 0.68);
   backdrop-filter: blur(24px);
   -webkit-backdrop-filter: blur(24px);
-  border: 1px solid rgba(255, 255, 255, 0.16);
+  border: 1px solid rgba(255, 255, 255, 0.2);
   border-radius: 20px;
   padding: 8px 16px;
   font-size: 13px;
@@ -920,171 +929,150 @@ body, html {
   color: #ffffff;
   cursor: pointer;
   transition: all 0.15s ease;
-  z-index: 5;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.4);
 }
 
 .album-back-pill:hover {
-  background: rgba(30, 40, 60, 0.9);
-  border-color: rgba(45, 212, 191, 0.45);
+  background: rgba(25, 35, 55, 0.9);
+  border-color: rgba(45, 212, 191, 0.5);
   transform: translateY(-1px);
 }
 
-.album-hero-meta {
-  position: absolute;
-  bottom: 48px;
-  left: 24px;
-  right: 24px;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  z-index: 4;
-}
-
-.album-type-badge {
-  display: inline-block;
-  width: fit-content;
-  background: rgba(45, 212, 191, 0.24);
-  border: 1px solid rgba(45, 212, 191, 0.45);
+.album-type-badge-glass {
+  background: rgba(15, 20, 32, 0.68);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  border: 1px solid rgba(255, 255, 255, 0.2);
   color: var(--accent-mint);
-  font-size: 10px;
+  font-size: 10.5px;
   font-weight: 700;
   letter-spacing: 0.08em;
-  padding: 4px 10px;
-  border-radius: 8px;
+  padding: 6px 14px;
+  border-radius: 20px;
   text-transform: uppercase;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.4);
 }
 
-.album-hero-title {
-  font-size: 30px;
+/* Bottom Container: Title on image + Translucent frosted panel beneath */
+.album-hero-bottom-container {
+  position: relative;
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+}
+
+.album-hero-title-outlined {
+  font-size: 34px;
   font-weight: 800;
   color: #ffffff;
   margin: 0;
-  line-height: 1.2;
-  text-shadow: 0 2px 14px rgba(0, 0, 0, 0.85);
+  padding: 0 24px 8px 24px;
+  line-height: 1.15;
+  text-shadow:
+    -1.5px -1.5px 0 rgba(0, 0, 0, 0.9),
+     1.5px -1.5px 0 rgba(0, 0, 0, 0.9),
+    -1.5px  1.5px 0 rgba(0, 0, 0, 0.9),
+     1.5px  1.5px 0 rgba(0, 0, 0, 0.9),
+     0 4px 14px rgba(0, 0, 0, 0.95);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
-.album-actions-card {
+/* Translucent Bottom Section over the Album Art */
+.album-hero-translucent-bottom {
   position: relative;
-  z-index: 3;
-  background: var(--bg-card);
+  z-index: 5;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.22) 0%, rgba(12, 17, 28, 0.65) 100%);
   backdrop-filter: blur(32px);
   -webkit-backdrop-filter: blur(32px);
-  border: 1px solid var(--border-glass);
-  border-radius: 24px;
-  padding: 22px 26px;
+  border-top: 1px solid rgba(255, 255, 255, 0.30);
+  padding: 16px 24px 20px 24px;
   display: flex;
   flex-direction: column;
-  gap: 18px;
-  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.45);
+  gap: 12px;
 }
 
-.album-meta-header {
+.album-hero-artist-row {
   display: flex;
   justify-content: space-between;
   align-items: center;
 }
 
-.album-button-row {
+.album-hero-artist-text {
+  font-size: 15.5px;
+  font-weight: 600;
+  color: #ffffff;
+  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.6);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.album-hero-track-count {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--accent-mint);
+  flex-shrink: 0;
+}
+
+.album-hero-controls-row {
   display: flex;
   align-items: center;
   gap: 12px;
   flex-wrap: wrap;
 }
 
-.m3-split-pill {
-  display: inline-flex;
-  align-items: stretch;
-  border-radius: 24px;
-  overflow: hidden;
-  box-shadow: 0 4px 18px rgba(45, 212, 191, 0.4);
-}
-
-.m3-split-main {
-  background: var(--accent-mint);
-  color: #090b10;
+.album-play-pill-btn {
+  background: #fde8d0;
+  color: #1a1a1a;
   font-size: 14px;
   font-weight: 700;
-  padding: 10px 22px;
+  padding: 7px 24px;
+  border-radius: 9999px;
   border: none;
   cursor: pointer;
   display: inline-flex;
   align-items: center;
-  gap: 8px;
-  transition: filter 0.15s ease;
+  gap: 6px;
+  transition: all 0.15s ease;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
 }
 
-.m3-split-main:hover {
-  filter: brightness(1.1);
+.album-play-pill-btn:hover {
+  background: #ffffff;
+  transform: scale(1.04);
 }
 
-.m3-split-divider {
-  width: 1px;
-  background: rgba(0, 0, 0, 0.25);
-}
-
-.m3-split-dropdown {
-  background: var(--accent-mint);
-  color: #090b10;
+.album-glass-pill-btn {
+  background: rgba(255, 255, 255, 0.14);
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  color: #ffffff;
   font-size: 13px;
-  font-weight: 700;
-  padding: 10px 14px;
-  border: none;
+  font-weight: 600;
+  padding: 7px 18px;
+  border-radius: 20px;
   cursor: pointer;
   display: inline-flex;
   align-items: center;
-  justify-content: center;
-  transition: filter 0.15s ease;
-}
-
-.m3-split-dropdown:hover {
-  filter: brightness(1.1);
-}
-
-.btn-icon-subtle {
-  background: transparent;
-  border: none;
-  color: var(--text-muted);
-  font-size: 16px;
-  cursor: pointer;
-  padding: 6px;
-  border-radius: 8px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
+  gap: 6px;
   transition: all 0.15s ease;
 }
 
-.btn-icon-subtle:hover {
-  color: var(--accent-mint);
-  background: rgba(255, 255, 255, 0.08);
+.album-glass-pill-btn:hover {
+  background: rgba(255, 255, 255, 0.24);
+  border-color: rgba(255, 255, 255, 0.35);
+  transform: translateY(-1px);
 }
 
-.album-lore-card {
-  background: var(--bg-card);
-  backdrop-filter: blur(32px);
-  -webkit-backdrop-filter: blur(32px);
-  border: 1px solid var(--border-glass);
-  border-radius: 20px;
-  padding: 20px 26px;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
-}
-
-.album-card-section-title {
-  color: var(--accent-mint);
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-
-.album-lore-text {
-  color: rgba(255, 255, 255, 0.78);
+.album-hero-lore-quote {
   font-size: 12.5px;
-  line-height: 1.65;
+  font-style: italic;
+  color: rgba(255, 255, 255, 0.88);
+  line-height: 1.5;
   margin: 0;
+  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.6);
 }
 
 .album-tracklist-section {

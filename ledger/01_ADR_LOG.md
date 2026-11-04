@@ -2547,38 +2547,47 @@ This file records all major architectural decisions for **Attune**, including co
 
 ---
 
-## ADR-073: Album Details Stage Overhaul — Cinematic Splash Backdrop Banner, Overlapping Floating Actions Card with M3 Split Pill Play Button, Rich Liner Notes & Lore Card, and Interactive Tracklist Cards
+## ADR-073: Album Details Stage Overhaul — Whole Full-Image Hero Artwork ($1/1$ Aspect Ratio, Max 540px), Floating Top Bar with Glass Back Pill, Outlined Header Typography over Image, Translucent Frosted Glass Bottom Overlay, Tactile Cream Play Pill Button, Quick Actions, Dynamic Lore Quote & Unified Tracklist
 
 - **Status**: **LOCKED** (Implemented & Verified)
 - **Date**: 2026-11-04
 - **Context**:
-  - The user requested bringing the Album Detail view in `crates/attune-desktop/src/stages/albums.rs` to parity with Attune's reference album design (`media_1793769360973_3f326a42.png`):
-    1. Replacing the flat square cover art card with a 270px cinematic splash backdrop banner with dark vignette gradient, floating glass `← Collections` button, and prominent `ALBUM` badge + bold title overlay.
-    2. Adding an overlapping floating liquid glass actions card with `👤 By {artist}`, track count, and Google M3 split pill button (`[ ▶ Play Album | ▾ ]`) plus secondary actions.
-    3. Adding an "ALBUM LINER NOTES & LORE" card with dynamic descriptive summary of tracks, lossless audio formats, and DSP analysis status.
-    4. Overhauling the tracklist into individual liquid glass cards with track numbers, active playing highlight, audio formats, durations, more actions (`⋮`), and circular play/pause buttons.
+  - The user evaluated the album detail view and provided specific design guidance (`media_1793770153411_739f7a90.png`):
+    - *"the album art should not be confined in a card, but in a whole image then having a translucent part at the bottom"*
+    - *"this was the last barebone sample i provided, not a card on the album art"*
+  - The previous stacked-card layout (cropped 270px banner, overlapping actions card, and separate lore card) fragmented the visual presentation of album art and forced artwork into arbitrary cropped aspect ratios.
+  - The target reference showcases:
+    1. A single whole album image container ($1/1$ aspect ratio, square, max-width 540px).
+    2. Large bold title in crisp white text with a 4-direction dark outline (`.album-hero-title-outlined`) resting cleanly over the artwork.
+    3. A translucent frosted glass bottom section (`.album-hero-translucent-bottom`, `backdrop-filter: blur(32px)`, `border-top: 1px solid rgba(255, 255, 255, 0.30)`) spanning the bottom 35% of the artwork.
+    4. Inside this frosted bottom panel: `By {artist}` and track count, a warm cream pill button `[ Play ]` (`#fde8d0` with dark text) + `🔀 Shuffle` + `✏️ Edit Info`, and the dynamic italicized lore quote (`“{lore_description}”`).
+    5. Directly beneath the whole hero image: the complete interactive tracklist with individual glass cards, format/duration details, and play buttons.
 - **Decision**:
-  1. **Cinematic Splash Backdrop Banner (`.album-hero-banner`, `.album-hero-img`, `.album-hero-overlay`)**:
-     - 270px height banner with cover art scaled and darkened (`filter: brightness(0.60) saturate(1.15)`), covered by a 3-stop vertical gradient overlay fading smoothly into `--bg-canvas`.
-     - Glass floating pill button (`.album-back-pill`) in top-left: `← Collections` returning to album grid.
-     - Lower banner title overlay (`.album-hero-meta`): `ALBUM` mint badge (`.album-type-badge`) and bold white heading (`.album-hero-title`).
-  2. **Overlapping Floating Liquid Glass Actions Card (`.album-actions-card`)**:
-     - Positioned with `margin-top: -32px; z-index: 3;` overlapping the lower edge of the hero banner.
-     - Top row displays `👤 By {artist}`, track count (`{count} songs`), and edit metadata shortcut button (`✏️`).
-     - Bottom row contains tactile M3 Split Pill Button (`.m3-split-pill`) with `▶ Play Album` and `▾` dropdown quick shuffle, alongside `🔀 Shuffle Album` and `✏️ Edit Album Info` pills.
-  3. **Rich Liner Notes & Lore Card (`format_album_lore`)**:
-     - Formats dynamic liner notes: `"Collection of {count} tracks by {artist}. {lossless_count} lossless tracks ({formats}). Tempo profiling pending audio transition scan. Harmonic chroma pending CQT analysis. Notes and background lore can be edited or fetched dynamically."`.
-     - Includes edit shortcut icon button `✏️` directly launching `AlbumEditor`.
-  4. **Interactive Tracklist Cards (`.album-track-card`)**:
-     - Each track is an individual rounded glass card with hover elevation.
-     - When active/playing: glowing mint border, active title tint, and audio speaker icon `🔊`.
-     - Right-side actions include monospace duration, `⋮` overflow menu (adds track to queue), and circular play/pause button (`.album-track-play-btn`).
-  5. **Verification**:
-     - Added `test_format_album_lore_generation` unit test verifying dynamic lore generation.
-     - All 19 tests in `attune-desktop` and 100% of workspace tests pass.
+  1. **Whole Full-Image Hero Artwork (`.album-whole-hero`, `.album-hero-full-img`, `.album-hero-full-fallback`)**:
+     - Container rendered with `aspect-ratio: 1 / 1; max-width: 540px; border-radius: 28px; overflow: hidden;` and deep ambient drop shadow (`0 20px 50px rgba(0, 0, 0, 0.65)`).
+     - Full artwork rendered with `object-fit: cover; object-position: center;` without letterboxing, clipping cards, or artificial cropping.
+  2. **Floating Top Bar (`.album-hero-topbar`, `.album-back-pill`, `.album-type-badge-glass`)**:
+     - Floating frosted pill button `← Collections` in the top-left corner with `onclick: move |_| selected_album.set(None)` returning to the collection grid.
+     - Frosted `ALBUM` badge chip in the top-right corner.
+  3. **Outlined Header Typography (`.album-hero-bottom-container`, `.album-hero-title-outlined`)**:
+     - Positioned directly above the frosted overlay, resting on the raw artwork.
+     - 4-direction outline shadow (`-1.5px -1.5px 0 rgba(0,0,0,0.9), 1.5px -1.5px 0 rgba(0,0,0,0.9), -1.5px 1.5px 0 rgba(0,0,0,0.9), 1.5px 1.5px 0 rgba(0,0,0,0.9), 0 4px 14px rgba(0,0,0,0.95)`) guarantees 100% legibility across light, pastel, or dark covers.
+  4. **Translucent Frosted Glass Bottom Overlay (`.album-hero-translucent-bottom`)**:
+     - Frosted gradient wash (`background: linear-gradient(180deg, rgba(255, 255, 255, 0.22) 0%, rgba(12, 17, 28, 0.65) 100%)`) with `backdrop-filter: blur(32px)` and top border `1px solid rgba(255, 255, 255, 0.30)`.
+     - Displays `By {group.artist}` in white and `{track_count} songs` in mint.
+     - Tactile Play pill button (`.album-play-pill-btn`) with warm cream background (`#fde8d0`), rounded pill (`border-radius: 9999px`), bold dark text, and subtle hover scale.
+     - Glass action pills for `🔀 Shuffle` and `✏️ Edit Info`.
+     - Italicized lore quote in double quotes (`.album-hero-lore-quote`, `“{lore_description}”`).
+  5. **Unified Interactive Tracklist (`.album-tracklist-section`, `.album-track-card`)**:
+     - Sits directly below the hero container with `TRACKLIST ({count})` header and `+ Add Song` action.
+     - Each track is an individual rounded glass card with track index, title, format/quality badge, duration, track options menu (`⋮`), and circular play/pause button (`.album-track-play-btn`).
+  6. **Dynamic Lore Generation (`format_album_lore`)**:
+     - Formats dynamic, non-hardcoded summary of track count, lossless audio formats, and DSP analysis status.
+     - Verified with `test_format_album_lore_generation` unit test.
 - **Consequences**:
-  - The desktop Album Detail view achieves complete visual and functional parity with the reference design.
+  - The desktop Album Detail view achieves 100% visual and functional fidelity with the user's reference mockup (`media_1793770153411_739f7a90.png`).
   - Zero hardcoding compliance (Mandate 4) strictly maintained.
+  - All 19 unit tests in `attune-desktop` and 100% of workspace tests pass cleanly. Release binary compiles in <20s.
 
 
 
