@@ -98,7 +98,7 @@ impl Player {
     }
 
     /// Decodes `path` in the background and starts playback on Deck A once ready.
-    pub fn play_file(&self, path: PathBuf, ctx: eframe::egui::Context) {
+    pub fn play_file(&self, path: PathBuf) {
         let my_gen = self.generation.fetch_add(1, Ordering::SeqCst) + 1;
         self.clear_pending_transition();
 
@@ -142,7 +142,6 @@ impl Player {
                         }
                     }
                 }
-                ctx.request_repaint();
             })
             .expect("failed to spawn decode thread");
     }
@@ -153,7 +152,6 @@ impl Player {
         incoming_path: PathBuf,
         incoming_title: String,
         incoming_artist: String,
-        ctx: eframe::egui::Context,
     ) {
         let buf_a_clone = {
             let Ok(m) = self.mixer.lock() else { return };
@@ -209,7 +207,6 @@ impl Player {
                         scheduled_start_ms,
                     });
                 }
-                ctx.request_repaint();
             })
             .expect("failed to spawn JIT planner thread");
     }

@@ -1,350 +1,255 @@
-//! Home Stage — Pure Desktop Experience (ADR-067).
-//!
-//! Features:
-//! - Personalized greeting ("Good morning / afternoon / evening, <user>")
-//! - Hero Now Playing Liquid Glass Card (Cover art, title, artist, audio quality badge, playback controls, and live transition preview)
-//! - "HARMONIC MATCHES & RECENTLY PLAYED" compact grid tiles with cover art, harmonic keys, and instant play action
-//! - Quick action shortcuts (Start Smart Mix, View Library, Equalizer)
-
-use eframe::egui::{self, Color32, CornerRadius, Pos2, Rect, Stroke, Ui};
-
-use crate::components::glass::{liquid_glass_card, render_audio_quality_badge};
+use dioxus::prelude::*;
 use crate::library::{fmt_ms, TrackEntry};
-use crate::player::Player;
-use crate::theme::ACCENT;
+use crate::components::glass::AudioQualityCategory;
 
-pub struct HomeStage {
-    pub greeting_user: String,
-}
-
-impl Default for HomeStage {
-    fn default() -> Self {
-        let user = std::env::var("USER")
-            .or_else(|_| std::env::var("USERNAME"))
-            .or_else(|_| std::env::var("LOGNAME"))
-            .unwrap_or_else(|_| "Listener".to_string());
-        Self { greeting_user: user }
-    }
-}
-
-impl HomeStage {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    fn greeting_text(&self) -> String {
-        // Estimate hour of day from system time
-        let now = std::time::SystemTime::now();
-        let secs = now.duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
-        // Approximation of UTC hour; local hour can be estimated
-        let hour = ((secs / 3600) % 24) as u32;
-        let prefix = if (5..12).contains(&hour) {
+#[component]
+pub fn Home(
+    current_track: Option<TrackEntry>,
+    is_playing: bool,
+    playback_pos_ms: u64,
+    playback_dur_ms: u64,
+    recent_tracks: Vec<TrackEntry>,
+    harmonic_matches: Vec<TrackEntry>,
+    on_play_track: EventHandler<TrackEntry>,
+    on_toggle_play: EventHandler<()>,
+    on_open_lyrics: EventHandler<()>,
+) -> Element {
+    let username = std::env::var("USER").unwrap_or_else(|_| "Listener".to_string());
+    
+    let greeting = {
+        use std::time::SystemTime;
+        let secs = SystemTime::now()
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+        let hour = ((secs % 86400) / 3600 + 8) % 24; // Approximate local time
+        if hour < 12 {
             "Good morning"
-        } else if (12..18).contains(&hour) {
+        } else if hour < 18 {
             "Good afternoon"
         } else {
             "Good evening"
-        };
-        format!("{prefix}, {}", self.greeting_user)
-    }
+        }
+    };
 
-    #[allow(clippy::too_many_arguments)]
-    pub fn show(
-        &mut self,
-        ui: &mut Ui,
-        tracks: &[TrackEntry],
-        current_track: Option<&TrackEntry>,
-        is_playing: bool,
-        player: &Player,
-        on_play_track: &mut impl FnMut(usize),
-        on_toggle_play: &mut impl FnMut(),
-        on_skip_next: &mut impl FnMut(),
-        on_open_now_playing: &mut impl FnMut(),
-    ) {
-        egui::ScrollArea::vertical()
-            .auto_shrink([false, false])
-            .show(ui, |ui| {
-                ui.add_space(8.0);
-
-                // 1. Personalized Desktop Greeting Banner
-                ui.horizontal(|ui| {
-                    ui.vertical(|ui| {
-                        ui.heading(
-                            egui::RichText::new(self.greeting_text())
-                                .strong()
-                                .size(26.0)
-                                .color(Color32::from_white_alpha(240)),
-                        );
-                        let subtitle = if tracks.is_empty() {
-                            "No music files loaded. Choose a folder in the sidebar to populate your library.".to_string()
-                        } else {
-                            format!("{} songs available • DJ-grade harmonic transition engine ready", tracks.len())
-                        };
-                        ui.label(egui::RichText::new(subtitle).weak().size(13.0));
-                    });
-
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if ui.button("⚡ Start Smart Flow").clicked() && !tracks.is_empty() {
-                            on_play_track(0);
-                        }
-                    });
-                });
-
-                ui.add_space(14.0);
-
-                // 2. Hero Now Playing Card (Liquid Glass with ambient lighting)
-                self.show_hero_now_playing(
-                    ui,
-                    current_track,
-                    is_playing,
-                    player,
-                    on_toggle_play,
-                    on_skip_next,
-                    on_open_now_playing,
-                );
-
-                ui.add_space(20.0);
-
-                // 3. Section: HARMONIC MATCHES & RECENTLY PLAYED
-                ui.horizontal(|ui| {
-                    ui.label(
-                        egui::RichText::new("HARMONIC MATCHES & RECENTLY PLAYED")
-                            .strong()
-                            .size(13.0)
-                            .color(Color32::from_white_alpha(180)),
-                    );
-                });
-                ui.add_space(6.0);
-
-                if tracks.is_empty() {
-                    ui.add_space(20.0);
-                    ui.label(egui::RichText::new("Add music tracks to explore harmonic pairings and recommendations.").weak());
-                } else {
-                    self.show_harmonic_matches_grid(ui, tracks, current_track, on_play_track);
+    rsx! {
+        div { class: "home-stage",
+            // Header with greeting and quick actions
+            div { class: "home-header",
+                style: "display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px;",
+                div {
+                    h1 { style: "font-size: 28px; font-weight: 700; letter-spacing: -0.02em;",
+                        "{greeting}, {username}"
+                    }
+                    p { style: "color: var(--text-secondary); font-size: 13.5px; margin-top: 4px;",
+                        "Attune Dynamic DJ Transition Engine is active"
+                    }
                 }
-
-                ui.add_space(40.0);
-            });
-    }
-
-    #[allow(clippy::too_many_arguments)]
-    fn show_hero_now_playing(
-        &mut self,
-        ui: &mut Ui,
-        current_track: Option<&TrackEntry>,
-        is_playing: bool,
-        player: &Player,
-        on_toggle_play: &mut impl FnMut(),
-        on_skip_next: &mut impl FnMut(),
-        on_open_now_playing: &mut impl FnMut(),
-    ) {
-        liquid_glass_card(ui, 18.0, ACCENT, |ui| {
-            match current_track {
-                Some(t) => {
-                    ui.horizontal(|ui| {
-                        // Hero Cover Art (140x140)
-                        let art_size = egui::vec2(130.0, 130.0);
-                        if let Some(p) = &t.artwork_path {
-                            let resp = ui.add(
-                                egui::Image::new(format!("file://{}", p.display()))
-                                    .fit_to_exact_size(art_size)
-                                    .corner_radius(14.0)
-                                    .sense(egui::Sense::click()),
-                            );
-                            if resp.clicked() {
-                                on_open_now_playing();
-                            }
-                        } else {
-                            let (rect, resp) = ui.allocate_exact_size(art_size, egui::Sense::click());
-                            ui.painter().rect_filled(rect, 14.0, Color32::from_rgb(0x14, 0x1A, 0x24));
-                            ui.painter().text(
-                                rect.center(),
-                                egui::Align2::CENTER_CENTER,
-                                "♪",
-                                egui::FontId::proportional(48.0),
-                                Color32::from_white_alpha(50),
-                            );
-                            if resp.clicked() {
-                                on_open_now_playing();
-                            }
-                        }
-
-                        ui.add_space(16.0);
-
-                        // Track metadata and hero controls
-                        ui.vertical(|ui| {
-                            ui.horizontal(|ui| {
-                                ui.label(egui::RichText::new("NOW PLAYING").strong().color(ACCENT).size(11.0));
-                                if let Some(key) = &t.key {
-                                    ui.label(
-                                        egui::RichText::new(format!("• Key {key}"))
-                                            .color(Color32::from_rgb(0x38, 0xBD, 0xF8))
-                                            .small()
-                                            .strong(),
-                                    );
-                                }
-                                if let Some(bpm) = t.bpm {
-                                    ui.label(
-                                        egui::RichText::new(format!("• {bpm:.0} BPM"))
-                                            .weak()
-                                            .small(),
-                                    );
-                                }
-                            });
-
-                            ui.add_space(2.0);
-                            ui.heading(egui::RichText::new(&t.title).strong().size(22.0));
-                            ui.label(egui::RichText::new(&t.artist).size(15.0).weak());
-                            ui.label(egui::RichText::new(&t.album).size(13.0).weak());
-
-                            ui.add_space(8.0);
-
-                            ui.horizontal(|ui| {
-                                render_audio_quality_badge(ui, &t.format, t.sample_rate);
-
-                                ui.add_space(10.0);
-
-                                // Quick Play/Pause and Skip buttons
-                                let play_icon = if is_playing { "⏸ Pause" } else { "▶ Play" };
-                                if ui.button(egui::RichText::new(play_icon).strong()).clicked() {
-                                    on_toggle_play();
-                                }
-                                if ui.button("⏭ Next").clicked() {
-                                    on_skip_next();
-                                }
-                                if ui.button("⛶ Expand").clicked() {
-                                    on_open_now_playing();
-                                }
-                            });
-
-                            // Transition Pill if transition is pending/active
-                            if let Some(info) = player.pending_transition() {
-                                ui.add_space(6.0);
-                                ui.label(
-                                    egui::RichText::new(format!(
-                                        "⚡ Primed DJ Handoff: {} ({:.1}s, {}% match) → Upcoming: {}",
-                                        info.archetype_name, info.duration_sec, info.confidence_pct, info.incoming_title
-                                    ))
-                                    .small()
-                                    .color(ACCENT),
-                                );
-                            }
-                        });
-                    });
-                }
-                None => {
-                    ui.vertical_centered(|ui| {
-                        ui.add_space(10.0);
-                        ui.heading(egui::RichText::new("Ready to Mix").size(20.0).strong().color(ACCENT));
-                        ui.label(egui::RichText::new("Select a track from the grid below or pick a folder from the sidebar.").weak());
-                        ui.add_space(8.0);
-                    });
+                div { style: "display: flex; gap: 10px;",
+                    button {
+                        class: "btn-pill",
+                        onclick: move |_| on_open_lyrics.call(()),
+                        "💬 Live Lyrics"
+                    }
                 }
             }
-        });
-    }
 
-    fn show_harmonic_matches_grid(
-        &mut self,
-        ui: &mut Ui,
-        tracks: &[TrackEntry],
-        current_track: Option<&TrackEntry>,
-        on_play_track: &mut impl FnMut(usize),
-    ) {
-        // Collect candidate tracks: prioritize tracks with matching/adjacent Camelot keys or recently played
-        let cur_key = current_track.and_then(|t| t.key.as_deref()).unwrap_or("");
-        let mut candidates: Vec<(usize, &TrackEntry, u32)> = tracks
-            .iter()
-            .enumerate()
-            .map(|(idx, t)| {
-                let mut score = 50;
-                if let Some(k) = &t.key {
-                    if k == cur_key {
-                        score += 40;
-                    } else if !cur_key.is_empty() && (k.ends_with('A') == cur_key.ends_with('A')) {
-                        score += 20;
+            // Hero Now Playing Liquid Glass Card
+            if let Some(track) = current_track.as_ref() {
+                {
+                    let q = AudioQualityCategory::classify(&track.format, track.sample_rate);
+                    let pos_str = fmt_ms(playback_pos_ms);
+                    let dur_str = fmt_ms(playback_dur_ms);
+                    let progress_pct = if playback_dur_ms > 0 {
+                        ((playback_pos_ms as f64 / playback_dur_ms as f64) * 100.0).clamp(0.0, 100.0)
+                    } else {
+                        0.0
+                    };
+                    let key_label = track.key.as_deref().unwrap_or("—");
+                    let bpm_label = track.bpm.map(|b| format!("{:.1}", b)).unwrap_or_else(|| "—".to_string());
+                    let art_src = track.artwork_path.as_ref()
+                        .map(|p| format!("file://{}", p.display()))
+                        .unwrap_or_default();
+
+                    rsx! {
+                        div { class: "hero-card",
+                            // Album Art
+                            if !art_src.is_empty() {
+                                img {
+                                    class: "hero-art",
+                                    src: "{art_src}",
+                                    alt: "{track.title}",
+                                }
+                            } else {
+                                div {
+                                    class: "hero-art",
+                                    style: "display: flex; align-items: center; justify-content: center; background: linear-gradient(135deg, rgba(45,212,191,0.2), rgba(168,85,247,0.2)); font-size: 36px;",
+                                    "🎵"
+                                }
+                            }
+
+                            // Track Info & Progress
+                            div { class: "hero-info",
+                                div { style: "display: flex; align-items: center; gap: 8px;",
+                                    span { class: "hero-tag", "NOW PLAYING" }
+                                    span { class: "quality-badge {q.css_class()}", "{q.label()}" }
+                                }
+                                h2 { class: "hero-title", "{track.title}" }
+                                p { class: "hero-artist", "{track.artist} • {track.album}" }
+
+                                // Profile Metadata Chips
+                                div { style: "display: flex; gap: 8px; margin: 6px 0 10px 0; font-size: 11.5px;",
+                                    div { style: "background: rgba(255,255,255,0.06); padding: 3px 8px; border-radius: 6px; border: 1px solid var(--border-glass);",
+                                        "Key: " span { style: "color: var(--accent-mint); font-weight: 600;", "{key_label}" }
+                                    }
+                                    div { style: "background: rgba(255,255,255,0.06); padding: 3px 8px; border-radius: 6px; border: 1px solid var(--border-glass);",
+                                        "BPM: " span { style: "color: var(--accent-mint); font-weight: 600;", "{bpm_label}" }
+                                    }
+                                    div { style: "background: rgba(255,255,255,0.06); padding: 3px 8px; border-radius: 6px; border: 1px solid var(--border-glass);",
+                                        "Format: " span { style: "color: var(--text-secondary);", "{track.format}" }
+                                    }
+                                }
+
+                                // Mini Progress Bar
+                                div { style: "display: flex; align-items: center; gap: 10px; width: 100%;",
+                                    span { style: "font-family: monospace; font-size: 11px; color: var(--text-muted);", "{pos_str}" }
+                                    div { style: "flex: 1; height: 4px; background: rgba(255,255,255,0.12); border-radius: 2px; overflow: hidden;",
+                                        div { style: "width: {progress_pct}%; height: 100%; background: var(--accent-mint); border-radius: 2px; transition: width 0.1s linear;" }
+                                    }
+                                    span { style: "font-family: monospace; font-size: 11px; color: var(--text-muted);", "{dur_str}" }
+                                }
+                            }
+
+                            // Quick Play Control
+                            div { style: "display: flex; align-items: center;",
+                                button {
+                                    class: "btn-ctrl btn-play",
+                                    style: "width: 48px; height: 48px; font-size: 20px;",
+                                    onclick: move |_| on_toggle_play.call(()),
+                                    if is_playing { "⏸" } else { "▶" }
+                                }
+                            }
+                        }
                     }
                 }
-                (idx, t, score)
-            })
-            .collect();
-
-        // Sort by score descending, up to 12 tiles
-        candidates.sort_by_key(|b| std::cmp::Reverse(b.2));
-        let display_candidates: Vec<_> = candidates.into_iter().take(9).collect();
-
-        let card_w = ((ui.available_width() - 32.0) / 3.0).max(180.0);
-        let card_h = 72.0;
-
-        egui::Grid::new("harmonic_matches_grid")
-            .spacing([12.0, 12.0])
-            .show(ui, |ui| {
-                for (col_idx, (track_idx, track, _score)) in display_candidates.iter().enumerate() {
-                    let (rect, resp) = ui.allocate_exact_size(egui::vec2(card_w, card_h), egui::Sense::click());
-
-                    // Liquid Glass tile background
-                    let bg_color = if resp.hovered() {
-                        Color32::from_rgba_premultiplied(0x18, 0x24, 0x30, 220)
-                    } else {
-                        Color32::from_rgba_premultiplied(0x10, 0x16, 0x22, 180)
-                    };
-                    let stroke = if resp.hovered() {
-                        Stroke::new(1.0, ACCENT)
-                    } else {
-                        Stroke::new(1.0, Color32::from_white_alpha(25))
-                    };
-
-                    ui.painter().rect(rect, CornerRadius::same(12u8), bg_color, stroke, egui::StrokeKind::Inside);
-
-                    // Tile content: cover art on left, text on right
-                    let thumb_rect = Rect::from_min_size(rect.min + egui::vec2(8.0, 8.0), egui::vec2(56.0, 56.0));
-                    if let Some(p) = &track.artwork_path {
-                        let img = egui::Image::new(format!("file://{}", p.display()))
-                            .fit_to_exact_size(thumb_rect.size())
-                            .corner_radius(8.0);
-                        ui.put(thumb_rect, img);
-                    } else {
-                        ui.painter().rect_filled(thumb_rect, 8.0, Color32::from_rgb(0x18, 0x1E, 0x28));
-                        ui.painter().text(
-                            thumb_rect.center(),
-                            egui::Align2::CENTER_CENTER,
-                            "♪",
-                            egui::FontId::proportional(22.0),
-                            Color32::from_white_alpha(50),
-                        );
-                    }
-
-                    // Text labels
-                    let text_left = thumb_rect.right() + 10.0;
-                    let text_rect = Rect::from_min_max(
-                        Pos2::new(text_left, rect.top() + 10.0),
-                        Pos2::new(rect.right() - 8.0, rect.bottom() - 10.0),
-                    );
-
-                    ui.scope_builder(egui::UiBuilder::new().max_rect(text_rect), |ui| {
-                        ui.vertical(|ui| {
-                            ui.add(egui::Label::new(egui::RichText::new(&track.title).strong().size(13.0)).truncate());
-                            ui.add(egui::Label::new(egui::RichText::new(&track.artist).weak().size(11.0)).truncate());
-                            ui.horizontal(|ui| {
-                                if let Some(k) = &track.key {
-                                    ui.label(egui::RichText::new(k).small().color(Color32::from_rgb(0x38, 0xBD, 0xF8)));
-                                }
-                                if let Some(bpm) = track.bpm {
-                                    ui.label(egui::RichText::new(format!("{bpm:.0}")).small().weak());
-                                }
-                                ui.label(egui::RichText::new(fmt_ms(track.duration_ms)).monospace().small().weak());
-                            });
-                        });
-                    });
-
-                    if resp.clicked() {
-                        on_play_track(*track_idx);
-                    }
-
-                    if (col_idx + 1) % 3 == 0 {
-                        ui.end_row();
+            } else {
+                div { class: "hero-card",
+                    style: "align-items: center; justify-content: center; padding: 36px;",
+                    div { style: "text-align: center;",
+                        p { style: "font-size: 18px; font-weight: 600; color: var(--text-secondary);", "No track currently playing" }
+                        p { style: "font-size: 13px; color: var(--text-muted); margin-top: 6px;", "Pick a track from Harmonic Matches or your Library below to start listening." }
                     }
                 }
-            });
+            }
+
+            // Harmonic Matches Section
+            div { style: "margin-top: 32px; margin-bottom: 32px;",
+                div { style: "display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;",
+                    h3 { style: "font-size: 18px; font-weight: 700;", "Harmonic Matches (Camelot Compatible)" }
+                    span { style: "font-size: 12px; color: var(--text-muted);", "Optimal for seamless DJ transitions" }
+                }
+
+                if harmonic_matches.is_empty() {
+                    div { style: "background: var(--bg-card); border: 1px solid var(--border-glass); border-radius: 12px; padding: 20px; text-align: center; color: var(--text-muted);",
+                        "Scan your music library to generate harmonic transition pairings."
+                    }
+                } else {
+                    div { class: "matches-grid",
+                        for track in harmonic_matches.iter() {
+                            {
+                                let t = track.clone();
+                                let t_click = t.clone();
+                                let art = t.artwork_path.as_ref()
+                                    .map(|p| format!("file://{}", p.display()))
+                                    .unwrap_or_default();
+                                let key = t.key.as_deref().unwrap_or("—");
+                                let bpm = t.bpm.map(|b| format!("{:.0} BPM", b)).unwrap_or_else(|| "—".to_string());
+                                let q = AudioQualityCategory::classify(&t.format, t.sample_rate);
+
+                                rsx! {
+                                    div {
+                                        key: "{t.path.display()}",
+                                        class: "match-tile",
+                                        onclick: move |_| on_play_track.call(t_click.clone()),
+                                        if !art.is_empty() {
+                                            img { class: "match-thumb", src: "{art}", alt: "{t.title}" }
+                                        } else {
+                                            div {
+                                                class: "match-thumb",
+                                                style: "display: flex; align-items: center; justify-content: center; font-size: 20px;",
+                                                "🎵"
+                                            }
+                                        }
+                                        div { style: "display: flex; flex-direction: column; overflow: hidden; flex: 1;",
+                                            span { style: "font-weight: 600; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;", "{t.title}" }
+                                            span { style: "font-size: 11.5px; color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;", "{t.artist}" }
+                                            div { style: "display: flex; gap: 6px; align-items: center; margin-top: 4px;",
+                                                span { style: "font-size: 10px; color: var(--accent-mint); font-weight: 600;", "{key}" }
+                                                span { style: "font-size: 10px; color: var(--text-muted);", "•" }
+                                                span { style: "font-size: 10px; color: var(--text-muted);", "{bpm}" }
+                                                span { class: "quality-badge {q.css_class()}", style: "font-size: 9px; padding: 1px 4px;", "{q.label()}" }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Recently Discovered / Played Section
+            div { style: "margin-bottom: 32px;",
+                div { style: "display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;",
+                    h3 { style: "font-size: 18px; font-weight: 700;", "Recently Played & Library Highlights" }
+                    span { style: "font-size: 12px; color: var(--text-muted);", "{recent_tracks.len()} tracks" }
+                }
+
+                if recent_tracks.is_empty() {
+                    div { style: "background: var(--bg-card); border: 1px solid var(--border-glass); border-radius: 12px; padding: 20px; text-align: center; color: var(--text-muted);",
+                        "Your library is empty. Click [Choose] in the sidebar to select your music directory."
+                    }
+                } else {
+                    div { class: "matches-grid",
+                        for track in recent_tracks.iter().take(8) {
+                            {
+                                let t = track.clone();
+                                let t_click = t.clone();
+                                let art = t.artwork_path.as_ref()
+                                    .map(|p| format!("file://{}", p.display()))
+                                    .unwrap_or_default();
+                                let dur = fmt_ms(t.duration_ms);
+                                let q = AudioQualityCategory::classify(&t.format, t.sample_rate);
+
+                                rsx! {
+                                    div {
+                                        key: "{t.path.display()}",
+                                        class: "match-tile",
+                                        onclick: move |_| on_play_track.call(t_click.clone()),
+                                        if !art.is_empty() {
+                                            img { class: "match-thumb", src: "{art}", alt: "{t.title}" }
+                                        } else {
+                                            div {
+                                                class: "match-thumb",
+                                                style: "display: flex; align-items: center; justify-content: center; font-size: 20px;",
+                                                "💿"
+                                            }
+                                        }
+                                        div { style: "display: flex; flex-direction: column; overflow: hidden; flex: 1;",
+                                            span { style: "font-weight: 600; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;", "{t.title}" }
+                                            span { style: "font-size: 11.5px; color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;", "{t.artist}" }
+                                            div { style: "display: flex; gap: 6px; align-items: center; margin-top: 4px;",
+                                                span { class: "quality-badge {q.css_class()}", style: "font-size: 9px; padding: 1px 4px;", "{q.label()}" }
+                                                span { style: "font-size: 10px; color: var(--text-muted); font-family: monospace;", "{dur}" }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 }

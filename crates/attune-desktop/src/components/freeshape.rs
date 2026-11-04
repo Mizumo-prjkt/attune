@@ -1,4 +1,4 @@
-//! Material You Expressive Freeshapes generator and morphing clipper for egui.
+//! Material You Expressive Freeshapes generator and morphing clipper.
 //!
 //! Evaluates polar harmonic shapes:
 //!   r(theta) = R * [1.0 + sum(a_k * cos(k * theta + phi_k))]
@@ -8,7 +8,6 @@
 
 use std::collections::VecDeque;
 use std::f32::consts::PI;
-use eframe::egui::{Color32, Pos2, Rect, Stroke, Ui};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FreeshapeArchetype {
@@ -50,18 +49,18 @@ impl FreeshapeArchetype {
                 0.85 * r
             }
             FreeshapeArchetype::TwelveFacetSunburst => {
-                // k = 12 scalloped badge
-                1.0 + 0.10 * (12.0 * theta).cos()
+                // High-frequency facet
+                1.0 + 0.12 * (12.0 * theta).cos() + 0.06 * (6.0 * theta).sin()
             }
         }
     }
 }
 
-/// Tracks recency of shapes to prevent repeating the same shape consecutively.
+/// Tracks recently picked freeshape archetypes to prevent immediate repeats.
 #[derive(Debug, Clone)]
 pub struct FreeshapeRecencyTracker {
-    recent_shapes: VecDeque<FreeshapeArchetype>,
-    max_history: usize,
+    pub recent_shapes: VecDeque<FreeshapeArchetype>,
+    pub max_history: usize,
     pub current_shape: FreeshapeArchetype,
     pub target_shape: FreeshapeArchetype,
     pub morph_progress: f32, // 0.0 to 1.0
@@ -69,12 +68,6 @@ pub struct FreeshapeRecencyTracker {
 
 impl Default for FreeshapeRecencyTracker {
     fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl FreeshapeRecencyTracker {
-    pub fn new() -> Self {
         Self {
             recent_shapes: VecDeque::new(),
             max_history: 3,
@@ -82,6 +75,12 @@ impl FreeshapeRecencyTracker {
             target_shape: FreeshapeArchetype::FourLeafFlower,
             morph_progress: 1.0,
         }
+    }
+}
+
+impl FreeshapeRecencyTracker {
+    pub fn new() -> Self {
+        Self::default()
     }
 
     /// Selects the next shape based on a seed (e.g. track title hash), penalizing recent shapes.
@@ -115,9 +114,9 @@ impl FreeshapeRecencyTracker {
         }
     }
 
-    /// Generates polygon points for the morphing shape.
-    pub fn generate_points(&self, center: Pos2, base_radius: f32, num_steps: usize) -> Vec<Pos2> {
-        let mut points = Vec::with_capacity(num_steps);
+    /// Generates SVG polygon points string for the morphing shape.
+    pub fn generate_svg_points(&self, center_x: f32, center_y: f32, base_radius: f32, num_steps: usize) -> String {
+        let mut pts = String::with_capacity(num_steps * 14);
         let t = self.morph_progress;
 
         for i in 0..num_steps {
@@ -126,32 +125,14 @@ impl FreeshapeRecencyTracker {
             let r_tar = self.target_shape.radius_at(theta);
             let r = base_radius * ((1.0 - t) * r_cur + t * r_tar);
 
-            let x = center.x + r * theta.cos();
-            let y = center.y + r * theta.sin();
-            points.push(Pos2::new(x, y));
+            let x = center_x + r * theta.cos();
+            let y = center_y + r * theta.sin();
+            if i > 0 {
+                pts.push(' ');
+            }
+            pts.push_str(&format!("{x:.1},{y:.1}"));
         }
 
-        points
-    }
-}
-
-/// Paints an expressive freeshape container behind an album artwork thumbnail or cutout.
-pub fn paint_freeshape_backdrop(
-    ui: &Ui,
-    rect: Rect,
-    tracker: &FreeshapeRecencyTracker,
-    fill_color: Color32,
-    border_color: Color32,
-) {
-    let center = rect.center();
-    let base_radius = rect.width().min(rect.height()) * 0.45;
-    let points = tracker.generate_points(center, base_radius, 96);
-
-    if points.len() >= 3 {
-        ui.painter().add(eframe::egui::epaint::PathShape::convex_polygon(
-            points.clone(),
-            fill_color,
-            Stroke::new(2.0, border_color),
-        ));
+        pts
     }
 }

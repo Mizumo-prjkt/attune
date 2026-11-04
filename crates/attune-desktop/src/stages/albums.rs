@@ -1,271 +1,179 @@
-//! Albums and Collections stage for Attune egui.
-//!
-//! Features:
-//! - Dynamic library grouping by album and artist
-//! - Responsive album grid with cover art thumbnails, track count, total duration
-//! - Album Detail View with M3 Split Pill Button `[ ▶ Play Album | ▾ Add to Queue ]`
-//! - Full tracklist with track durations and BPM/key tags
-
-use std::collections::BTreeMap;
-use std::path::PathBuf;
-use eframe::egui::{self, Color32, Ui};
-
-use crate::components::glass::liquid_glass_card;
+use dioxus::prelude::*;
 use crate::library::{fmt_ms, TrackEntry};
-use crate::stages::album_editor::AlbumEditorState;
+use crate::components::glass::AudioQualityCategory;
+use std::collections::HashMap;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct AlbumGroup {
-    pub title: String,
+    pub name: String,
     pub artist: String,
-    pub track_indices: Vec<usize>,
-    pub total_duration_ms: u64,
-    pub artwork_path: Option<PathBuf>,
+    pub artwork_path: Option<std::path::PathBuf>,
+    pub tracks: Vec<TrackEntry>,
 }
 
-#[derive(Default)]
-pub struct AlbumsStage {
-    pub selected_album: Option<String>,
-    pub editing_album: Option<AlbumEditorState>,
-}
+#[component]
+pub fn Albums(
+    tracks: Vec<TrackEntry>,
+    on_play_track: EventHandler<TrackEntry>,
+    on_play_tracks: EventHandler<Vec<TrackEntry>>,
+) -> Element {
+    let mut selected_album = use_signal(|| None::<String>);
 
-impl AlbumsStage {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    /// Groups tracks by `(album_title, artist)`.
-    pub fn group_albums(tracks: &[TrackEntry]) -> Vec<AlbumGroup> {
-        let mut map: BTreeMap<String, AlbumGroup> = BTreeMap::new();
-
-        for (idx, t) in tracks.iter().enumerate() {
-            let key = format!("{} — {}", t.album, t.artist);
-            let entry = map.entry(key.clone()).or_insert_with(|| AlbumGroup {
-                title: t.album.clone(),
-                artist: t.artist.clone(),
-                track_indices: Vec::new(),
-                total_duration_ms: 0,
-                artwork_path: t.artwork_path.clone(),
-            });
-            entry.track_indices.push(idx);
-            entry.total_duration_ms += t.duration_ms;
-            if entry.artwork_path.is_none() && t.artwork_path.is_some() {
-                entry.artwork_path = t.artwork_path.clone();
-            }
-        }
-
-        map.into_values().collect()
-    }
-
-    pub fn show(
-        &mut self,
-        ui: &mut Ui,
-        tracks: &mut [TrackEntry],
-        on_play_track: &mut impl FnMut(usize),
-        on_play_album: &mut impl FnMut(&[usize]),
-        on_enqueue_album: &mut impl FnMut(&[usize]),
-    ) {
-        if let Some(mut editor) = self.editing_album.take() {
-            let action = editor.show(ui, tracks);
-            match action {
-                crate::stages::album_editor::AlbumEditorAction::Back => {
-                    self.editing_album = None;
-                }
-                crate::stages::album_editor::AlbumEditorAction::Saved(new_title) => {
-                    self.selected_album = Some(new_title);
-                    self.editing_album = None;
-                }
-                crate::stages::album_editor::AlbumEditorAction::None => {
-                    self.editing_album = Some(editor);
-                }
-            }
-            return;
-        }
-
-        let albums = Self::group_albums(tracks);
-
-        if let Some(selected_title) = self.selected_album.clone() {
-            // Detailed Album View
-            if let Some(album) = albums.iter().find(|a| a.title == selected_title) {
-                self.show_album_detail(ui, album, tracks, on_play_track, on_play_album, on_enqueue_album);
-                return;
-            } else {
-                self.selected_album = None;
-            }
-        }
-
-        // Albums Grid View
-        ui.horizontal(|ui| {
-            ui.heading(egui::RichText::new("Albums & Collections").strong().color(crate::theme::ACCENT));
-            ui.label(egui::RichText::new(format!("{} albums", albums.len())).weak());
+    // Group tracks by album
+    let mut album_map: HashMap<String, AlbumGroup> = HashMap::new();
+    for track in tracks {
+        let entry = album_map.entry(track.album.clone()).or_insert_with(|| AlbumGroup {
+            name: track.album.clone(),
+            artist: track.artist.clone(),
+            artwork_path: track.artwork_path.clone(),
+            tracks: Vec::new(),
         });
-
-        ui.separator();
-
-        if albums.is_empty() {
-            ui.add_space(24.0);
-            ui.label(egui::RichText::new("No albums found in your music library.").weak());
-            return;
+        if entry.artwork_path.is_none() && track.artwork_path.is_some() {
+            entry.artwork_path = track.artwork_path.clone();
         }
-
-        egui::ScrollArea::vertical()
-            .auto_shrink([false, false])
-            .show(ui, |ui| {
-                let card_w = 180.0;
-                let available_w = ui.available_width();
-                let cols = ((available_w / (card_w + 16.0)).floor() as usize).max(1);
-
-                egui::Grid::new("albums_grid")
-                    .spacing([16.0, 20.0])
-                    .show(ui, |ui| {
-                        for (i, album) in albums.iter().enumerate() {
-                            ui.vertical(|ui| {
-                                ui.set_width(card_w);
-
-                                // Album cover thumbnail
-                                let art_size = egui::vec2(card_w, card_w);
-                                let resp = if let Some(p) = &album.artwork_path {
-                                    let img = egui::Image::new(format!("file://{}", p.display()))
-                                        .fit_to_exact_size(art_size)
-                                        .corner_radius(12.0);
-                                    ui.add(img.sense(egui::Sense::click()))
-                                } else {
-                                    let (rect, r) = ui.allocate_exact_size(art_size, egui::Sense::click());
-                                    ui.painter().rect_filled(rect, 12.0, Color32::from_rgb(0x18, 0x1E, 0x2A));
-                                    ui.painter().text(
-                                        rect.center(),
-                                        egui::Align2::CENTER_CENTER,
-                                        "💿",
-                                        egui::FontId::proportional(42.0),
-                                        Color32::from_white_alpha(60),
-                                    );
-                                    r
-                                };
-
-                                if resp.clicked() {
-                                    self.selected_album = Some(album.title.clone());
-                                }
-
-                                ui.add_space(6.0);
-                                ui.add(egui::Label::new(egui::RichText::new(&album.title).strong().size(14.0)).truncate());
-                                ui.add(egui::Label::new(egui::RichText::new(&album.artist).weak().size(12.0)).truncate());
-                                ui.label(
-                                    egui::RichText::new(format!("{} tracks • {}", album.track_indices.len(), fmt_ms(album.total_duration_ms)))
-                                        .small()
-                                        .weak(),
-                                );
-                            });
-
-                            if (i + 1) % cols == 0 {
-                                ui.end_row();
-                            }
-                        }
-                    });
-            });
+        entry.tracks.push(track);
     }
 
-    fn show_album_detail(
-        &mut self,
-        ui: &mut Ui,
-        album: &AlbumGroup,
-        tracks: &[TrackEntry],
-        on_play_track: &mut impl FnMut(usize),
-        on_play_album: &mut impl FnMut(&[usize]),
-        on_enqueue_album: &mut impl FnMut(&[usize]),
-    ) {
-        if ui.button("← Back to Albums").clicked() {
-            self.selected_album = None;
-            return;
-        }
+    let mut album_list: Vec<AlbumGroup> = album_map.into_values().collect();
+    album_list.sort_by(|a, b| a.name.cmp(&b.name));
 
-        ui.add_space(8.0);
+    let selected_name = selected_album.read().clone();
+    let selected_group = selected_name.as_ref().and_then(|name| album_list.iter().find(|a| &a.name == name).cloned());
 
-        // Header Banner with Artwork & M3 Split Pill
-        liquid_glass_card(ui, 18.0, crate::theme::ACCENT, |ui| {
-            ui.horizontal(|ui| {
-                let art_size = egui::vec2(120.0, 120.0);
-                if let Some(p) = &album.artwork_path {
-                    ui.add(
-                        egui::Image::new(format!("file://{}", p.display()))
-                            .fit_to_exact_size(art_size)
-                            .corner_radius(12.0),
-                    );
-                } else {
-                    let (rect, _) = ui.allocate_exact_size(art_size, egui::Sense::hover());
-                    ui.painter().rect_filled(rect, 12.0, Color32::from_rgb(0x18, 0x1E, 0x2A));
-                    ui.painter().text(rect.center(), egui::Align2::CENTER_CENTER, "💿", egui::FontId::proportional(36.0), Color32::from_white_alpha(70));
-                }
-
-                ui.add_space(14.0);
-
-                ui.vertical(|ui| {
-                    ui.heading(egui::RichText::new(&album.title).size(22.0).strong());
-                    ui.label(egui::RichText::new(&album.artist).size(16.0).weak());
-                    ui.label(
-                        egui::RichText::new(format!(
-                            "Collection of {} tracks • Total Duration: {}",
-                            album.track_indices.len(),
-                            fmt_ms(album.total_duration_ms)
-                        ))
-                        .small()
-                        .weak(),
-                    );
-
-                    ui.add_space(10.0);
-
-                    // M3 Split Pill Button: [ ▶ Play Album | + Add to Queue ] + [ ✏ Edit Album & Group ]
-                    ui.horizontal(|ui| {
-                        if ui.button(egui::RichText::new("▶ Play Album").strong().color(Color32::from_rgb(0x0A, 0x20, 0x18))).clicked() {
-                            on_play_album(&album.track_indices);
-                        }
-                        if ui.button("+ Add to Queue").clicked() {
-                            on_enqueue_album(&album.track_indices);
-                        }
-                        ui.add_space(8.0);
-                        if ui.button("✏ Edit Album & Group").on_hover_text("Edit album metadata, splash art, and track grouping").clicked() {
-                            self.editing_album = Some(AlbumEditorState::from_album_group(
-                                &album.title,
-                                &album.artist,
-                                &album.track_indices,
-                                tracks,
-                                album.artwork_path.as_ref(),
-                            ));
-                        }
-                    });
-                });
-            });
-        });
-
-        ui.add_space(14.0);
-        ui.strong("Tracklist");
-        ui.separator();
-
-        egui::ScrollArea::vertical().show(ui, |ui| {
-            for (order, &idx) in album.track_indices.iter().enumerate() {
-                let Some(t) = tracks.get(idx) else { continue };
-
-                ui.horizontal(|ui| {
-                    ui.label(egui::RichText::new(format!("{:02}.", order + 1)).monospace().weak());
-                    let resp = ui.add_sized(
-                        [ui.available_width() * 0.50, 24.0],
-                        egui::Label::new(egui::RichText::new(&t.title).strong()).truncate().sense(egui::Sense::click()),
-                    );
-                    if resp.double_clicked() {
-                        on_play_track(idx);
+    rsx! {
+        div { class: "albums-stage",
+            if let Some(group) = selected_group {
+                div { style: "display: flex; flex-direction: column; gap: 20px;",
+                    button {
+                        class: "btn-pill",
+                        style: "width: fit-content;",
+                        onclick: move |_| selected_album.set(None),
+                        "← Back to Albums"
                     }
 
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        ui.label(egui::RichText::new(fmt_ms(t.duration_ms)).monospace().weak());
-                        if let Some(bpm) = t.bpm {
-                            ui.label(egui::RichText::new(format!("{bpm:.0} BPM")).small().weak());
+                    // Album Header Banner
+                    div { style: "display: flex; gap: 24px; align-items: flex-end; background: var(--bg-card); padding: 24px; border-radius: 16px; border: 1px solid var(--border-glass);",
+                        if let Some(art) = group.artwork_path.as_ref() {
+                            img {
+                                src: "file://{art.display()}",
+                                alt: "{group.name}",
+                                style: "width: 150px; height: 150px; border-radius: 12px; object-fit: cover; box-shadow: 0 8px 24px rgba(0,0,0,0.5);",
+                            }
+                        } else {
+                            div {
+                                style: "width: 150px; height: 150px; border-radius: 12px; background: rgba(255,255,255,0.06); display: flex; align-items: center; justify-content: center; font-size: 48px; border: 1px solid var(--border-glass);",
+                                "💿"
+                            }
                         }
-                        if let Some(k) = &t.key {
-                            ui.label(egui::RichText::new(k).small().weak());
+
+                        div { style: "display: flex; flex-direction: column; gap: 6px; flex: 1;",
+                            span { style: "color: var(--accent-mint); font-size: 11px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase;", "ALBUM" }
+                            h1 { style: "font-size: 28px; font-weight: 700;", "{group.name}" }
+                            p { style: "color: var(--text-secondary); font-size: 15px;", "{group.artist} • {group.tracks.len()} songs" }
+
+                            div { style: "display: flex; gap: 10px; margin-top: 14px;",
+                                button {
+                                    class: "btn-pill active",
+                                    onclick: {
+                                        let all = group.tracks.clone();
+                                        move |_| on_play_tracks.call(all.clone())
+                                    },
+                                    "▶ Play Album"
+                                }
+                                button {
+                                    class: "btn-pill",
+                                    onclick: {
+                                        let mut shuffled = group.tracks.clone();
+                                        shuffled.reverse();
+                                        move |_| on_play_tracks.call(shuffled.clone())
+                                    },
+                                    "🔀 Shuffle Album"
+                                }
+                            }
                         }
-                    });
-                });
-                ui.separator();
+                    }
+
+                    // Track List
+                    div { style: "display: flex; flex-direction: column; gap: 2px;",
+                        for (idx, track) in group.tracks.iter().enumerate() {
+                            {
+                                let t = track.clone();
+                                let dur = fmt_ms(t.duration_ms);
+                                let q = AudioQualityCategory::classify(&t.format, t.sample_rate);
+                                rsx! {
+                                    div {
+                                        key: "{t.path.display()}",
+                                        class: "track-row",
+                                        style: "display: grid; grid-template-columns: 40px 1fr 100px 80px; align-items: center; padding: 10px 14px;",
+                                        ondoubleclick: {
+                                            let t_clone = t.clone();
+                                            move |_| on_play_track.call(t_clone.clone())
+                                        },
+                                        span { style: "color: var(--text-muted); font-size: 12px; font-family: monospace;", "{idx + 1}" }
+                                        div { style: "display: flex; flex-direction: column;",
+                                            span { style: "font-weight: 500; font-size: 14px;", "{t.title}" }
+                                            span { style: "color: var(--text-muted); font-size: 12px;", "{t.artist}" }
+                                        }
+                                        span { class: "quality-badge {q.css_class()}", style: "font-size: 9.5px;", "{q.label()}" }
+                                        span { style: "text-align: right; color: var(--text-muted); font-family: monospace; font-size: 12px;", "{dur}" }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            } else {
+                // Grid view of all albums
+                div {
+                    h1 { style: "font-size: 26px; font-weight: 700; margin-bottom: 6px;", "Albums" }
+                    p { style: "color: var(--text-secondary); font-size: 13px; margin-bottom: 24px;",
+                        "{album_list.len()} albums in your library"
+                    }
+
+                    if album_list.is_empty() {
+                        div { style: "background: var(--bg-card); border: 1px solid var(--border-glass); border-radius: 12px; padding: 36px; text-align: center; color: var(--text-muted);",
+                            "No albums discovered yet. Scan your music library to organize by album."
+                        }
+                    } else {
+                        div { style: "display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 20px;",
+                            for album in album_list.iter() {
+                                {
+                                    let name = album.name.clone();
+                                    let art = album.artwork_path.as_ref()
+                                        .map(|p| format!("file://{}", p.display()))
+                                        .unwrap_or_default();
+                                    let track_count = album.tracks.len();
+
+                                    rsx! {
+                                        div {
+                                            key: "{album.name}",
+                                            style: "background: var(--bg-card); border: 1px solid var(--border-glass); border-radius: 14px; padding: 12px; cursor: pointer; transition: all 0.2s ease;",
+                                            onclick: move |_| selected_album.set(Some(name.clone())),
+                                            if !art.is_empty() {
+                                                img {
+                                                    src: "{art}",
+                                                    alt: "{album.name}",
+                                                    style: "width: 100%; aspect-ratio: 1; border-radius: 10px; object-fit: cover; margin-bottom: 10px; box-shadow: 0 4px 14px rgba(0,0,0,0.4);",
+                                                }
+                                            } else {
+                                                div {
+                                                    style: "width: 100%; aspect-ratio: 1; border-radius: 10px; background: rgba(255,255,255,0.05); display: flex; align-items: center; justify-content: center; font-size: 36px; margin-bottom: 10px; border: 1px solid var(--border-glass);",
+                                                    "💿"
+                                                }
+                                            }
+                                            div { style: "display: flex; flex-direction: column; overflow: hidden;",
+                                                span { style: "font-weight: 600; font-size: 13.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;", "{album.name}" }
+                                                span { style: "color: var(--text-secondary); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 2px;", "{album.artist}" }
+                                                span { style: "color: var(--text-muted); font-size: 11px; margin-top: 4px;", "{track_count} songs" }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
             }
-        });
+        }
     }
 }

@@ -8,7 +8,7 @@ use std::thread;
 use attune_core::{AudioDecoder, LibraryScanner};
 
 /// A single playable track in the desktop library.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct TrackEntry {
     pub path: PathBuf,
     pub title: String,
@@ -104,7 +104,7 @@ pub enum ScanEvent {
 }
 
 /// Spawns a worker that discovers and probes every audio file under `root`.
-pub fn spawn_scan(root: PathBuf, ctx: eframe::egui::Context) -> Receiver<ScanEvent> {
+pub fn spawn_scan(root: PathBuf) -> Receiver<ScanEvent> {
     let (tx, rx) = mpsc::channel();
     thread::Builder::new()
         .name("attune-library-scan".into())
@@ -114,17 +114,12 @@ pub fn spawn_scan(root: PathBuf, ctx: eframe::egui::Context) -> Receiver<ScanEve
             if tx.send(ScanEvent::Discovered(files.len())).is_err() {
                 return;
             }
-            ctx.request_repaint();
-            for (i, file) in files.iter().enumerate() {
+            for file in files.iter() {
                 if tx.send(ScanEvent::Track(Box::new(TrackEntry::from_probe(file)))).is_err() {
-                    return; // UI dropped the receiver (rescan started) — stop quietly.
-                }
-                if i % 16 == 0 {
-                    ctx.request_repaint();
+                    return; // Receiver dropped — stop quietly.
                 }
             }
             let _ = tx.send(ScanEvent::Finished);
-            ctx.request_repaint();
         })
         .expect("failed to spawn library scan thread");
     rx

@@ -1,1690 +1,1065 @@
-//! Attune egui application shell: pure desktop experience, multi-stage architecture, and Smart DJ transitions.
-//!
-//! Features:
-//! - Pure Desktop Experience (Left Sidebar, Top Navigation, Right Lyrics/Queue Dock, Bottom Transport Bar)
-//! - Direct in-process `DualDeckMixer` + cpal `AudioOutputDriver` (no C-ABI hop)
-//! - Smart Shuffle DJ transitions (harmonic Camelot match, BPM sync, recency protection)
-//! - Live transition pill with progress and interactive candidate verdict modal
-//! - 10-Band Graphic Equalizer, Attune Pure Bass+, Clarity & Vocal Air, Stereo Expander
-//! - Drag & drop audio files and folders directly into the player
-//! - Dynamic environment resolution (Mandate 4: zero hardcoded paths or versions)
-
+use dioxus::prelude::*;
 use std::collections::HashSet;
 use std::path::PathBuf;
-use std::sync::mpsc::Receiver;
+use std::sync::{mpsc, Arc, Mutex};
+use std::time::Duration;
 
-use eframe::egui::{self, Color32};
+use attune_core::{MasterFxParams, EQ_BANDS_COUNT, EQ_CENTER_FREQS};
 
-use crate::components::glass::render_audio_quality_badge;
-use crate::components::lyrics_parser::{self, LyricsSheet};
-use crate::config::{self, MusicDirSource};
+use crate::components::glass::AudioQualityCategory;
+use crate::components::lyrics_parser::{resolve_companion_lyrics, LyricsSheet};
+use crate::config;
 use crate::library::{self, fmt_ms, ScanEvent, TrackEntry};
-use crate::master_fx_ui::MasterFxUi;
-use crate::player::{LoadState, Player};
-use crate::smart_shuffle::{self, CandidateEvaluation, ShuffleMode, SmartShuffleHistory};
-use crate::stages::about::AboutStage;
-use crate::stages::albums::AlbumsStage;
-use crate::stages::bubblegrid::BubblegridStage;
-use crate::stages::for_you::ForYouStage;
-use crate::stages::home::HomeStage;
-use crate::stages::lyrics::LyricsStage;
-use crate::stages::now_playing::{NowPlayingSkin, NowPlayingStage};
-use crate::theme::DynamicPalette;
+use crate::player::{PendingTransitionInfo, Player};
+use crate::stages::{about::About, albums::Albums, favorites::Favorites, for_you::ForYou, home::Home, library::Library};
 
-const STORAGE_KEY_MUSIC_DIR: &str = "attune.music_dir";
-const STORAGE_KEY_VOLUME_DB: &str = "attune.volume_db";
-const STORAGE_KEY_SHUFFLE: &str = "attune.shuffle_mode";
-const STORAGE_KEY_REPEAT: &str = "attune.repeat_mode";
-const STORAGE_KEY_STAGE: &str = "attune.stage_view";
-const STORAGE_KEY_NOW_PLAYING_SKIN: &str = "attune.now_playing_skin";
-const STORAGE_KEY_DOCK_MODE: &str = "attune.dock_mode";
-const STORAGE_KEY_FAVORITES: &str = "attune.favorites";
-const VOLUME_DB_RANGE: std::ops::RangeInclusive<f32> = -40.0..=0.0;
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum StageView {
     Home,
-    NowPlaying,
     ForYou,
     Library,
     Albums,
-    Bubblegrid,
     Favorites,
     About,
 }
 
-impl StageView {
-    #[allow(dead_code)]
-    pub const ALL: [StageView; 8] = [
-        StageView::Home,
-        StageView::NowPlaying,
-        StageView::ForYou,
-        StageView::Library,
-        StageView::Albums,
-        StageView::Bubblegrid,
-        StageView::Favorites,
-        StageView::About,
-    ];
-
-    pub fn label(self) -> &'static str {
-        match self {
-            StageView::Home => "🏠 Home",
-            StageView::NowPlaying => "▶ Now Playing",
-            StageView::ForYou => "✨ For You",
-            StageView::Library => "♫ Library",
-            StageView::Albums => "💿 Albums",
-            StageView::Bubblegrid => "🫧 Bubblegrid",
-            StageView::Favorites => "❤️ Favorites",
-            StageView::About => "⚙ Settings / About",
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DockMode {
     Lyrics,
     Queue,
+    Closed,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-enum RepeatMode {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RepeatMode {
     Off,
     All,
     One,
 }
 
-impl RepeatMode {
-    fn next(self) -> Self {
-        match self {
-            RepeatMode::Off => RepeatMode::All,
-            RepeatMode::All => RepeatMode::One,
-            RepeatMode::One => RepeatMode::Off,
+#[component]
+pub fn App() -> Element {
+    // 1. Audio Engine & Library State
+    let player = use_signal(|| Arc::new(Player::new()));
+    let mut tracks = use_signal(Vec::<TrackEntry>::new);
+    let mut music_dir = use_signal(|| {
+        let (dir, _) = config::resolve_music_dir(None);
+        dir
+    });
+    let mut is_scanning = use_signal(|| false);
+    let mut scan_progress = use_signal(|| (0usize, 0usize));
+    let mut last_scanned_file = use_signal(String::new);
+    let mut scan_rx = use_signal(|| Arc::new(Mutex::new(None::<mpsc::Receiver<ScanEvent>>)));
+
+    // 2. Playback State
+    let mut current_track = use_signal(|| None::<TrackEntry>);
+    let mut queue = use_signal(Vec::<TrackEntry>::new);
+    let mut queue_pos = use_signal(|| 0usize);
+    let mut recent_tracks = use_signal(Vec::<TrackEntry>::new);
+    let mut favorites = use_signal(HashSet::<PathBuf>::new);
+
+    let mut is_playing = use_signal(|| false);
+    let mut playback_pos_ms = use_signal(|| 0u64);
+    let mut playback_dur_ms = use_signal(|| 0u64);
+    let mut volume_pct = use_signal(|| 85u32); // 0 - 100
+    let mut shuffle_mode = use_signal(|| true); // Smart Shuffle on by default
+    let mut repeat_mode = use_signal(|| RepeatMode::Off);
+
+    // 3. Lyrics State
+    let mut lyrics_sheet = use_signal(LyricsSheet::empty);
+    let mut active_lyric_index = use_signal(|| None::<usize>);
+    let mut auto_scroll_lyrics = use_signal(|| true);
+
+    // 4. Transitions & DSP / EQ State
+    let mut pending_trans_info = use_signal(|| None::<PendingTransitionInfo>);
+    let mut active_trans_name = use_signal(|| None::<String>);
+    let mut last_verdict = use_signal(|| None::<PendingTransitionInfo>);
+    let mut show_verdict_modal = use_signal(|| false);
+    let mut show_eq_modal = use_signal(|| false);
+    let mut master_fx = use_signal(MasterFxParams::default);
+
+    // 5. Navigation & Docks
+    let mut current_stage = use_signal(|| StageView::Home);
+    let mut stage_history = use_signal(|| vec![StageView::Home]);
+    let mut history_index = use_signal(|| 0usize);
+    let mut dock_mode = use_signal(|| DockMode::Lyrics);
+    let mut search_query = use_signal(String::new);
+
+    // Initial scan on launch if music directory is resolved
+    use_hook(|| {
+        if let Some(dir) = music_dir.read().clone() {
+            let rx = library::spawn_scan(dir);
+            *scan_rx.write() = Arc::new(Mutex::new(Some(rx)));
+            is_scanning.set(true);
         }
-    }
-    fn label(self) -> &'static str {
-        match self {
-            RepeatMode::Off => "Repeat: Off",
-            RepeatMode::All => "Repeat: All",
-            RepeatMode::One => "Repeat: One",
+    });
+
+    // Helper: Navigation change with history tracking
+    let mut navigate_to = move |new_stage: StageView| {
+        if *current_stage.read() != new_stage {
+            let mut hist = stage_history.read().clone();
+            let curr_idx = *history_index.read();
+            hist.truncate(curr_idx + 1);
+            hist.push(new_stage);
+            let next_idx = hist.len() - 1;
+            stage_history.set(hist);
+            history_index.set(next_idx);
+            current_stage.set(new_stage);
         }
-    }
-}
+    };
 
-pub struct AttuneApp {
-    player: Player,
-    music_dir: Option<PathBuf>,
-    music_dir_source: MusicDirSource,
-    tracks: Vec<TrackEntry>,
-    scan_rx: Option<Receiver<ScanEvent>>,
-    scan_expected: usize,
-    search: String,
-    /// Playback queue: indices into `tracks`.
-    queue: Vec<usize>,
-    queue_pos: Option<usize>,
-    shuffle: ShuffleMode,
-    repeat: RepeatMode,
-    volume_db: f32,
-    scrub_ms: Option<f64>,
-    advance_armed: bool,
-    status: Option<String>,
-    // Smart Shuffle & DJ Transition State
-    smart_history: SmartShuffleHistory,
-    prep_transition_started: bool,
-    last_verdict: Option<CandidateEvaluation>,
-    show_verdict_modal: bool,
-    was_in_transition: bool,
-    // Master FX DSP Rack
-    master_fx_ui: MasterFxUi,
-    // Navigation & Stages
-    current_stage: StageView,
-    stage_history: Vec<StageView>,
-    history_index: usize,
-    dock_mode: Option<DockMode>,
-    favorites: HashSet<PathBuf>,
-    // Stage instances
-    home_stage: HomeStage,
-    now_playing_stage: NowPlayingStage,
-    albums_stage: AlbumsStage,
-    lyrics_stage: LyricsStage,
-    bubblegrid_stage: BubblegridStage,
-    current_lyrics: LyricsSheet,
-    dynamic_palette: DynamicPalette,
-    animation_time: f32,
-}
+    // Helper: Play a specific track
+    let mut play_track = {
+        let player = player.clone();
+        move |track: TrackEntry| {
+            let p = player.read();
+            p.play_file(track.path.clone());
+            current_track.set(Some(track.clone()));
 
-impl AttuneApp {
-    pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
-        egui_extras::install_image_loaders(&cc.egui_ctx);
-        crate::theme::apply(&cc.egui_ctx);
-        crate::fonts::install_fallback_fonts(&cc.egui_ctx);
+            // Update recent tracks
+            let mut recents = recent_tracks.read().clone();
+            recents.retain(|t| t.path != track.path);
+            recents.insert(0, track.clone());
+            recents.truncate(16);
+            recent_tracks.set(recents);
 
-        let persisted_dir = cc
-            .storage
-            .and_then(|s| eframe::get_value::<String>(s, STORAGE_KEY_MUSIC_DIR))
-            .map(PathBuf::from);
-        let volume_db = cc
-            .storage
-            .and_then(|s| eframe::get_value::<f32>(s, STORAGE_KEY_VOLUME_DB))
-            .unwrap_or(0.0)
-            .clamp(*VOLUME_DB_RANGE.start(), *VOLUME_DB_RANGE.end());
-        let shuffle = cc
-            .storage
-            .and_then(|s| eframe::get_value::<ShuffleMode>(s, STORAGE_KEY_SHUFFLE))
-            .unwrap_or(ShuffleMode::Off);
-        let repeat = cc
-            .storage
-            .and_then(|s| eframe::get_value::<RepeatMode>(s, STORAGE_KEY_REPEAT))
-            .unwrap_or(RepeatMode::Off);
+            // Load companion lyrics
+            let sheet = resolve_companion_lyrics(&track.path).unwrap_or_else(LyricsSheet::empty);
+            lyrics_sheet.set(sheet);
+            active_lyric_index.set(None);
 
-        let current_stage = cc
-            .storage
-            .and_then(|s| eframe::get_value::<StageView>(s, STORAGE_KEY_STAGE))
-            .unwrap_or(StageView::Home);
-        let now_playing_skin = cc
-            .storage
-            .and_then(|s| eframe::get_value::<NowPlayingSkin>(s, STORAGE_KEY_NOW_PLAYING_SKIN))
-            .unwrap_or(NowPlayingSkin::LiquidGlass);
-        let dock_mode = cc
-            .storage
-            .and_then(|s| eframe::get_value::<Option<DockMode>>(s, STORAGE_KEY_DOCK_MODE))
-            .unwrap_or(Some(DockMode::Lyrics));
-        let favorites: HashSet<PathBuf> = cc
-            .storage
-            .and_then(|s| eframe::get_value::<Vec<String>>(s, STORAGE_KEY_FAVORITES))
-            .unwrap_or_default()
-            .into_iter()
-            .map(PathBuf::from)
-            .collect();
-
-        let (music_dir, music_dir_source) = config::resolve_music_dir(persisted_dir);
-        let player = Player::new();
-        player.set_gain_db(volume_db);
-
-        let mut now_playing_stage = NowPlayingStage::new();
-        now_playing_stage.skin = now_playing_skin;
-
-        let mut app = Self {
-            player,
-            music_dir,
-            music_dir_source,
-            tracks: Vec::new(),
-            scan_rx: None,
-            scan_expected: 0,
-            search: String::new(),
-            queue: Vec::new(),
-            queue_pos: None,
-            shuffle,
-            repeat,
-            volume_db,
-            scrub_ms: None,
-            advance_armed: false,
-            status: None,
-            smart_history: SmartShuffleHistory::new(25),
-            prep_transition_started: false,
-            last_verdict: None,
-            show_verdict_modal: false,
-            was_in_transition: false,
-            master_fx_ui: MasterFxUi::new(),
-            current_stage,
-            stage_history: vec![current_stage],
-            history_index: 0,
-            dock_mode,
-            favorites,
-            home_stage: HomeStage::new(),
-            now_playing_stage,
-            albums_stage: AlbumsStage::new(),
-            lyrics_stage: LyricsStage::new(),
-            bubblegrid_stage: BubblegridStage::new(),
-            current_lyrics: LyricsSheet::empty(),
-            dynamic_palette: DynamicPalette::default(),
-            animation_time: 0.0,
-        };
-        app.start_scan(&cc.egui_ctx);
-        app
-    }
-
-    // ------------------------------------------------------------------ Navigation
-
-    fn navigate_to(&mut self, stage: StageView) {
-        if self.current_stage == stage {
-            return;
-        }
-        if self.history_index + 1 < self.stage_history.len() {
-            self.stage_history.truncate(self.history_index + 1);
-        }
-        self.stage_history.push(stage);
-        self.history_index = self.stage_history.len() - 1;
-        self.current_stage = stage;
-    }
-
-    fn can_navigate_back(&self) -> bool {
-        self.history_index > 0
-    }
-
-    fn can_navigate_forward(&self) -> bool {
-        self.history_index + 1 < self.stage_history.len()
-    }
-
-    fn navigate_back(&mut self) {
-        if self.can_navigate_back() {
-            self.history_index -= 1;
-            self.current_stage = self.stage_history[self.history_index];
-        }
-    }
-
-    fn navigate_forward(&mut self) {
-        if self.can_navigate_forward() {
-            self.history_index += 1;
-            self.current_stage = self.stage_history[self.history_index];
-        }
-    }
-
-    // ------------------------------------------------------------------ Library & Playback
-
-    fn start_scan(&mut self, ctx: &egui::Context) {
-        let Some(dir) = self.music_dir.clone() else {
-            self.status = Some("No music folder set — choose one in the sidebar to build your library.".into());
-            return;
-        };
-        self.tracks.clear();
-        self.queue.clear();
-        self.queue_pos = None;
-        self.scan_expected = 0;
-        self.status = None;
-        self.scan_rx = Some(library::spawn_scan(dir, ctx.clone()));
-    }
-
-    fn pick_music_dir(&mut self, ctx: &egui::Context) {
-        let mut dialog = rfd::FileDialog::new().set_title("Choose your music folder");
-        if let Some(dir) = &self.music_dir {
-            dialog = dialog.set_directory(dir);
-        }
-        if let Some(dir) = dialog.pick_folder() {
-            self.music_dir = Some(dir);
-            self.music_dir_source = MusicDirSource::Persisted;
-            self.start_scan(ctx);
-        }
-    }
-
-    fn drain_scan(&mut self) {
-        let Some(rx) = &self.scan_rx else { return };
-        let mut finished = false;
-        while let Ok(ev) = rx.try_recv() {
-            match ev {
-                ScanEvent::Discovered(n) => self.scan_expected = n,
-                ScanEvent::Track(t) => self.tracks.push(*t),
-                ScanEvent::Finished => finished = true,
+            // Prepare transition to next track in queue if available
+            let q = queue.read().clone();
+            let pos = *queue_pos.read();
+            if pos + 1 < q.len() {
+                let next_track = &q[pos + 1];
+                p.prepare_transition(
+                    next_track.path.clone(),
+                    next_track.title.clone(),
+                    next_track.artist.clone(),
+                );
             }
         }
-        if finished {
-            self.scan_rx = None;
-            self.tracks
-                .sort_by(|a, b| (&a.artist, &a.album, &a.title).cmp(&(&b.artist, &b.album, &b.title)));
-            if self.tracks.is_empty() {
-                self.status = Some("No supported audio files found in this folder.".into());
-            }
+    };
+
+    // Helper: Start playlist / album / mix
+    let mut play_track_list = {
+        let mut play_track = play_track.clone();
+        move |list: Vec<TrackEntry>| {
+            if list.is_empty() { return; }
+            queue.set(list.clone());
+            queue_pos.set(0);
+            play_track(list[0].clone());
         }
-    }
+    };
 
-    fn handle_dropped_files(&mut self, ctx: &egui::Context) {
-        let dropped = ctx.input(|i| i.raw.dropped_files.clone());
-        if dropped.is_empty() {
-            return;
-        }
-
-        let mut added = 0;
-        for file in dropped {
-            let Some(path) = file.path else { continue };
-            if path.is_dir() {
-                self.music_dir = Some(path);
-                self.music_dir_source = MusicDirSource::Persisted;
-                self.start_scan(ctx);
-                return;
-            } else if path.is_file() {
-                let is_audio = path
-                    .extension()
-                    .and_then(|e| e.to_str())
-                    .map(|e| matches!(e.to_ascii_lowercase().as_str(), "flac" | "mp3" | "wav" | "ogg" | "m4a" | "aac" | "aiff" | "aif"))
-                    .unwrap_or(false);
-                if is_audio && !self.tracks.iter().any(|t| t.path == path) {
-                    let entry = TrackEntry::from_probe(&path);
-                    self.tracks.push(entry);
-                    added += 1;
-                }
-            }
-        }
-        if added > 0 {
-            self.status = Some(format!("Added {added} dropped audio files to library."));
-            ctx.request_repaint();
-        }
-    }
-
-    fn current_track_idx(&self) -> Option<usize> {
-        self.queue_pos.and_then(|p| self.queue.get(p)).copied()
-    }
-
-    fn current_track(&self) -> Option<&TrackEntry> {
-        self.current_track_idx().and_then(|i| self.tracks.get(i))
-    }
-
-    fn play_queue_pos(&mut self, pos: usize, ctx: &egui::Context) {
-        let Some(&idx) = self.queue.get(pos) else { return };
-        let Some(track) = self.tracks.get(idx) else { return };
-        self.queue_pos = Some(pos);
-        self.advance_armed = false;
-        self.scrub_ms = None;
-        self.prep_transition_started = false;
-        self.was_in_transition = false;
-        self.smart_history.record_played(track.path.clone());
-
-        // Dynamic Palette Extraction
-        if let Some(art) = &track.artwork_path {
-            if let Some(pal) = DynamicPalette::from_image(art) {
-                self.dynamic_palette = pal;
-            }
-        }
-
-        // Companion Lyrics Resolution
-        self.current_lyrics = lyrics_parser::resolve_companion_lyrics(&track.path)
-            .unwrap_or_else(LyricsSheet::empty);
-
-        // Update Now Playing animations and shape
-        self.now_playing_stage.on_track_changed(track);
-
-        self.player.play_file(track.path.clone(), ctx.clone());
-    }
-
-    fn play_track_now(&mut self, idx: usize, ctx: &egui::Context) {
-        let pos = match self.queue.iter().position(|&q| q == idx) {
-            Some(p) => p,
-            None => {
-                let insert_at = self.queue_pos.map(|p| p + 1).unwrap_or(self.queue.len());
-                self.queue.insert(insert_at, idx);
-                insert_at
-            }
-        };
-        self.play_queue_pos(pos, ctx);
-    }
-
-    fn play_track_next(&mut self, idx: usize) {
-        let insert_at = self.queue_pos.map(|p| p + 1).unwrap_or(self.queue.len());
-        self.queue.insert(insert_at, idx);
-    }
-
-    fn enqueue(&mut self, idx: usize) {
-        self.queue.push(idx);
-    }
-
-    fn remove_from_queue(&mut self, pos: usize) {
-        if pos >= self.queue.len() {
-            return;
-        }
-        self.queue.remove(pos);
-        self.queue_pos = match self.queue_pos {
-            Some(cur) if cur == pos => None,
-            Some(cur) if cur > pos => Some(cur - 1),
-            other => other,
-        };
-    }
-
-    fn move_queue_item(&mut self, pos: usize, delta: isize) {
-        let new_pos = (pos as isize + delta) as usize;
-        if new_pos < self.queue.len() && pos < self.queue.len() {
-            self.queue.swap(pos, new_pos);
-            if self.queue_pos == Some(pos) {
-                self.queue_pos = Some(new_pos);
-            } else if self.queue_pos == Some(new_pos) {
-                self.queue_pos = Some(pos);
-            }
-        }
-    }
-
-    fn next(&mut self, ctx: &egui::Context, from_auto: bool) {
-        if self.queue.is_empty() {
-            return;
-        }
-        if from_auto && self.repeat == RepeatMode::One {
-            if let Some(p) = self.queue_pos {
-                self.play_queue_pos(p, ctx);
-            }
-            return;
-        }
-
-        if self.shuffle == ShuffleMode::Smart {
-            // Smart Shuffle next selection
-            if let Some(current) = self.current_track() {
-                let candidate_indices: Vec<usize> = self
-                    .queue
-                    .iter()
-                    .copied()
-                    .filter(|&i| Some(i) != self.current_track_idx())
-                    .collect();
-
-                let pool = if candidate_indices.is_empty() {
-                    (0..self.tracks.len()).filter(|&i| Some(i) != self.current_track_idx()).collect()
-                } else {
-                    candidate_indices
-                };
-
-                let evals = smart_shuffle::evaluate_candidates(current, &pool, &self.tracks, &self.smart_history);
-                if let Some(winner) = evals.first() {
-                    let win_idx = winner.track_idx;
-                    self.last_verdict = Some(winner.clone());
-                    let pos = match self.queue.iter().position(|&q| q == win_idx) {
-                        Some(p) => p,
-                        None => {
-                            let next_slot = self.queue_pos.map(|p| p + 1).unwrap_or(self.queue.len());
-                            self.queue.insert(next_slot, win_idx);
-                            next_slot
-                        }
-                    };
-                    self.play_queue_pos(pos, ctx);
-                    return;
-                }
-            }
-        }
-
-        let next = self.queue_pos.map(|p| p + 1).unwrap_or(0);
-        if next < self.queue.len() {
-            self.play_queue_pos(next, ctx);
-        } else if self.repeat == RepeatMode::All {
-            self.play_queue_pos(0, ctx);
-        } else if from_auto {
-            self.player.pause();
-        }
-    }
-
-    fn previous(&mut self, ctx: &egui::Context, position_ms: u64) {
-        const RESTART_THRESHOLD_MS: u64 = 3_000;
-        if position_ms > RESTART_THRESHOLD_MS {
-            self.player.seek_ms(0);
-            return;
-        }
-        if let Some(p) = self.queue_pos {
-            if p > 0 {
-                self.play_queue_pos(p - 1, ctx);
+    // Helper: Next track
+    let play_next_track = {
+        let mut play_track = play_track.clone();
+        move || {
+            let q = queue.read().clone();
+            let curr_pos = *queue_pos.read();
+            if curr_pos + 1 < q.len() {
+                queue_pos.set(curr_pos + 1);
+                play_track(q[curr_pos + 1].clone());
+            } else if *repeat_mode.read() == RepeatMode::All && !q.is_empty() {
+                queue_pos.set(0);
+                play_track(q[0].clone());
             } else {
-                self.player.seek_ms(0);
-            }
-        }
-    }
-
-    /// Handles automated DJ transition triggers & Deck B JIT preloading.
-    fn check_dj_transitions(&mut self, ctx: &egui::Context, position_ms: u64, duration_ms: u64, is_playing: bool) {
-        let is_in_trans = self.player.snapshot().and_then(|s| s.transition_info).is_some();
-
-        // 1. Detect transition completion: Deck B has finished transitioning into Deck A!
-        if self.was_in_transition && !is_in_trans {
-            self.was_in_transition = false;
-            self.prep_transition_started = false;
-
-            // If we had a planned winner, synchronize queue position
-            if let Some(verdict) = &self.last_verdict {
-                if let Some(pos) = self.queue.iter().position(|&q| q == verdict.track_idx) {
-                    self.queue_pos = Some(pos);
+                let all_tracks = tracks.read().clone();
+                if !all_tracks.is_empty() {
+                    // Pick a random or harmonic track
+                    use std::time::SystemTime;
+                    let seed = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0);
+                    let idx = (seed as usize) % all_tracks.len();
+                    play_track(all_tracks[idx].clone());
                 }
             }
         }
-        if is_in_trans {
-            self.was_in_transition = true;
-        }
+    };
 
-        // Only schedule automated JIT transitions in Smart Shuffle mode
-        if self.shuffle != ShuffleMode::Smart || !is_playing || duration_ms < 10_000 {
-            return;
-        }
-
-        // 2. Preload upcoming Track B into Deck B when remaining time <= 32 seconds
-        let remaining_ms = duration_ms.saturating_sub(position_ms);
-        if remaining_ms <= 32_000 && !self.prep_transition_started && self.player.pending_transition().is_none() && !is_in_trans {
-            if let Some(current) = self.current_track() {
-                let candidate_indices: Vec<usize> = self
-                    .queue
-                    .iter()
-                    .copied()
-                    .filter(|&i| Some(i) != self.current_track_idx())
-                    .collect();
-
-                let pool = if candidate_indices.is_empty() {
-                    (0..self.tracks.len()).filter(|&i| Some(i) != self.current_track_idx()).collect()
+    // Helper: Previous track
+    let mut play_prev_track = {
+        let player = player.clone();
+        let mut play_track = play_track.clone();
+        move || {
+            let pos_ms = *playback_pos_ms.read();
+            if pos_ms > 3000 {
+                // Restart song if played more than 3 seconds
+                player.read().seek_ms(0);
+            } else {
+                let curr_pos = *queue_pos.read();
+                let q = queue.read().clone();
+                if curr_pos > 0 && curr_pos - 1 < q.len() {
+                    queue_pos.set(curr_pos - 1);
+                    play_track(q[curr_pos - 1].clone());
                 } else {
-                    candidate_indices
-                };
-
-                let evals = smart_shuffle::evaluate_candidates(current, &pool, &self.tracks, &self.smart_history);
-                if let Some(winner) = evals.first() {
-                    if let Some(cand_track) = self.tracks.get(winner.track_idx) {
-                        self.last_verdict = Some(winner.clone());
-                        self.prep_transition_started = true;
-                        self.player.prepare_transition(
-                            cand_track.path.clone(),
-                            cand_track.title.clone(),
-                            cand_track.artist.clone(),
-                            ctx.clone(),
-                        );
-                    }
+                    player.read().seek_ms(0);
                 }
             }
         }
+    };
 
-        // 3. Auto-trigger transition at the computed cue start time
-        if let Some(_triggered) = self.player.check_auto_transition() {
-            self.was_in_transition = true;
-            ctx.request_repaint();
-        }
-    }
-
-    // ------------------------------------------------------------------ UI Layout Panels
-
-    /// Left Sidebar: Search at top, navigation categories, music sources, playlists, and settings.
-    fn sidebar(&mut self, ctx: &egui::Context) {
-        egui::SidePanel::left("sidebar")
-            .resizable(false)
-            .exact_width(210.0)
-            .show(ctx, |ui| {
-                ui.add_space(8.0);
-
-                // 1. Search Box
-                ui.horizontal(|ui| {
-                    let resp = ui.add(
-                        egui::TextEdit::singleline(&mut self.search)
-                            .hint_text("🔍 Search...")
-                            .desired_width(ui.available_width() - 4.0),
-                    );
-                    if resp.changed() {
-                        if self.current_stage != StageView::Library && !self.search.trim().is_empty() {
-                            self.navigate_to(StageView::Library);
-                        }
-                        ctx.request_repaint();
-                    }
-                });
-
-                ui.add_space(14.0);
-
-                // 2. Section: ATTUNE
-                ui.label(egui::RichText::new("ATTUNE").strong().size(11.0).color(Color32::from_white_alpha(110)));
-                ui.add_space(4.0);
-
-                let main_stages = [
-                    StageView::Home,
-                    StageView::NowPlaying,
-                    StageView::ForYou,
-                    StageView::Library,
-                    StageView::Albums,
-                ];
-
-                for stage in main_stages {
-                    let is_selected = self.current_stage == stage;
-                    let text = egui::RichText::new(stage.label()).size(14.0);
-                    let text = if is_selected {
-                        text.color(crate::theme::ACCENT).strong()
-                    } else {
-                        text.color(Color32::from_white_alpha(190))
-                    };
-
-                    let btn = egui::Button::new(text)
-                        .min_size(egui::vec2(ui.available_width(), 32.0))
-                        .fill(if is_selected {
-                            Color32::from_rgba_premultiplied(0x14, 0x30, 0x2A, 220)
-                        } else {
-                            Color32::TRANSPARENT
-                        });
-
-                    if ui.add(btn).clicked() {
-                        self.navigate_to(stage);
-                    }
-                    ui.add_space(2.0);
+    // Helper: Trigger manual transition now
+    let mut trigger_transition_now = {
+        let player = player.clone();
+        let mut play_next_track = play_next_track.clone();
+        move || {
+            let p = player.read();
+            if let Some(triggered) = p.trigger_transition_now() {
+                last_verdict.set(Some(triggered.clone()));
+                // Advance queue
+                let q = queue.read().clone();
+                let curr_pos = *queue_pos.read();
+                if curr_pos + 1 < q.len() {
+                    queue_pos.set(curr_pos + 1);
+                    current_track.set(Some(q[curr_pos + 1].clone()));
+                    let sheet = resolve_companion_lyrics(&q[curr_pos + 1].path).unwrap_or_else(LyricsSheet::empty);
+                    lyrics_sheet.set(sheet);
                 }
-
-                ui.add_space(12.0);
-                ui.separator();
-                ui.add_space(8.0);
-
-                // 3. Section: SOURCES
-                ui.label(egui::RichText::new("SOURCES").strong().size(11.0).color(Color32::from_white_alpha(110)));
-                ui.add_space(4.0);
-
-                let dir_label = self
-                    .music_dir
-                    .as_ref()
-                    .and_then(|d| d.file_name())
-                    .map(|f| format!("📁 {}", f.to_string_lossy()))
-                    .unwrap_or_else(|| "📁 No folder set".to_string());
-                ui.add(egui::Label::new(egui::RichText::new(dir_label).small().monospace()).truncate())
-                    .on_hover_text(format!(
-                        "{}\nSource: {}",
-                        self.music_dir
-                            .as_ref()
-                            .map(|d| d.display().to_string())
-                            .unwrap_or_else(|| "Click Choose to set music folder".to_string()),
-                        self.music_dir_source.label()
-                    ));
-
-                ui.add_space(4.0);
-                ui.horizontal(|ui| {
-                    if ui.small_button("Choose").clicked() {
-                        self.pick_music_dir(ctx);
-                    }
-                    let rescan_btn = ui.add_enabled(
-                        self.music_dir.is_some() && self.scan_rx.is_none(),
-                        egui::Button::new("Rescan").small(),
-                    );
-                    if rescan_btn.clicked() {
-                        self.start_scan(ctx);
-                    }
-                });
-
-                ui.add_space(12.0);
-                ui.separator();
-                ui.add_space(8.0);
-
-                // 4. Section: PLAYLISTS & MIXES
-                ui.label(egui::RichText::new("PLAYLISTS & MIXES").strong().size(11.0).color(Color32::from_white_alpha(110)));
-                ui.add_space(4.0);
-
-                // Favorites button
-                {
-                    let is_selected = self.current_stage == StageView::Favorites;
-                    let fav_count = self.favorites.len();
-                    let fav_label = format!("❤️ Favorites ({fav_count})");
-                    let text = egui::RichText::new(fav_label).size(13.0);
-                    let text = if is_selected {
-                        text.color(crate::theme::ACCENT).strong()
-                    } else {
-                        text.color(Color32::from_white_alpha(190))
-                    };
-                    let btn = egui::Button::new(text)
-                        .min_size(egui::vec2(ui.available_width(), 30.0))
-                        .fill(if is_selected {
-                            Color32::from_rgba_premultiplied(0x14, 0x30, 0x2A, 220)
-                        } else {
-                            Color32::TRANSPARENT
-                        });
-                    if ui.add(btn).clicked() {
-                        self.navigate_to(StageView::Favorites);
-                    }
-                }
-
-                ui.add_space(2.0);
-
-                // Bubblegrid button
-                {
-                    let is_selected = self.current_stage == StageView::Bubblegrid;
-                    let text = egui::RichText::new(StageView::Bubblegrid.label()).size(13.0);
-                    let text = if is_selected {
-                        text.color(crate::theme::ACCENT).strong()
-                    } else {
-                        text.color(Color32::from_white_alpha(190))
-                    };
-                    let btn = egui::Button::new(text)
-                        .min_size(egui::vec2(ui.available_width(), 30.0))
-                        .fill(if is_selected {
-                            Color32::from_rgba_premultiplied(0x14, 0x30, 0x2A, 220)
-                        } else {
-                            Color32::TRANSPARENT
-                        });
-                    if ui.add(btn).clicked() {
-                        self.navigate_to(StageView::Bubblegrid);
-                    }
-                }
-
-                // 5. Bottom Section: Settings & Equalizer
-                ui.with_layout(egui::Layout::bottom_up(egui::Align::LEFT), |ui| {
-                    ui.add_space(8.0);
-                    let about_selected = self.current_stage == StageView::About;
-                    let text = egui::RichText::new(StageView::About.label()).size(13.0);
-                    let text = if about_selected {
-                        text.color(crate::theme::ACCENT).strong()
-                    } else {
-                        text.color(Color32::from_white_alpha(160))
-                    };
-                    let btn = egui::Button::new(text)
-                        .min_size(egui::vec2(ui.available_width(), 30.0))
-                        .fill(if about_selected {
-                            Color32::from_rgba_premultiplied(0x14, 0x30, 0x2A, 220)
-                        } else {
-                            Color32::TRANSPARENT
-                        });
-                    if ui.add(btn).clicked() {
-                        self.navigate_to(StageView::About);
-                    }
-
-                    ui.add_space(2.0);
-                    let fx_label = if self.master_fx_ui.params.enabled { "🎛 Equalizer (ON)" } else { "🎛 Equalizer" };
-                    if ui.button(egui::RichText::new(fx_label).size(13.0)).clicked() {
-                        self.master_fx_ui.is_open = !self.master_fx_ui.is_open;
-                    }
-                    ui.add_space(4.0);
-                    ui.separator();
-                });
-            });
-    }
-
-    /// Top Navigation Bar (inside Central Stage area): History navigation `<` `>`, status, and right toolbar toggles.
-    fn top_nav_bar(&mut self, ui: &mut egui::Ui, _ctx: &egui::Context) {
-        ui.horizontal(|ui| {
-            // History Navigation Buttons
-            let back_btn = ui.add_enabled(
-                self.can_navigate_back(),
-                egui::Button::new(egui::RichText::new(" < ").size(15.0).strong()),
-            );
-            if back_btn.clicked() {
-                self.navigate_back();
-            }
-
-            let fwd_btn = ui.add_enabled(
-                self.can_navigate_forward(),
-                egui::Button::new(egui::RichText::new(" > ").size(15.0).strong()),
-            );
-            if fwd_btn.clicked() {
-                self.navigate_forward();
-            }
-
-            ui.add_space(8.0);
-
-            // Scan / Driver Telemetry
-            if self.scan_rx.is_some() {
-                ui.spinner();
-                ui.label(egui::RichText::new(format!("Scanning {}/{}...", self.tracks.len(), self.scan_expected)).small().weak());
-            } else if let Some(msg) = &self.status {
-                ui.label(egui::RichText::new(msg).small().weak());
-            } else if !self.player.has_hardware_output() {
-                ui.colored_label(
-                    Color32::from_rgb(0xE0, 0x7A, 0x5F),
-                    format!("⚠ Headless ({})", self.player.driver_error().unwrap_or("no device")),
-                );
-            }
-
-            // Right-aligned toolbar toggles
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                // Equalizer toggle
-                let eq_active = self.master_fx_ui.is_open;
-                let eq_label = if self.master_fx_ui.params.enabled { "🎚️ EQ (ON)" } else { "🎚️ EQ" };
-                let eq_btn = ui.selectable_label(eq_active, eq_label);
-                if eq_btn.clicked() {
-                    self.master_fx_ui.is_open = !self.master_fx_ui.is_open;
-                }
-
-                // Queue dock toggle
-                let q_active = self.dock_mode == Some(DockMode::Queue);
-                let q_btn = ui.selectable_label(q_active, "☰ Queue");
-                if q_btn.clicked() {
-                    self.dock_mode = if q_active { None } else { Some(DockMode::Queue) };
-                }
-
-                // Lyrics dock toggle
-                let l_active = self.dock_mode == Some(DockMode::Lyrics);
-                let l_btn = ui.selectable_label(l_active, "💬 Lyrics");
-                if l_btn.clicked() {
-                    self.dock_mode = if l_active { None } else { Some(DockMode::Lyrics) };
-                }
-            });
-        });
-    }
-
-    /// Right Docked Panel: shows Synchronized Lyrics or Up Next Queue.
-    fn docked_right_panel(&mut self, ctx: &egui::Context, position_ms: u64) {
-        let Some(mode) = self.dock_mode else { return };
-
-        egui::SidePanel::right("right_dock")
-            .resizable(true)
-            .default_width(320.0)
-            .min_width(260.0)
-            .max_width(480.0)
-            .show(ctx, |ui| {
-                ui.add_space(6.0);
-                match mode {
-                    DockMode::Lyrics => {
-                        self.lyrics_stage.show_docked(ui, &self.current_lyrics, position_ms);
-                    }
-                    DockMode::Queue => {
-                        self.queue_dock_content(ui, ctx);
-                    }
-                }
-            });
-    }
-
-    fn queue_dock_content(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
-        let is_smart = self.shuffle == ShuffleMode::Smart;
-
-        ui.horizontal(|ui| {
-            ui.heading(egui::RichText::new("Up Next").strong().size(18.0).color(Color32::from_white_alpha(230)));
-            ui.label(egui::RichText::new(format!("{} tracks", self.queue.len())).weak());
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                if ui.add_enabled(!self.queue.is_empty(), egui::Button::new("Clear")).clicked() {
-                    self.queue.clear();
-                    self.queue_pos = None;
-                    self.player.clear_pending_transition();
-                }
-            });
-        });
-
-        if is_smart && self.queue.len() < 20 {
-            ui.add_space(4.0);
-            ui.colored_label(
-                Color32::from_rgb(0xE8, 0xB0, 0x50),
-                "⚠ Less than 20 tracks; Smart Shuffle works best with 20+ tracks for harmonic variety.",
-            );
-        }
-
-        ui.add_space(4.0);
-        ui.separator();
-
-        if self.queue.is_empty() {
-            ui.add_space(30.0);
-            ui.vertical_centered(|ui| {
-                ui.label(egui::RichText::new("Queue is empty").size(15.0).weak());
-                ui.add_space(6.0);
-                ui.label(egui::RichText::new("Double-click a track in the library or use “+” to add songs.").small().weak());
-            });
-            return;
-        }
-
-        let mut play_pos = None;
-        let mut remove_pos = None;
-        let mut move_op = None;
-
-        egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
-            for (pos, &idx) in self.queue.iter().enumerate() {
-                let Some(t) = self.tracks.get(idx) else { continue };
-                let is_current = self.queue_pos == Some(pos);
-                ui.horizontal(|ui| {
-                    let label = egui::RichText::new(format!("{}. {}", pos + 1, t.title));
-                    let label = if is_current {
-                        label.color(crate::theme::ACCENT).strong()
-                    } else {
-                        label
-                    };
-                    let resp = ui
-                        .add(egui::Label::new(label).truncate().sense(egui::Sense::click()))
-                        .on_hover_text(format!("{} — {}\n{}", t.artist, t.album, t.detail_line()));
-                    if resp.double_clicked() {
-                        play_pos = Some(pos);
-                    }
-
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if ui.small_button("✕").on_hover_text("Remove from queue").clicked() {
-                            remove_pos = Some(pos);
-                        }
-                        if !is_smart {
-                            if pos + 1 < self.queue.len() && ui.small_button("↓").on_hover_text("Move down").clicked() {
-                                move_op = Some((pos, 1));
-                            }
-                            if pos > 0 && ui.small_button("↑").on_hover_text("Move up").clicked() {
-                                move_op = Some((pos, -1));
-                            }
-                        } else if is_current {
-                            ui.label(egui::RichText::new("▶ Playing").small().color(crate::theme::ACCENT));
-                        }
-                    });
-                });
-            }
-        });
-
-        if let Some(p) = play_pos {
-            self.play_queue_pos(p, ctx);
-        }
-        if let Some(p) = remove_pos {
-            self.remove_from_queue(p);
-        }
-        if let Some((pos, delta)) = move_op {
-            self.move_queue_item(pos, delta);
-        }
-    }
-
-    /// Bottom Transport Bar:
-    /// - Row 1: Full-width scrubber (`0:42 ━━━━━━●━━━━━━ -2:01` with negative remaining time)
-    /// - Row 2: Controls (`🔀 ⏮ ▶/⏸ ⏭ 🔁`), Mini Now Playing Pill in center, Actions (`❤️ 🔊━━ ⛶`) on right.
-    fn transport_bar(&mut self, ctx: &egui::Context) -> (u64, u64, bool) {
-        let snap = self.player.snapshot();
-        let (position_ms, duration_ms, is_playing, finished, sample_rate, underruns, clippings, peak, active_trans) =
-            match &snap {
-                Some(s) => {
-                    let d = if s.active_deck_str == "DeckB" { &s.deck_b } else { &s.deck_a };
-                    (
-                        d.position_ms,
-                        d.duration_ms,
-                        s.is_playing,
-                        d.is_audible_finished,
-                        s.sample_rate,
-                        s.underrun_count,
-                        s.clipping_count,
-                        s.peak_amplitude,
-                        s.transition_info.clone(),
-                    )
-                }
-                None => (0, 0, false, false, 0, 0, 0, 0.0, None),
-            };
-
-        let load_state = self.player.load_state();
-        let pending_trans = self.player.pending_transition();
-        let has_active_trans = active_trans.is_some();
-
-        // Automated DJ transitions & background preloading check
-        self.check_dj_transitions(ctx, position_ms, duration_ms, is_playing);
-
-        // Standard linear auto-advance fallback if not in transition
-        if self.shuffle != ShuffleMode::Smart && load_state == LoadState::Ready && duration_ms > 0 {
-            if is_playing && !finished {
-                self.advance_armed = true;
-            } else if finished && self.advance_armed {
-                self.advance_armed = false;
-                self.next(ctx, true);
+            } else {
+                play_next_track();
             }
         }
+    };
 
-        egui::TopBottomPanel::bottom("transport").min_height(104.0).show(ctx, |ui| {
-            ui.add_space(4.0);
+    // Background Async Poller (50ms Interval): Updates playback, auto-transitions, scan events, and lyrics
+    use_future(move || {
+        let player = player.clone();
+        let scan_rx = scan_rx.clone();
+        async move {
+            loop {
+                tokio::time::sleep(Duration::from_millis(50)).await;
 
-            // Row 1: Full-width Scrubber with elapsed time and negative remaining time
-            ui.horizontal(|ui| {
-                let shown = self.scrub_ms.unwrap_or(position_ms as f64);
-                ui.label(egui::RichText::new(fmt_ms(shown as u64)).monospace().size(12.0));
-
-                let max = duration_ms.max(1) as f64;
-                let mut val = shown.min(max);
-                let width = (ui.available_width() - 65.0).max(120.0);
-                ui.spacing_mut().slider_width = width;
-                let resp = ui.add_enabled(
-                    duration_ms > 0,
-                    egui::Slider::new(&mut val, 0.0..=max).show_value(false),
-                );
-                if resp.dragged() || resp.changed() {
-                    self.scrub_ms = Some(val);
-                }
-                if resp.drag_stopped() || (resp.changed() && !resp.dragged()) {
-                    self.player.seek_ms(val as u64);
-                    self.scrub_ms = None;
-                }
-
-                let remaining_ms = duration_ms.saturating_sub(shown as u64);
-                let rem_text = if duration_ms > 0 {
-                    format!("-{}", fmt_ms(remaining_ms))
-                } else {
-                    "--:--".to_string()
-                };
-                ui.label(egui::RichText::new(rem_text).monospace().size(12.0).weak());
-            });
-
-            ui.add_space(2.0);
-
-            // Row 2: Left Playback Controls, Center Mini Now Playing Pill, Right Actions & Volume
-            ui.horizontal(|ui| {
-                // Left Controls: Shuffle, Previous, Play/Pause, Next, Repeat
-                let btn = |s: &str| {
-                    egui::Button::new(egui::RichText::new(s).size(16.0))
-                        .min_size(egui::vec2(34.0, 30.0))
-                };
-
-                let shuffle_btn = ui.button(self.shuffle.label());
-                if shuffle_btn.clicked() {
-                    self.shuffle = self.shuffle.next();
-                    if self.shuffle != ShuffleMode::Smart {
-                        self.player.clear_pending_transition();
-                    }
-                }
-
-                if ui.add(btn("⏮")).on_hover_text("Previous").clicked() {
-                    self.previous(ctx, position_ms);
-                }
-                let play_label = if is_playing { "⏸" } else { "▶" };
-                if ui.add(btn(play_label)).clicked() {
-                    if is_playing {
-                        self.player.pause();
-                    } else if self.queue_pos.is_none() && !self.queue.is_empty() {
-                        self.play_queue_pos(0, ctx);
-                    } else {
-                        self.player.play();
-                    }
-                }
-                if ui.add(btn("⏭")).on_hover_text("Next").clicked() {
-                    self.next(ctx, false);
-                }
-
-                if ui.button(self.repeat.label()).clicked() {
-                    self.repeat = self.repeat.next();
-                }
-
-                ui.separator();
-
-                // Center: Mini Now Playing Pill
-                let thumb_size = egui::vec2(44.0, 44.0);
-                match self.current_track().and_then(|t| t.artwork_path.clone()) {
-                    Some(p) => {
-                        let resp = ui.add(
-                            egui::Image::new(format!("file://{}", p.display()))
-                                .fit_to_exact_size(thumb_size)
-                                .corner_radius(6.0)
-                                .sense(egui::Sense::click()),
-                        );
-                        if resp.clicked() {
-                            self.navigate_to(StageView::NowPlaying);
-                        }
-                    }
-                    None => {
-                        let (rect, resp) = ui.allocate_exact_size(thumb_size, egui::Sense::click());
-                        ui.painter().rect_filled(rect, 6.0, ui.visuals().faint_bg_color);
-                        ui.painter().text(
-                            rect.center(),
-                            egui::Align2::CENTER_CENTER,
-                            "♪",
-                            egui::FontId::proportional(22.0),
-                            ui.visuals().weak_text_color(),
-                        );
-                        if resp.clicked() {
-                            self.navigate_to(StageView::NowPlaying);
-                        }
-                    }
-                }
-
-                ui.vertical(|ui| {
-                    ui.set_width(220.0);
-                    match self.current_track() {
-                        Some(t) => {
-                            ui.add(egui::Label::new(egui::RichText::new(&t.title).strong().size(13.0)).truncate());
-                            ui.add(egui::Label::new(egui::RichText::new(&t.artist).weak().size(11.0)).truncate());
-                            ui.horizontal(|ui| {
-                                render_audio_quality_badge(ui, &t.format, t.sample_rate);
-                                if let Some(key) = &t.key {
-                                    ui.label(egui::RichText::new(key).small().color(Color32::from_rgb(0x38, 0xBD, 0xF8)));
+                // 1. Process Library Scan Events
+                let rx_arc = scan_rx.read().clone();
+                let rx_guard = rx_arc.lock().ok();
+                if let Some(guard) = rx_guard {
+                    if let Some(rx) = guard.as_ref() {
+                        while let Ok(event) = rx.try_recv() {
+                            match event {
+                                ScanEvent::Discovered(total) => {
+                                    scan_progress.set((0, total));
                                 }
-                            });
+                                ScanEvent::Track(track) => {
+                                    let mut curr_tracks = tracks.read().clone();
+                                    last_scanned_file.set(track.title.clone());
+                                    curr_tracks.push(*track);
+                                    let (count, total) = *scan_progress.read();
+                                    scan_progress.set((count + 1, total));
+                                    tracks.set(curr_tracks);
+                                }
+                                ScanEvent::Finished => {
+                                    is_scanning.set(false);
+                                    // Populate queue if empty
+                                    if queue.read().is_empty() && !tracks.read().is_empty() {
+                                        queue.set(tracks.read().clone());
+                                    }
+                                }
+                            }
                         }
-                        None => {
-                            ui.label(egui::RichText::new("Nothing playing").weak().size(12.0));
-                        }
-                    }
-                });
-
-                // DJ Transition Status Pill
-                if let Some((_elapsed, total, progress, archetype)) = &active_trans {
-                    let pct = (progress * 100.0).clamp(0.0, 100.0) as u32;
-                    let sec = (*total as f32 / sample_rate as f32).max(0.5);
-                    let label = format!("⚡ LIVE: {archetype} ({pct}%)");
-                    if ui.button(egui::RichText::new(label).strong().color(Color32::from_rgb(0x10, 0x30, 0x25)))
-                        .on_hover_text(format!("Transitioning over {sec:.1}s"))
-                        .clicked()
-                    {
-                        self.show_verdict_modal = true;
-                    }
-                } else if let Some(info) = &pending_trans {
-                    let label = format!("⚡ {} >", info.archetype_name);
-                    let btn = ui.add(
-                        egui::Button::new(egui::RichText::new(label).color(crate::theme::ACCENT))
-                            .fill(Color32::from_rgb(0x0C, 0x2A, 0x24)),
-                    );
-                    if btn.clicked() {
-                        self.show_verdict_modal = true;
-                    }
-                    if ui.small_button("Mix Now").on_hover_text("Trigger transition immediately").clicked() {
-                        self.player.trigger_transition_now();
                     }
                 }
 
-                // Right Actions: Favorite, Volume, Expand Now Playing
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    // Expand Now Playing Stage Button
-                    if ui.button(egui::RichText::new("⛶").size(16.0)).on_hover_text("Open Now Playing stage").clicked() {
-                        self.navigate_to(StageView::NowPlaying);
-                    }
+                // 2. Process Audio Playback Snapshot
+                let p = player.read();
+                if let Some(snap) = p.snapshot() {
+                    is_playing.set(snap.is_playing);
 
-                    // Volume Slider
-                    let vol = ui.add(
-                        egui::Slider::new(&mut self.volume_db, VOLUME_DB_RANGE)
-                            .suffix(" dB")
-                            .fixed_decimals(0),
-                    );
-                    if vol.changed() {
-                        self.player.set_gain_db(self.volume_db);
-                    }
-                    ui.label("🔊");
-
-                    // Favorite Button
-                    let is_fav = self
-                        .current_track()
-                        .map(|t| self.favorites.contains(&t.path))
-                        .unwrap_or(false);
-                    let fav_color = if is_fav {
-                        Color32::from_rgb(0xFB, 0x71, 0x85)
+                    // Determine active deck position and duration
+                    let (pos, dur) = if snap.active_deck_str == "Deck B" {
+                        (snap.deck_b.position_ms, snap.deck_b.duration_ms)
                     } else {
-                        Color32::from_white_alpha(100)
+                        (snap.deck_a.position_ms, snap.deck_a.duration_ms)
                     };
-                    let fav_btn = egui::Button::new(egui::RichText::new("❤️").color(fav_color));
-                    if ui.add(fav_btn).on_hover_text(if is_fav { "Remove from Favorites" } else { "Add to Favorites" }).clicked() {
-                        if let Some(t) = self.current_track() {
-                            let path = t.path.clone();
-                            if is_fav {
-                                self.favorites.remove(&path);
+                    playback_pos_ms.set(pos);
+                    playback_dur_ms.set(dur);
+
+                    if let Some((_, _, pct, archetype)) = &snap.transition_info {
+                        active_trans_name.set(Some(format!("Blending: {archetype} ({:.0}%)", pct * 100.0)));
+                    } else {
+                        active_trans_name.set(None);
+                    }
+                }
+
+                // 3. Check for Automatic JIT Transition Trigger
+                if let Some(triggered) = p.check_auto_transition() {
+                    last_verdict.set(Some(triggered.clone()));
+                    let q = queue.read().clone();
+                    let curr_pos = *queue_pos.read();
+                    if curr_pos + 1 < q.len() {
+                        queue_pos.set(curr_pos + 1);
+                        current_track.set(Some(q[curr_pos + 1].clone()));
+                        let sheet = resolve_companion_lyrics(&q[curr_pos + 1].path).unwrap_or_else(LyricsSheet::empty);
+                        lyrics_sheet.set(sheet);
+                    }
+                }
+
+                // 4. Update Pending Transition Info
+                pending_trans_info.set(p.pending_transition());
+
+                // 5. Update Synchronized Lyrics Active Line
+                let pos = *playback_pos_ms.read();
+                let active_idx = lyrics_sheet.read().active_line_index(pos);
+                if active_idx != *active_lyric_index.read() {
+                    active_lyric_index.set(active_idx);
+                }
+            }
+        }
+    });
+
+    // Compute harmonic matches for the currently playing track
+    let harmonic_matches: Vec<TrackEntry> = {
+        let all = tracks.read().clone();
+        if let Some(curr) = current_track.read().as_ref() {
+            let curr_key = curr.key.as_deref().unwrap_or("");
+            all.into_iter()
+                .filter(|t| t.path != curr.path && t.key.as_deref().unwrap_or("").len() > 1 && (curr_key.is_empty() || t.key.as_deref() == Some(curr_key)))
+                .take(6)
+                .collect()
+        } else {
+            all.into_iter().take(6).collect()
+        }
+    };
+
+    // Calculate time labels for scrubber
+    let elapsed_str = fmt_ms(*playback_pos_ms.read());
+    let rem_ms = playback_dur_ms.read().saturating_sub(*playback_pos_ms.read());
+    let remaining_str = format!("-{}", fmt_ms(rem_ms));
+    let (scan_curr, scan_total) = *scan_progress.read();
+
+    let curr_track_clone = current_track.read().clone();
+    let mini_pill_info = curr_track_clone.as_ref().map(|track| {
+        let art_src = track.artwork_path.as_ref()
+            .map(|p| format!("file://{}", p.display()))
+            .unwrap_or_default();
+        let q = AudioQualityCategory::classify(&track.format, track.sample_rate);
+        (track.title.clone(), format!("{} • {}", track.artist, track.album), art_src, q.label(), q.css_class())
+    });
+
+    rsx! {
+        div { class: "app-container",
+            div { class: "ambient-mesh" }
+
+            // ==========================================
+            // LEFT SIDEBAR
+            // ==========================================
+            div { class: "sidebar",
+                // Brand Header
+                div { style: "display: flex; align-items: center; gap: 10px; padding: 6px 8px 12px 8px;",
+                    div {
+                        style: "width: 28px; height: 28px; border-radius: 7px; background: linear-gradient(135deg, var(--accent-mint), var(--accent-purple)); display: flex; align-items: center; justify-content: center; font-size: 16px; font-weight: 800; color: #0b101b;",
+                        "A"
+                    }
+                    span { style: "font-weight: 700; font-size: 16px; letter-spacing: 0.05em;", "ATTUNE" }
+                }
+
+                // Global Search Input
+                div { class: "search-bar",
+                    span { "🔍" }
+                    input {
+                        placeholder: "Search library...",
+                        value: "{search_query}",
+                        oninput: move |evt| {
+                            search_query.set(evt.value());
+                            if *current_stage.read() != StageView::Library {
+                                navigate_to(StageView::Library);
+                            }
+                        },
+                    }
+                }
+
+                // Attune Main Navigation
+                div { class: "nav-section",
+                    span { class: "section-label", "ATTUNE" }
+                    div {
+                        class: if *current_stage.read() == StageView::Home { "nav-item active" } else { "nav-item" },
+                        onclick: move |_| navigate_to(StageView::Home),
+                        span { "🏠" }
+                        span { "Home" }
+                    }
+                    div {
+                        class: if *current_stage.read() == StageView::ForYou { "nav-item active" } else { "nav-item" },
+                        onclick: move |_| navigate_to(StageView::ForYou),
+                        span { "✨" }
+                        span { "For You" }
+                    }
+                    div {
+                        class: if *current_stage.read() == StageView::Library { "nav-item active" } else { "nav-item" },
+                        onclick: move |_| navigate_to(StageView::Library),
+                        span { "♫" }
+                        span { "Library" }
+                    }
+                    div {
+                        class: if *current_stage.read() == StageView::Albums { "nav-item active" } else { "nav-item" },
+                        onclick: move |_| navigate_to(StageView::Albums),
+                        span { "◉" }
+                        span { "Albums" }
+                    }
+                    div {
+                        class: if *current_stage.read() == StageView::Favorites { "nav-item active" } else { "nav-item" },
+                        onclick: move |_| navigate_to(StageView::Favorites),
+                        span { "❤️" }
+                        span { "Favorite Songs" }
+                    }
+                }
+
+                // Sources Section
+                div { class: "nav-section", style: "margin-top: 8px;",
+                    span { class: "section-label", "SOURCES" }
+                    div { style: "padding: 6px 8px; font-size: 11.5px; color: var(--text-muted); word-break: break-all; background: rgba(255,255,255,0.03); border-radius: 6px; border: 1px solid var(--border-glass); margin-bottom: 8px;",
+                        if let Some(dir) = music_dir.read().as_ref() {
+                            "📁 {dir.display()}"
+                        } else {
+                            "No folder chosen"
+                        }
+                    }
+                    div { style: "display: flex; gap: 6px;",
+                        button {
+                            class: "btn-pill",
+                            style: "flex: 1; padding: 4px 8px; font-size: 11.5px;",
+                            onclick: move |_| {
+                                if let Some(path) = rfd::FileDialog::new().pick_folder() {
+                                    music_dir.set(Some(path.clone()));
+                                    tracks.set(Vec::new());
+                                    let rx = library::spawn_scan(path);
+                                    *scan_rx.write() = Arc::new(Mutex::new(Some(rx)));
+                                    is_scanning.set(true);
+                                }
+                            },
+                            "Choose"
+                        }
+                        button {
+                            class: "btn-pill",
+                            style: "flex: 1; padding: 4px 8px; font-size: 11.5px;",
+                            disabled: music_dir.read().is_none() || *is_scanning.read(),
+                            onclick: move |_| {
+                                if let Some(dir) = music_dir.read().clone() {
+                                    tracks.set(Vec::new());
+                                    let rx = library::spawn_scan(dir);
+                                    *scan_rx.write() = Arc::new(Mutex::new(Some(rx)));
+                                    is_scanning.set(true);
+                                }
+                            },
+                            if *is_scanning.read() { "Scanning..." } else { "Rescan" }
+                        }
+                    }
+                }
+
+                // Sidebar Bottom
+                div { class: "sidebar-bottom",
+                    div {
+                        class: "nav-item",
+                        onclick: move |_| show_eq_modal.set(true),
+                        span { "🎚️" }
+                        span { "Equalizer" }
+                    }
+                    div {
+                        class: if *current_stage.read() == StageView::About { "nav-item active" } else { "nav-item" },
+                        onclick: move |_| navigate_to(StageView::About),
+                        span { "ℹ" }
+                        span { "About Attune" }
+                    }
+                }
+            }
+
+            // ==========================================
+            // MAIN STAGE
+            // ==========================================
+            div { class: "main-stage",
+                // Top Navigation Bar
+                div { class: "top-nav",
+                    // History Back / Forward
+                    div { class: "history-nav",
+                        button {
+                            class: "btn-icon",
+                            disabled: *history_index.read() == 0,
+                            onclick: move |_| {
+                                let idx = *history_index.read();
+                                if idx > 0 {
+                                    history_index.set(idx - 1);
+                                    current_stage.set(stage_history.read()[idx - 1]);
+                                }
+                            },
+                            "‹"
+                        }
+                        button {
+                            class: "btn-icon",
+                            disabled: *history_index.read() + 1 >= stage_history.read().len(),
+                            onclick: move |_| {
+                                let idx = *history_index.read();
+                                if idx + 1 < stage_history.read().len() {
+                                    history_index.set(idx + 1);
+                                    current_stage.set(stage_history.read()[idx + 1]);
+                                }
+                            },
+                            "›"
+                        }
+                    }
+
+                    // Scan Status or Active Transition Telemetry
+                    div { style: "display: flex; align-items: center; gap: 10px;",
+                        if *is_scanning.read() {
+                            div { class: "quality-badge quality-good",
+                                "🔄 Scanning {scan_curr}/{scan_total}: {last_scanned_file.read()}"
+                            }
+                        } else if let Some(trans) = active_trans_name.read().as_ref() {
+                            div { class: "quality-badge quality-very-good",
+                                "✨ {trans}"
+                            }
+                        } else if let Some(pending) = pending_trans_info.read().as_ref() {
+                            div {
+                                class: "quality-badge quality-proprietary",
+                                style: "cursor: pointer;",
+                                onclick: move |_| show_verdict_modal.set(true),
+                                "⚡ Primed: {pending.archetype_name} ({pending.confidence_pct}%)"
+                            }
+                        }
+                    }
+
+                    // Top Right Tools
+                    div { class: "top-tools",
+                        button {
+                            class: if *dock_mode.read() == DockMode::Lyrics { "btn-pill active" } else { "btn-pill" },
+                            onclick: move |_| {
+                                if *dock_mode.read() == DockMode::Lyrics {
+                                    dock_mode.set(DockMode::Closed);
+                                } else {
+                                    dock_mode.set(DockMode::Lyrics);
+                                }
+                            },
+                            "💬 Lyrics"
+                        }
+                        button {
+                            class: if *dock_mode.read() == DockMode::Queue { "btn-pill active" } else { "btn-pill" },
+                            onclick: move |_| {
+                                if *dock_mode.read() == DockMode::Queue {
+                                    dock_mode.set(DockMode::Closed);
+                                } else {
+                                    dock_mode.set(DockMode::Queue);
+                                }
+                            },
+                            "☰ Queue"
+                        }
+                        button {
+                            class: "btn-icon",
+                            onclick: move |_| show_eq_modal.set(true),
+                            "🎚️"
+                        }
+                    }
+                }
+
+                // Stage View Content Scroll
+                div { class: "content-scroll",
+                    match *current_stage.read() {
+                        StageView::Home => rsx! {
+                            Home {
+                                current_track: current_track.read().clone(),
+                                is_playing: *is_playing.read(),
+                                playback_pos_ms: *playback_pos_ms.read(),
+                                playback_dur_ms: *playback_dur_ms.read(),
+                                recent_tracks: recent_tracks.read().clone(),
+                                harmonic_matches: harmonic_matches.clone(),
+                                on_play_track: move |t| play_track(t),
+                                on_toggle_play: move |_| {
+                                    let p = player.read();
+                                    if *is_playing.read() { p.pause(); } else { p.play(); }
+                                },
+                                on_open_lyrics: move |_| dock_mode.set(DockMode::Lyrics),
+                            }
+                        },
+                        StageView::Library => rsx! {
+                            Library {
+                                tracks: tracks.read().clone(),
+                                search_query: search_query.read().clone(),
+                                current_track_path: current_track.read().as_ref().map(|t| t.path.clone()),
+                                favorites: favorites.read().clone(),
+                                on_play_track: move |t| play_track(t),
+                                on_queue_track: move |t| {
+                                    let mut q = queue.read().clone();
+                                    q.push(t);
+                                    queue.set(q);
+                                },
+                                on_toggle_favorite: move |path: PathBuf| {
+                                    let mut favs = favorites.read().clone();
+                                    if favs.contains(&path) { favs.remove(&path); } else { favs.insert(path); }
+                                    favorites.set(favs);
+                                },
+                                on_search_change: move |val| search_query.set(val),
+                            }
+                        },
+                        StageView::Albums => rsx! {
+                            Albums {
+                                tracks: tracks.read().clone(),
+                                on_play_track: move |t| play_track(t),
+                                on_play_tracks: move |list| play_track_list(list),
+                            }
+                        },
+                        StageView::ForYou => rsx! {
+                            ForYou {
+                                tracks: tracks.read().clone(),
+                                on_start_mix: move |list| play_track_list(list),
+                            }
+                        },
+                        StageView::Favorites => rsx! {
+                            Favorites {
+                                tracks: tracks.read().clone(),
+                                favorites: favorites.read().clone(),
+                                current_track_path: current_track.read().as_ref().map(|t| t.path.clone()),
+                                on_play_track: move |t| play_track(t),
+                                on_play_tracks: move |list| play_track_list(list),
+                                on_queue_track: move |t| {
+                                    let mut q = queue.read().clone();
+                                    q.push(t);
+                                    queue.set(q);
+                                },
+                                on_toggle_favorite: move |path: PathBuf| {
+                                    let mut favs = favorites.read().clone();
+                                    if favs.contains(&path) { favs.remove(&path); } else { favs.insert(path); }
+                                    favorites.set(favs);
+                                },
+                            }
+                        },
+                        StageView::About => rsx! {
+                            About {}
+                        },
+                    }
+                }
+            }
+
+            // ==========================================
+            // RIGHT DOCK (LYRICS / UP NEXT QUEUE)
+            // ==========================================
+            if *dock_mode.read() != DockMode::Closed {
+                div { class: "right-dock",
+                    match *dock_mode.read() {
+                        DockMode::Lyrics => rsx! {
+                            div { class: "dock-header",
+                                span { style: "font-weight: 700; font-size: 15px;", "Synchronized Lyrics" }
+                                div { style: "display: flex; gap: 8px; align-items: center;",
+                                    button {
+                                        class: if *auto_scroll_lyrics.read() { "btn-pill active" } else { "btn-pill" },
+                                        style: "font-size: 11px; padding: 2px 8px;",
+                                        onclick: move |_| {
+                                            let curr = *auto_scroll_lyrics.read();
+                                            auto_scroll_lyrics.set(!curr);
+                                        },
+                                        if *auto_scroll_lyrics.read() { "🔒 Auto-Scroll" } else { "🔓 Free-Scroll" }
+                                    }
+                                    button {
+                                        class: "btn-icon",
+                                        style: "width: 24px; height: 24px; font-size: 12px;",
+                                        onclick: move |_| dock_mode.set(DockMode::Closed),
+                                        "✕"
+                                    }
+                                }
+                            }
+
+                            div { class: "dock-scroll",
+                                if lyrics_sheet.read().lines.is_empty() {
+                                    div { style: "display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; text-align: center; color: var(--text-muted); gap: 12px; padding: 40px 20px;",
+                                        span { style: "font-size: 32px;", "📝" }
+                                        p { style: "font-size: 15px; font-weight: 600;", "No Lyrics Available" }
+                                        p { style: "font-size: 12px; line-height: 1.4;", "Place a companion .lrc file alongside your song to display synchronized singing lines." }
+                                    }
+                                } else {
+                                    div { class: "lyrics-container",
+                                        for (idx, line) in lyrics_sheet.read().lines.iter().enumerate() {
+                                            {
+                                                let is_active = *active_lyric_index.read() == Some(idx);
+                                                let ts = line.timestamp_ms;
+                                                let text = line.text.clone();
+                                                let player = player.clone();
+
+                                                rsx! {
+                                                    div {
+                                                        key: "{idx}",
+                                                        class: if is_active { "lyric-line active" } else { "lyric-line" },
+                                                        onclick: move |_| player.read().seek_ms(ts),
+                                                        "{text}"
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        },
+                        DockMode::Queue => rsx! {
+                            div { class: "dock-header",
+                                span { style: "font-weight: 700; font-size: 15px;", "Up Next Queue" }
+                                div { style: "display: flex; gap: 8px; align-items: center;",
+                                    button {
+                                        class: "btn-pill",
+                                        style: "font-size: 11px; padding: 2px 8px;",
+                                        onclick: move |_| {
+                                            let mut q = queue.read().clone();
+                                            q.clear();
+                                            queue.set(q);
+                                        },
+                                        "Clear"
+                                    }
+                                    button {
+                                        class: "btn-icon",
+                                        style: "width: 24px; height: 24px; font-size: 12px;",
+                                        onclick: move |_| dock_mode.set(DockMode::Closed),
+                                        "✕"
+                                    }
+                                }
+                            }
+
+                            // Pending Transition Card (if primed)
+                            if let Some(pending) = pending_trans_info.read().as_ref() {
+                                div { style: "background: rgba(45, 212, 191, 0.10); border: 1px solid rgba(45, 212, 191, 0.3); border-radius: 12px; margin: 12px 16px 0 16px; padding: 12px;",
+                                    div { style: "display: flex; justify-content: space-between; align-items: center;",
+                                        span { style: "font-size: 11px; font-weight: 700; color: var(--accent-mint); text-transform: uppercase;", "PRIMED DJ RECIPE" }
+                                        span { style: "font-size: 10px; color: var(--text-muted);", "{pending.confidence_pct}% Match" }
+                                    }
+                                    p { style: "font-weight: 600; font-size: 13px; margin: 4px 0;", "{pending.archetype_name}" }
+                                    p { style: "font-size: 11.5px; color: var(--text-secondary);", "Incoming: {pending.incoming_title}" }
+                                    button {
+                                        class: "btn-pill active",
+                                        style: "width: 100%; margin-top: 8px; font-size: 11.5px; padding: 4px;",
+                                        onclick: move |_| trigger_transition_now(),
+                                        "⚡ Blend Now"
+                                    }
+                                }
+                            }
+
+                            div { class: "dock-scroll",
+                                if queue.read().is_empty() {
+                                    div { style: "text-align: center; color: var(--text-muted); padding: 40px 10px;",
+                                        "Queue is empty. Click '+' on any track in your library to add it."
+                                    }
+                                } else {
+                                    div { style: "display: flex; flex-direction: column; gap: 4px;",
+                                        for (idx, track) in queue.read().iter().enumerate() {
+                                            {
+                                                let t = track.clone();
+                                                let t_click = t.clone();
+                                                let is_current = *queue_pos.read() == idx;
+                                                let dur = fmt_ms(t.duration_ms);
+                                                let mut play_track = play_track.clone();
+
+                                                rsx! {
+                                                    div {
+                                                        key: "{idx}-{t.path.display()}",
+                                                        class: if is_current { "track-row playing" } else { "track-row" },
+                                                        style: "display: flex; align-items: center; justify-content: space-between; padding: 8px 10px;",
+                                                        onclick: move |_| {
+                                                            queue_pos.set(idx);
+                                                            play_track(t_click.clone());
+                                                        },
+                                                        div { style: "display: flex; flex-direction: column; overflow: hidden; flex: 1;",
+                                                            span { style: "font-weight: 500; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;", "{t.title}" }
+                                                            span { style: "font-size: 11.5px; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;", "{t.artist}" }
+                                                        }
+                                                        span { style: "font-size: 11px; color: var(--text-muted); font-family: monospace; margin-left: 8px;", "{dur}" }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        },
+                        DockMode::Closed => rsx! {},
+                    }
+                }
+            }
+
+            // ==========================================
+            // BOTTOM TRANSPORT BAR
+            // ==========================================
+            div { class: "transport-bar",
+                // Scrubber Row: 0:42 ━━━━━━━━━━━━━━━━━━●────────────────────── -2:01
+                div { class: "scrubber-row",
+                    span { class: "time-label", "{elapsed_str}" }
+                    input {
+                        r#type: "range",
+                        class: "scrubber-slider",
+                        min: "0",
+                        max: "{playback_dur_ms.read().max(1)}",
+                        value: "{playback_pos_ms.read()}",
+                        oninput: move |evt| {
+                            if let Ok(val) = evt.value().parse::<u64>() {
+                                playback_pos_ms.set(val);
+                                player.read().seek_ms(val);
+                            }
+                        },
+                    }
+                    span { class: "time-label", style: "text-align: right;", "{remaining_str}" }
+                }
+
+                // Controls Row
+                div { class: "controls-row",
+                    // Left: Playback controls
+                    div { class: "transport-left",
+                        // Shuffle
+                        button {
+                            class: "btn-ctrl",
+                            style: if *shuffle_mode.read() { "color: var(--accent-mint);" } else { "" },
+                            title: "Smart DJ Shuffle",
+                            onclick: move |_| {
+                                let curr = *shuffle_mode.read();
+                                shuffle_mode.set(!curr);
+                            },
+                            "🔀"
+                        }
+                        // Previous
+                        button {
+                            class: "btn-ctrl",
+                            title: "Previous Track",
+                            onclick: move |_| play_prev_track(),
+                            "⏮"
+                        }
+                        // Play / Pause
+                        button {
+                            class: "btn-ctrl btn-play",
+                            title: if *is_playing.read() { "Pause" } else { "Play" },
+                            onclick: move |_| {
+                                let p = player.read();
+                                if *is_playing.read() { p.pause(); } else { p.play(); }
+                            },
+                            if *is_playing.read() { "⏸" } else { "▶" }
+                        }
+                        // Next / Transition
+                        button {
+                            class: "btn-ctrl",
+                            title: "Next Track (Seamless Blend)",
+                            onclick: move |_| trigger_transition_now(),
+                            "⏭"
+                        }
+                        // Repeat
+                        button {
+                            class: "btn-ctrl",
+                            style: match *repeat_mode.read() {
+                                RepeatMode::Off => "",
+                                RepeatMode::All => "color: var(--accent-mint);",
+                                RepeatMode::One => "color: var(--accent-purple);",
+                            },
+                            title: "Repeat Mode",
+                            onclick: move |_| {
+                                let next_mode = match *repeat_mode.read() {
+                                    RepeatMode::Off => RepeatMode::All,
+                                    RepeatMode::All => RepeatMode::One,
+                                    RepeatMode::One => RepeatMode::Off,
+                                };
+                                repeat_mode.set(next_mode);
+                            },
+                            match *repeat_mode.read() {
+                                RepeatMode::Off | RepeatMode::All => "🔁",
+                                RepeatMode::One => "🔂",
+                            }
+                        }
+                    }
+
+                    // Center: Mini Now Playing Pill
+                    if let Some((title, artist_album, art_src, q_label, q_class)) = mini_pill_info {
+                        div { class: "mini-pill",
+                            if !art_src.is_empty() {
+                                img { class: "mini-art", src: "{art_src}", alt: "{title}" }
                             } else {
-                                self.favorites.insert(path);
+                                div {
+                                    class: "mini-art",
+                                    style: "display: flex; align-items: center; justify-content: center; font-size: 20px;",
+                                    "🎵"
+                                }
+                            }
+                            div { class: "mini-meta",
+                                div { style: "display: flex; align-items: center; gap: 6px;",
+                                    span { class: "mini-title", "{title}" }
+                                    span { class: "quality-badge {q_class}", style: "font-size: 8.5px; padding: 0 4px;", "{q_label}" }
+                                }
+                                span { class: "mini-artist", "{artist_album}" }
+                            }
+                        }
+                    } else {
+                        div { class: "mini-pill",
+                            span { style: "color: var(--text-muted); font-size: 13px;", "No track selected" }
+                        }
+                    }
+
+                    // Right: Actions (Favorites, Volume, Modals)
+                    div { class: "transport-right",
+                        // Favorite Heart
+                        button {
+                            class: "btn-ctrl",
+                            style: if current_track.read().as_ref().map(|t| favorites.read().contains(&t.path)).unwrap_or(false) {
+                                "color: #fb7185;"
+                            } else {
+                                ""
+                            },
+                            title: "Toggle Favorite",
+                            onclick: move |_| {
+                                if let Some(t) = current_track.read().as_ref() {
+                                    let mut favs = favorites.read().clone();
+                                    if favs.contains(&t.path) {
+                                        favs.remove(&t.path);
+                                    } else {
+                                        favs.insert(t.path.clone());
+                                    }
+                                    favorites.set(favs);
+                                }
+                            },
+                            if current_track.read().as_ref().map(|t| favorites.read().contains(&t.path)).unwrap_or(false) { "♥" } else { "♡" }
+                        }
+
+                        // Volume Slider
+                        span { style: "font-size: 14px; color: var(--text-muted);", "🔊" }
+                        input {
+                            r#type: "range",
+                            class: "vol-slider",
+                            min: "0",
+                            max: "100",
+                            value: "{volume_pct.read()}",
+                            oninput: move |evt| {
+                                if let Ok(pct) = evt.value().parse::<u32>() {
+                                    volume_pct.set(pct);
+                                    let db = if pct == 0 {
+                                        -60.0
+                                    } else {
+                                        ((pct as f32 / 100.0).log10() * 20.0).clamp(-60.0, 0.0)
+                                    };
+                                    player.read().set_gain_db(db);
+                                }
+                            },
+                        }
+
+                        // Fullscreen / Stage Toggle
+                        button {
+                            class: "btn-ctrl",
+                            title: "Toggle Now Playing",
+                            onclick: move |_| navigate_to(StageView::Home),
+                            "⛶"
+                        }
+                    }
+                }
+            }
+
+            // ==========================================
+            // MODALS: EQUALIZER & VERDICT
+            // ==========================================
+            if *show_eq_modal.read() {
+                div {
+                    style: "position: fixed; inset: 0; background: rgba(0,0,0,0.65); backdrop-filter: blur(12px); display: flex; align-items: center; justify-content: center; z-index: 100;",
+                    div {
+                        style: "background: var(--bg-card); border: 1px solid var(--border-glass); border-radius: 20px; padding: 28px; width: 620px; box-shadow: 0 16px 48px rgba(0,0,0,0.7); display: flex; flex-direction: column; gap: 20px;",
+                        div { style: "display: flex; justify-content: space-between; align-items: center;",
+                            div {
+                                h2 { style: "font-size: 20px; font-weight: 700;", "10-Band Mastering Equalizer" }
+                                p { style: "font-size: 12px; color: var(--text-secondary); margin-top: 2px;", "Studio biquad peaking filters with real-time DSP preview" }
+                            }
+                            button {
+                                class: "btn-icon",
+                                onclick: move |_| show_eq_modal.set(false),
+                                "✕"
+                            }
+                        }
+
+                        // 10-Band EQ Sliders
+                        div { style: "display: flex; justify-content: space-between; gap: 10px; padding: 10px 0;",
+                            for idx in 0..EQ_BANDS_COUNT {
+                                {
+                                    let freq = EQ_CENTER_FREQS[idx];
+                                    let freq_label = if freq >= 1000.0 { format!("{:.0}k", freq / 1000.0) } else { format!("{:.0}", freq) };
+                                    let gain = master_fx.read().band_gains_db[idx];
+                                    let player = player.clone();
+
+                                    rsx! {
+                                        div {
+                                            key: "{idx}",
+                                            style: "display: flex; flex-direction: column; align-items: center; gap: 8px; flex: 1;",
+                                            span { style: "font-size: 11px; font-family: monospace; color: if gain.abs() > 0.1 { \"var(--accent-mint)\" } else { \"var(--text-muted)\" };",
+                                                "{gain:+.1}"
+                                            }
+                                            input {
+                                                r#type: "range",
+                                                min: "-12",
+                                                max: "12",
+                                                step: "0.5",
+                                                value: "{gain}",
+                                                style: "writing-mode: vertical-lr; direction: rtl; width: 28px; height: 140px; cursor: pointer;",
+                                                oninput: move |evt| {
+                                                    if let Ok(v) = evt.value().parse::<f32>() {
+                                                        let mut p = master_fx.read().clone();
+                                                        p.band_gains_db[idx] = v;
+                                                        master_fx.set(p.clone());
+                                                        player.read().set_master_fx_params(p);
+                                                    }
+                                                },
+                                            }
+                                            span { style: "font-size: 11px; font-weight: 600; color: var(--text-secondary);", "{freq_label}" }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        // Bottom Actions
+                        div { style: "display: flex; justify-content: space-between; align-items: center; border-top: 1px solid var(--border-glass); padding-top: 16px;",
+                            button {
+                                class: "btn-pill",
+                                onclick: move |_| {
+                                    let mut p = master_fx.read().clone();
+                                    p.band_gains_db = [0.0; EQ_BANDS_COUNT];
+                                    master_fx.set(p.clone());
+                                    player.read().set_master_fx_params(p);
+                                },
+                                "Reset to Flat"
+                            }
+                            button {
+                                class: "btn-pill active",
+                                onclick: move |_| show_eq_modal.set(false),
+                                "Done"
                             }
                         }
                     }
-                });
-            });
-
-            // Bottom Sub-line: Telemetry
-            ui.horizontal(|ui| {
-                let hw = if self.player.has_hardware_output() { "hardware" } else { "headless" };
-                let peak_db = if peak > 0.0001 { 20.0 * peak.log10() } else { -90.0 };
-                ui.label(
-                    egui::RichText::new(format!(
-                        "Output: {hw} @ {sample_rate} Hz • Peak: {peak_db:.1} dBFS • Underruns: {underruns} • Clips: {clippings}"
-                    ))
-                    .small()
-                    .weak(),
-                );
-            });
-            ui.add_space(2.0);
-        });
-
-        if is_playing || matches!(load_state, LoadState::Decoding(_)) || has_active_trans {
-            ctx.request_repaint_after(std::time::Duration::from_millis(80));
-        }
-
-        (position_ms, duration_ms, is_playing)
-    }
-
-    /// Central stage rendering: ambient mesh background + top navigation bar + stage view.
-    fn central_stage(
-        &mut self,
-        ctx: &egui::Context,
-        position_ms: u64,
-        duration_ms: u64,
-        is_playing: bool,
-    ) {
-        egui::CentralPanel::default().show(ctx, |ui| {
-            // Living Ambient Mesh Background
-            let rect = ui.max_rect();
-            crate::theme::paint_living_ambient_mesh(ui, rect, &self.dynamic_palette, self.animation_time);
-
-            // Top Navigation Bar
-            self.top_nav_bar(ui, ctx);
-            ui.add_space(4.0);
-            ui.separator();
-            ui.add_space(4.0);
-
-            match self.current_stage {
-                StageView::Home => {
-                    let cur_track = self.current_track().cloned();
-                    let mut play_idx = None;
-                    let mut toggle_play = false;
-                    let mut skip_next = false;
-                    let mut open_np = false;
-
-                    self.home_stage.show(
-                        ui,
-                        &self.tracks,
-                        cur_track.as_ref(),
-                        is_playing,
-                        &self.player,
-                        &mut |idx| play_idx = Some(idx),
-                        &mut || toggle_play = true,
-                        &mut || skip_next = true,
-                        &mut || open_np = true,
-                    );
-
-                    if let Some(idx) = play_idx {
-                        self.play_track_now(idx, ctx);
-                    }
-                    if toggle_play {
-                        if is_playing {
-                            self.player.pause();
-                        } else if self.queue_pos.is_none() && !self.queue.is_empty() {
-                            self.play_queue_pos(0, ctx);
-                        } else {
-                            self.player.play();
-                        }
-                    }
-                    if skip_next {
-                        self.next(ctx, false);
-                    }
-                    if open_np {
-                        self.navigate_to(StageView::NowPlaying);
-                    }
-                }
-                StageView::NowPlaying => {
-                    let cur_track = self.current_track().cloned();
-                    self.now_playing_stage.show(
-                        ui,
-                        cur_track.as_ref(),
-                        &self.player,
-                        &self.current_lyrics,
-                        position_ms,
-                        duration_ms,
-                        is_playing,
-                    );
-                }
-                StageView::ForYou => {
-                    let mut play_idx = None;
-                    let mut play_mix = None;
-
-                    ForYouStage::show(
-                        ui,
-                        &self.tracks,
-                        &mut |idx| play_idx = Some(idx),
-                        &mut |indices| play_mix = Some(indices.to_vec()),
-                    );
-
-                    if let Some(idx) = play_idx {
-                        self.play_track_now(idx, ctx);
-                    }
-                    if let Some(indices) = play_mix {
-                        if !indices.is_empty() {
-                            self.queue.clear();
-                            self.queue.extend_from_slice(&indices);
-                            self.play_queue_pos(0, ctx);
-                        }
-                    }
-                }
-                StageView::Library => {
-                    self.library_content(ui, ctx);
-                }
-                StageView::Albums => {
-                    let mut play_track = None;
-                    let mut play_album = None;
-                    let mut enqueue_album = None;
-
-                    self.albums_stage.show(
-                        ui,
-                        &mut self.tracks,
-                        &mut |idx| play_track = Some(idx),
-                        &mut |indices| play_album = Some(indices.to_vec()),
-                        &mut |indices| enqueue_album = Some(indices.to_vec()),
-                    );
-
-                    if let Some(idx) = play_track {
-                        self.play_track_now(idx, ctx);
-                    }
-                    if let Some(indices) = play_album {
-                        if !indices.is_empty() {
-                            self.queue.clear();
-                            self.queue.extend_from_slice(&indices);
-                            self.play_queue_pos(0, ctx);
-                        }
-                    }
-                    if let Some(indices) = enqueue_album {
-                        self.queue.extend_from_slice(&indices);
-                    }
-                }
-                StageView::Bubblegrid => {
-                    let mut play_track = None;
-                    self.bubblegrid_stage.show(ui, &self.tracks, &mut |idx| play_track = Some(idx));
-                    if let Some(idx) = play_track {
-                        self.play_track_now(idx, ctx);
-                    }
-                }
-                StageView::Favorites => {
-                    self.favorites_content(ui, ctx);
-                }
-                StageView::About => {
-                    AboutStage::show(ui);
                 }
             }
-        });
-    }
 
-    fn library_content(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
-        ui.horizontal(|ui| {
-            ui.heading(egui::RichText::new("Music Library").strong().color(crate::theme::ACCENT));
-            ui.label(egui::RichText::new(format!("{} tracks", self.tracks.len())).weak());
-            if self.scan_rx.is_some() {
-                ui.spinner();
-                ui.label(format!("Scanning {}/{}", self.tracks.len(), self.scan_expected));
-            }
-        });
-
-        if let Some(msg) = &self.status {
-            ui.label(egui::RichText::new(msg).weak());
-        }
-        if self.music_dir.is_none() && ui.button("Choose Music Folder…").clicked() {
-            self.pick_music_dir(ctx);
-        }
-        ui.separator();
-
-        let q = self.search.trim().to_lowercase();
-        let filtered: Vec<usize> = (0..self.tracks.len()).filter(|&i| self.tracks[i].matches(&q)).collect();
-        let current_idx = self.current_track_idx();
-
-        let mut play_now = None;
-        let mut play_next = None;
-        let mut enqueue = None;
-        let row_height = 26.0;
-
-        egui::ScrollArea::vertical().auto_shrink([false, false]).show_rows(
-            ui,
-            row_height,
-            filtered.len(),
-            |ui, range| {
-                for &idx in &filtered[range] {
-                    let t = &self.tracks[idx];
-                    ui.horizontal(|ui| {
-                        ui.set_height(row_height);
-
-                        // Queue buttons
-                        if ui.small_button("+").on_hover_text("Add to queue").clicked() {
-                            enqueue = Some(idx);
-                        }
-                        if ui.small_button("↳").on_hover_text("Play next").clicked() {
-                            play_next = Some(idx);
-                        }
-
-                        let title = egui::RichText::new(&t.title);
-                        let title = if current_idx == Some(idx) {
-                            title.color(crate::theme::ACCENT).strong()
-                        } else {
-                            title
-                        };
-
-                        let left = egui::Layout::left_to_right(egui::Align::Center);
-                        let title_w = ui.available_width() * 0.44;
-                        let resp = ui
-                            .allocate_ui_with_layout(egui::vec2(title_w, row_height), left, |ui| {
-                                ui.set_width(title_w);
-                                ui.add(egui::Label::new(title).truncate().sense(egui::Sense::click()))
-                            })
-                            .inner;
-
-                        let resp = resp.on_hover_text(t.detail_line());
-                        if resp.double_clicked() {
-                            play_now = Some(idx);
-                        }
-
-                        let artist_w = ui.available_width() * 0.58;
-                        ui.allocate_ui_with_layout(egui::vec2(artist_w, row_height), left, |ui| {
-                            ui.set_width(artist_w);
-                            ui.add(egui::Label::new(egui::RichText::new(&t.artist).weak()).truncate());
-                        });
-
-                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            ui.label(egui::RichText::new(fmt_ms(t.duration_ms)).monospace().weak());
-                            if let Some(key) = &t.key {
-                                ui.label(egui::RichText::new(key).small().weak());
+            if *show_verdict_modal.read() {
+                if let Some(verdict) = last_verdict.read().as_ref() {
+                    div {
+                        style: "position: fixed; inset: 0; background: rgba(0,0,0,0.65); backdrop-filter: blur(12px); display: flex; align-items: center; justify-content: center; z-index: 100;",
+                        div {
+                            style: "background: var(--bg-card); border: 1px solid var(--border-glass); border-radius: 20px; padding: 28px; width: 500px; box-shadow: 0 16px 48px rgba(0,0,0,0.7); display: flex; flex-direction: column; gap: 16px;",
+                            div { style: "display: flex; justify-content: space-between; align-items: center;",
+                                h2 { style: "font-size: 20px; font-weight: 700;", "Transition Recipe Verdict" }
+                                button {
+                                    class: "btn-icon",
+                                    onclick: move |_| show_verdict_modal.set(false),
+                                    "✕"
+                                }
                             }
-                            if let Some(bpm) = t.bpm {
-                                ui.label(egui::RichText::new(format!("{bpm:.0}")).small().weak());
+                            div { style: "display: flex; flex-direction: column; gap: 10px; font-size: 13.5px;",
+                                div { style: "display: flex; justify-content: space-between; border-bottom: 1px solid var(--border-glass); padding-bottom: 8px;",
+                                    span { style: "color: var(--text-muted);", "Archetype" }
+                                    span { style: "font-weight: 600; color: var(--accent-mint);", "{verdict.archetype_name}" }
+                                }
+                                div { style: "display: flex; justify-content: space-between; border-bottom: 1px solid var(--border-glass); padding-bottom: 8px;",
+                                    span { style: "color: var(--text-muted);", "Incoming Track" }
+                                    span { style: "font-weight: 500;", "{verdict.incoming_title} — {verdict.incoming_artist}" }
+                                }
+                                div { style: "display: flex; justify-content: space-between; border-bottom: 1px solid var(--border-glass); padding-bottom: 8px;",
+                                    span { style: "color: var(--text-muted);", "Duration" }
+                                    span { style: "font-family: monospace;", "{verdict.duration_sec:.1}s" }
+                                }
+                                div { style: "display: flex; justify-content: space-between; border-bottom: 1px solid var(--border-glass); padding-bottom: 8px;",
+                                    span { style: "color: var(--text-muted);", "Confidence Score" }
+                                    span { style: "font-weight: 600; color: var(--accent-purple);", "{verdict.confidence_pct}%" }
+                                }
                             }
-                        });
-                    });
-                }
-            },
-        );
-
-        if let Some(idx) = play_now {
-            self.play_track_now(idx, ctx);
-        }
-        if let Some(idx) = play_next {
-            self.play_track_next(idx);
-        }
-        if let Some(idx) = enqueue {
-            self.enqueue(idx);
-        }
-    }
-
-    fn favorites_content(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
-        let fav_indices: Vec<usize> = self
-            .tracks
-            .iter()
-            .enumerate()
-            .filter(|(_, t)| self.favorites.contains(&t.path))
-            .map(|(i, _)| i)
-            .collect();
-
-        let total_duration_ms: u64 = fav_indices.iter().map(|&i| self.tracks[i].duration_ms).sum();
-
-        ui.horizontal(|ui| {
-            ui.heading(egui::RichText::new("❤️ Favorites").strong().color(crate::theme::ACCENT));
-            ui.label(egui::RichText::new(format!("{} songs • {}", fav_indices.len(), fmt_ms(total_duration_ms))).weak());
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                if ui.add_enabled(!fav_indices.is_empty(), egui::Button::new("▶ Play All Favorites")).clicked() {
-                    self.queue.clear();
-                    self.queue.extend_from_slice(&fav_indices);
-                    self.play_queue_pos(0, ctx);
-                }
-            });
-        });
-
-        ui.separator();
-
-        if fav_indices.is_empty() {
-            ui.add_space(30.0);
-            ui.vertical_centered(|ui| {
-                ui.label(egui::RichText::new("No favorite tracks yet.").size(16.0).weak());
-                ui.add_space(6.0);
-                ui.label(egui::RichText::new("Click the ❤️ button in the transport bar to add songs to your favorites.").weak());
-            });
-            return;
-        }
-
-        let mut play_now = None;
-        let mut remove_fav = None;
-        let row_height = 28.0;
-        let current_idx = self.current_track_idx();
-
-        egui::ScrollArea::vertical().auto_shrink([false, false]).show_rows(
-            ui,
-            row_height,
-            fav_indices.len(),
-            |ui, range| {
-                for &idx in &fav_indices[range] {
-                    let t = &self.tracks[idx];
-                    ui.horizontal(|ui| {
-                        ui.set_height(row_height);
-
-                        if ui.small_button("✕").on_hover_text("Remove from favorites").clicked() {
-                            remove_fav = Some(t.path.clone());
-                        }
-
-                        let title = egui::RichText::new(&t.title);
-                        let title = if current_idx == Some(idx) {
-                            title.color(crate::theme::ACCENT).strong()
-                        } else {
-                            title
-                        };
-
-                        let left = egui::Layout::left_to_right(egui::Align::Center);
-                        let title_w = ui.available_width() * 0.44;
-                        let resp = ui
-                            .allocate_ui_with_layout(egui::vec2(title_w, row_height), left, |ui| {
-                                ui.set_width(title_w);
-                                ui.add(egui::Label::new(title).truncate().sense(egui::Sense::click()))
-                            })
-                            .inner;
-
-                        let resp = resp.on_hover_text(t.detail_line());
-                        if resp.double_clicked() {
-                            play_now = Some(idx);
-                        }
-
-                        let artist_w = ui.available_width() * 0.55;
-                        ui.allocate_ui_with_layout(egui::vec2(artist_w, row_height), left, |ui| {
-                            ui.set_width(artist_w);
-                            ui.add(egui::Label::new(egui::RichText::new(&t.artist).weak()).truncate());
-                        });
-
-                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            ui.label(egui::RichText::new(fmt_ms(t.duration_ms)).monospace().weak());
-                            if let Some(key) = &t.key {
-                                ui.label(egui::RichText::new(key).small().weak());
+                            button {
+                                class: "btn-pill active",
+                                style: "margin-top: 10px;",
+                                onclick: move |_| show_verdict_modal.set(false),
+                                "Close"
                             }
-                            if let Some(bpm) = t.bpm {
-                                ui.label(egui::RichText::new(format!("{bpm:.0}")).small().weak());
-                            }
-                        });
-                    });
-                }
-            },
-        );
-
-        if let Some(path) = remove_fav {
-            self.favorites.remove(&path);
-        }
-        if let Some(idx) = play_now {
-            self.play_track_now(idx, ctx);
-        }
-    }
-
-    fn verdict_modal(&mut self, ctx: &egui::Context) {
-        if !self.show_verdict_modal {
-            return;
-        }
-
-        let mut close_clicked = false;
-        let mut is_open = self.show_verdict_modal;
-        egui::Window::new("✨ Smart Shuffle Transition Rationale")
-            .open(&mut is_open)
-            .resizable(true)
-            .default_width(500.0)
-            .show(ctx, |ui| {
-                if let Some(info) = self.player.pending_transition() {
-                    ui.group(|ui| {
-                        ui.heading(egui::RichText::new(format!("Upcoming: {}", info.incoming_title)).color(crate::theme::ACCENT));
-                        ui.label(egui::RichText::new(format!("By {}", info.incoming_artist)).weak());
-                        ui.add_space(6.0);
-                        ui.label(format!("Archetype: {}", info.archetype_name));
-                        ui.label(format!("Duration: {:.1}s", info.duration_sec));
-                        ui.label(format!("Confidence Score: {}%", info.confidence_pct));
-                    });
-                }
-
-                if let Some(v) = &self.last_verdict {
-                    ui.add_space(6.0);
-                    ui.group(|ui| {
-                        ui.strong("Harmonic & Rhythm Breakdown:");
-                        ui.label(format!("• Candidate: {} — {}", v.title, v.artist));
-                        ui.label(format!("• Tempo: {} ({:.0}%)", v.tempo_verdict, v.tempo_score * 100.0));
-                        ui.label(format!("• Musical Key: {} ({:.0}%)", v.harmonic_verdict, v.harmonic_score * 100.0));
-                        ui.label(format!("• Genre Alignment: {:.0}%", v.genre_score * 100.0));
-                        if v.recency_penalty != 0.0 {
-                            ui.label(format!("• Recency Penalty: {:+.0}%", v.recency_penalty * 100.0));
                         }
-                        ui.label(format!("• Rotation Pacing: {}", v.rotation_verdict));
-                        ui.label(format!("• Overall Compatibility Match: {:.0}%", v.total_score * 100.0));
-                    });
-                } else {
-                    ui.label("No active transition candidate evaluated yet.");
+                    }
                 }
-
-                ui.add_space(8.0);
-                if ui.button("Close").clicked() {
-                    close_clicked = true;
-                }
-            });
-        self.show_verdict_modal = is_open && !close_clicked;
-    }
-
-    fn handle_shortcuts(&mut self, ctx: &egui::Context) {
-        if ctx.memory(|m| m.focused().is_some()) {
-            return;
-        }
-        if ctx.input(|i| i.key_pressed(egui::Key::Space)) {
-            match self.player.snapshot() {
-                Some(s) if s.is_playing => self.player.pause(),
-                _ => self.player.play(),
             }
         }
-    }
-}
-
-impl eframe::App for AttuneApp {
-    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        let dt = ctx.input(|i| i.stable_dt).min(0.1);
-        self.animation_time += dt;
-        self.now_playing_stage.update_animations(dt);
-
-        self.drain_scan();
-        self.handle_dropped_files(ctx);
-        self.handle_shortcuts(ctx);
-
-        // Desktop layout hierarchy: Sidebar (left) -> Right Dock (right) -> Transport Bar (bottom) -> Central Stage (middle)
-        self.sidebar(ctx);
-        let (position_ms, duration_ms, is_playing) = self.transport_bar(ctx);
-        self.docked_right_panel(ctx, position_ms);
-        self.central_stage(ctx, position_ms, duration_ms, is_playing);
-
-        // Sub-modals
-        let player = &self.player;
-        self.master_fx_ui.show(ctx, |params| {
-            player.set_master_fx_params(params.clone());
-        });
-        self.verdict_modal(ctx);
-    }
-
-    fn save(&mut self, storage: &mut dyn eframe::Storage) {
-        if self.music_dir_source == MusicDirSource::Persisted {
-            if let Some(d) = &self.music_dir {
-                eframe::set_value(storage, STORAGE_KEY_MUSIC_DIR, &d.display().to_string());
-            }
-        }
-        eframe::set_value(storage, STORAGE_KEY_VOLUME_DB, &self.volume_db);
-        eframe::set_value(storage, STORAGE_KEY_SHUFFLE, &self.shuffle);
-        eframe::set_value(storage, STORAGE_KEY_REPEAT, &self.repeat);
-        eframe::set_value(storage, STORAGE_KEY_STAGE, &self.current_stage);
-        eframe::set_value(storage, STORAGE_KEY_NOW_PLAYING_SKIN, &self.now_playing_stage.skin);
-        eframe::set_value(storage, STORAGE_KEY_DOCK_MODE, &self.dock_mode);
-        let fav_vec: Vec<String> = self.favorites.iter().map(|p| p.display().to_string()).collect();
-        eframe::set_value(storage, STORAGE_KEY_FAVORITES, &fav_vec);
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_stage_view_labels_and_all() {
-        assert_eq!(StageView::ALL.len(), 8);
-        for stage in StageView::ALL {
-            assert!(!stage.label().is_empty());
-        }
-        assert_eq!(StageView::Home.label(), "🏠 Home");
-        assert_eq!(StageView::NowPlaying.label(), "▶ Now Playing");
-    }
-
-    #[test]
-    fn test_navigation_history_logic() {
-        let mut history = vec![StageView::Home];
-        let mut current = StageView::Home;
-        let mut history_idx = 0;
-
-        let nav_to = |stage: StageView, hist: &mut Vec<StageView>, idx: &mut usize, cur: &mut StageView| {
-            if *cur == stage {
-                return;
-            }
-            if *idx + 1 < hist.len() {
-                hist.truncate(*idx + 1);
-            }
-            hist.push(stage);
-            *idx = hist.len() - 1;
-            *cur = stage;
-        };
-
-        nav_to(StageView::Library, &mut history, &mut history_idx, &mut current);
-        assert_eq!(current, StageView::Library);
-        assert_eq!(history_idx, 1);
-        assert_eq!(history.len(), 2);
-
-        nav_to(StageView::Albums, &mut history, &mut history_idx, &mut current);
-        assert_eq!(current, StageView::Albums);
-        assert_eq!(history_idx, 2);
-
-        // Go back
-        history_idx -= 1;
-        current = history[history_idx];
-        assert_eq!(current, StageView::Library);
-
-        // Branching: navigate to ForYou from Library
-        nav_to(StageView::ForYou, &mut history, &mut history_idx, &mut current);
-        assert_eq!(current, StageView::ForYou);
-        assert_eq!(history.len(), 3);
-        assert_eq!(history, vec![StageView::Home, StageView::Library, StageView::ForYou]);
-    }
-
-    #[test]
-    fn test_negative_remaining_time_formatting() {
-        let duration_ms: u64 = 163_000; // 2:43
-        let position_ms: u64 = 42_000;  // 0:42
-        let remaining_ms = duration_ms.saturating_sub(position_ms); // 121_000 = 2:01
-        assert_eq!(format!("-{}", fmt_ms(remaining_ms)), "-2:01");
     }
 }

@@ -1,113 +1,132 @@
-//! For You Stage — Algorithmic Mixes & Harmonic Discovery (ADR-049 Parity).
-
-use eframe::egui::{self, Color32, Ui};
-use crate::components::glass::liquid_glass_card;
+use dioxus::prelude::*;
 use crate::library::TrackEntry;
-use crate::theme::ACCENT;
 
-pub struct ForYouStage;
+#[derive(Debug, Clone, PartialEq)]
+pub struct AlgorithmicMix {
+    pub id: &'static str,
+    pub title: &'static str,
+    pub subtitle: &'static str,
+    pub description: &'static str,
+    pub icon: &'static str,
+    pub gradient: &'static str,
+    pub vibe_tags: Vec<&'static str>,
+}
 
-impl ForYouStage {
-    pub fn show(
-        ui: &mut Ui,
-        tracks: &[TrackEntry],
-        _on_play_track: &mut impl FnMut(usize),
-        on_play_mix: &mut impl FnMut(&[usize]),
-    ) {
-        ui.horizontal(|ui| {
-            ui.heading(egui::RichText::new("✨ For You").strong().color(ACCENT));
-            ui.label(egui::RichText::new("Algorithmic Mixes & Harmonic Discovery").weak().small());
-        });
+#[component]
+pub fn ForYou(
+    tracks: Vec<TrackEntry>,
+    on_start_mix: EventHandler<Vec<TrackEntry>>,
+) -> Element {
+    let mixes = vec![
+        AlgorithmicMix {
+            id: "harmonic_flow",
+            title: "Harmonic Flow",
+            subtitle: "Camelot Wheel Continuous Mix",
+            description: "Sequences tracks along adjacent Camelot keys (1A → 2A → 2B) for pitch-perfect, in-key harmonic blends without tonal clashes.",
+            icon: "🪐",
+            gradient: "linear-gradient(135deg, rgba(45, 212, 191, 0.25), rgba(59, 130, 246, 0.25))",
+            vibe_tags: vec!["Harmonic Wheel", "Key-Locked", "Seamless Morph"],
+        },
+        AlgorithmicMix {
+            id: "high_energy",
+            title: "High-Energy Rush",
+            subtitle: "Aggression & Drive Index 𝒪(𝒜 ≥ 0.65)",
+            description: "High-BPM drives, J-Rock, Drum & Bass, and Synthwave. Uses Attune's fast 2-bar Cold Cut and EQ Swap archetypes.",
+            icon: "⚡",
+            gradient: "linear-gradient(135deg, rgba(251, 113, 133, 0.25), rgba(249, 115, 22, 0.25))",
+            vibe_tags: vec!["Fast Swaps", "Aggression ≥ 0.65", "Bass Cut"],
+        },
+        AlgorithmicMix {
+            id: "midnight_chill",
+            title: "Midnight Chill",
+            subtitle: "Downtempo & Ambient Vocal Sustains",
+            description: "Late-night atmosphere, lo-fi, and warm vocals. Employs Tail Freeze and Sustained Vocal Bridge morphs.",
+            icon: "🌙",
+            gradient: "linear-gradient(135deg, rgba(168, 85, 247, 0.25), rgba(99, 102, 241, 0.25))",
+            vibe_tags: vec!["Vocal Sustain", "Tail Freeze", "Downtempo"],
+        },
+    ];
 
-        ui.separator();
+    rsx! {
+        div { class: "for-you-stage",
+            div { style: "margin-bottom: 24px;",
+                h1 { style: "font-size: 26px; font-weight: 700;", "For You — Smart Algorithmic Mixes" }
+                p { style: "color: var(--text-secondary); font-size: 13.5px; margin-top: 4px;",
+                    "Multi-dimensional DJ recipes generated directly from your local music collection."
+                }
+            }
 
-        if tracks.is_empty() {
-            ui.add_space(20.0);
-            ui.label(egui::RichText::new("No tracks loaded to compute mixes.").weak());
-            return;
+            div { style: "display: flex; flex-direction: column; gap: 20px;",
+                for mix in mixes.into_iter() {
+                    {
+                        let mix_tracks = match mix.id {
+                            "high_energy" => {
+                                let high: Vec<TrackEntry> = tracks.iter()
+                                    .filter(|t| t.bpm.unwrap_or(0.0) >= 135.0 || t.format == "FLAC")
+                                    .cloned()
+                                    .collect();
+                                if high.is_empty() { tracks.clone() } else { high }
+                            },
+                            "midnight_chill" => {
+                                let chill: Vec<TrackEntry> = tracks.iter()
+                                    .filter(|t| t.bpm.unwrap_or(120.0) < 125.0)
+                                    .cloned()
+                                    .collect();
+                                if chill.is_empty() { tracks.clone() } else { chill }
+                            },
+                            _ => tracks.clone(),
+                        };
+                        let track_count = mix_tracks.len();
+
+                        rsx! {
+                            div {
+                                key: "{mix.id}",
+                                style: "display: flex; gap: 24px; background: var(--bg-card); border: 1px solid var(--border-glass); border-radius: 18px; padding: 24px; backdrop-filter: blur(24px); position: relative; overflow: hidden;",
+                                
+                                // Ambient gradient backdrop accent
+                                div {
+                                    style: "position: absolute; inset: 0; background: {mix.gradient}; opacity: 0.4; pointer-events: none;",
+                                }
+
+                                // Mix Icon
+                                div {
+                                    style: "position: relative; z-index: 1; width: 100px; height: 100px; border-radius: 16px; background: rgba(255,255,255,0.08); display: flex; align-items: center; justify-content: center; font-size: 44px; border: 1px solid var(--border-glass); flex-shrink: 0;",
+                                    "{mix.icon}"
+                                }
+
+                                // Mix Info
+                                div {
+                                    style: "position: relative; z-index: 1; display: flex; flex-direction: column; justify-content: center; flex: 1;",
+                                    span { style: "color: var(--accent-mint); font-size: 11px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase;", "{mix.subtitle}" }
+                                    h2 { style: "font-size: 22px; font-weight: 700; margin: 2px 0 6px 0;", "{mix.title}" }
+                                    p { style: "color: var(--text-secondary); font-size: 13.5px; line-height: 1.4; max-width: 650px;", "{mix.description}" }
+
+                                    div { style: "display: flex; gap: 8px; margin-top: 12px; align-items: center;",
+                                        for tag in mix.vibe_tags {
+                                            span {
+                                                style: "background: rgba(255,255,255,0.08); padding: 3px 8px; border-radius: 6px; font-size: 11px; color: var(--text-secondary); border: 1px solid var(--border-glass);",
+                                                "{tag}"
+                                            }
+                                        }
+                                        span { style: "font-size: 12px; color: var(--text-muted); margin-left: 6px;", "{track_count} eligible tracks" }
+                                    }
+                                }
+
+                                // Start Button
+                                div {
+                                    style: "position: relative; z-index: 1; display: flex; align-items: center;",
+                                    button {
+                                        class: "btn-pill active",
+                                        style: "padding: 10px 22px; font-size: 14px; font-weight: 600;",
+                                        onclick: move |_| on_start_mix.call(mix_tracks.clone()),
+                                        "▶ Start Mix"
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
         }
-
-        egui::ScrollArea::vertical().show(ui, |ui| {
-            ui.add_space(10.0);
-
-            // Mix 1: Harmonic Camelot Flow
-            liquid_glass_card(ui, 16.0, ACCENT, |ui| {
-                ui.horizontal(|ui| {
-                    ui.vertical(|ui| {
-                        ui.heading(egui::RichText::new("⚡ Harmonic Energy Flow").size(18.0).strong());
-                        ui.label(egui::RichText::new("Seamless key-compatible transitions dynamically sequenced via Camelot Circle of Fifths").weak());
-                        ui.add_space(8.0);
-                        let mix_indices: Vec<usize> = (0..tracks.len().min(12)).collect();
-                        let btn = egui::Button::new(
-                            egui::RichText::new("▶ Play Harmonic Mix")
-                                .strong()
-                                .color(Color32::from_rgb(0x0A, 0x22, 0x1A)),
-                        )
-                        .fill(ACCENT);
-                        if ui.add(btn).clicked() {
-                            on_play_mix(&mix_indices);
-                        }
-                    });
-                });
-            });
-
-            ui.add_space(14.0);
-
-            // Mix 2: Upbeat Peak Energy
-            liquid_glass_card(ui, 16.0, Color32::from_rgb(0xFB, 0x71, 0x85), |ui| {
-                ui.horizontal(|ui| {
-                    ui.vertical(|ui| {
-                        ui.heading(egui::RichText::new("🔥 High BPM Peak Energy").size(18.0).strong());
-                        ui.label(egui::RichText::new("Curated fast-tempo and energetic tracks (140+ BPM) with punchy bass handoffs").weak());
-                        ui.add_space(8.0);
-                        let high_bpm_indices: Vec<usize> = tracks
-                            .iter()
-                            .enumerate()
-                            .filter(|(_, t)| t.bpm.map(|b| b >= 140.0).unwrap_or(false))
-                            .map(|(i, _)| i)
-                            .take(12)
-                            .collect();
-                        let target = if high_bpm_indices.is_empty() {
-                            (0..tracks.len().min(8)).collect()
-                        } else {
-                            high_bpm_indices
-                        };
-                        if ui.button(egui::RichText::new("▶ Play High BPM Mix").strong()).clicked() {
-                            on_play_mix(&target);
-                        }
-                    });
-                });
-            });
-
-            ui.add_space(14.0);
-
-            // Mix 3: Melodic Chill & Acoustic
-            liquid_glass_card(ui, 16.0, Color32::from_rgb(0x38, 0xBD, 0xF8), |ui| {
-                ui.horizontal(|ui| {
-                    ui.vertical(|ui| {
-                        ui.heading(egui::RichText::new("🌿 Melodic Chillout & Ambient").size(18.0).strong());
-                        ui.label(egui::RichText::new("Gentle sustain pitch morphs and acoustic resonance for relaxed listening").weak());
-                        ui.add_space(8.0);
-                        let chill_indices: Vec<usize> = tracks
-                            .iter()
-                            .enumerate()
-                            .filter(|(_, t)| t.bpm.map(|b| b < 125.0).unwrap_or(false))
-                            .map(|(i, _)| i)
-                            .take(12)
-                            .collect();
-                        let target = if chill_indices.is_empty() {
-                            (0..tracks.len().min(8)).collect()
-                        } else {
-                            chill_indices
-                        };
-                        if ui.button(egui::RichText::new("▶ Play Chill Mix").strong()).clicked() {
-                            on_play_mix(&target);
-                        }
-                    });
-                });
-            });
-
-            ui.add_space(30.0);
-        });
     }
 }

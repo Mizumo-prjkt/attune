@@ -1,10 +1,8 @@
-//! Attune desktop stage views module.
+//! Attune desktop stage views module for Dioxus.
 
 pub mod about;
-pub mod album_editor;
 pub mod albums;
-pub mod bubblegrid;
+pub mod favorites;
 pub mod for_you;
 pub mod home;
-pub mod lyrics;
-pub mod now_playing;
+pub mod library;

@@ -2329,3 +2329,49 @@ This file records all major architectural decisions for **Attune**, including co
   - Wayland and X11 taskbars and window switchers display the crisp official Attune logo.
   - Zero hardcoding compliance (Mandate 4) strictly maintained across paths, fonts, sample rates, and versions.
   - All 19 unit tests in `attune-desktop` and all 70 tests across the entire Rust workspace pass cleanly.
+
+---
+
+## ADR-068: Native Rust Dioxus Desktop Frontend Migration (WebKitGTK / WebView2), Liquid Glass Stylesheet, and Liquid Material Glass UX Parity
+- **Date**: 2026-11-04
+- **Status**: `LOCKED` (Implemented & Verified)
+- **Context**:
+  1. The user evaluated egui's immediate-mode rendering for the desktop player: while fast for debug tooling, immediate-mode egui made rich desktop consumer media player interfaces feel stiff, off, and limited in complex text shaping, typography kerning, and CSS3 `backdrop-filter: blur(...)` liquid glass aesthetics.
+  2. The user instructed migrating the desktop frontend from `egui` to the **Dioxus** framework (`dioxus = "0.6"` with `features = ["desktop"]`), keeping Flutter strictly for Android while desktop runs 100% native Rust on Linux and Windows.
+  3. The desktop experience must faithfully match the reference design (Liquid Material Glass layout, user's ASCII mockup and screenshot `media_1793749753628_b1da9f4b.png`):
+     - Left fixed sidebar (210px) with Search, categorized navigation (`ATTUNE`, `SOURCES`), and bottom shortcuts (`Equalizer`, `About`).
+     - Center main stage with Top Navigation (history `<` `>`, scan/transition telemetry, right dock toggles `[💬 Lyrics]` `[☰ Queue]` `[🎚️ EQ]`), personalized greeting, Hero Now Playing liquid glass card, and Camelot-compatible Harmonic Matches grid.
+     - Right docked panel (330px) with Liquid Material Glass synchronized lyrics (cream white `#FFFDD0` bold glowing active singing line with scale transform, dimmed inactive lines, and click-to-seek) or Up Next queue.
+     - Bottom transport bar (98px) with full-width scrubber (`0:42 ━━━━●━━━━ -2:01`), playback controls, mini now playing pill, and favorites/volume/fullscreen actions.
+     - 10-band mastering EQ modal (31Hz to 16kHz biquad peaking filters with real-time DSP preview via `attune-core::MasterFxRack`), bass boost, clarity exciter, and stereo width.
+     - JIT transition planning and execution via `DualDeckMixer` with live transition verdict modal.
+     - Strict adherence to Mandate 4 (zero hardcoding of paths, fonts, sample rates, or versions).
+- **Decision**:
+  1. **Framework Migration**:
+     - Swapped `eframe`/`egui` for `dioxus 0.6.3` with `features = ["desktop"]` in `crates/attune-desktop/Cargo.toml`.
+     - Uses native WebKitGTK 4.1 on Linux and WebView2 on Windows via `tao` and `wry`.
+     - Audio engine (`DualDeckMixer`, `cpal`, `AudioDecoder`, `JitPlanner`, `MasterFxRack`) continues running directly in-process with zero IPC, C-ABI overhead, or latency.
+     - Resolved Linux system linker dependency for `libxdo.so` (required by `muda` desktop window menus).
+  2. **Stylesheet & Visual Design (`crates/attune-desktop/src/style.css`)**:
+     - Engineered dark liquid glass theme (`#090b10` base canvas, `rgba(22, 29, 43, 0.65)` glass card surfaces, `backdrop-filter: blur(28px)`, specular glass borders).
+     - Full Liquid Material Glass synchronized lyrics typography: cream white `#FFFDD0` active singing line (22px bold, text shadow glow `0 0 16px rgba(255, 253, 208, 0.35)`, scale 1.02), dimmed inactive lines (15px), and sub-second seek on click.
+     - Ambient living background mesh gradient with radial blurs.
+  3. **Reactive State & Polling Architecture (`crates/attune-desktop/src/app.rs`)**:
+     - Utilized Dioxus 0.6 reactive signals (`use_signal`) for player state, library tracks, queue, favorites, active stage, and lyrics.
+     - 50ms non-blocking async poller (`use_future`) polling `player.snapshot()`, `player.check_auto_transition()`, background `scan_rx` channel, and active lyrics line lookup via binary search (`LyricsSheet::active_line_index`).
+  4. **Stage Views Modularized (`crates/attune-desktop/src/stages/`)**:
+     - `home.rs`: Personalized greeting header, Hero Now Playing card with live progress, audio profile chips (Key, BPM, Format), quality badges, and Camelot-compatible Harmonic Matches grid.
+     - `library.rs`: Searchable, sortable virtual table with columns (`#`, `Title`, `Artist`, `Album`, `BPM`, `Key`, `Quality`, `Time`, `Actions`), double-click to play, queue addition, and favorites toggle.
+     - `albums.rs`: Grouped album grid with cover art, track count, and album detail view with "Play Album" and "Shuffle Album" actions.
+     - `for_you.rs`: 3 Curated Algorithmic Mixes ("Harmonic Flow", "High-Energy Rush", "Midnight Chill") with 1-tap start mix.
+     - `favorites.rs`: Dedicated favorites collection with "Play All Favorites".
+     - `about.rs`: Attune info, dynamic package version from `env!("CARGO_PKG_VERSION")`, architecture explanation, and Obtainium / GitHub releases links.
+  5. **Modals**:
+     - 10-band mastering equalizer modal with vertical biquad peaking sliders (-12dB to +12dB) and "Reset to Flat" button.
+     - Transition Recipe Verdict modal with archetype breakdown, duration, confidence, and cue alignment.
+- **Consequences**:
+  - Fluid, modern, high-framerate desktop UI with hardware-accelerated CSS3 glassmorphism, native scrolling, and Liquid Material Glass aesthetics.
+  - Zero IPC latency: audio decoding, mixing, and DSP remain 100% in-process Rust.
+  - Self-contained 22MB release binary (`target/release/attune-desktop`).
+  - All 13 unit tests in `attune-desktop` and all tests across the workspace pass cleanly.
+

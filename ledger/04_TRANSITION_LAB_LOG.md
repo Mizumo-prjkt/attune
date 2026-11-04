@@ -1027,4 +1027,31 @@ These four benchmark scenarios define the "Gold Standard" transitions that Attun
      - Release build `./target/release/attune-desktop` compiles cleanly and executes with ALSA hardware output at 48,000 Hz.
 - **Verdict**: `PASS`. Attune Desktop egui frontend successfully implements the pure desktop experience layout and embedded window branding.
 
+### Experiment #036: Native Rust Dioxus Desktop Frontend Migration (WebKitGTK / WebView2), Liquid Glass Stylesheet, and Liquid Material Glass UX Parity
+- **Date**: 2026-11-04
+- **Setup**: Linux (Wayland, Arch Linux), ALSA 48 kHz output, release binary `./target/release/attune-desktop`, 159-track test library (`~/Music`).
+- **Observations**:
+  1. **Dioxus 0.6 Desktop Environment & Linker Resolution**:
+     - Migrated `crates/attune-desktop` from immediate-mode egui to Dioxus Desktop 0.6.
+     - Resolved Linux system linker dependency for `libxdo.so` (required by `muda` desktop window menus).
+     - Verified WebKitGTK 4.1 backend initialization, hardware-accelerated CSS3 rendering, and embedded Attune window icon.
+  2. **Liquid Glass Design System (`style.css`)**:
+     - Implemented dark liquid glass stylesheet (`#090b10` base canvas, `backdrop-filter: blur(28px)`, specular glass borders).
+     - Full Liquid Material Glass synchronized lyrics styling: cream white `#FFFDD0` bold glowing active singing line (22px bold, text shadow `0 0 16px rgba(255, 253, 208, 0.35)`, scale 1.02), dimmed inactive lines (15px), and sub-second seek on click.
+     - Ambient living background mesh gradient with radial blurs.
+  3. **In-Process Audio Engine & Master App Grid Layout**:
+     - `attune-core` runs directly in-process with zero IPC: `DualDeckMixer` + `cpal` + `AudioDecoder` + `JitPlanner` + `MasterFxRack`.
+     - Master App Grid layout: 210px left sidebar (Search, `ATTUNE`, `SOURCES`, bottom shortcuts), center main stage (`home.rs`, `library.rs`, `albums.rs`, `for_you.rs`, `favorites.rs`, `about.rs`), 330px right dock (synchronized lyrics / Up Next queue), and 98px bottom transport bar with scrubber (`0:42 ━━━━●━━━━ -2:01`).
+     - 10-band mastering EQ modal with vertical biquad peaking sliders (-12dB to +12dB) and "Reset to Flat" button.
+     - Transition Recipe Verdict modal with archetype breakdown, duration, confidence, and cue alignment.
+  4. **Performance & Binary Footprint**:
+     - Optimized release binary: 22 MB self-contained native executable.
+     - 50ms async polling loop (`use_future`) updates playback head, duration, active deck, transition info, and synchronized lyrics without UI thread stalls.
+  5. **Verification**:
+     - All 13 unit tests in `attune-desktop` passed.
+     - 100% of unit/integration tests across all 6 workspace crates passed with zero failures.
+     - Binary launched cleanly, initialized ALSA 48 kHz output, discovered 159 audio files in background.
+- **Verdict**: `PASS`. Dioxus Desktop migration successfully delivers Liquid Material Glass UX parity with native in-process Rust performance.
+
+
 

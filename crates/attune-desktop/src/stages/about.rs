@@ -1,81 +1,77 @@
-//! About, Architecture & Distribution Stage for Attune egui.
-//!
-//! Complies with ADR-033, ADR-058 & Mandate 4:
-//! - Credits project author (Mizumo-prjkt)
-//! - Discloses AI pair programming with Google DeepMind Antigravity AI assistant
-//! - Provides Obtainium Android auto-update card with deep link & web redirect
+use dioxus::prelude::*;
 
-use eframe::egui::{self, Color32, Ui};
-use crate::components::glass::liquid_glass_card;
-use crate::config;
+#[component]
+pub fn About() -> Element {
+    let pkg_version = env!("CARGO_PKG_VERSION");
+    let target_os = if cfg!(target_os = "windows") { "Windows" } else { "Linux (WebKitGTK)" };
 
-const OBTAINIUM_REDIRECT_URL: &str = "https://apps.obtainium.imranr.dev/redirect?r=obtainium://app/%7B%22id%22%3A%22org.mizproject.attune%22%2C%22url%22%3A%22https%3A%2F%2Fgithub.com%2FMizumo-prjkt%2Fattune%22%2C%22author%22%3A%22Mizumo-prjkt%22%2C%22name%22%3A%22Attune%22%2C%22additionalSettings%22%3A%22%7B%5C%22about%5C%22%3A%5C%22Open-source%20DJ-grade%20audio-profile-driven%20transition%20and%20remixing%20music%20player.%5C%22%7D%22%7D";
+    rsx! {
+        div { class: "about-stage",
+            style: "max-width: 720px; margin: 0 auto; padding-top: 10px;",
 
-pub struct AboutStage;
-
-impl AboutStage {
-    pub fn show(ui: &mut Ui) {
-        ui.heading(egui::RichText::new("About Attune").strong().color(crate::theme::ACCENT));
-        ui.label(egui::RichText::new(format!("Version: v{}", config::app_version())).monospace().weak());
-
-        ui.separator();
-
-        egui::ScrollArea::vertical().show(ui, |ui| {
-            ui.add_space(8.0);
-
-            // Project Overview Card
-            liquid_glass_card(ui, 16.0, crate::theme::ACCENT, |ui| {
-                ui.heading(egui::RichText::new("Attune Music Player").size(18.0).strong());
-                ui.label(egui::RichText::new("DJ-grade audio-profile-driven transition & remixing engine").weak());
-                ui.add_space(8.0);
-                ui.label("Attune analyzes sustained vocal pitch, 12-bin CQT local harmonic chroma, beat & phrase grids, and band-split spectral energy to execute seamless, musically intelligent transitions in real-time.");
-            });
-
-            ui.add_space(14.0);
-
-            // Credits & Architecture Card
-            liquid_glass_card(ui, 16.0, Color32::from_rgb(0xA8, 0x55, 0xF7), |ui| {
-                ui.strong("Credits & Core Engineering");
-                ui.add_space(4.0);
-                ui.label("• Author & Lead Architect: Mizumo-prjkt <bluepearl394@gmail.com>");
-                ui.label("• AI Pair Programming Collaboration: Google DeepMind Antigravity AI Assistant");
-                ui.label("• Protocol: Attune Knowledge Ledger System (ledger/00_MASTER_LEDGER.md)");
-                ui.label("• Audio Primitives: Symphonia, CPAL, Hound, RealFFT, Blake3, SQLite (rusqlite)");
-                ui.label("• Native Desktop GUI: Rust eframe / egui 0.33 with glow OpenGL backend");
-            });
-
-            ui.add_space(14.0);
-
-            // Obtainium Android Auto-Update Card
-            liquid_glass_card(ui, 16.0, Color32::from_rgb(0x2D, 0xD4, 0xBF), |ui| {
-                ui.horizontal(|ui| {
-                    ui.strong("📱 Obtainium Android Updates");
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        ui.hyperlink_to("🔗 Open Redirect Page", OBTAINIUM_REDIRECT_URL);
-                    });
-                });
-                ui.add_space(6.0);
-                ui.label("Track, install, and automatically receive new Attune updates directly from GitHub Releases using Obtainium on Android devices.");
-                ui.add_space(6.0);
-                ui.horizontal(|ui| {
-                    if ui.button("📋 Copy Obtainium Deep Link").clicked() {
-                        ui.ctx().copy_text(OBTAINIUM_REDIRECT_URL.to_string());
+            // Header Banner
+            div { style: "display: flex; align-items: center; gap: 20px; background: var(--bg-card); padding: 24px; border-radius: 18px; border: 1px solid var(--border-glass); margin-bottom: 24px;",
+                div {
+                    style: "width: 72px; height: 72px; border-radius: 16px; background: linear-gradient(135deg, rgba(45,212,191,0.2), rgba(168,85,247,0.2)); display: flex; align-items: center; justify-content: center; font-size: 36px; border: 1px solid var(--border-glass);",
+                    "🎛️"
+                }
+                div {
+                    h1 { style: "font-size: 26px; font-weight: 700;", "Attune Desktop" }
+                    p { style: "color: var(--accent-mint); font-weight: 600; font-size: 14px; margin-top: 2px;",
+                        "Version {pkg_version} • {target_os}"
                     }
-                    ui.label(egui::RichText::new("(Redirects to obtainium://app/...)").small().weak());
-                });
-            });
+                    p { style: "color: var(--text-secondary); font-size: 13px; margin-top: 4px;",
+                        "Intelligent DJ-grade music player with audio-profile-driven transition & remixing engine"
+                    }
+                }
+            }
 
-            ui.add_space(14.0);
+            // Architecture Stack
+            div { style: "background: var(--bg-card); padding: 24px; border-radius: 16px; border: 1px solid var(--border-glass); margin-bottom: 20px;",
+                h2 { style: "font-size: 18px; font-weight: 700; margin-bottom: 14px;", "Architecture & Technology" }
+                
+                div { style: "display: grid; grid-template-columns: 1fr 1fr; gap: 14px; font-size: 13px;",
+                    div { style: "background: rgba(255,255,255,0.04); padding: 12px; border-radius: 8px; border: 1px solid var(--border-glass);",
+                        span { style: "color: var(--accent-mint); font-weight: 600;", "Headless Audio Engine" }
+                        p { style: "color: var(--text-secondary); margin-top: 4px;", "100% Rust in-process pipeline via attune-core, DualDeckMixer, and cpal with zero IPC latency." }
+                    }
+                    div { style: "background: rgba(255,255,255,0.04); padding: 12px; border-radius: 8px; border: 1px solid var(--border-glass);",
+                        span { style: "color: var(--accent-purple); font-weight: 600;", "Desktop Presentation Layer" }
+                        p { style: "color: var(--text-secondary); margin-top: 4px;", "Dioxus 0.6 Desktop with native WebKitGTK / WebView2, hardware accelerated CSS3 Liquid Glass." }
+                    }
+                    div { style: "background: rgba(255,255,255,0.04); padding: 12px; border-radius: 8px; border: 1px solid var(--border-glass);",
+                        span { style: "color: var(--accent-rose); font-weight: 600;", "JIT Transition Planner" }
+                        p { style: "color: var(--text-secondary); margin-top: 4px;", "Dynamic 5-band audio profiling, Camelot wheel key progression, and 6 DJ transition archetypes." }
+                    }
+                    div { style: "background: rgba(255,255,255,0.04); padding: 12px; border-radius: 8px; border: 1px solid var(--border-glass);",
+                        span { style: "color: #eab308; font-weight: 600;", "Synchronized Lyrics" }
+                        p { style: "color: var(--text-secondary); margin-top: 4px;", "Real-time timestamped .lrc parsing with active glowing text shadow and sub-second seeking." }
+                    }
+                }
+            }
 
-            // License & Disclosure Card
-            liquid_glass_card(ui, 16.0, Color32::from_white_alpha(40), |ui| {
-                ui.strong("Open Source License");
-                ui.add_space(4.0);
-                ui.label("Attune is licensed under the MIT License / Apache-2.0 Dual License.");
-                ui.label("Copyright (c) 2026 Mizumo-prjkt and Attune Contributors.");
-            });
+            // Ecosystem & Updates
+            div { style: "background: var(--bg-card); padding: 24px; border-radius: 16px; border: 1px solid var(--border-glass);",
+                h2 { style: "font-size: 18px; font-weight: 700; margin-bottom: 12px;", "Open Source & Distribution" }
+                p { style: "color: var(--text-secondary); font-size: 13.5px; line-height: 1.5; margin-bottom: 16px;",
+                    "Attune is completely open-source. Desktop builds run native Rust for Linux and Windows, while Android companion builds run Flutter with the attune-core FFI engine."
+                }
 
-            ui.add_space(30.0);
-        });
+                div { style: "display: flex; gap: 12px;",
+                    a {
+                        class: "btn-pill",
+                        href: "https://github.com/Mizumo-prjkt/attune",
+                        target: "_blank",
+                        "GitHub Repository ↗"
+                    }
+                    a {
+                        class: "btn-pill",
+                        href: "https://github.com/Mizumo-prjkt/attune/releases",
+                        target: "_blank",
+                        "Obtainium / Releases ↗"
+                    }
+                }
+            }
+        }
     }
 }
