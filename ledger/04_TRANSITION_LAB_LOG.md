@@ -997,24 +997,34 @@ These four benchmark scenarios define the "Gold Standard" transitions that Attun
   7. **All Tests**: All 10 `attune-desktop` tests, 20 `attune-core` tests, 9 `attune-music-metadata-changer` tests, and 5 `attune-watchguard` tests pass cleanly. `flutter analyze` reports 0 issues.
 - **Verdict**: `PASS`. `crates/attune-desktop` is in a fully usable state for Linux and Windows.
 
-### Experiment #034: egui Desktop UI Concepts Porting — Navigation Rail, 3 Now Playing Skins, Synchronized Lyrics, Albums & Metadata/Splash Art Editor, Bubblegrid
+### Experiment #035: Pure Desktop Experience Overhaul & Embedded Application Window Icon (`attune-desktop`)
 - **Date**: 2026-11-04
 - **Setup**: Linux (KDE Plasma, Wayland), ALSA 48 kHz output, release binary `./target/release/attune-desktop`, 159-track test library (`~/Music`).
 - **Observations**:
-  1. **Album & Group Editor (`AlbumEditorStage`)**: Tested visual parity with reference designs. Form rendered with high-contrast Liquid Glass cards:
-     - `ALBUM METADATA`: Tested primary artist comma separation splitting (`"DECO*27, PinocchioP"` auto-split into primary `"DECO*27"` and contributing tag `"PinocchioP"`). Tested `+ Add` button and chip removal.
-     - `ONLINE QUERY & CATALOG IDENTIFIERS`: Validated text fields and `Album Release Type` dropdown (`Studio Album`, `Single`, etc.).
-     - `ALBUM SPLASH ART`: Custom splash art path field with native `rfd` file picker, validation badges (`[✓ Valid Local Image File]`), and `Quick-Select Cover from Tracks in Album` thumbnail selector with glowing cyan border (`#2DD4BF`).
-     - `TRACKS IN ALBUM`: Group track listing with remove track action and library song picker modal.
-     - Saving writes ID3v2/Vorbis tags directly via `attune_music_metadata_changer::write_track_metadata` and updates in-memory `TrackEntry` records.
-  2. **Navigation Rail & Multi-Pane Shell**: Verified Left Navigation Rail (`▶ Now Playing`, `♫ Library`, `💿 Albums`, `💬 Lyrics`, `🫧 Bubblegrid`, `🎛 Equalizer`, `ℹ About`) switching stages cleanly in central stage while maintaining persistent transport bar and collapsible right queue panel.
-  3. **Living Ambient Mesh**: Verified dynamic palette extraction from cover art thumbnails (`DynamicPalette::from_image`, < 1 ms on 32x32 thumbnail) and smooth living 3-orb ambient mesh rendering without frame cadence drops.
-  4. **3 Now Playing Skins**:
-     - *Default Liquid Glass*: Hero cover art, specular glass cards, transport controls, and honest audio quality badges.
-     - *Material You Expressive Freeshapes*: Polar harmonic tessellation ($r(\theta, t) = (1-t)r_0(\theta) + t r_1(\theta)$) morphing smoothly across 5 organic archetypes with recency tracking.
-     - *Normal Square Big*: Large square album cover with left-aligned typography and `#FFFDD0` cream white synchronized lyric snippet.
-  5. **Synchronized Lyrics Engine**: Tested millisecond timestamp tracking, active singing line glowing glass highlight, auto-scroll centering, and free-scroll lock toggle.
-  6. **Bubblegrid Honeycomb Navigation**: Concentric hexagonal lattice layout with cosine fisheye magnification lens ($1.45\times \to 0.65\times$) and 2D pan dragging.
-  7. **All Tests**: 15 unit tests in `attune-desktop` passing, 57 workspace tests passing, 0 clippy warnings.
-- **Verdict**: `PASS`. Attune Desktop egui frontend now features full UI concept parity with the Flutter experience.
+  1. **Embedded Application Window Icon (`app_icon.rs`)**:
+     - Converted `icon/icon-transparent.png` to optimized 128x128 RGBA PNG and base64 encoded as static constant `APP_ICON_BASE64`.
+     - In-memory decoding using `base64 v0.22` and `image::load_from_memory` wired to `eframe::NativeOptions.viewport.with_icon`.
+     - Verified window manager icon display under Wayland/X11: eliminates generic Wayland compositor placeholder, crisp official Attune branding visible in taskbars and docks.
+     - Unit test `test_load_app_icon_dimensions_and_payload` verifies 128x128 dimensions and 65,536 non-empty RGBA bytes.
+  2. **Pure Desktop Layout Architecture**:
+     - *Left Fixed Sidebar (~210px)*: Full-height sidebar with Search box at top; `ATTUNE` section (`Home`, `Now Playing`, `For You`, `Library`, `Albums`); `SOURCES` section with folder path, hover source tooltip, `[Choose]`, `[Rescan]` buttons; `PLAYLISTS & MIXES` section (`❤️ Favorites (<count>)`, `🫧 Bubblegrid`); bottom shortcuts (`⚙ Settings / About`, `🎛 Equalizer`).
+     - *Top Navigation Bar*: Inside center column with `<` and `>` history navigation (`navigate_back`, `navigate_forward` with branching truncation), scanning/driver status text, and right toolbar toggles (`[💬 Lyrics]`, `[☰ Queue]`, `[🎚️ Equalizer]`).
+     - *Right Docked Panel (~320px)*: Toggleable via toolbar buttons:
+       - `DockMode::Lyrics`: Desktop Liquid Material Glass style typography, active singing line in cream white `#FFFDD0` (22px bold), auto-scroll centering with lock toggle.
+       - `DockMode::Queue`: Up Next queue with track reordering (↑/↓), removal (✕), and live transition verdict indicators.
+     - *Full-Width Scrubber & Negative Remaining Time*:
+       - Row 1: Full-width scrubber with elapsed time `0:42` ━━━━●━━━━ negative remaining time `-2:01` formatted as `format!("-{}", fmt_ms(duration.saturating_sub(position)))`.
+       - Row 2: Controls (`🔀 ⏮ ▶/⏸ ⏭ 🔁`), Mini Now Playing Pill ($44 \times 44$ cover, title, artist, audio quality badge, live DJ transition pill with immediate "Mix Now" trigger), and Actions (`❤️` favorite toggle, `🔊` volume slider, `⛶` expand Now Playing).
+  3. **Stage Implementations**:
+     - *Home Stage (`HomeStage`)*: Personalized greeting derived from system hour and `USER` env variable; Hero Now Playing Liquid Glass Card ($130 \times 130$ artwork, bold title, artist, audio quality badge, inline play/pause/skip, live DJ transition indicator, click to expand); "HARMONIC MATCHES & RECENTLY PLAYED" responsive grid (6–9 cards with $56 \times 56$ thumbnails, title, artist, Camelot key badge, 1-click play); quick action shortcuts.
+     - *For You Stage (`ForYouStage`)*: 3 Algorithmic Mixes (Harmonic Energy Flow via Camelot circle of fifths, High BPM Peak Energy for 140+ BPM, Melodic Chillout & Ambient for <125 BPM).
+     - *Favorites View (`favorites_content`)*: Dedicated Favorites view with track count, total duration, "Play All Favorites" button, and virtual table with 1-click play and remove.
+  4. **State Persistence**: Persists `favorites` set, `dock_mode`, `current_stage`, `volume_db`, `shuffle_mode`, `repeat_mode`, and `music_dir` in `eframe::Storage`.
+  5. **Verification**:
+     - All 19 unit tests in `attune-desktop` passing.
+     - All 70 unit and integration tests across the entire Rust workspace pass cleanly.
+     - Clippy clean (0 warnings).
+     - Release build `./target/release/attune-desktop` compiles cleanly and executes with ALSA hardware output at 48,000 Hz.
+- **Verdict**: `PASS`. Attune Desktop egui frontend successfully implements the pure desktop experience layout and embedded window branding.
+
 

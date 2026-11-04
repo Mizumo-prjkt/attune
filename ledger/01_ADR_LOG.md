@@ -2290,3 +2290,42 @@ This file records all major architectural decisions for **Attune**, including co
   - Complete UI concept parity achieved natively in Rust egui desktop frontend.
   - Zero hardcoding compliance (Mandate 4) strictly maintained across paths, fonts, sample rates, and versions.
   - All 15 unit tests in `attune-desktop` and all 57 tests across the entire Rust workspace pass cleanly.
+
+---
+
+## ADR-067: Pure Desktop Experience Home Stage, Embedded Application Window Icon, Navigation History, and Synchronized Docked Lyrics / Queue Panel
+- **Date**: 2026-11-04
+- **Status**: `LOCKED` (Implemented & Verified)
+- **Context**:
+  1. The user requested a fundamental philosophy shift and redesign for the Rust egui desktop frontend (`crates/attune-desktop`), replacing mobile-port navigation with a pure desktop experience inspired by Liquid Material Glass, Liquid Material Glass, and modern desktop audio players.
+  2. The user provided an ASCII layout sketch and visual reference screenshot (`media_1793749753628_b1da9f4b.png`):
+     - Left fixed sidebar (~210px) spanning full height with Search at top, navigation categories (`ATTUNE`, `SOURCES`, `PLAYLISTS & MIXES`), and bottom settings/equalizer shortcuts.
+     - Top navigation bar inside the center column with `<` and `>` history navigation buttons, scanning/driver telemetry, and right toolbar toggles `[💬 Lyrics]` `[☰ Queue]` `[🎚️ Equalizer]`.
+     - Right docked panel (~320px) showing synchronized lyrics with large desktop typography and `#FFFDD0` cream white active singing line focus, or the Up Next queue.
+     - Bottom transport bar featuring a full-width scrubber with elapsed time and negative remaining time (`0:42 ━━━━●━━━━ -2:01`), playback controls on the left, mini now playing pill in the center, and favorites/volume/expand actions on the right.
+     - Center Home stage featuring a personalized greeting banner, Hero Liquid Glass Now Playing card, and "HARMONIC MATCHES & RECENTLY PLAYED" responsive grid.
+  3. Window Icon Blocker: under Linux Wayland/X11 and Windows, the app previously displayed generic compositor fallback icons. The user requested embedding a base64-encoded image of the official Attune logo directly in the binary.
+- **Decision**:
+  1. **Embedded Application Window Icon (`crates/attune-desktop/src/app_icon.rs`)**:
+     - Embedded 128x128 optimized PNG of the Attune logo as `APP_ICON_BASE64`.
+     - Implemented `load_app_icon() -> Arc<IconData>` using `base64 v0.22` and `image::load_from_memory`.
+     - Configured `eframe::NativeOptions.viewport.with_icon(load_app_icon())` in `main.rs`.
+     - Verified with unit tests (`test_load_app_icon_dimensions_and_payload`: 128x128 dimensions, 65,536 RGBA bytes).
+  2. **Pure Desktop Layout Architecture (`crates/attune-desktop/src/app.rs`)**:
+     - Left Sidebar (`sidebar`): Search box at top; `ATTUNE` section (`Home`, `Now Playing`, `For You`, `Library`, `Albums`); `SOURCES` section with folder path, hover source tooltip, `[Choose]`, `[Rescan]`; `PLAYLISTS & MIXES` (`❤️ Favorites (<count>)`, `🫧 Bubblegrid`); bottom shortcuts (`⚙ Settings / About`, `🎛 Equalizer`).
+     - Center Top Navigation Bar (`top_nav_bar`): `<` and `>` history navigation (`navigate_back`, `navigate_forward`), status/scanning spinner, and right toolbar toggles (`[💬 Lyrics]`, `[☰ Queue]`, `[🎚️ EQ]`).
+     - Right Docked Panel (`docked_right_panel`): `DockMode::Lyrics` (docked synchronized lyrics) or `DockMode::Queue` (Up Next queue with track reordering, removal, and live transitions).
+     - Full-Width Scrubber & Negative Remaining Time: elapsed time `0:42` ━━━━●━━━━ `-2:01` formatted as `format!("-{}", fmt_ms(duration.saturating_sub(position)))`.
+     - Transport Bar Row 2: Controls (`🔀 ⏮ ▶/⏸ ⏭ 🔁`), Center Mini Now Playing Pill ($44 \times 44$ cover, title, artist, audio quality badge, live DJ transition pill with "Mix Now" trigger), and Actions (`❤️` favorite toggle, `🔊` volume slider, `⛶` expand Now Playing).
+  3. **Stage Implementations (`crates/attune-desktop/src/stages/`)**:
+     - `home.rs`: Personalized greeting derived from system hour and `USER` env variable; Hero Now Playing Liquid Glass Card ($130 \times 130$ artwork, bold title, artist, audio quality badge, inline play/pause/skip, live DJ transition indicator, click to expand); "HARMONIC MATCHES & RECENTLY PLAYED" responsive grid (6–9 cards with $56 \times 56$ thumbnails, title, artist, Camelot key badge, 1-click play); quick action shortcuts.
+     - `for_you.rs`: 3 Algorithmic Mixes (Harmonic Energy Flow via Camelot circle of fifths, High BPM Peak Energy for 140+ BPM, Melodic Chillout & Ambient for <125 BPM).
+     - `lyrics.rs`: Added `show_docked` with Liquid Material Glass desktop typography, cream white `#FFFDD0` active singing line, auto-scroll centering with lock toggle.
+     - `favorites_content`: Dedicated Favorites view with track count, total duration, "Play All Favorites" button, and virtual table with 1-click play and remove.
+  4. **State Persistence**:
+     - Persists `favorites` list, `dock_mode`, `current_stage`, `volume_db`, `shuffle_mode`, `repeat_mode`, and `music_dir` in `eframe::Storage`.
+- **Consequences**:
+  - `attune-desktop` now provides a pure, first-class desktop user experience with responsive layout, docked synchronized lyrics, and personalized home hub.
+  - Wayland and X11 taskbars and window switchers display the crisp official Attune logo.
+  - Zero hardcoding compliance (Mandate 4) strictly maintained across paths, fonts, sample rates, and versions.
+  - All 19 unit tests in `attune-desktop` and all 70 tests across the entire Rust workspace pass cleanly.

@@ -6,6 +6,7 @@
 #![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
 
 mod app;
+mod app_icon;
 mod components;
 mod config;
 mod fonts;
@@ -25,12 +26,14 @@ fn main() -> eframe::Result<()> {
         None => log::warn!("No per-user cache directory available; core falls back to temp dir"),
     }
 
+    let icon = app_icon::load_app_icon();
     let options = eframe::NativeOptions {
         viewport: eframe::egui::ViewportBuilder::default()
             .with_title("Attune")
             .with_app_id("org.mizproject.attune")
-            .with_inner_size([1220.0, 780.0])
-            .with_min_inner_size([800.0, 520.0]),
+            .with_icon(icon)
+            .with_inner_size([1280.0, 820.0])
+            .with_min_inner_size([880.0, 560.0]),
         ..Default::default()
     };
 

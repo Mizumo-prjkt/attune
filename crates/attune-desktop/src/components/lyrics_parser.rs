@@ -16,6 +16,7 @@ pub struct LyricLine {
 pub struct LyricsSheet {
     pub is_timed: bool,
     pub lines: Vec<LyricLine>,
+    #[allow(dead_code)]
     pub source_label: String,
 }
 

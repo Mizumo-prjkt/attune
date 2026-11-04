@@ -28,6 +28,7 @@ impl LyricsStage {
         Self::default()
     }
 
+    #[allow(dead_code)]
     pub fn show(&mut self, ui: &mut Ui, lyrics: &LyricsSheet, current_pos_ms: u64) {
         ui.horizontal(|ui| {
             ui.heading(egui::RichText::new("Synchronized Lyrics").strong().color(crate::theme::ACCENT));
@@ -133,6 +134,70 @@ impl LyricsStage {
                 }
 
                 ui.add_space(40.0);
+            });
+    }
+
+    /// Renders lyrics inside the right docked panel (Liquid Material Glass style).
+    pub fn show_docked(&mut self, ui: &mut Ui, lyrics: &LyricsSheet, current_pos_ms: u64) {
+        ui.horizontal(|ui| {
+            ui.heading(egui::RichText::new("Lyrics").strong().size(18.0).color(Color32::from_white_alpha(230)));
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                let lock_label = if self.auto_scroll_locked { "🔒 Sync" } else { "🔓 Free" };
+                if ui.small_button(lock_label).on_hover_text("Toggle auto-scroll lock").clicked() {
+                    self.auto_scroll_locked = !self.auto_scroll_locked;
+                }
+            });
+        });
+
+        ui.add_space(6.0);
+        ui.separator();
+
+        if lyrics.lines.is_empty() {
+            ui.add_space(40.0);
+            ui.vertical_centered(|ui| {
+                ui.label(egui::RichText::new("No lyrics available").weak().size(15.0));
+                ui.add_space(6.0);
+                ui.label(egui::RichText::new("Place a .lrc file next to your music file.").small().weak());
+            });
+            return;
+        }
+
+        let active_idx = lyrics.active_line_index(current_pos_ms);
+
+        egui::ScrollArea::vertical()
+            .auto_shrink([false, false])
+            .show(ui, |ui| {
+                ui.add_space(24.0);
+
+                for (i, line) in lyrics.lines.iter().enumerate() {
+                    let is_active = active_idx == Some(i);
+                    let is_past = active_idx.map(|a| i < a).unwrap_or(false);
+
+                    let (text_color, font_size) = if is_active {
+                        (Color32::from_rgb(0xFF, 0xFD, 0xD0), 22.0) // Cream White (#FFFDD0)
+                    } else if is_past {
+                        (Color32::from_white_alpha(70), 15.0)
+                    } else {
+                        (Color32::from_white_alpha(110), 15.0)
+                    };
+
+                    let line_rect = ui.vertical(|ui| {
+                        let text = egui::RichText::new(&line.text)
+                            .size(font_size)
+                            .color(text_color);
+                        let text = if is_active { text.strong() } else { text };
+                        ui.label(text);
+                    }).response.rect;
+
+                    if is_active && self.auto_scroll_locked && self.last_scrolled_line != Some(i) {
+                        ui.scroll_to_rect(line_rect, Some(egui::Align::Center));
+                        self.last_scrolled_line = Some(i);
+                    }
+
+                    ui.add_space(14.0);
+                }
+
+                ui.add_space(60.0);
             });
     }
 }
