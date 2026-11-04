@@ -611,8 +611,11 @@ pub fn App() -> Element {
                         StageView::Albums => rsx! {
                             Albums {
                                 tracks: tracks.read().clone(),
+                                current_track_path: current_track.read().as_ref().map(|t| t.path.clone()),
+                                is_playing: *is_playing.read(),
                                 on_play_track: move |t| play_track(t),
                                 on_play_tracks: move |list| play_track_list(list),
+                                on_queue_track: move |t| queue.write().push(t),
                                 on_edit_album: move |group| navigate_to(StageView::AlbumEditor(group)),
                             }
                         },

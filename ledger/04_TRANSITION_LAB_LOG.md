@@ -1141,6 +1141,26 @@ These four benchmark scenarios define the "Gold Standard" transitions that Attun
      - Release binary `target/release/attune-desktop` compiled cleanly with exit code 0.
 - **Verdict**: `PASS`. Transport bar is balanced and centered with dynamic progress fills; 10-band sliders render cleanly without inversion or focus outlines; all external branding references removed.
 
+### Experiment #041: Album Details Stage Overhaul — Cinematic Splash Backdrop Banner, Overlapping Floating Actions Card with M3 Split Pill Play Button, Rich Liner Notes & Lore Card, and Interactive Tracklist Cards
+- **Date**: 2026-11-04
+- **Setup**: Linux (Wayland, Arch Linux), WebKitGTK / Wry desktop webview, release binary `./target/release/attune-desktop`, 1024x535 reference window.
+- **Observations & Empirical Verification**:
+  1. **Cinematic Splash Backdrop Banner**:
+     - 270px hero banner with cover art backdrop, dark vignette gradient overlay, and glass floating `← Collections` button.
+     - Lower title overlay with `ALBUM` badge and bold heading.
+  2. **Overlapping Actions Card**:
+     - Floating card at `margin-top: -32px` with `👤 By {artist}`, track count, and tactile M3 Split Pill Button (`[ ▶ Play Album | ▾ ]`), shuffle, and edit actions.
+  3. **Rich Liner Notes & Lore**:
+     - `format_album_lore` computes dynamic summary of track count, lossless audio formats, and DSP analysis status.
+  4. **Interactive Tracklist**:
+     - Individual liquid glass track cards with track numbers, active playing highlights, metadata (format, BPM, key), monospace durations, track options menu (`⋮`), and circular play/pause buttons.
+  5. **Verification**:
+     - 19 unit tests in `attune-desktop` passed.
+     - 100% of workspace tests across all crates passed.
+     - Release binary `target/release/attune-desktop` built with exit code 0.
+- **Verdict**: `PASS`. Album detail view achieves visual and functional parity with the reference design.
+
+
 
 
 
