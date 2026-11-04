@@ -1397,6 +1397,41 @@ These four benchmark scenarios define the "Gold Standard" transitions that Attun
   - Verified that `cargo build --release -p attune-desktop` builds cleanly.
 - **Verdict**: `PASS`. Transitions blend cleanly to completion without stalls or reversals; Home stage displays live acoustic BPM and Key; Queue dock includes rich descriptive transition rationale with candidate promotion.
 
+---
+
+### [2026-11-05] Exp #050: Smart Shuffle Anti-Ping-Pong Architecture & Flutter Parity Verification
+- **Feature Area**: Smart Shuffle Candidate Scoring / Anti-Loop Protection / Queue Synchronization
+- **Algorithm Version / Commit**: Post-ADR-082 / Branch `main`
+- **Context & Motivation**:
+  - Users reported that after BPM and Key were identified on two songs (e.g. ABBA's *The Winner Takes It All* and *Lay All Your Love On Me*), Smart Shuffle repeatedly cycled between those two songs in an infinite loop while ignoring other candidates in the queue/library.
+  - User requested confirmation that Flutter was not broken by these changes.
+- **Empirical Findings & Flutter Comparison**:
+  1. **Flutter Status**: Verified via `git status` that `apps/attune_app/` was completely untouched (0 modified files).
+  2. **Root Cause**:
+     - In `attune-desktop`, only played songs had acoustic profiles, giving them ~0.95 scores.
+     - Unprobed songs had static flat 0.50 scores.
+     - The recency penalty for rank 1 was only -0.30 (`0.95 - 0.30 = 0.65`), allowing the immediate previous song to beat every unprobed song.
+     - `smart_shuffle` lacked artist variety penalties (allowing back-to-back ABBA $\rightarrow$ ABBA) and used deterministic greedy selection (`evaluated.first()`).
+- **Algorithm Fixes Applied**:
+  1. **Anti-Ping-Pong Recency Gradient**: rank 0 = -0.95, rank 1 = -0.85 (immediate previous song dropped to 0.10, preventing loops).
+  2. **Flutter Candidate Scoring Parity**:
+     - Dynamic duration ratio & title hash pacing variation ($0.30 .. 0.85$) for unprobed tracks.
+     - Artist hash modal compatibility variation ($0.25 .. 0.75$) for unprobed tracks.
+     - Artist variety factor (0.10 weight): different artist = 1.0, same artist = 0.25.
+     - Dynamic energy & lossless headroom (0.14 weight).
+  3. **Top-K Weighted Probabilistic Selection**:
+     - Implemented `select_smart_candidate` taking up to 6 candidates within 0.35 of `top_score`.
+  4. **Queue Synchronization**:
+     - `play_track(track)` synchronizes `queue_pos` with the track's real index.
+     - `check_auto_transition()` resolves incoming track directly from `triggered.incoming_path`.
+- **Automated Verification**:
+  - Added unit test `test_anti_ping_pong_prevents_two_song_loop` verifying that an unprobed fresh track from another artist strictly beats a recently played 0.95 match.
+  - Added unit test `test_select_smart_candidate_selects_within_pool`.
+  - All 27 unit tests in `attune-desktop` pass.
+  - 100% of workspace tests pass.
+  - Release binary built cleanly (`target/release/attune-desktop`).
+- **Verdict**: `PASS`. Two-song ping-pong looping is eliminated; Smart Shuffle explores the catalog with artist variety and smooth harmonic pacing. Flutter codebase is confirmed untouched and healthy.
+
 
 
 

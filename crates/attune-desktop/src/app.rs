@@ -155,13 +155,18 @@ pub fn App() -> Element {
                     }
                 }
                 ShuffleMode::Smart => {
-                    if q.len() <= 1 {
+                    if q.len() <= 1 && all.len() <= 1 {
                         Some(0)
+                    } else if q.len() <= 2 && all.len() > 2 {
+                        let current = q.get(curr_idx).or_else(|| all.get(curr_idx))?;
+                        let candidate_indices: Vec<usize> = (0..all.len()).filter(|&i| all[i].path != current.path).collect();
+                        let evaluated = smart_shuffle::evaluate_candidates(current, &candidate_indices, &all, &hist);
+                        smart_shuffle::select_smart_candidate(&evaluated).or(Some((curr_idx + 1) % q.len()))
                     } else {
                         let current = q.get(curr_idx)?;
                         let candidate_indices: Vec<usize> = (0..q.len()).filter(|&i| i != curr_idx).collect();
                         let evaluated = smart_shuffle::evaluate_candidates(current, &candidate_indices, &q, &hist);
-                        evaluated.first().map(|c| c.track_idx).or(Some((curr_idx + 1) % q.len()))
+                        smart_shuffle::select_smart_candidate(&evaluated).or(Some((curr_idx + 1) % q.len()))
                     }
                 }
             }
@@ -188,7 +193,7 @@ pub fn App() -> Element {
                     let current = all.get(curr_idx)?;
                     let candidate_indices: Vec<usize> = (0..all.len()).filter(|&i| i != curr_idx).collect();
                     let evaluated = smart_shuffle::evaluate_candidates(current, &candidate_indices, &all, &hist);
-                    evaluated.first().map(|c| c.track_idx).or(Some((curr_idx + 1) % all.len()))
+                    smart_shuffle::select_smart_candidate(&evaluated).or(Some((curr_idx + 1) % all.len()))
                 }
             }
         } else {
@@ -201,6 +206,23 @@ pub fn App() -> Element {
         let player = player.clone();
         move |track: TrackEntry| {
             let p = player.read();
+            let mut q = queue.read().clone();
+            let curr_pos = if let Some(pos) = q.iter().position(|t| t.path == track.path) {
+                pos
+            } else {
+                let curr = *queue_pos.read();
+                if q.is_empty() {
+                    q.push(track.clone());
+                    0
+                } else {
+                    let insert_pos = (curr + 1).min(q.len());
+                    q.insert(insert_pos, track.clone());
+                    insert_pos
+                }
+            };
+            queue.set(q);
+            queue_pos.set(curr_pos);
+
             p.play_file(track.path.clone());
             current_track.set(Some(track.clone()));
             has_handled_track_end.set(false);
@@ -222,7 +244,6 @@ pub fn App() -> Element {
 
             // Prepare transition to next track in queue/library if Smart Shuffle is active
             if *shuffle_mode.read() == ShuffleMode::Smart {
-                let curr_pos = *queue_pos.read();
                 if let Some(next_idx) = pick_next_index(curr_pos) {
                     let q = queue.read().clone();
                     let all = tracks.read().clone();
@@ -351,13 +372,26 @@ pub fn App() -> Element {
             if let Some(triggered) = p.trigger_transition_now() {
                 last_verdict.set(Some(triggered.clone()));
                 is_transition_active.set(true);
-                let q = queue.read().clone();
-                let curr_pos = *queue_pos.read();
-                if let Some(next_idx) = pick_next_index(curr_pos) {
-                    if next_idx < q.len() {
-                        transitioning_to_track.set(Some(q[next_idx].clone()));
-                    }
-                }
+                let q = queue.cloned();
+                let all = tracks.cloned();
+                let incoming = q.iter().find(|t| t.path == triggered.incoming_path).cloned()
+                    .or_else(|| all.iter().find(|t| t.path == triggered.incoming_path).cloned())
+                    .unwrap_or_else(|| TrackEntry {
+                        path: triggered.incoming_path.clone(),
+                        title: triggered.incoming_title.clone(),
+                        artist: triggered.incoming_artist.clone(),
+                        album: "Mix".into(),
+                        genre: None,
+                        duration_ms: (triggered.duration_sec * 1000.0) as u64,
+                        bpm: Some(triggered.incoming_bpm),
+                        key: Some(triggered.incoming_key.clone()),
+                        format: "FLAC".into(),
+                        sample_rate: 44100,
+                        bit_depth: 16,
+                        artwork_path: None,
+                        artwork_data_url: None,
+                    });
+                transitioning_to_track.set(Some(incoming));
             } else {
                 play_next_track();
             }
@@ -463,13 +497,26 @@ pub fn App() -> Element {
                         if let Some(triggered) = p.check_auto_transition() {
                             last_verdict.set(Some(triggered.clone()));
                             is_transition_active.set(true);
-                            let q = queue.read().clone();
-                            let curr_pos = *queue_pos.read();
-                            if let Some(next_idx) = pick_next_index(curr_pos) {
-                                if next_idx < q.len() {
-                                    transitioning_to_track.set(Some(q[next_idx].clone()));
-                                }
-                            }
+                            let q = queue.cloned();
+                            let all = tracks.cloned();
+                            let incoming = q.iter().find(|t| t.path == triggered.incoming_path).cloned()
+                                .or_else(|| all.iter().find(|t| t.path == triggered.incoming_path).cloned())
+                                .unwrap_or_else(|| TrackEntry {
+                                    path: triggered.incoming_path.clone(),
+                                    title: triggered.incoming_title.clone(),
+                                    artist: triggered.incoming_artist.clone(),
+                                    album: "Mix".into(),
+                                    genre: None,
+                                    duration_ms: (triggered.duration_sec * 1000.0) as u64,
+                                    bpm: Some(triggered.incoming_bpm),
+                                    key: Some(triggered.incoming_key.clone()),
+                                    format: "FLAC".into(),
+                                    sample_rate: 44100,
+                                    bit_depth: 16,
+                                    artwork_path: None,
+                                    artwork_data_url: None,
+                                });
+                            transitioning_to_track.set(Some(incoming));
                         }
                     }
 
@@ -479,47 +526,62 @@ pub fn App() -> Element {
                             // Transition officially concluded in DualDeckMixer (Deck B swapped into Deck A)
                             is_transition_active.set(false);
                             active_trans_name.set(None);
-                            let q = queue.read().clone();
+                            let mut q = queue.cloned();
+                            let all = tracks.cloned();
                             let curr_pos = *queue_pos.read();
-                            let next_idx = if let Some(target) = transitioning_to_track.read().as_ref() {
-                                q.iter().position(|t| t.path == target.path).unwrap_or_else(|| {
-                                    pick_next_index(curr_pos).unwrap_or((curr_pos + 1) % q.len().max(1))
-                                })
+
+                            let (next_idx, mut new_track) = if let Some(target) = transitioning_to_track.read().as_ref() {
+                                if let Some(idx) = q.iter().position(|t| t.path == target.path) {
+                                    (idx, q[idx].clone())
+                                } else {
+                                    let insert_idx = (curr_pos + 1).min(q.len());
+                                    q.insert(insert_idx, target.clone());
+                                    queue.set(q.clone());
+                                    (insert_idx, target.clone())
+                                }
                             } else if let Some(idx) = pick_next_index(curr_pos) {
-                                idx
+                                if idx < q.len() {
+                                    (idx, q[idx].clone())
+                                } else {
+                                    (0, q.first().cloned().unwrap_or_else(|| all[0].clone()))
+                                }
                             } else {
-                                (curr_pos + 1) % q.len().max(1)
+                                ((curr_pos + 1) % q.len().max(1), q.first().cloned().unwrap_or_else(|| all[0].clone()))
                             };
 
-                            if !q.is_empty() && next_idx < q.len() {
-                                queue_pos.set(next_idx);
-                                let mut new_track = q[next_idx].clone();
-                                if let Some(last) = last_verdict.read().as_ref() {
-                                    if new_track.bpm.is_none() && last.incoming_bpm > 10.0 {
-                                        new_track.bpm = Some(last.incoming_bpm);
-                                    }
-                                    if (new_track.key.is_none() || new_track.key.as_deref() == Some("Unknown") || new_track.key.as_deref() == Some("—")) && !last.incoming_key.is_empty() && last.incoming_key != "Unknown" {
-                                        new_track.key = Some(last.incoming_key.clone());
-                                    }
-                                    p.set_current_profile(last.incoming_bpm, last.incoming_key.clone());
+                            queue_pos.set(next_idx);
+                            if let Some(last) = last_verdict.read().as_ref() {
+                                if new_track.bpm.is_none() && last.incoming_bpm > 10.0 {
+                                    new_track.bpm = Some(last.incoming_bpm);
                                 }
-                                current_track.set(Some(new_track.clone()));
-                                shuffle_history.write().record_played(new_track.path.clone());
-                                let sheet = resolve_companion_lyrics(&new_track.path).unwrap_or_else(LyricsSheet::empty);
-                                lyrics_sheet.set(sheet);
-                                active_lyric_index.set(None);
+                                if (new_track.key.is_none() || new_track.key.as_deref() == Some("Unknown") || new_track.key.as_deref() == Some("—")) && !last.incoming_key.is_empty() && last.incoming_key != "Unknown" {
+                                    new_track.key = Some(last.incoming_key.clone());
+                                }
+                                p.set_current_profile(last.incoming_bpm, last.incoming_key.clone());
                             }
+                            current_track.set(Some(new_track.clone()));
+                            shuffle_history.write().record_played(new_track.path.clone());
+                            let sheet = resolve_companion_lyrics(&new_track.path).unwrap_or_else(LyricsSheet::empty);
+                            lyrics_sheet.set(sheet);
+                            active_lyric_index.set(None);
                             transitioning_to_track.set(None);
                             has_handled_track_end.set(false);
 
                             // Pre-plan next transition for the new incoming track
                             if *shuffle_mode.read() == ShuffleMode::Smart {
                                 if let Some(upcoming_idx) = pick_next_index(next_idx) {
-                                    if !q.is_empty() && upcoming_idx < q.len() {
+                                    let cand_track = if upcoming_idx < q.len() {
+                                        Some(&q[upcoming_idx])
+                                    } else if upcoming_idx < all.len() {
+                                        Some(&all[upcoming_idx])
+                                    } else {
+                                        None
+                                    };
+                                    if let Some(ct) = cand_track {
                                         p.prepare_transition(
-                                            q[upcoming_idx].path.clone(),
-                                            q[upcoming_idx].title.clone(),
-                                            q[upcoming_idx].artist.clone(),
+                                            ct.path.clone(),
+                                            ct.title.clone(),
+                                            ct.artist.clone(),
                                         );
                                     }
                                 }

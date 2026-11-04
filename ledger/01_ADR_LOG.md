@@ -2900,6 +2900,45 @@ This file records all major architectural decisions for **Attune**, including co
   - Users have full transparency into Smart Shuffle decision rationale and can override any recommendation with one click.
   - All 25 unit tests in `attune-desktop` and 100% of workspace tests pass. Release binary compiled cleanly.
 
+---
+
+## ADR-082: Smart Shuffle Anti-Ping-Pong Architecture, Top-K Probabilistic Selection & Dynamic Candidate Scoring Alignment
+
+- **Status**: `LOCKED`
+- **Date**: 2026-11-05
+- **Context**:
+  - Following the transition state machine fix in ADR-081, users reported that Smart Shuffle repeatedly cycled between two tracks (e.g. ABBA's *The Winner Takes It All* and *Lay All Your Love On Me*), ping-ponging back and forth while ignoring the rest of the playlist.
+  - Root Cause Analysis:
+    1. **Asymmetric Profile Score Gap**: When Song 1 and Song 2 were played, `AudioProfiler` extracted genuine acoustic BPM and Camelot keys for both tracks. All other tracks in the library/queue lacked static ID3 BPM/key tags and had not yet been played. In `smart_shuffle::evaluate_candidates`, unprobed tracks received a flat static score (~0.50), whereas Song 1 and Song 2 (both Pop, both ABBA, both identical Camelot 8B / 128 BPM) scored ~0.95.
+    2. **Weak Recency Penalty & Missing Anti-Ping-Pong Rule**: When Song 2 was current, Song 1 was at history rank 1 (immediate previous song). The penalty was only -0.30 (`0.95 - 0.30 = 0.65`), which still comfortably exceeded every unprobed song's score (0.50).
+    3. **Missing Artist Variety Penalty**: `attune-desktop` lacked Flutter's artist variety factor (`artistDiff ? 1.0 : 0.25`), enabling same-artist clustering without consequence.
+    4. **Deterministic Greedy Selection**: `attune-desktop` used `evaluated.first()`, deterministically picking the highest score 100% of the time instead of Flutter's Top-K Weighted Probabilistic Selection.
+    5. **Transition Trigger Queue Desynchronization**: On `check_auto_transition()`, `app.rs` called `pick_next_index()` again instead of matching `triggered.incoming_path` against `queue`, risking track identity drift. Furthermore, `play_track` did not update `queue_pos` when playing a track from search/library.
+  - Flutter compatibility check: The user expressed concern that Flutter's working implementation was broken. Verification showed Flutter was completely untouched; this issue was an architectural divergence in `crates/attune-desktop`.
+- **Decision**:
+  1. **Strict Progressive Anti-Ping-Pong Recency Penalty**:
+     - Increased `SmartShuffleHistory` capacity to 50 tracks.
+     - Updated penalty gradient: rank 0 (current) = -0.95, rank 1 (immediate previous track) = -0.85 (heavy anti-loop penalty), rank 2 = -0.65, rank 3..=4 = -0.40, rank 5..=8 = -0.20, rank 9..=16 = -0.10.
+     - Even with a 0.95 harmonic match, rank 1 drops to 0.10, ensuring recently played songs can never beat fresh unplayed songs in the candidate pool.
+  2. **Ported Flutter's Dynamic Unprobed Candidate Scoring**:
+     - **Dynamic Tempo Compatibility (Weight: 0.28)**: Real BPM comparison when both probed; relative duration closeness + title hash variation ($0.30 .. 0.85$) when unprobed.
+     - **Dynamic Harmonic Key Alignment (Weight: 0.26)**: Camelot wheel distance when both probed; artist hash variation ($0.25 .. 0.75$) when unprobed.
+     - **Genre Alignment (Weight: 0.22)**: Exact = 1.0, related = 0.75, unclassified = 0.50, different = 0.35.
+     - **Dynamic Energy & Headroom (Weight: 0.14)**: Lossless bit-depth headroom + path hash.
+     - **Artist Variety (Weight: 0.10)**: Different artist = 1.0, same artist = 0.25 (discourages artist clustering).
+  3. **Top-K Weighted Probabilistic Selection (`select_smart_candidate`)**:
+     - Implemented Flutter's `select_smart_candidate` taking up to 6 candidates within 0.35 of `top_score`.
+     - Weighted selection based on relative score differential prevents deterministic tie-breaking and creates natural, varied musical flow.
+  4. **Queue & Playback Synchronization**:
+     - In `app.rs`, `play_track(track)` locates `track.path` in `queue` and sets `queue_pos` to its actual position. If not in queue, inserts it at `queue_pos + 1`.
+     - When `check_auto_transition()` or `trigger_transition_now()` fires, `transitioning_to_track` is resolved directly from `triggered.incoming_path`, ensuring Deck B and UI state are 100% synchronized.
+     - If `queue.len() <= 2` in Smart Shuffle, candidates are drawn from `all_tracks` so users are never trapped in a 2-song queue.
+- **Consequences**:
+  - Eliminates the two-song ping-pong looping bug completely.
+  - Smart Shuffle explores the library organically with artist rotation and harmonic pacing.
+  - Flutter codebase remains 100% untouched and intact.
+  - All 27 unit tests in `attune-desktop` and 100% of workspace tests pass. Release binary compiled cleanly.
+
 
 
 
