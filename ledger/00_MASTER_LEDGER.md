@@ -2,7 +2,7 @@
 
 - **Project Name**: Attune
 - **Current Phase**: `Phase 6 IN PROGRESS -> Multi-Platform Packaging, Installer Scripting & Distribution Orchestration`
-- **Active Coding Status**: Completed ADR-080: Dual-Icon Asset Architecture — Transparent Disc vs. Squircle App Tile. Embedded `APP_ICON_TILE_BASE64` (256x256 HiDPI squircle app tile from `icon/icon.png`) and exposed `app_icon_tile_data_url()` alongside `APP_ICON_BASE64` (128x128 transparent disc from `icon-transparent.png`). Updated the About stage hero banner to render the squircle app tile with 16px corner radius and ambient glow, eliminating the floating circular disc visual incongruity while retaining the transparent disc in the sidebar header. All 25 tests in `attune-desktop` and 100% of workspace tests pass. Release binary compiled cleanly.
+- **Active Coding Status**: Completed ADR-081: Transition Lifecycle Synchronization, Dynamic Acoustic Profiling for Home Badges, and Interactive Smart Shuffle Candidate Inspector. Resolved race condition where `prepare_transition()` overwrote Deck B mid-blend and premature `play_next_track()` reversed playback during transitions. Integrated fast head/tail `AudioProfiler` into decoding and transition pipeline to dynamically populate genuine acoustic Camelot Key and BPM in the Home stage Now Playing card. Replaced the top-bar Primed pill with an interactive "Check More Info" button in the queue dock opening a comprehensive transition rationale dialog allowing direct override/promotion of runner-up candidates. All 25 tests in `attune-desktop` and 100% of workspace tests pass. Release binary compiled cleanly.
 
 
 ---

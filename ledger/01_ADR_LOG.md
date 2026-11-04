@@ -2845,6 +2845,61 @@ This file records all major architectural decisions for **Attune**, including co
   - Binary size impact is minimal (~24 KB) while providing full HiDPI sharpness up to 3.5x scale factors.
   - All 25 `attune-desktop` unit tests and 50 workspace tests pass.
 
+---
+
+## ADR-081: Transition Lifecycle Synchronization, Dynamic Acoustic Profiling for Home Badges, and Interactive Smart Shuffle Candidate Rationale Inspector
+
+- **Status**: `LOCKED`
+- **Date**: 2026-11-05
+- **Context**:
+  1. **Playback Stalls & Reversal Bug**:
+     - When using Smart Shuffle on song transitions, users observed an issue where the incoming track (e.g., "Lay All Your Love On Me") played for a few seconds during the blend, but suddenly jumped back or reverted to the outgoing track ("The Winner Takes It All") while the UI claimed the new song was playing.
+     - Root Cause:
+       - When `check_auto_transition()` triggered, `app.rs` immediately advanced `queue_pos` and initiated `prepare_transition()` for the next slot.
+       - `prepare_transition()` spawned a thread that decoded audio and called `m.load_track_b(buf_b)`, overwriting Deck B with a third track while Deck B was actively playing the incoming song mid-transition!
+       - Concurrently, because Deck A reached the end of its audio frames during the blend, `snap.deck_a.state_str == "Finished"` evaluated true and triggered `play_next_track()`, reloading the track and wiping out the active transition state.
+  2. **Key and BPM Missing in Home Stage**:
+     - In the Home stage under "NOW PLAYING", `Key: —` and `BPM: —` displayed blank dashes when audio files lacked static ID3 `BPM` or `TKEY` tags.
+     - `TrackEntry::from_probe()` only inspected static metadata tags. Even though Attune possesses an acoustic profiler (`AudioProfiler`), the acoustic BPM and Camelot key were never queried for the playing track or propagated to the UI signals.
+  3. **Queue Primed Card Inspector & Candidate Override**:
+     - The top-bar pill `Primed: 3 EQ Swap (94%)` cluttered the navigation header.
+     - Users requested removing the top-bar pill and adding a "Check More Info" button inside the Right Dock Queue "PRIMED DJ RECIPE" card that opens an interactive modal similar to Flutter's `transition_details_dialog.dart`.
+     - The dialog must explain the transition selection rationale, display factor alignment (Harmonic key lock, tempo sync, energy continuity), and list runner-up candidates evaluated by Smart Shuffle, with an interactive button allowing users to promote/override any candidate as the up-next primed track.
+
+- **Decision**:
+  1. **Transition Engine State Machine Synchronization**:
+     - In `crates/attune-desktop/src/player.rs`:
+       - Added mutual exclusion guard `if m.is_transitioning() { return; }` to `prepare_transition()` both before cloning `buf_a` and before loading `buf_b`.
+       - In `clear_pending_transition()`, guarded `if !m.is_transitioning() { m.deck_b.clear(); }`.
+       - Added `incoming_bpm: f32` and `incoming_key: String` to `PendingTransitionInfo`.
+     - In `crates/attune-desktop/src/app.rs`:
+       - Introduced `is_transition_active`, `transitioning_to_track`, and `show_candidates_modal` signals.
+       - In the 50ms async poller:
+         - When `check_auto_transition()` or manual `trigger_transition_now()` fires, marks `is_transition_active.set(true)` and stores `transitioning_to_track` without queue advancement or premature deck reloads.
+         - While `snap.transition_info.is_some()`, natural track-end auto-advancement is strictly bypassed.
+         - Only when `*is_transition_active.read()` and `snap.transition_info.is_none()` (transition concluded and `DualDeckMixer` swapped Deck B into Deck A) does the queue advance to `next_idx`, update `current_track`, reset `has_handled_track_end`, and only *then* pre-plan the next transition for the new song.
+  2. **Dynamic Acoustic Profiling for Real-Time Key & BPM**:
+     - Added `current_profile: Arc<Mutex<Option<(f32, String)>>>` to `Player`.
+     - In `Player::play_file()`, upon background decoding of the audio buffer, runs `AudioProfiler::new().profile_track(&buffer, path, AnalysisTier::FastHeadTail)` (~15-30 ms) to extract acoustic `nominal_bpm` and Camelot `primary_key`, storing them in `current_profile`.
+     - In `prepare_transition()`, profiles `buf_b` to record `incoming_bpm` and `incoming_key` in `PendingTransitionInfo`.
+     - When transition concludes, calls `p.set_current_profile(last.incoming_bpm, last.incoming_key)`.
+     - In the 50ms poller, detects missing track metadata (`bpm < 10.0` or `key == "—" / "Unknown"`) and transparently synchronizes with `p.current_profile()`, updating `current_track` and `tracks` signals so Home stage `Key` and `BPM` chips render live acoustic values without hardcoding.
+  3. **Queue Primed Card & Interactive Candidate Modal**:
+     - Removed the top-bar `Primed: ...` pill from `app.rs`.
+     - In the Queue Dock "PRIMED DJ RECIPE" card, added two action buttons: `[ Check More Info ]` (opens modal) and `[ Blend Now ]` (triggers instant manual transition).
+     - Implemented `show_candidates_modal` dialog:
+       - Displays the winning candidate card with match percentage badge, detailed transition rationale text, and factor chips (Harmonic Key Lock, Tempo Synchronized, Energy Flow Continuous).
+       - Evaluates runner-ups via `smart_shuffle::evaluate_candidates(current, &candidate_indices, &cand_pool, &hist)`.
+       - Renders each runner-up candidate with rank `#2`, `#3`..., match score %, harmonic & tempo verdicts, and a `[ Promote ]` button.
+       - Clicking `Promote` invokes `override_candidate(target_track)`, reordering the queue so the selected song becomes the immediate up-next track, priming the transition recipe on Deck B, and closing the modal.
+
+- **Consequences**:
+  - Eliminates transition playback stutter, reversal, and deck overwrite race conditions.
+  - Songs transition smoothly and uninterrupted to completion before the next song is primed.
+  - Home stage Now Playing card reliably displays acoustic Camelot Key and BPM even for un-tagged FLAC/ALAC/MP3 files.
+  - Users have full transparency into Smart Shuffle decision rationale and can override any recommendation with one click.
+  - All 25 unit tests in `attune-desktop` and 100% of workspace tests pass. Release binary compiled cleanly.
+
 
 
 

@@ -10,10 +10,10 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 
 use attune_core::engine::mixer::MixerSnapshot;
-use attune_core::schema::TransitionArchetype;
+use attune_core::schema::{AnalysisTier, TransitionArchetype};
 use attune_core::{
-    AudioDecoder, AudioOutputDriver, DeckId, DualDeckMixer, JitPlanner, MasterFxParams,
-    TransitionRecipe,
+    AudioDecoder, AudioOutputDriver, AudioProfiler, DeckId, DualDeckMixer, JitPlanner,
+    MasterFxParams, TransitionRecipe,
 };
 
 /// Fallback mixer rate only used when no output device can be queried (headless).
@@ -39,6 +39,8 @@ pub struct PendingTransitionInfo {
     pub duration_sec: f32,
     pub confidence_pct: u32,
     pub scheduled_start_ms: u64,
+    pub incoming_bpm: f32,
+    pub incoming_key: String,
 }
 
 pub struct Player {
@@ -51,6 +53,7 @@ pub struct Player {
     // User gain in dB stored as f32 bits; re-applied after each load (load resets deck gain).
     gain_db_bits: Arc<AtomicU32>,
     pending_transition: Arc<Mutex<Option<PendingTransitionInfo>>>,
+    current_profile: Arc<Mutex<Option<(f32, String)>>>,
 }
 
 impl Player {
@@ -82,6 +85,7 @@ impl Player {
             load_state: Arc::new(Mutex::new(LoadState::Idle)),
             gain_db_bits: Arc::new(AtomicU32::new(0f32.to_bits())),
             pending_transition: Arc::new(Mutex::new(None)),
+            current_profile: Arc::new(Mutex::new(None)),
         }
     }
 
@@ -101,6 +105,9 @@ impl Player {
     pub fn play_file(&self, path: PathBuf) {
         let my_gen = self.generation.fetch_add(1, Ordering::SeqCst) + 1;
         self.clear_pending_transition();
+        if let Ok(mut prof) = self.current_profile.lock() {
+            *prof = None;
+        }
 
         if let Ok(mut m) = self.mixer.lock() {
             m.transition = None;
@@ -117,6 +124,7 @@ impl Player {
         let generation = Arc::clone(&self.generation);
         let load_state = Arc::clone(&self.load_state);
         let gain_bits = Arc::clone(&self.gain_db_bits);
+        let current_profile = Arc::clone(&self.current_profile);
         thread::Builder::new()
             .name("attune-decode".into())
             .spawn(move || {
@@ -126,6 +134,13 @@ impl Player {
                 }
                 match result {
                     Ok(buffer) => {
+                        // Extract detected BPM and Key via fast head/tail AudioProfiler
+                        let profiler = AudioProfiler::new();
+                        let tap = profiler.profile_track(&buffer, &path.to_string_lossy(), AnalysisTier::FastHeadTail);
+                        if let Ok(mut prof) = current_profile.lock() {
+                            *prof = Some((tap.global_summary.nominal_bpm, tap.global_summary.primary_key));
+                        }
+
                         if let Ok(mut m) = mixer.lock() {
                             m.load_track_a(buffer);
                             m.deck_a.set_gain_db(f32::from_bits(gain_bits.load(Ordering::Relaxed)));
@@ -155,6 +170,9 @@ impl Player {
     ) {
         let buf_a_clone = {
             let Ok(m) = self.mixer.lock() else { return };
+            if m.is_transitioning() {
+                return;
+            }
             m.deck_a.audio().cloned()
         };
         let Some(buf_a) = buf_a_clone else { return };
@@ -191,7 +209,15 @@ impl Player {
                 let confidence_pct = (recipe.confidence_score * 100.0).clamp(10.0, 99.0) as u32;
                 let scheduled_start_ms = recipe.timing.track_a_transition_start_ms;
 
+                let profiler = AudioProfiler::new();
+                let tap_b = profiler.profile_track(&buf_b, &incoming_path.to_string_lossy(), AnalysisTier::FastHeadTail);
+                let incoming_bpm = tap_b.global_summary.nominal_bpm;
+                let incoming_key = tap_b.global_summary.primary_key;
+
                 if let Ok(mut m) = mixer.lock() {
+                    if m.is_transitioning() {
+                        return;
+                    }
                     m.load_track_b(buf_b);
                 }
 
@@ -205,6 +231,8 @@ impl Player {
                         duration_sec,
                         confidence_pct,
                         scheduled_start_ms,
+                        incoming_bpm,
+                        incoming_key,
                     });
                 }
             })
@@ -249,6 +277,16 @@ impl Player {
 
     pub fn pending_transition(&self) -> Option<PendingTransitionInfo> {
         self.pending_transition.lock().ok().and_then(|p| p.clone())
+    }
+
+    pub fn current_profile(&self) -> Option<(f32, String)> {
+        self.current_profile.lock().ok().and_then(|p| p.clone())
+    }
+
+    pub fn set_current_profile(&self, bpm: f32, key: String) {
+        if let Ok(mut prof) = self.current_profile.lock() {
+            *prof = Some((bpm, key));
+        }
     }
 
     pub fn clear_pending_transition(&self) {

@@ -87,6 +87,9 @@ pub fn App() -> Element {
     let mut active_trans_name = use_signal(|| None::<String>);
     let mut last_verdict = use_signal(|| None::<PendingTransitionInfo>);
     let mut show_verdict_modal = use_signal(|| false);
+    let mut is_transition_active = use_signal(|| false);
+    let mut transitioning_to_track = use_signal(|| None::<TrackEntry>);
+    let mut show_candidates_modal = use_signal(|| false);
     let mut master_fx = use_signal(MasterFxParams::default);
 
     // 5. Navigation & Docks
@@ -312,6 +315,33 @@ pub fn App() -> Element {
         }
     };
 
+    // Helper: Override primed transition with a chosen alternative candidate
+    let mut override_candidate = {
+        let player = player.clone();
+        move |target_track: TrackEntry| {
+            let p = player.read();
+            let mut q = queue.cloned();
+            let curr_pos = *queue_pos.read();
+            let next_slot = (curr_pos + 1).min(q.len());
+
+            if let Some(existing_pos) = q.iter().position(|t| t.path == target_track.path) {
+                let item = q.remove(existing_pos);
+                let insert_pos = if existing_pos < next_slot { next_slot.saturating_sub(1) } else { next_slot };
+                q.insert(insert_pos.min(q.len()), item);
+            } else {
+                q.insert(next_slot, target_track.clone());
+            }
+            queue.set(q);
+
+            p.prepare_transition(
+                target_track.path.clone(),
+                target_track.title.clone(),
+                target_track.artist.clone(),
+            );
+            show_candidates_modal.set(false);
+        }
+    };
+
     // Helper: Trigger manual transition now
     let mut trigger_transition_now = {
         let player = player.clone();
@@ -320,14 +350,13 @@ pub fn App() -> Element {
             let p = player.read();
             if let Some(triggered) = p.trigger_transition_now() {
                 last_verdict.set(Some(triggered.clone()));
-                // Advance queue
+                is_transition_active.set(true);
                 let q = queue.read().clone();
                 let curr_pos = *queue_pos.read();
-                if curr_pos + 1 < q.len() {
-                    queue_pos.set(curr_pos + 1);
-                    current_track.set(Some(q[curr_pos + 1].clone()));
-                    let sheet = resolve_companion_lyrics(&q[curr_pos + 1].path).unwrap_or_else(LyricsSheet::empty);
-                    lyrics_sheet.set(sheet);
+                if let Some(next_idx) = pick_next_index(curr_pos) {
+                    if next_idx < q.len() {
+                        transitioning_to_track.set(Some(q[next_idx].clone()));
+                    }
                 }
             } else {
                 play_next_track();
@@ -393,55 +422,125 @@ pub fn App() -> Element {
                         has_handled_track_end.set(false);
                     }
 
-                    if let Some((_, _, pct, archetype)) = &snap.transition_info {
-                        active_trans_name.set(Some(format!("Blending: {archetype} ({:.0}%)", pct * 100.0)));
-                    } else {
-                        active_trans_name.set(None);
-                    }
-
-                    // 3. Check for Automatic JIT Transition Trigger
-                    if let Some(triggered) = p.check_auto_transition() {
-                        last_verdict.set(Some(triggered.clone()));
-                        let q = queue.read().clone();
-                        let curr_pos = *queue_pos.read();
-                        if let Some(next_idx) = pick_next_index(curr_pos) {
-                            if next_idx < q.len() {
-                                queue_pos.set(next_idx);
-                                current_track.set(Some(q[next_idx].clone()));
-                                let sheet = resolve_companion_lyrics(&q[next_idx].path).unwrap_or_else(LyricsSheet::empty);
-                                lyrics_sheet.set(sheet);
-                                shuffle_history.write().record_played(q[next_idx].path.clone());
-
-                                // Pre-plan next transition for upcoming track
-                                if *shuffle_mode.read() == ShuffleMode::Smart {
-                                    if let Some(upcoming_idx) = pick_next_index(next_idx) {
-                                        if upcoming_idx < q.len() {
-                                            p.prepare_transition(
-                                                q[upcoming_idx].path.clone(),
-                                                q[upcoming_idx].title.clone(),
-                                                q[upcoming_idx].artist.clone(),
-                                            );
-                                        }
+                    // Dynamic BPM & Key synchronization from AudioProfiler
+                    let maybe_curr = current_track.cloned();
+                    if let Some(mut curr) = maybe_curr {
+                        let need_bpm = curr.bpm.map(|b| b < 10.0).unwrap_or(true);
+                        let need_key = curr.key.as_deref().map(|k| k.is_empty() || k == "—" || k == "Unknown").unwrap_or(true);
+                        if need_bpm || need_key {
+                            if let Some((bpm, key)) = p.current_profile() {
+                                let mut changed = false;
+                                if need_bpm && bpm > 10.0 {
+                                    curr.bpm = Some(bpm);
+                                    changed = true;
+                                }
+                                if need_key && !key.is_empty() && key != "Unknown" {
+                                    curr.key = Some(key.clone());
+                                    changed = true;
+                                }
+                                if changed {
+                                    current_track.set(Some(curr.clone()));
+                                    let mut all = tracks.cloned();
+                                    if let Some(t) = all.iter_mut().find(|t| t.path == curr.path) {
+                                        t.bpm = curr.bpm;
+                                        t.key = curr.key.clone();
+                                        tracks.set(all);
                                     }
                                 }
                             }
                         }
                     }
 
-                    // 4. Track completion auto-advance check
-                    let is_deck_finished = snap.deck_a.state_str == "Finished" || (snap.active_deck_str == "Deck B" && snap.deck_b.state_str == "Finished");
-                    let is_at_end = dur > 3000 && pos >= dur.saturating_sub(400);
-                    let is_not_playing = !snap.is_playing;
-                    let is_ready = p.load_state() == LoadState::Ready;
+                    if let Some((_, _, pct, archetype)) = &snap.transition_info {
+                        is_transition_active.set(true);
+                        active_trans_name.set(Some(format!("Blending: {archetype} ({:.0}%)", pct * 100.0)));
+                    } else {
+                        active_trans_name.set(None);
+                    }
 
-                    if (is_deck_finished || (is_at_end && is_not_playing)) && is_ready && snap.transition_info.is_none() {
-                        if !*has_handled_track_end.read() {
-                            has_handled_track_end.set(true);
-                            if *repeat_mode.read() == RepeatMode::One {
-                                p.seek_ms(0);
-                                p.play();
+                    // 3. Check for Automatic JIT Transition Trigger
+                    if !*is_transition_active.read() {
+                        if let Some(triggered) = p.check_auto_transition() {
+                            last_verdict.set(Some(triggered.clone()));
+                            is_transition_active.set(true);
+                            let q = queue.read().clone();
+                            let curr_pos = *queue_pos.read();
+                            if let Some(next_idx) = pick_next_index(curr_pos) {
+                                if next_idx < q.len() {
+                                    transitioning_to_track.set(Some(q[next_idx].clone()));
+                                }
+                            }
+                        }
+                    }
+
+                    // 4. Handle Transition Completion or Natural Track End
+                    if *is_transition_active.read() {
+                        if snap.transition_info.is_none() {
+                            // Transition officially concluded in DualDeckMixer (Deck B swapped into Deck A)
+                            is_transition_active.set(false);
+                            active_trans_name.set(None);
+                            let q = queue.read().clone();
+                            let curr_pos = *queue_pos.read();
+                            let next_idx = if let Some(target) = transitioning_to_track.read().as_ref() {
+                                q.iter().position(|t| t.path == target.path).unwrap_or_else(|| {
+                                    pick_next_index(curr_pos).unwrap_or((curr_pos + 1) % q.len().max(1))
+                                })
+                            } else if let Some(idx) = pick_next_index(curr_pos) {
+                                idx
                             } else {
-                                play_next_track();
+                                (curr_pos + 1) % q.len().max(1)
+                            };
+
+                            if !q.is_empty() && next_idx < q.len() {
+                                queue_pos.set(next_idx);
+                                let mut new_track = q[next_idx].clone();
+                                if let Some(last) = last_verdict.read().as_ref() {
+                                    if new_track.bpm.is_none() && last.incoming_bpm > 10.0 {
+                                        new_track.bpm = Some(last.incoming_bpm);
+                                    }
+                                    if (new_track.key.is_none() || new_track.key.as_deref() == Some("Unknown") || new_track.key.as_deref() == Some("—")) && !last.incoming_key.is_empty() && last.incoming_key != "Unknown" {
+                                        new_track.key = Some(last.incoming_key.clone());
+                                    }
+                                    p.set_current_profile(last.incoming_bpm, last.incoming_key.clone());
+                                }
+                                current_track.set(Some(new_track.clone()));
+                                shuffle_history.write().record_played(new_track.path.clone());
+                                let sheet = resolve_companion_lyrics(&new_track.path).unwrap_or_else(LyricsSheet::empty);
+                                lyrics_sheet.set(sheet);
+                                active_lyric_index.set(None);
+                            }
+                            transitioning_to_track.set(None);
+                            has_handled_track_end.set(false);
+
+                            // Pre-plan next transition for the new incoming track
+                            if *shuffle_mode.read() == ShuffleMode::Smart {
+                                if let Some(upcoming_idx) = pick_next_index(next_idx) {
+                                    if !q.is_empty() && upcoming_idx < q.len() {
+                                        p.prepare_transition(
+                                            q[upcoming_idx].path.clone(),
+                                            q[upcoming_idx].title.clone(),
+                                            q[upcoming_idx].artist.clone(),
+                                        );
+                                    }
+                                }
+                            }
+                        }
+                    } else {
+                        // Natural track completion auto-advance check (no transition occurred)
+                        let is_deck_finished = snap.deck_a.state_str == "Finished";
+                        let is_at_end = dur > 3000 && pos >= dur.saturating_sub(400);
+                        let is_not_playing = !snap.is_playing;
+                        let is_ready = p.load_state() == LoadState::Ready;
+
+                        if (is_deck_finished || (is_at_end && is_not_playing)) && is_ready {
+                            if !*has_handled_track_end.read() {
+                                has_handled_track_end.set(true);
+                                if *repeat_mode.read() == RepeatMode::One {
+                                    p.seek_ms(0);
+                                    p.play();
+                                } else {
+                                    play_next_track();
+                                }
                             }
                         }
                     }
@@ -677,14 +776,6 @@ pub fn App() -> Element {
                             div { class: "quality-badge quality-very-good",
                                 span { class: "material-icons md-14", style: "margin-right: 4px; vertical-align: -2px;", "auto_awesome" }
                                 "{trans}"
-                            }
-                        } else if let Some(pending) = pending_trans_info.read().as_ref() {
-                            div {
-                                class: "quality-badge quality-proprietary",
-                                style: "cursor: pointer;",
-                                onclick: move |_| show_verdict_modal.set(true),
-                                span { class: "material-icons md-14", style: "margin-right: 4px; vertical-align: -2px;", "bolt" }
-                                "Primed: {pending.archetype_name} ({pending.confidence_pct}%)"
                             }
                         }
                     }
@@ -1053,12 +1144,21 @@ pub fn App() -> Element {
                                     }
                                     p { style: "font-weight: 600; font-size: 13px; margin: 4px 0;", "{pending.archetype_name}" }
                                     p { style: "font-size: 11.5px; color: var(--text-secondary);", "Incoming: {pending.incoming_title}" }
-                                    button {
-                                        class: "btn-pill active",
-                                        style: "width: 100%; margin-top: 8px; font-size: 11.5px; padding: 4px; display: inline-flex; align-items: center; justify-content: center; gap: 4px;",
-                                        onclick: move |_| trigger_transition_now(),
-                                        span { class: "material-icons md-14", "bolt" }
-                                        "Blend Now"
+                                    div { style: "display: flex; gap: 8px; margin-top: 10px;",
+                                        button {
+                                            class: "btn-pill",
+                                            style: "flex: 1; font-size: 11.5px; padding: 5px 6px; display: inline-flex; align-items: center; justify-content: center; gap: 4px; background: rgba(255,255,255,0.06);",
+                                            onclick: move |_| show_candidates_modal.set(true),
+                                            span { class: "material-icons md-14", "info" }
+                                            "Check More Info"
+                                        }
+                                        button {
+                                            class: "btn-pill active",
+                                            style: "flex: 1; font-size: 11.5px; padding: 5px 6px; display: inline-flex; align-items: center; justify-content: center; gap: 4px;",
+                                            onclick: move |_| trigger_transition_now(),
+                                            span { class: "material-icons md-14", "bolt" }
+                                            "Blend Now"
+                                        }
                                     }
                                 }
                             }
@@ -1381,6 +1481,183 @@ pub fn App() -> Element {
                                 style: "margin-top: 10px;",
                                 onclick: move |_| show_verdict_modal.set(false),
                                 "Close"
+                            }
+                        }
+                    }
+                }
+            }
+
+            // ==========================================
+            // MODALS: CANDIDATES & TRANSITION RATIONALE
+            // ==========================================
+
+            if *show_candidates_modal.read() {
+                {
+                    let pending = pending_trans_info.cloned();
+                    let curr_opt = current_track.cloned();
+                    let q_list = queue.cloned();
+                    let all_list = tracks.cloned();
+                    let hist = shuffle_history.cloned();
+
+                    let (cand_pool, current) = if let Some(c) = curr_opt {
+                        let pool = if q_list.len() > 1 { q_list } else { all_list };
+                        (pool, Some(c))
+                    } else {
+                        (q_list, None)
+                    };
+
+                    let evaluated = if let Some(ref c) = current {
+                        let candidate_indices: Vec<usize> = (0..cand_pool.len())
+                            .filter(|&i| cand_pool[i].path != c.path)
+                            .collect();
+                        smart_shuffle::evaluate_candidates(c, &candidate_indices, &cand_pool, &hist)
+                    } else {
+                        Vec::new()
+                    };
+
+                    rsx! {
+                        div {
+                            style: "position: fixed; inset: 0; background: rgba(0,0,0,0.72); backdrop-filter: blur(14px); display: flex; align-items: center; justify-content: center; z-index: 100;",
+                            div {
+                                style: "background: #141924; border: 1px solid var(--border-glass); border-radius: 24px; padding: 24px; width: 560px; max-height: 85vh; display: flex; flex-direction: column; gap: 16px; box-shadow: 0 20px 60px rgba(0,0,0,0.85);",
+                                // Header
+                                div { style: "display: flex; justify-content: space-between; align-items: center;",
+                                    div { style: "display: flex; align-items: center; gap: 12px;",
+                                        div {
+                                            style: "width: 40px; height: 40px; border-radius: 50%; background: rgba(45,212,191,0.18); display: flex; align-items: center; justify-content: center;",
+                                            span { class: "material-icons md-22", style: "color: var(--accent-mint);", "auto_awesome" }
+                                        }
+                                        div {
+                                            h2 { style: "font-size: 17px; font-weight: 700; margin: 0;", "Transition Selection Rationale" }
+                                            p { style: "font-size: 11.5px; color: var(--text-secondary); margin: 2px 0 0 0;",
+                                                if let Some(ref p) = pending {
+                                                    "{p.archetype_name} • {p.confidence_pct}% Harmonic Alignment"
+                                                } else {
+                                                    "Smart JIT Evaluation & Candidate Breakdown"
+                                                }
+                                            }
+                                        }
+                                    }
+                                    button {
+                                        class: "btn-icon",
+                                        onclick: move |_| show_candidates_modal.set(false),
+                                        span { class: "material-icons md-18", "close" }
+                                    }
+                                }
+
+                                // Scrollable Body
+                                div {
+                                    style: "overflow-y: auto; display: flex; flex-direction: column; gap: 14px; max-height: 58vh; padding-right: 4px;",
+                                    // Winner Card
+                                    if let Some(ref p) = pending {
+                                        div {
+                                            style: "background: rgba(45,212,191,0.08); border: 1px solid rgba(45,212,191,0.28); border-radius: 16px; padding: 14px; display: flex; flex-direction: column; gap: 10px;",
+                                            div { style: "display: flex; justify-content: space-between; align-items: center;",
+                                                div { style: "display: flex; align-items: center; gap: 6px;",
+                                                    span { class: "material-icons md-16", style: "color: var(--accent-mint);", "stars" }
+                                                    span { style: "font-size: 10.5px; font-weight: 700; color: var(--accent-mint); letter-spacing: 0.5px;", "WINNING CANDIDATE • PRIMED UP NEXT" }
+                                                }
+                                                div {
+                                                    style: "background: rgba(45,212,191,0.22); color: var(--accent-mint); font-weight: 700; font-size: 11px; padding: 3px 8px; border-radius: 6px;",
+                                                    "{p.confidence_pct}% Match"
+                                                }
+                                            }
+                                            div {
+                                                h3 { style: "font-size: 14px; font-weight: 700; margin: 0;", "{p.incoming_title}" }
+                                                p { style: "font-size: 11.5px; color: var(--text-secondary); margin: 2px 0 0 0;", "{p.incoming_artist}" }
+                                            }
+                                            div {
+                                                style: "background: rgba(0,0,0,0.3); border-radius: 10px; padding: 10px; font-size: 11.5px; line-height: 1.5; color: rgba(255,255,255,0.85);",
+                                                "Attune's JIT Transition Planner analyzed outgoing acoustic energy and selected {p.archetype_name} with {p.confidence_pct}% confidence. The transition window spans {p.duration_sec:.1}s with sample-accurate 3-band EQ and harmonic phase alignment."
+                                            }
+                                            // Factor chips
+                                            div { style: "display: flex; flex-wrap: wrap; gap: 6px; margin-top: 2px;",
+                                                div { style: "background: rgba(255,255,255,0.06); padding: 3px 8px; border-radius: 6px; font-size: 10.5px; display: flex; align-items: center; gap: 4px;",
+                                                    span { class: "material-icons md-12", "music_note" }
+                                                    "Harmonic Key Lock"
+                                                }
+                                                div { style: "background: rgba(255,255,255,0.06); padding: 3px 8px; border-radius: 6px; font-size: 10.5px; display: flex; align-items: center; gap: 4px;",
+                                                    span { class: "material-icons md-12", "speed" }
+                                                    "Tempo Synchronized"
+                                                }
+                                                div { style: "background: rgba(255,255,255,0.06); padding: 3px 8px; border-radius: 6px; font-size: 10.5px; display: flex; align-items: center; gap: 4px;",
+                                                    span { class: "material-icons md-12", "bolt" }
+                                                    "Energy Flow Continuous"
+                                                }
+                                            }
+                                        }
+                                    }
+
+                                    // Alternative Runner-Up Candidates
+                                    div { style: "display: flex; justify-content: space-between; align-items: center; margin-top: 4px;",
+                                        h4 { style: "font-size: 12.5px; font-weight: 700; margin: 0; color: var(--text-primary);",
+                                            "Other Evaluated Candidates ({evaluated.len()})"
+                                        }
+                                        span { style: "font-size: 10.5px; color: var(--text-muted);", "Runner-ups • Click to Override" }
+                                    }
+
+                                    if evaluated.is_empty() {
+                                        p { style: "font-size: 12px; color: var(--text-muted); text-align: center; padding: 12px 0;", "No alternative candidates found in current queue." }
+                                    } else {
+                                        for (rank_idx, eval) in evaluated.iter().enumerate() {
+                                            {
+                                                let track_clone = cand_pool[eval.track_idx].clone();
+                                                let is_primed = pending.as_ref().map(|p| p.incoming_path == track_clone.path).unwrap_or(false);
+                                                let score_pct = (eval.total_score * 100.0).clamp(10.0, 99.0) as u32;
+                                                let rank_num = rank_idx + 1;
+
+                                                rsx! {
+                                                    div {
+                                                        key: "{track_clone.path.to_string_lossy()}",
+                                                        style: "background: rgba(255,255,255,0.035); border: 1px solid var(--border-glass); border-radius: 12px; padding: 10px 12px; display: flex; align-items: center; justify-content: space-between; gap: 10px;",
+                                                        div { style: "display: flex; align-items: center; gap: 10px; min-width: 0; flex: 1;",
+                                                            div {
+                                                                style: "width: 26px; height: 26px; border-radius: 50%; background: rgba(255,255,255,0.07); display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 700; color: var(--text-muted); flex-shrink: 0;",
+                                                                "#{rank_num}"
+                                                            }
+                                                            div { style: "min-width: 0; flex: 1;",
+                                                                div { style: "display: flex; align-items: center; gap: 6px;",
+                                                                    span { style: "font-size: 12px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--text-primary);", "{eval.title}" }
+                                                                    span { style: "background: rgba(168,85,247,0.18); color: var(--accent-purple); font-weight: 700; font-size: 9.5px; padding: 1px 5px; border-radius: 4px; flex-shrink: 0;", "{score_pct}%" }
+                                                                }
+                                                                p { style: "font-size: 10.5px; color: var(--text-secondary); margin: 2px 0 0 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;",
+                                                                    "{eval.artist} • {eval.harmonic_verdict} • {eval.tempo_verdict}"
+                                                                }
+                                                            }
+                                                        }
+                                                        if is_primed {
+                                                            div {
+                                                                style: "font-size: 11px; font-weight: 600; color: var(--accent-mint); padding: 4px 10px; border-radius: 8px; background: rgba(45,212,191,0.12); flex-shrink: 0;",
+                                                                "Active Up Next"
+                                                            }
+                                                        } else {
+                                                            button {
+                                                                class: "btn-pill",
+                                                                style: "font-size: 11px; padding: 4px 10px; display: inline-flex; align-items: center; gap: 4px; background: rgba(45,212,191,0.15); color: var(--accent-mint); border: 1px solid rgba(45,212,191,0.3); flex-shrink: 0; cursor: pointer;",
+                                                                onclick: {
+                                                                    let t = track_clone.clone();
+                                                                    move |_| override_candidate(t.clone())
+                                                                },
+                                                                span { class: "material-icons md-14", "swap_vert" }
+                                                                "Promote"
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+
+                                // Footer
+                                div { style: "display: flex; justify-content: flex-end; padding-top: 8px; border-top: 1px solid var(--border-glass);",
+                                    button {
+                                        class: "btn-pill active",
+                                        style: "padding: 6px 18px; font-size: 12px;",
+                                        onclick: move |_| show_candidates_modal.set(false),
+                                        "Close"
+                                    }
+                                }
                             }
                         }
                     }

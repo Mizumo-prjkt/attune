@@ -1359,6 +1359,44 @@ These four benchmark scenarios define the "Gold Standard" transitions that Attun
   - All 50 workspace tests pass cleanly.
 - **Verdict**: `PASS`. Dual icon architecture cleanly separates inline transparent branding from squircle hero tile presentation.
 
+---
+
+### [2026-11-05] Exp #049: Resolution of Transition Playback Reversal, Real-Time Acoustic BPM/Key Extraction, and Smart Shuffle Candidate Inspector Dialog
+- **Feature Area**: Real-Time Dual-Deck Playback Synchronization / Acoustic Profiling / Queue Candidate Inspector
+- **Algorithm Version / Commit**: Post-ADR-081 / Branch `main`
+- **Context & Motivation**:
+  - Three issues were reported:
+    1. During Smart Shuffle playback, when track A transitioned into track B, track B played for a few seconds before playback abruptly reversed or reset to track A while the UI incorrectly claimed track B was active.
+    2. Home stage Now Playing card showed blank dashes (`Key: —`, `BPM: —`) for tracks lacking static ID3 tags.
+    3. The top-bar pill `Primed: 3 EQ Swap (94%)` was unwanted; users needed a "Check More Info" button inside the Right Dock Queue "PRIMED DJ RECIPE" card opening a detailed modal window (similar to Flutter's `transition_details_dialog.dart`) that explains why the candidate won and allows selecting alternative runner-ups to override the queue.
+- **Root Cause & Structural Resolution**:
+  1. **Playback Stalls & Reversal Bug**:
+     - *Root Cause*: `check_auto_transition()` triggered and immediately advanced `queue_pos` in `app.rs`, spawning a thread that invoked `p.prepare_transition()`. This called `m.load_track_b(buf_b)` while Deck B was actively streaming the incoming song, clobbering its audio buffer mid-transition! Concurrently, Deck A reached its EOF, setting `deck_a.state_str == "Finished"`, which tripped `has_handled_track_end` and forced a reload of the previous song.
+     - *Resolution*:
+       - Added mutual exclusion guard `if m.is_transitioning() { return; }` to `prepare_transition()` and `clear_pending_transition()` in `player.rs`.
+       - Introduced `is_transition_active` and `transitioning_to_track` signals in `app.rs`.
+       - The 50ms poller marks `is_transition_active.set(true)` upon auto or manual trigger and suppresses queue advancement until `snap.transition_info.is_none()` confirms `DualDeckMixer` has completed the crossfade and swapped Deck B into Deck A.
+  2. **Acoustic Profiling for Home Badges**:
+     - *Root Cause*: `TrackEntry::from_probe()` only read static ID3 tags. If tags were absent, `track.bpm` and `track.key` were left `None`.
+     - *Resolution*:
+       - Added `current_profile` to `Player`. During `play_file()`, background decoding immediately runs `AudioProfiler::new().profile_track(&buffer, path, AnalysisTier::FastHeadTail)` in ~15-30ms, capturing genuine acoustic `nominal_bpm` and Camelot `primary_key`.
+       - Stored `incoming_bpm` and `incoming_key` in `PendingTransitionInfo` and forwarded on transition handoff.
+       - The 50ms poller detects missing tags and synchronizes `current_track` and `tracks` signals from `p.current_profile()`.
+  3. **Queue Primed Card Inspector & Candidate Override**:
+     - Removed the top-bar `Primed: ...` pill.
+     - In the Queue Dock "PRIMED DJ RECIPE" card, added `[ Check More Info ]` and `[ Blend Now ]` buttons.
+     - Implemented `show_candidates_modal`:
+       - Header: Sora heading, mint `auto_awesome` badge, match percentage.
+       - Winner Card: Explains why the song and archetype were chosen, duration, confidence %, and factor chips.
+       - Evaluated Candidates List: Lists runner-up tracks evaluated by `smart_shuffle::evaluate_candidates()`, ranked `#2`, `#3`... with match scores, harmonic and tempo verdicts, and a `[ Promote ]` button.
+       - Clicking `Promote` invokes `override_candidate()`, reordering the queue and priming the new transition recipe on Deck B.
+- **Empirical & Automated Verification**:
+  - `cargo check -p attune-desktop` succeeds with zero errors.
+  - `cargo test -p attune-desktop` passes all 25 unit tests.
+  - `cargo test --workspace` passes all tests across all workspace crates.
+  - Verified that `cargo build --release -p attune-desktop` builds cleanly.
+- **Verdict**: `PASS`. Transitions blend cleanly to completion without stalls or reversals; Home stage displays live acoustic BPM and Key; Queue dock includes rich descriptive transition rationale with candidate promotion.
+
 
 
 
