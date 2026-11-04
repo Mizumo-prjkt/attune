@@ -19,8 +19,10 @@ use crate::stages::{
 pub enum StageView {
     Home,
     ForYou,
+    ForYouDetail(String),
     Library,
     Albums,
+    AlbumDetail(String),
     Favorites,
     Equalizer,
     AlbumEditor(AlbumGroup),
@@ -387,7 +389,7 @@ pub fn App() -> Element {
                         span { "Home" }
                     }
                     div {
-                        class: if *current_stage.read() == StageView::ForYou { "nav-item active" } else { "nav-item" },
+                        class: if matches!(*current_stage.read(), StageView::ForYou | StageView::ForYouDetail(_)) { "nav-item active" } else { "nav-item" },
                         onclick: move |_| navigate_to(StageView::ForYou),
                         span { class: "material-icons md-20", "auto_awesome" }
                         span { "For You" }
@@ -399,7 +401,7 @@ pub fn App() -> Element {
                         span { "Library" }
                     }
                     div {
-                        class: if *current_stage.read() == StageView::Albums { "nav-item active" } else { "nav-item" },
+                        class: if matches!(*current_stage.read(), StageView::Albums | StageView::AlbumDetail(_)) { "nav-item active" } else { "nav-item" },
                         onclick: move |_| navigate_to(StageView::Albums),
                         span { class: "material-icons md-20", "album" }
                         span { "Albums" }
@@ -617,9 +619,34 @@ pub fn App() -> Element {
                         StageView::Albums => rsx! {
                             Albums {
                                 tracks: tracks.read().clone(),
+                                selected_album_name: None,
                                 current_track_path: current_track.read().as_ref().map(|t| t.path.clone()),
                                 is_playing: *is_playing.read(),
                                 favorites: favorites.read().clone(),
+                                on_select_album: move |name: String| navigate_to(StageView::AlbumDetail(name)),
+                                on_play_track: move |t| play_track(t),
+                                on_play_tracks: move |list| play_track_list(list),
+                                on_queue_track: move |t| queue.write().push(t),
+                                on_toggle_favorite: move |path: PathBuf| {
+                                    let mut favs = favorites.read().clone();
+                                    if favs.contains(&path) { favs.remove(&path); } else { favs.insert(path); }
+                                    favorites.set(favs);
+                                },
+                                on_toggle_play: move |_| {
+                                    let p = player.read();
+                                    if *is_playing.read() { p.pause(); } else { p.play(); }
+                                },
+                                on_edit_album: move |group| navigate_to(StageView::AlbumEditor(group)),
+                            }
+                        },
+                        StageView::AlbumDetail(name) => rsx! {
+                            Albums {
+                                tracks: tracks.read().clone(),
+                                selected_album_name: Some(name.clone()),
+                                current_track_path: current_track.read().as_ref().map(|t| t.path.clone()),
+                                is_playing: *is_playing.read(),
+                                favorites: favorites.read().clone(),
+                                on_select_album: move |name: String| navigate_to(StageView::AlbumDetail(name)),
                                 on_play_track: move |t| play_track(t),
                                 on_play_tracks: move |list| play_track_list(list),
                                 on_queue_track: move |t| queue.write().push(t),
@@ -661,7 +688,45 @@ pub fn App() -> Element {
                         StageView::ForYou => rsx! {
                             ForYou {
                                 tracks: tracks.read().clone(),
+                                selected_mix_id: None,
+                                current_track_path: current_track.read().as_ref().map(|t| t.path.clone()),
+                                is_playing: *is_playing.read(),
+                                favorites: favorites.read().clone(),
+                                on_select_mix: move |id: String| navigate_to(StageView::ForYouDetail(id)),
                                 on_start_mix: move |list| play_track_list(list),
+                                on_play_track: move |t| play_track(t),
+                                on_queue_track: move |t| queue.write().push(t),
+                                on_toggle_favorite: move |path: PathBuf| {
+                                    let mut favs = favorites.read().clone();
+                                    if favs.contains(&path) { favs.remove(&path); } else { favs.insert(path); }
+                                    favorites.set(favs);
+                                },
+                                on_toggle_play: move |_| {
+                                    let p = player.read();
+                                    if *is_playing.read() { p.pause(); } else { p.play(); }
+                                },
+                            }
+                        },
+                        StageView::ForYouDetail(id) => rsx! {
+                            ForYou {
+                                tracks: tracks.read().clone(),
+                                selected_mix_id: Some(id.clone()),
+                                current_track_path: current_track.read().as_ref().map(|t| t.path.clone()),
+                                is_playing: *is_playing.read(),
+                                favorites: favorites.read().clone(),
+                                on_select_mix: move |id: String| navigate_to(StageView::ForYouDetail(id)),
+                                on_start_mix: move |list| play_track_list(list),
+                                on_play_track: move |t| play_track(t),
+                                on_queue_track: move |t| queue.write().push(t),
+                                on_toggle_favorite: move |path: PathBuf| {
+                                    let mut favs = favorites.read().clone();
+                                    if favs.contains(&path) { favs.remove(&path); } else { favs.insert(path); }
+                                    favorites.set(favs);
+                                },
+                                on_toggle_play: move |_| {
+                                    let p = player.read();
+                                    if *is_playing.read() { p.pause(); } else { p.play(); }
+                                },
                             }
                         },
                         StageView::Favorites => rsx! {

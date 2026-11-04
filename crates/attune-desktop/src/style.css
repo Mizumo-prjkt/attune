@@ -874,39 +874,12 @@ body, html {
   padding-bottom: 80px;
 }
 
-/* Topbar Navigation */
-.album-detail-topbar {
-  padding: 20px 32px 14px 32px;
-  display: flex;
-  align-items: center;
-}
-
-.album-circle-back-btn {
-  width: 34px;
-  height: 34px;
-  border-radius: 50%;
-  background: rgba(0, 0, 0, 0.65);
-  border: none;
-  color: #ffffff;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  transition: all 0.15s ease;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.35);
-}
-
-.album-circle-back-btn:hover {
-  background: rgba(0, 0, 0, 0.9);
-  transform: scale(1.08);
-}
-
 /* Hero Section */
 .album-detail-hero {
   display: flex;
   align-items: flex-end;
   gap: 28px;
-  padding: 0 32px 28px 32px;
+  padding: 28px 32px 28px 32px;
 }
 
 .album-cover-box {
@@ -1338,4 +1311,153 @@ body, html {
   color: var(--text-muted);
   margin-bottom: 12px;
   border: 1px solid var(--border-glass);
+}
+
+/* ==========================================================================
+   Animated SVG Mix Art & Mystery Surprise Card
+   ========================================================================== */
+
+.for-you-svg-art {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+/* 1. Harmonic Flow Animation */
+.animated-harmonic-flow .harmonic-wave-1 {
+  animation: harmonic-flow-wave-1 4s ease-in-out infinite alternate;
+}
+.animated-harmonic-flow .harmonic-wave-2 {
+  animation: harmonic-flow-wave-2 5s ease-in-out infinite alternate;
+}
+.animated-harmonic-flow .harmonic-node {
+  animation: harmonic-node-glow 2.5s ease-in-out infinite alternate;
+}
+@keyframes harmonic-flow-wave-1 {
+  0% { transform: translateY(0); }
+  50% { transform: translateY(-5px) scaleY(1.12); transform-origin: center; }
+  100% { transform: translateY(4px) scaleY(0.9); transform-origin: center; }
+}
+@keyframes harmonic-flow-wave-2 {
+  0% { transform: translateY(0); }
+  50% { transform: translateY(5px) scaleY(0.92); transform-origin: center; }
+  100% { transform: translateY(-4px) scaleY(1.1); transform-origin: center; }
+}
+@keyframes harmonic-node-glow {
+  0%, 100% { filter: drop-shadow(0 0 4px #2dd4bf); opacity: 0.8; }
+  50% { filter: drop-shadow(0 0 14px #2dd4bf); opacity: 1; transform: scale(1.15); transform-origin: center; }
+}
+
+/* 2. High-Energy Rush Animation */
+.animated-high-energy .energy-bolt {
+  animation: energy-bolt-pulse 1.2s ease-in-out infinite alternate;
+  transform-origin: center;
+}
+.animated-high-energy .energy-diamond {
+  animation: energy-shockwave 2.2s cubic-bezier(0.2, 0, 0, 1) infinite;
+  transform-origin: center;
+}
+@keyframes energy-bolt-pulse {
+  0% { transform: scale(0.96) rotate(-1deg); filter: drop-shadow(0 0 10px rgba(251, 113, 133, 0.7)); }
+  50% { transform: scale(1.06) rotate(1.5deg); filter: drop-shadow(0 0 24px rgba(249, 115, 22, 0.95)); }
+  100% { transform: scale(0.99) rotate(0deg); filter: drop-shadow(0 0 16px rgba(250, 204, 21, 0.85)); }
+}
+@keyframes energy-shockwave {
+  0% { transform: scale(0.85); opacity: 0.8; }
+  100% { transform: scale(1.25); opacity: 0; }
+}
+
+/* 3. Midnight Chill Animation */
+.animated-midnight-chill .chill-moon {
+  animation: chill-moon-sway 4.5s ease-in-out infinite alternate;
+  transform-origin: center;
+}
+.animated-midnight-chill .chill-star {
+  animation: chill-star-twinkle 2.2s ease-in-out infinite alternate;
+}
+.animated-midnight-chill .star-2 { animation-delay: 0.6s; }
+.animated-midnight-chill .star-3 { animation-delay: 1.2s; }
+.animated-midnight-chill .star-4 { animation-delay: 1.8s; }
+@keyframes chill-moon-sway {
+  0% { transform: translateY(0) rotate(0deg); filter: drop-shadow(0 0 12px rgba(168, 85, 247, 0.5)); }
+  50% { transform: translateY(-7px) rotate(3deg); filter: drop-shadow(0 0 24px rgba(129, 140, 248, 0.8)); }
+  100% { transform: translateY(3px) rotate(-2deg); filter: drop-shadow(0 0 16px rgba(45, 212, 191, 0.6)); }
+}
+@keyframes chill-star-twinkle {
+  0%, 100% { opacity: 0.25; transform: scale(0.7); }
+  50% { opacity: 1; transform: scale(1.3); }
+}
+
+/* 4. Vocal Spotlight Animation */
+.animated-vocal-spotlight .vocal-mic-head {
+  animation: vocal-mic-glow 2.5s ease-in-out infinite alternate;
+}
+.animated-vocal-spotlight .vocal-wave {
+  animation: vocal-wave-radiate 3s cubic-bezier(0.2, 0, 0, 1) infinite;
+  transform-origin: 100px 85px;
+}
+.animated-vocal-spotlight .wave-2 {
+  animation-delay: 1.5s;
+}
+@keyframes vocal-mic-glow {
+  0%, 100% { filter: drop-shadow(0 0 8px rgba(236, 72, 153, 0.5)); }
+  50% { filter: drop-shadow(0 0 22px rgba(244, 63, 94, 0.85)); }
+}
+@keyframes vocal-wave-radiate {
+  0% { transform: scale(0.65); opacity: 0.9; }
+  100% { transform: scale(1.4); opacity: 0; }
+}
+
+/* 5. BPM Drive Animation */
+.animated-bpm-drive .bpm-needle {
+  animation: bpm-needle-sweep 1.8s cubic-bezier(0.4, 0, 0.2, 1) infinite alternate;
+  transform-origin: 100px 115px;
+}
+.animated-bpm-drive .bpm-active-arc {
+  animation: bpm-arc-pulse 2s ease-in-out infinite alternate;
+}
+@keyframes bpm-needle-sweep {
+  0% { transform: rotate(-25deg); }
+  40% { transform: rotate(30deg); }
+  70% { transform: rotate(15deg); }
+  100% { transform: rotate(45deg); }
+}
+@keyframes bpm-arc-pulse {
+  0%, 100% { filter: drop-shadow(0 0 6px rgba(45, 212, 191, 0.4)); opacity: 0.8; }
+  50% { filter: drop-shadow(0 0 20px rgba(14, 165, 233, 0.9)); opacity: 1; }
+}
+
+/* 6. Surprise Me Animation */
+.animated-surprise-me .mystery-box {
+  animation: mystery-box-spin 9s linear infinite;
+  transform-origin: 100px 100px;
+}
+.animated-surprise-me .mystery-q {
+  animation: mystery-q-pulse 2.2s ease-in-out infinite alternate;
+  transform-origin: 100px 100px;
+}
+@keyframes mystery-box-spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+@keyframes mystery-q-pulse {
+  0%, 100% { transform: scale(0.92) translateY(0); filter: drop-shadow(0 0 10px rgba(168, 85, 247, 0.6)); }
+  50% { transform: scale(1.1) translateY(-3px); filter: drop-shadow(0 0 26px rgba(236, 72, 153, 0.95)); }
+}
+
+/* Mystery Surprise Card (Classified list) */
+.mystery-surprise-card {
+  margin: 36px auto;
+  max-width: 660px;
+  background: rgba(22, 28, 45, 0.65);
+  border: 1px dashed rgba(168, 85, 247, 0.45);
+  border-radius: 18px;
+  padding: 42px 32px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.45);
 }

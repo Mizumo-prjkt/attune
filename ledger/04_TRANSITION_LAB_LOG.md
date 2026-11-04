@@ -1213,6 +1213,39 @@ These four benchmark scenarios define the "Gold Standard" transitions that Attun
      - Standalone release binary `target/release/attune-desktop` compiled in 22.67s with exit code 0.
 - **Verdict**: `PASS`. Album stage achieves complete fidelity with modern desktop streaming layouts, providing full-width responsiveness, dynamic color extraction, and zero-hardcoded metadata formatting.
 
+### Experiment #044: Navigation Redundancy Elimination, Album Type Select Dropdown, Animated Mix SVGs, Streaming Mix Detail Views, and Condition-Gated "Surprise Me" Wildcard Mix
+- **Date**: 2026-11-04
+- **Setup**: Linux (Wayland, Arch Linux), WebKitGTK / Wry desktop webview, release binary `./target/release/attune-desktop`, 1024x535 window.
+- **Observations & Empirical Verification**:
+  1. **Inner Back Button Elimination & Unified History Navigation**:
+     - Removed redundant `.album-detail-topbar` and `.album-circle-back-btn` from album detail views and omitted inner back buttons from mix catalog views.
+     - Added `StageView::AlbumDetail(String)` and `StageView::ForYouDetail(String)` to `app.rs`.
+     - App header's universal `chevron_left` and `chevron_right` buttons now step backward and forward through album/mix selection naturally via `stage_history`.
+  2. **Album Type Select Dropdown**:
+     - Replaced text input in `AlbumEditorStage` with an 8-option `<select>` dropdown (`Album`, `Single`, `EP`, `Compilation`, `Soundtrack`, `Remix`, `Live`, `Demo`).
+     - Dropdown is styled consistently with liquid glass dark theme and updates reactive state on change.
+  3. **Animated SVG Vector Art for Mix Archetypes**:
+     - Created dedicated vector SVGs for all mixes:
+       - Harmonic Flow: Dual sine waves with `@keyframes harmonic-flow-wave`.
+       - High-Energy Rush: Sharp lightning bolt with `@keyframes energy-bolt-pulse`.
+       - Midnight Chill: Slanted crescent moon with `@keyframes chill-moon-sway` and 3 twinkling stars (`chill-star-twinkle`).
+       - Vocal Spotlight: Studio microphone with pulsing soundwave ripples (`@keyframes vocal-wave-radiate`).
+       - BPM Drive: Radial gauge tachometer with animated needle sweep (`@keyframes bpm-needle-sweep`).
+       - Surprise Me / Wildcard: Glowing gradient border box with pulsing question mark (`@keyframes mystery-box-spin`).
+  4. **Desktop Streaming Layout for Mix Detail Views**:
+     - Clicking any mix card in For You navigates into full detail view using the 232px hero artwork, bottom-aligned typography, 56px mint action button, and 4-column track table.
+  5. **Condition-Gated "Surprise Me" Wildcard Mix ($\ge 500$ Songs)**:
+     - Gated by `should_show_surprise_me(tracks.len())`. On current library (159 tracks), "Surprise Me" is completely hidden. At $\ge 500$ tracks, it appears in the For You catalog.
+     - Detail view conceals the tracklist behind a mystery card containing the exact comment string:
+       *"This catalog contains the most random song selection that this algorithm can come up based on melody, track composition, artists, how much did you play them or not, etc. at Random. Play if you want to."*
+     - Mystery card features a direct "Play Surprise Mix" button that feeds randomized tracks to the audio engine.
+  6. **Verification**:
+     - 23 unit tests in `attune-desktop` passed (including 3 new tests: `test_surprise_me_hidden_when_under_500_songs`, `test_surprise_me_visible_when_500_or_more_songs`, `test_surprise_me_exact_comment_string`).
+     - 50 unit tests across workspace (6 crates) passed cleanly.
+     - Release binary `target/release/attune-desktop` built with exit code 0.
+- **Verdict**: `PASS`. Clean navigation, animated SVGs, rich streaming layout, and wildcard surprise mix successfully verified.
+
+
 
 
 

@@ -304,12 +304,19 @@ pub fn AlbumEditor(
                 div { style: "display: grid; grid-template-columns: 1fr 1fr; gap: 14px;",
                     div {
                         label { style: "display: block; font-size: 11.5px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; margin-bottom: 6px;", "Album Type" }
-                        input {
+                        select {
                             class: "search-bar",
-                            style: "width: 100%; font-size: 13.5px; padding: 9px 12px; border-radius: 8px; background: rgba(255,255,255,0.06); border: 1px solid var(--border-glass); color: #fff;",
-                            placeholder: "Studio Album, EP, Single, Compilation",
+                            style: "width: 100%; font-size: 13.5px; padding: 9px 12px; border-radius: 8px; background: #161b26; border: 1px solid var(--border-glass); color: #fff; cursor: pointer; outline: none;",
                             value: "{album_type}",
-                            oninput: move |e| album_type.set(e.value()),
+                            onchange: move |e| album_type.set(e.value()),
+                            option { value: "Album", selected: *album_type.read() == "Album", "Album (Studio Album)" }
+                            option { value: "Single", selected: *album_type.read() == "Single", "Single" }
+                            option { value: "EP", selected: *album_type.read() == "EP", "EP (Extended Play)" }
+                            option { value: "Compilation", selected: *album_type.read() == "Compilation", "Compilation" }
+                            option { value: "Soundtrack", selected: *album_type.read() == "Soundtrack", "Soundtrack / OST" }
+                            option { value: "Remix", selected: *album_type.read() == "Remix", "Remix Album" }
+                            option { value: "Live", selected: *album_type.read() == "Live", "Live Album" }
+                            option { value: "Demo", selected: *album_type.read() == "Demo", "Demo / Mixtape" }
                         }
                     }
                     div {

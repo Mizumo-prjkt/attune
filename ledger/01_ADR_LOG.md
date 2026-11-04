@@ -2674,6 +2674,47 @@ This file records all major architectural decisions for **Attune**, including co
   - All 20 unit tests in `attune-desktop` and 100% of workspace tests (47 tests across 6 crates) pass cleanly.
   - Standalone release binary `target/release/attune-desktop` compiles in 22.7s.
 
+---
+
+## ADR-076: Navigation Redundancy Elimination, Album Type Dropdown, Animated SVG Mix Art, and Condition-Gated "Surprise Me" Mix Catalog
+
+- **Status**: **LOCKED** (Implemented & Verified)
+- **Date**: 2026-11-04
+- **Context**:
+  - The circular `<` back button inside `.album-detail-topbar` created visual and functional redundancy with the top-bar application history navigation buttons (`<` / `>`).
+  - In `AlbumEditorStage`, the "Album Type" field was a raw text input, risking typos and tag inconsistencies.
+  - The "For You" algorithmic mixes stage needed visual parity with the newly adopted streaming layout: high-impact hero header, large artwork, and 4-column track table when zooming in to view the mix catalog.
+  - Mix icons needed custom animated vector art (SVG) reflecting each algorithmic archetype.
+  - The user requested a "Surprise Me" mix feature that generates a random selection across the library, with the tracklist intentionally concealed ("duh, surprise?!") behind a prominent comment card:
+    *"This catalog contains the most random song selection that this algorithm can come up based on melody, track composition, artists, how much did you play them or not, etc. at Random. Play if you want to."*
+  - "Surprise Me" must only appear when the library has $\ge 500$ tracks; below 500 tracks, it must not appear or exist in the UI.
+- **Decision**:
+  1. **Redundant Back Button Elimination & Unified History Navigation**:
+     - Removed the inner `<` circle button from the hero header in both Album and For You detail views.
+     - Extended `StageView` with `AlbumDetail(String)` and `ForYouDetail(String)` variants so clicking items pushes to `stage_history`, and the top bar `<` button naturally steps back to the collection/mix list view.
+  2. **Album Type `<select>` Dropdown**:
+     - Replaced the text input in `AlbumEditor` with a styled `<select>` element offering standard release categories: `Album` (Studio Album), `Single`, `EP`, `Compilation`, `Soundtrack`, `Remix`, `Live`, and `Demo`.
+  3. **Animated SVG Vector Art for Mix Archetypes**:
+     - Engineered animated SVG vector illustrations (`render_mix_svg_art`):
+       - `harmonic_flow`: Oscillating sinusoidal waves (`@keyframes harmonic-flow-wave`) with glowing harmonic frequency nodes.
+       - `high_energy`: Pulsing high-voltage lightning bolt (`@keyframes energy-bolt-pulse`) with expanding kinetic shockwave diamonds.
+       - `midnight_chill`: Gently swaying crescent moon (`@keyframes chill-moon-sway`) with twinkling ambient stars.
+       - `vocal_spotlight`: Studio condenser microphone with radiating acoustic formant wavefronts (`@keyframes vocal-wave-radiate`).
+       - `bpm_drive`: Racing tachometer gauge with oscillating revving needle (`@keyframes bpm-needle-sweep`) and glowing speed arc.
+       - `surprise_me`: Cosmic holographic rotating mystery prism (`@keyframes mystery-box-spin`) with pulsing question mark.
+  4. **Condition-Gated "Surprise Me" Mix Catalog**:
+     - Gated by `should_show_surprise_me(track_count)`: strictly requires $\ge 500$ tracks. If $< 500$, it is completely omitted.
+     - In the detail view, the tracklist table is hidden; instead, `.mystery-surprise-card` displays the exact required algorithmic rationale text and a large Play button.
+     - Generates 50 pseudo-randomized tracks spanning diverse tempos, artists, and keys when played.
+- **Consequences**:
+  - UI navigation is clean and non-redundant.
+  - Tagging consistency is enforced by the album type dropdown.
+  - "For You" mixes share the immersive streaming detail layout with lively animated vector artwork.
+  - "Surprise Me" is correctly gated and preserves the mystery of the wildcard catalog.
+  - All 23 unit tests in `attune-desktop` and 100% of workspace tests (50 tests across 6 crates) pass cleanly.
+  - Release binary compiles in 28.1s.
+
+
 
 
 

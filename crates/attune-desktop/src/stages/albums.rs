@@ -20,6 +20,10 @@ pub fn Albums(
     is_playing: bool,
     #[props(default)]
     favorites: HashSet<PathBuf>,
+    #[props(default)]
+    selected_album_name: Option<String>,
+    #[props(default)]
+    on_select_album: EventHandler<String>,
     on_play_track: EventHandler<TrackEntry>,
     on_play_tracks: EventHandler<Vec<TrackEntry>>,
     on_queue_track: EventHandler<TrackEntry>,
@@ -53,7 +57,7 @@ pub fn Albums(
     let mut album_list: Vec<AlbumGroup> = album_map.into_values().collect();
     album_list.sort_by(|a, b| a.name.cmp(&b.name));
 
-    let selected_name = selected_album.read().clone();
+    let selected_name = selected_album_name.or_else(|| selected_album.read().clone());
     let selected_group = selected_name.as_ref().and_then(|name| album_list.iter().find(|a| &a.name == name).cloned());
 
     rsx! {
@@ -89,17 +93,7 @@ pub fn Albums(
                             class: "album-detail-view",
                             style: "background: linear-gradient(180deg, {hero_color_rgb} 0%, rgba(18, 18, 18, 0.72) 280px, var(--bg-canvas) 460px);",
 
-                            // 1. Top Navigation Bar (Back button)
-                            div { class: "album-detail-topbar",
-                                button {
-                                    class: "album-circle-back-btn",
-                                    title: "Back to Albums",
-                                    onclick: move |_| selected_album.set(None),
-                                    span { class: "material-icons md-22", "chevron_left" }
-                                }
-                            }
-
-                            // 2. Hero Header: 232px Cover Artwork on left + Big Metadata on right
+                            // Hero Header: 232px Cover Artwork on left + Big Metadata on right
                             div { class: "album-detail-hero",
                                 div { class: "album-cover-box",
                                     if let Some(art) = art_data_url.as_ref() {
@@ -382,7 +376,13 @@ pub fn Albums(
                                         div {
                                             key: "{album.name}",
                                             class: "album-grid-card",
-                                            onclick: move |_| selected_album.set(Some(name.clone())),
+                                            onclick: {
+                                                let n = name.clone();
+                                                move |_| {
+                                                    selected_album.set(Some(n.clone()));
+                                                    on_select_album.call(n.clone());
+                                                }
+                                            },
                                             if !art.is_empty() {
                                                 img {
                                                     src: "{art}",
