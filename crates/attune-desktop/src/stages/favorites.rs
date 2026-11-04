@@ -44,15 +44,19 @@ pub fn Favorites(
                 div { style: "display: flex; gap: 10px;",
                     button {
                         class: "btn-pill active",
+                        style: "display: inline-flex; align-items: center; gap: 6px;",
                         disabled: fav_tracks.is_empty(),
                         onclick: move |_| on_play_tracks.call(all_favs_play.clone()),
-                        "▶ Play Favorites"
+                        span { class: "material-icons md-16", "play_arrow" }
+                        "Play Favorites"
                     }
                     button {
                         class: "btn-pill",
+                        style: "display: inline-flex; align-items: center; gap: 6px;",
                         disabled: fav_tracks.is_empty(),
                         onclick: move |_| on_play_tracks.call(all_favs_shuffle.clone()),
-                        "🔀 Shuffle"
+                        span { class: "material-icons md-16", "shuffle" }
+                        "Shuffle"
                     }
                 }
             }
@@ -73,7 +77,7 @@ pub fn Favorites(
             div { style: "overflow-y: auto; flex: 1;",
                 if fav_tracks.is_empty() {
                     div { style: "text-align: center; padding: 60px; color: var(--text-muted); font-size: 15px;",
-                        "No favorite tracks yet. Click the heart icon (♡) on any track in your library to add it here."
+                        "No favorite tracks yet. Click the favorite icon on any track in your library to add it here."
                     }
                 } else {
                     for (idx, track) in fav_tracks.iter().enumerate() {
@@ -97,12 +101,16 @@ pub fn Favorites(
 
                                     // Index / Play Icon
                                     span {
-                                        style: "color: var(--text-muted); font-family: monospace; font-size: 12px; cursor: pointer;",
+                                        style: "color: var(--text-muted); font-family: monospace; font-size: 12px; cursor: pointer; display: flex; align-items: center;",
                                         onclick: {
                                             let t_clone = t.clone();
                                             move |_| on_play_track.call(t_clone.clone())
                                         },
-                                        if is_current { "▶" } else { "{idx + 1}" }
+                                        if is_current {
+                                            span { class: "material-icons md-16", style: "color: var(--accent-mint);", "play_arrow" }
+                                        } else {
+                                            "{idx + 1}"
+                                        }
                                     }
 
                                     // Title
@@ -142,21 +150,21 @@ pub fn Favorites(
                                     }
 
                                     // Actions: Queue / Favorite
-                                    div { style: "display: flex; gap: 6px; justify-content: center;",
+                                    div { style: "display: flex; gap: 8px; justify-content: center; align-items: center;",
                                         button {
-                                            style: "background: transparent; border: none; cursor: pointer; color: var(--text-muted); font-size: 13px;",
+                                            style: "background: transparent; border: none; cursor: pointer; color: var(--text-muted); padding: 2px;",
                                             title: "Add to Queue",
                                             onclick: {
                                                 let t_clone = t.clone();
                                                 move |_| on_queue_track.call(t_clone.clone())
                                             },
-                                            "+"
+                                            span { class: "material-icons md-16", "playlist_add" }
                                         }
                                         button {
-                                            style: "background: transparent; border: none; cursor: pointer; color: #fb7185; font-size: 12px;",
+                                            style: "background: transparent; border: none; cursor: pointer; color: #fb7185; padding: 2px;",
                                             title: "Remove from Favorites",
                                             onclick: move |_| on_toggle_favorite.call(path_clone.clone()),
-                                            "♥"
+                                            span { class: "material-icons md-16", "favorite" }
                                         }
                                     }
                                 }

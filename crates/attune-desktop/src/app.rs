@@ -364,7 +364,7 @@ pub fn App() -> Element {
 
                 // Global Search Input
                 div { class: "search-bar",
-                    span { "🔍" }
+                    span { class: "material-icons md-18", "search" }
                     input {
                         placeholder: "Search library...",
                         value: "{search_query}",
@@ -383,31 +383,31 @@ pub fn App() -> Element {
                     div {
                         class: if *current_stage.read() == StageView::Home { "nav-item active" } else { "nav-item" },
                         onclick: move |_| navigate_to(StageView::Home),
-                        span { "🏠" }
+                        span { class: "material-icons md-20", "home" }
                         span { "Home" }
                     }
                     div {
                         class: if *current_stage.read() == StageView::ForYou { "nav-item active" } else { "nav-item" },
                         onclick: move |_| navigate_to(StageView::ForYou),
-                        span { "✨" }
+                        span { class: "material-icons md-20", "auto_awesome" }
                         span { "For You" }
                     }
                     div {
                         class: if *current_stage.read() == StageView::Library { "nav-item active" } else { "nav-item" },
                         onclick: move |_| navigate_to(StageView::Library),
-                        span { "♫" }
+                        span { class: "material-icons md-20", "library_music" }
                         span { "Library" }
                     }
                     div {
                         class: if *current_stage.read() == StageView::Albums { "nav-item active" } else { "nav-item" },
                         onclick: move |_| navigate_to(StageView::Albums),
-                        span { "◉" }
+                        span { class: "material-icons md-20", "album" }
                         span { "Albums" }
                     }
                     div {
                         class: if *current_stage.read() == StageView::Favorites { "nav-item active" } else { "nav-item" },
                         onclick: move |_| navigate_to(StageView::Favorites),
-                        span { "❤️" }
+                        span { class: "material-icons md-20", "favorite" }
                         span { "Favorite Songs" }
                     }
                 }
@@ -415,9 +415,10 @@ pub fn App() -> Element {
                 // Sources Section
                 div { class: "nav-section", style: "margin-top: 8px;",
                     span { class: "section-label", "SOURCES" }
-                    div { style: "padding: 6px 8px; font-size: 11.5px; color: var(--text-muted); word-break: break-all; background: rgba(255,255,255,0.03); border-radius: 6px; border: 1px solid var(--border-glass); margin-bottom: 8px;",
+                    div { style: "display: flex; align-items: center; gap: 6px; padding: 6px 8px; font-size: 11.5px; color: var(--text-muted); word-break: break-all; background: rgba(255,255,255,0.03); border-radius: 6px; border: 1px solid var(--border-glass); margin-bottom: 8px;",
+                        span { class: "material-icons md-16", "folder" }
                         if let Some(dir) = music_dir.read().as_ref() {
-                            "📁 {dir.display()}"
+                            "{dir.display()}"
                         } else {
                             "No folder chosen"
                         }
@@ -459,25 +460,25 @@ pub fn App() -> Element {
                     div {
                         class: if *current_stage.read() == StageView::Equalizer { "nav-item active" } else { "nav-item" },
                         onclick: move |_| navigate_to(StageView::Equalizer),
-                        span { "🎚️" }
+                        span { class: "material-icons md-20", "tune" }
                         span { "Equalizer" }
                     }
                     div {
                         class: if *current_stage.read() == StageView::Settings { "nav-item active" } else { "nav-item" },
                         onclick: move |_| navigate_to(StageView::Settings),
-                        span { "⚙️" }
+                        span { class: "material-icons md-20", "settings" }
                         span { "Settings" }
                     }
                     div {
                         class: if *current_stage.read() == StageView::ProcessManager { "nav-item active" } else { "nav-item" },
                         onclick: move |_| navigate_to(StageView::ProcessManager),
-                        span { "📊" }
+                        span { class: "material-icons md-20", "analytics" }
                         span { "Process Manager" }
                     }
                     div {
                         class: if *current_stage.read() == StageView::About { "nav-item active" } else { "nav-item" },
                         onclick: move |_| navigate_to(StageView::About),
-                        span { "ℹ" }
+                        span { class: "material-icons md-20", "info" }
                         span { "About Attune" }
                     }
                 }
@@ -501,7 +502,7 @@ pub fn App() -> Element {
                                     current_stage.set(stage_history.read()[idx - 1].clone());
                                 }
                             },
-                            "‹"
+                            span { class: "material-icons md-18", "chevron_left" }
                         }
                         button {
                             class: "btn-icon",
@@ -513,7 +514,7 @@ pub fn App() -> Element {
                                     current_stage.set(stage_history.read()[idx + 1].clone());
                                 }
                             },
-                            "›"
+                            span { class: "material-icons md-18", "chevron_right" }
                         }
                     }
 
@@ -521,18 +522,21 @@ pub fn App() -> Element {
                     div { style: "display: flex; align-items: center; gap: 10px;",
                         if *is_scanning.read() {
                             div { class: "quality-badge quality-good",
-                                "🔄 Scanning {scan_curr}/{scan_total}: {last_scanned_file.read()}"
+                                span { class: "material-icons md-14", style: "margin-right: 4px; vertical-align: -2px;", "sync" }
+                                "Scanning {scan_curr}/{scan_total}: {last_scanned_file.read()}"
                             }
                         } else if let Some(trans) = active_trans_name.read().as_ref() {
                             div { class: "quality-badge quality-very-good",
-                                "✨ {trans}"
+                                span { class: "material-icons md-14", style: "margin-right: 4px; vertical-align: -2px;", "auto_awesome" }
+                                "{trans}"
                             }
                         } else if let Some(pending) = pending_trans_info.read().as_ref() {
                             div {
                                 class: "quality-badge quality-proprietary",
                                 style: "cursor: pointer;",
                                 onclick: move |_| show_verdict_modal.set(true),
-                                "⚡ Primed: {pending.archetype_name} ({pending.confidence_pct}%)"
+                                span { class: "material-icons md-14", style: "margin-right: 4px; vertical-align: -2px;", "bolt" }
+                                "Primed: {pending.archetype_name} ({pending.confidence_pct}%)"
                             }
                         }
                     }
@@ -548,7 +552,8 @@ pub fn App() -> Element {
                                     dock_mode.set(DockMode::Lyrics);
                                 }
                             },
-                            "💬 Lyrics"
+                            span { class: "material-icons md-16", style: "margin-right: 4px;", "subtitles" }
+                            span { "Lyrics" }
                         }
                         button {
                             class: if *dock_mode.read() == DockMode::Queue { "btn-pill active" } else { "btn-pill" },
@@ -559,13 +564,14 @@ pub fn App() -> Element {
                                     dock_mode.set(DockMode::Queue);
                                 }
                             },
-                            "☰ Queue"
+                            span { class: "material-icons md-16", style: "margin-right: 4px;", "queue_music" }
+                            span { "Queue" }
                         }
                         button {
                             class: if *current_stage.read() == StageView::Equalizer { "btn-icon active" } else { "btn-icon" },
                             title: "Master Equalizer Rack",
                             onclick: move |_| navigate_to(StageView::Equalizer),
-                            "🎚️"
+                            span { class: "material-icons md-18", "tune" }
                         }
                     }
                 }
@@ -713,18 +719,24 @@ pub fn App() -> Element {
                                 div { style: "display: flex; gap: 8px; align-items: center;",
                                     button {
                                         class: if *auto_scroll_lyrics.read() { "btn-pill active" } else { "btn-pill" },
-                                        style: "font-size: 11px; padding: 2px 8px;",
+                                        style: "font-size: 11px; padding: 2px 8px; display: inline-flex; align-items: center; gap: 4px;",
                                         onclick: move |_| {
                                             let curr = *auto_scroll_lyrics.read();
                                             auto_scroll_lyrics.set(!curr);
                                         },
-                                        if *auto_scroll_lyrics.read() { "🔒 Auto-Scroll" } else { "🔓 Free-Scroll" }
+                                        if *auto_scroll_lyrics.read() {
+                                            span { class: "material-icons md-14", "lock" }
+                                            span { "Auto-Scroll" }
+                                        } else {
+                                            span { class: "material-icons md-14", "lock_open" }
+                                            span { "Free-Scroll" }
+                                        }
                                     }
                                     button {
                                         class: "btn-icon",
-                                        style: "width: 24px; height: 24px; font-size: 12px;",
+                                        style: "width: 24px; height: 24px;",
                                         onclick: move |_| dock_mode.set(DockMode::Closed),
-                                        "✕"
+                                        span { class: "material-icons md-16", "close" }
                                     }
                                 }
                             }
@@ -732,7 +744,7 @@ pub fn App() -> Element {
                             div { class: "dock-scroll",
                                 if lyrics_sheet.read().lines.is_empty() {
                                     div { style: "display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; text-align: center; color: var(--text-muted); gap: 12px; padding: 40px 20px;",
-                                        span { style: "font-size: 32px;", "📝" }
+                                        span { class: "material-icons md-48", style: "opacity: 0.6;", "description" }
                                         p { style: "font-size: 15px; font-weight: 600;", "No Lyrics Available" }
                                         p { style: "font-size: 12px; line-height: 1.4;", "Place a companion .lrc file alongside your song to display synchronized singing lines." }
                                     }
@@ -775,9 +787,9 @@ pub fn App() -> Element {
                                     }
                                     button {
                                         class: "btn-icon",
-                                        style: "width: 24px; height: 24px; font-size: 12px;",
+                                        style: "width: 24px; height: 24px;",
                                         onclick: move |_| dock_mode.set(DockMode::Closed),
-                                        "✕"
+                                        span { class: "material-icons md-16", "close" }
                                     }
                                 }
                             }
@@ -793,9 +805,10 @@ pub fn App() -> Element {
                                     p { style: "font-size: 11.5px; color: var(--text-secondary);", "Incoming: {pending.incoming_title}" }
                                     button {
                                         class: "btn-pill active",
-                                        style: "width: 100%; margin-top: 8px; font-size: 11.5px; padding: 4px;",
+                                        style: "width: 100%; margin-top: 8px; font-size: 11.5px; padding: 4px; display: inline-flex; align-items: center; justify-content: center; gap: 4px;",
                                         onclick: move |_| trigger_transition_now(),
-                                        "⚡ Blend Now"
+                                        span { class: "material-icons md-14", "bolt" }
+                                        "Blend Now"
                                     }
                                 }
                             }
@@ -855,8 +868,8 @@ pub fn App() -> Element {
                             } else {
                                 div {
                                     class: "mini-art",
-                                    style: "display: flex; align-items: center; justify-content: center; font-size: 20px;",
-                                    "🎵"
+                                    style: "display: flex; align-items: center; justify-content: center;",
+                                    span { class: "material-icons md-20", "music_note" }
                                 }
                             }
                             div { class: "mini-meta",
@@ -868,8 +881,8 @@ pub fn App() -> Element {
                         div { class: "mini-pill",
                             div {
                                 class: "mini-art",
-                                style: "display: flex; align-items: center; justify-content: center; font-size: 18px; color: var(--text-muted);",
-                                "🎵"
+                                style: "display: flex; align-items: center; justify-content: center; color: var(--text-muted);",
+                                span { class: "material-icons md-20", "music_note" }
                             }
                             div { class: "mini-meta",
                                 span { class: "mini-title", style: "color: var(--text-muted);", "Attune Player" }
@@ -891,14 +904,14 @@ pub fn App() -> Element {
                                 let curr = *shuffle_mode.read();
                                 shuffle_mode.set(!curr);
                             },
-                            "🔀"
+                            span { class: "material-icons md-20", "shuffle" }
                         }
                         // Previous
                         button {
                             class: "btn-ctrl",
                             title: "Previous Track",
                             onclick: move |_| play_prev_track(),
-                            "⏮"
+                            span { class: "material-icons md-22", "skip_previous" }
                         }
                         // Play / Pause
                         button {
@@ -908,14 +921,18 @@ pub fn App() -> Element {
                                 let p = player.read();
                                 if *is_playing.read() { p.pause(); } else { p.play(); }
                             },
-                            if *is_playing.read() { "⏸" } else { "▶" }
+                            if *is_playing.read() {
+                                span { class: "material-icons md-24", "pause" }
+                            } else {
+                                span { class: "material-icons md-24", "play_arrow" }
+                            }
                         }
                         // Next / Transition
                         button {
                             class: "btn-ctrl",
                             title: "Next Track (Seamless Blend)",
                             onclick: move |_| trigger_transition_now(),
-                            "⏭"
+                            span { class: "material-icons md-22", "skip_next" }
                         }
                         // Repeat
                         button {
@@ -934,9 +951,10 @@ pub fn App() -> Element {
                                 };
                                 repeat_mode.set(next_mode);
                             },
-                            match *repeat_mode.read() {
-                                RepeatMode::Off | RepeatMode::All => "🔁",
-                                RepeatMode::One => "🔂",
+                            if *repeat_mode.read() == RepeatMode::One {
+                                span { class: "material-icons md-20", "repeat_one" }
+                            } else {
+                                span { class: "material-icons md-20", "repeat" }
                             }
                         }
                     }
@@ -984,12 +1002,16 @@ pub fn App() -> Element {
                                 favorites.set(favs);
                             }
                         },
-                        if current_track.read().as_ref().map(|t| favorites.read().contains(&t.path)).unwrap_or(false) { "♥" } else { "♡" }
+                        if current_track.read().as_ref().map(|t| favorites.read().contains(&t.path)).unwrap_or(false) {
+                            span { class: "material-icons md-20", "favorite" }
+                        } else {
+                            span { class: "material-icons md-20", "favorite_border" }
+                        }
                     }
 
                     // Volume Slider with Mint Linear-Gradient Fill
                     div { style: "display: flex; align-items: center; gap: 8px;",
-                        span { style: "font-size: 14px; color: var(--text-muted);", "🔊" }
+                        span { class: "material-icons md-18", style: "color: var(--text-muted);", "volume_up" }
                         input {
                             r#type: "range",
                             class: "vol-slider",
@@ -1016,7 +1038,7 @@ pub fn App() -> Element {
                         class: "btn-ctrl",
                         title: "Toggle Now Playing",
                         onclick: move |_| navigate_to(StageView::Home),
-                        "⛶"
+                        span { class: "material-icons md-20", "fullscreen" }
                     }
                 }
             }
@@ -1036,7 +1058,7 @@ pub fn App() -> Element {
                                 button {
                                     class: "btn-icon",
                                     onclick: move |_| show_verdict_modal.set(false),
-                                    "✕"
+                                    span { class: "material-icons md-18", "close" }
                                 }
                             }
                             div { style: "display: flex; flex-direction: column; gap: 10px; font-size: 13.5px;",

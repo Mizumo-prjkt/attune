@@ -65,19 +65,24 @@ pub fn Settings(
 
                 div { style: "display: flex; flex-direction: column; gap: 8px;",
                     span { style: "font-size: 11.5px; font-weight: 700; color: var(--text-muted); text-transform: uppercase;", "Primary Music Directory" }
-                    div { style: "padding: 10px 14px; background: rgba(255,255,255,0.03); border-radius: 8px; border: 1px solid var(--border-glass); font-family: monospace; font-size: 13px; color: var(--accent-mint); word-break: break-all;",
-                        "📁 {dir_display}"
+                    div { style: "display: flex; align-items: center; gap: 8px; padding: 10px 14px; background: rgba(255,255,255,0.03); border-radius: 8px; border: 1px solid var(--border-glass); font-family: monospace; font-size: 13px; color: var(--accent-mint); word-break: break-all;",
+                        span { class: "material-icons md-16", "folder" }
+                        "{dir_display}"
                     }
                     div { style: "display: flex; gap: 10px; margin-top: 6px;",
                         button {
                             class: "btn-pill active",
+                            style: "display: inline-flex; align-items: center; gap: 6px;",
                             onclick: move |_| on_choose_folder.call(()),
-                            "📁 Choose Music Folder..."
+                            span { class: "material-icons md-16", "folder_open" }
+                            "Choose Music Folder..."
                         }
                         button {
                             class: "btn-pill",
+                            style: "display: inline-flex; align-items: center; gap: 6px;",
                             onclick: move |_| on_rescan_library.call(()),
-                            "🔄 Rescan Library"
+                            span { class: "material-icons md-16", "sync" }
+                            "Rescan Library"
                         }
                     }
                 }
@@ -89,12 +94,13 @@ pub fn Settings(
                     }
                     button {
                         class: "btn-pill",
-                        style: "font-size: 12px;",
+                        style: "font-size: 12px; display: inline-flex; align-items: center; gap: 6px;",
                         onclick: move |_| {
                             clear_thumbnail_cache();
                             trim_feedback.set(Some("✓ Thumbnail cache cleared!".to_string()));
                         },
-                        "🧹 Clear Thumbnails"
+                        span { class: "material-icons md-16", "delete_sweep" }
+                        "Clear Thumbnails"
                     }
                 }
             }
@@ -121,8 +127,10 @@ pub fn Settings(
                     }
                     button {
                         class: "btn-pill active",
+                        style: "display: inline-flex; align-items: center; gap: 6px;",
                         onclick: move |_| on_open_equalizer.call(()),
-                        "🎚️ Open Equalizer Rack"
+                        span { class: "material-icons md-16", "tune" }
+                        "Open Equalizer Rack"
                     }
                 }
             }
@@ -175,19 +183,22 @@ pub fn Settings(
                         }
                         button {
                             class: "btn-pill",
-                            style: "font-size: 12px;",
+                            style: "font-size: 12px; display: inline-flex; align-items: center; gap: 6px;",
                             onclick: move |_| {
                                 clear_thumbnail_cache();
                                 let (before, after) = trim_memory();
                                 let freed_mb = before.saturating_sub(after) as f64 / (1024.0 * 1024.0);
                                 trim_feedback.set(Some(format!("✓ Freed {:.1} MB", freed_mb)));
                             },
-                            "🧹 Trim Memory"
+                            span { class: "material-icons md-16", "cleaning_services" }
+                            "Trim Memory"
                         }
                         button {
                             class: "btn-pill active",
+                            style: "display: inline-flex; align-items: center; gap: 6px;",
                             onclick: move |_| on_open_process_manager.call(()),
-                            "📊 Open Process Manager"
+                            span { class: "material-icons md-16", "analytics" }
+                            "Open Process Manager"
                         }
                     }
                 }

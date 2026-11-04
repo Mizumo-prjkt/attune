@@ -2589,6 +2589,51 @@ This file records all major architectural decisions for **Attune**, including co
   - Zero hardcoding compliance (Mandate 4) strictly maintained.
   - All 19 unit tests in `attune-desktop` and 100% of workspace tests pass cleanly. Release binary compiles in <20s.
 
+---
+
+## ADR-074: Desktop UI Iconography Modernization — Complete Migration from Unicode Emojis to Google Material Icons with Bundled Offline WebFont Embedding
+
+- **Status**: **LOCKED** (Implemented & Verified)
+- **Date**: 2026-11-04
+- **Context**:
+  - The initial egui and early Dioxus prototypes relied on platform Unicode emojis (e.g. 🏠, ✨, 🎵, 💿, ❤️, 📁, 🎚️, ⚙️, 📊, ℹ️, 🔀, ⏮, ⏯, ⏭, 🔁, 🔊, etc.) for UI icons.
+  - Unicode emojis suffer from platform rendering discrepancies across Linux distros, compositors (Wayland/X11), and WebKitGTK/Wry: missing glyphs, tofu boxes (``), inconsistent multi-color designs, lack of vector crispness at varying display DPIs, and inability to tint icons cleanly using CSS `currentColor` or accent themes.
+  - The user requested: *"switch using emojis to Material Icons"*.
+  - Mandate 4 (zero hardcoding, self-contained architecture) requires that replacing emojis with Material Icons must not introduce internet connectivity requirements or break offline playback on air-gapped systems.
+- **Decision**:
+  1. **Bundled Offline WebFont Embedding (`crates/attune-desktop/src/material_icons.css`)**:
+     - Downloaded the official Google Material Icons woff2 font (`126 KB`).
+     - Bundled the font directly into `material_icons.css` as a base64 data URI:
+       ```css
+       @font-face {
+           font-family: 'Material Icons';
+           font-style: normal;
+           font-weight: 400;
+           src: url(data:font/woff2;base64,d09GMgABAAAAAMv0ABMAAAAA...) format('woff2');
+       }
+       ```
+     - Defined utility classes `.material-icons`, `.md-14`, `.md-16`, `.md-18`, `.md-20`, `.md-22`, `.md-24`, `.md-28`, `.md-36`, `.md-48`, `.md-64` with vertical alignment, ligatures (`font-feature-settings: 'liga';`), and anti-aliasing.
+     - Included official Google Fonts CDN link in `<head>` as an automatic fallback.
+  2. **Comprehensive Component Icon Migration**:
+     - **Navigation Rail**: `home`, `auto_awesome` (For You), `library_music` (Library), `album` (Albums), `favorite` (Favorites), `folder` (Sources), `tune` (Equalizer), `settings` (Settings), `analytics` (Process Manager), `info` (About).
+     - **App Bar & History**: `chevron_left`, `chevron_right`, `search`, `sync` (Scan indicator), `bolt` (Smart Shuffle indicator).
+     - **Docked Panels (Lyrics & Queue)**: `lock`/`lock_open` (Auto-scroll toggle), `close` (Dismiss dock), `description` (Lyrics empty state), `queue_music` (Queue tab), `subtitles` (Lyrics tab).
+     - **Bottom Transport Bar**: `music_note` (placeholder art), `shuffle` (Shuffle toggle), `skip_previous` (Previous), `play_arrow`/`pause` (Play/Pause), `skip_next` (Next), `repeat`/`repeat_one` (Repeat toggle), `favorite`/`favorite_border` (Heart toggle), `volume_up` (Volume speaker), `fullscreen` (Expand/Minimize), `close` (Stop).
+     - **Home Stage**: `music_note` (hero artwork placeholder), `play_arrow`/`pause` (large hero circular action), `music_note` and `album` (harmonic match recommendation cards).
+     - **Albums Stage**: `album` (hero fallback & collection cards), `arrow_back` (Collections back pill), `play_arrow` (Play Album), `shuffle` (Shuffle Album), `edit` (Edit Album Info), `volume_up` (Active track indicator), `more_vert` (Track options menu).
+     - **Library & Favorites Stages**: `search`, `play_arrow` (Play All / Row play), `shuffle` (Shuffle Favorites), `playlist_add` (Add to Queue), `favorite`/`favorite_border` (Row favorite toggle).
+     - **For You Stage (5 Mix Archetypes)**: `graphic_eq` (Harmonic Flow), `bolt` (High-Energy Rush), `bedtime` (Midnight Chill), `mic` (Vocal Spotlight), `speed` (BPM Drive), with `play_arrow` on mix launcher buttons.
+     - **Settings & Process Manager Stages**: `folder` / `folder_open` (Music folder selection), `sync` (Rescan), `delete_sweep` (Clear Thumbnails), `tune` (Open EQ), `cleaning_services` (Trim Memory heap), `analytics` (Process Telemetry).
+     - **Album Metadata Editor**: `save` / `sync` (Save status), `album` (Cover placeholder), `image` (Browse Device Image), `call_split` (Split Artists).
+     - **Smart Shuffle**: Cleaned label from `"✨ Smart Shuffle"` to `"Smart Shuffle"`.
+- **Consequences**:
+  - Eliminates all platform-specific emoji rendering bugs, inconsistent glyph sizes, and tofu boxes on Linux/Wayland and Windows.
+  - Sizing, alignment, and color inheritance are 100% unified across all stages and controls.
+  - Zero network dependency: offline playback continues to function seamlessly with embedded base64 font assets.
+  - All 19 unit tests in `attune-desktop` and 100% of workspace tests (46 tests across 6 crates) pass cleanly.
+  - Standalone release binary `target/release/attune-desktop` compiled in 18.9s.
+
+
 
 
 

@@ -12,8 +12,8 @@ pub fn About() -> Element {
             // Header Banner
             div { style: "display: flex; align-items: center; gap: 20px; background: var(--bg-card); padding: 24px; border-radius: 18px; border: 1px solid var(--border-glass); margin-bottom: 24px;",
                 div {
-                    style: "width: 72px; height: 72px; border-radius: 16px; background: linear-gradient(135deg, rgba(45,212,191,0.2), rgba(168,85,247,0.2)); display: flex; align-items: center; justify-content: center; font-size: 36px; border: 1px solid var(--border-glass);",
-                    "🎛️"
+                    style: "width: 72px; height: 72px; border-radius: 16px; background: linear-gradient(135deg, rgba(45,212,191,0.2), rgba(168,85,247,0.2)); display: flex; align-items: center; justify-content: center; border: 1px solid var(--border-glass); color: var(--accent-mint);",
+                    span { class: "material-icons md-36", "tune" }
                 }
                 div {
                     h1 { style: "font-size: 26px; font-weight: 700;", "Attune Desktop" }

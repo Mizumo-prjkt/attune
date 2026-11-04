@@ -56,7 +56,7 @@ pub fn ProcessManager() -> Element {
                     }
                     button {
                         class: "btn-pill active",
-                        style: "font-weight: 600; padding: 8px 18px;",
+                        style: "font-weight: 600; padding: 8px 18px; display: inline-flex; align-items: center; gap: 6px;",
                         onclick: move |_| {
                             clear_thumbnail_cache();
                             let (before, after) = trim_memory();
@@ -64,7 +64,8 @@ pub fn ProcessManager() -> Element {
                             let freed = before.saturating_sub(after);
                             trim_status.set(Some(format!("✓ Freed {} (malloc_trim)", format_bytes(freed))));
                         },
-                        "🧹 Trim Memory (malloc_trim)"
+                        span { class: "material-icons md-16", "cleaning_services" }
+                        "Trim Memory (malloc_trim)"
                     }
                 }
             }

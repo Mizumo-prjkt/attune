@@ -137,7 +137,13 @@ pub fn AlbumEditor(
                                 on_saved.call(());
                             }
                         },
-                        if *is_saving.read() { "Saving..." } else { "💾 Save Album Info" }
+                        if *is_saving.read() {
+                            span { class: "material-icons md-16", style: "margin-right: 6px;", "sync" }
+                            span { "Saving..." }
+                        } else {
+                            span { class: "material-icons md-16", style: "margin-right: 6px;", "save" }
+                            span { "Save Album Info" }
+                        }
                     }
                 }
             }
@@ -154,14 +160,14 @@ pub fn AlbumEditor(
                         }
                     } else {
                         div {
-                            style: "width: 190px; height: 190px; border-radius: 14px; background: rgba(255,255,255,0.05); display: flex; align-items: center; justify-content: center; font-size: 56px; border: 1px solid var(--border-glass);",
-                            "💿"
+                            style: "width: 190px; height: 190px; border-radius: 14px; background: rgba(255,255,255,0.05); display: flex; align-items: center; justify-content: center; color: var(--text-muted); border: 1px solid var(--border-glass);",
+                            span { class: "material-icons md-48", "album" }
                         }
                     }
 
                     button {
                         class: "btn-pill",
-                        style: "font-size: 12px; width: 100%;",
+                        style: "font-size: 12px; width: 100%; display: inline-flex; align-items: center; justify-content: center; gap: 6px;",
                         onclick: move |_| {
                             if let Some(path) = rfd::FileDialog::new()
                                 .add_filter("Images", &["png", "jpg", "jpeg", "webp"])
@@ -183,7 +189,8 @@ pub fn AlbumEditor(
                                 }
                             }
                         },
-                        "🖼️ Pick Splash Art..."
+                        span { class: "material-icons md-16", "image" }
+                        "Pick Splash Art..."
                     }
                 }
 
@@ -215,7 +222,7 @@ pub fn AlbumEditor(
                             label { style: "font-size: 11.5px; font-weight: 700; color: var(--text-muted); text-transform: uppercase;", "Contributing / Additional Artists" }
                             button {
                                 class: "btn-pill",
-                                style: "font-size: 11px; padding: 2px 8px;",
+                                style: "font-size: 11px; padding: 2px 8px; display: inline-flex; align-items: center; gap: 4px;",
                                 onclick: move |_| {
                                     let curr = primary_artist.read().clone();
                                     if curr.contains(',') {
@@ -227,7 +234,8 @@ pub fn AlbumEditor(
                                         }
                                     }
                                 },
-                                "✂️ Split Artists (,)"
+                                span { class: "material-icons md-14", "call_split" }
+                                "Split Artists (,)"
                             }
                         }
                         input {

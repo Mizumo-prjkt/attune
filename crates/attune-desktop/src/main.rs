@@ -34,10 +34,13 @@ fn main() {
     }
 
     let css = include_str!("style.css");
+    let icons_css = include_str!("material_icons.css");
     let cfg = Config::new()
         .with_window(window)
         .with_menu(None)
-        .with_custom_head(format!("<style>{css}</style>"));
+        .with_custom_head(format!(
+            "<link rel=\"stylesheet\" href=\"https://fonts.googleapis.com/icon?family=Material+Icons\">\n<style>\n{icons_css}\n{css}\n</style>"
+        ));
 
     dioxus::LaunchBuilder::desktop()
         .with_cfg(cfg)

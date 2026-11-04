@@ -56,7 +56,7 @@ pub fn Library(
                 }
                 div { style: "display: flex; gap: 10px; align-items: center;",
                     div { class: "search-bar", style: "width: 260px;",
-                        span { "🔍" }
+                        span { class: "material-icons md-18", "search" }
                         input {
                             placeholder: "Search library...",
                             value: "{search_query}",
@@ -171,12 +171,16 @@ pub fn Library(
 
                                     // Index / Play Icon
                                     span {
-                                        style: "color: var(--text-muted); font-family: monospace; font-size: 12px; cursor: pointer;",
+                                        style: "color: var(--text-muted); font-family: monospace; font-size: 12px; cursor: pointer; display: flex; align-items: center;",
                                         onclick: {
                                             let t_clone = t.clone();
                                             move |_| on_play_track.call(t_clone.clone())
                                         },
-                                        if is_current { "▶" } else { "{idx + 1}" }
+                                        if is_current {
+                                            span { class: "material-icons md-16", style: "color: var(--accent-mint);", "play_arrow" }
+                                        } else {
+                                            "{idx + 1}"
+                                        }
                                     }
 
                                     // Title
@@ -216,21 +220,25 @@ pub fn Library(
                                     }
 
                                     // Actions: Queue / Favorite
-                                    div { style: "display: flex; gap: 6px; justify-content: center;",
+                                    div { style: "display: flex; gap: 8px; justify-content: center; align-items: center;",
                                         button {
-                                            style: "background: transparent; border: none; cursor: pointer; color: var(--text-muted); font-size: 13px;",
+                                            style: "background: transparent; border: none; cursor: pointer; color: var(--text-muted); padding: 2px;",
                                             title: "Add to Queue",
                                             onclick: {
                                                 let t_clone = t.clone();
                                                 move |_| on_queue_track.call(t_clone.clone())
                                             },
-                                            "+"
+                                            span { class: "material-icons md-16", "playlist_add" }
                                         }
                                         button {
-                                            style: "background: transparent; border: none; cursor: pointer; color: if is_fav { \"#fb7185\" } else { \"var(--text-muted)\" }; font-size: 12px;",
+                                            style: "background: transparent; border: none; cursor: pointer; color: if is_fav { \"#fb7185\" } else { \"var(--text-muted)\" }; padding: 2px;",
                                             title: "Toggle Favorite",
                                             onclick: move |_| on_toggle_favorite.call(path_clone.clone()),
-                                            if is_fav { "♥" } else { "♡" }
+                                            if is_fav {
+                                                span { class: "material-icons md-16", "favorite" }
+                                            } else {
+                                                span { class: "material-icons md-16", "favorite_border" }
+                                            }
                                         }
                                     }
                                 }

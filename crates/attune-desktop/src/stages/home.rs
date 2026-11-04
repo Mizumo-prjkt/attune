@@ -71,8 +71,8 @@ pub fn Home(
                             } else {
                                 div {
                                     class: "hero-art",
-                                    style: "display: flex; align-items: center; justify-content: center; background: linear-gradient(135deg, rgba(45,212,191,0.2), rgba(168,85,247,0.2)); font-size: 36px;",
-                                    "🎵"
+                                    style: "display: flex; align-items: center; justify-content: center; background: linear-gradient(135deg, rgba(45,212,191,0.2), rgba(168,85,247,0.2));",
+                                    span { class: "material-icons md-48", "music_note" }
                                 }
                             }
 
@@ -111,9 +111,13 @@ pub fn Home(
                             div { style: "display: flex; align-items: center;",
                                 button {
                                     class: "btn-ctrl btn-play",
-                                    style: "width: 48px; height: 48px; font-size: 20px;",
+                                    style: "width: 48px; height: 48px;",
                                     onclick: move |_| on_toggle_play.call(()),
-                                    if is_playing { "⏸" } else { "▶" }
+                                    if is_playing {
+                                        span { class: "material-icons md-28", "pause" }
+                                    } else {
+                                        span { class: "material-icons md-28", "play_arrow" }
+                                    }
                                 }
                             }
                         }
@@ -160,8 +164,8 @@ pub fn Home(
                                         } else {
                                             div {
                                                 class: "match-thumb",
-                                                style: "display: flex; align-items: center; justify-content: center; font-size: 20px;",
-                                                "🎵"
+                                                style: "display: flex; align-items: center; justify-content: center; color: var(--text-muted);",
+                                                span { class: "material-icons md-20", "music_note" }
                                             }
                                         }
                                         div { style: "display: flex; flex-direction: column; overflow: hidden; flex: 1;",
@@ -211,8 +215,8 @@ pub fn Home(
                                         } else {
                                             div {
                                                 class: "match-thumb",
-                                                style: "display: flex; align-items: center; justify-content: center; font-size: 20px;",
-                                                "💿"
+                                                style: "display: flex; align-items: center; justify-content: center; color: var(--text-muted);",
+                                                span { class: "material-icons md-20", "album" }
                                             }
                                         }
                                         div { style: "display: flex; flex-direction: column; overflow: hidden; flex: 1;",

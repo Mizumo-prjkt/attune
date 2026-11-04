@@ -69,7 +69,10 @@ pub fn Albums(
                                         alt: "{group.name}",
                                     }
                                 } else {
-                                    div { class: "album-hero-full-fallback", "💿" }
+                                    div {
+                                        class: "album-hero-full-fallback",
+                                        span { class: "material-icons md-64", "album" }
+                                    }
                                 }
 
                                 // Top Floating Bar (Back button + ALBUM badge)
@@ -77,7 +80,7 @@ pub fn Albums(
                                     button {
                                         class: "album-back-pill",
                                         onclick: move |_| selected_album.set(None),
-                                        span { style: "font-size: 14px;", "←" }
+                                        span { class: "material-icons md-16", "arrow_back" }
                                         span { "Collections" }
                                     }
                                     div { class: "album-type-badge-glass", "ALBUM" }
@@ -105,7 +108,7 @@ pub fn Albums(
                                                     let all = group.tracks.clone();
                                                     move |_| on_play_tracks.call(all.clone())
                                                 },
-                                                span { "▶" }
+                                                span { class: "material-icons md-18", "play_arrow" }
                                                 span { "Play" }
                                             }
                                             button {
@@ -115,7 +118,8 @@ pub fn Albums(
                                                     shuffled.reverse();
                                                     move |_| on_play_tracks.call(shuffled.clone())
                                                 },
-                                                "🔀 Shuffle"
+                                                span { class: "material-icons md-16", "shuffle" }
+                                                span { "Shuffle" }
                                             }
                                             button {
                                                 class: "album-glass-pill-btn",
@@ -123,7 +127,8 @@ pub fn Albums(
                                                     let g = group.clone();
                                                     move |_| on_edit_album.call(g.clone())
                                                 },
-                                                "✏️ Edit Info"
+                                                span { class: "material-icons md-16", "edit" }
+                                                span { "Edit Info" }
                                             }
                                         }
 
@@ -168,7 +173,7 @@ pub fn Albums(
                                                     // Track number or playing indicator
                                                     span { class: "album-track-idx",
                                                         if is_current && is_playing {
-                                                            "🔊"
+                                                            span { class: "material-icons md-16", "volume_up" }
                                                         } else {
                                                             "{idx + 1}"
                                                         }
@@ -203,7 +208,7 @@ pub fn Albums(
                                                                     on_queue_track.call(t_q.clone());
                                                                 }
                                                             },
-                                                            "⋮"
+                                                            span { class: "material-icons md-18", "more_vert" }
                                                         }
                                                         button {
                                                             class: if is_current && is_playing { "album-track-play-btn active" } else { "album-track-play-btn" },
@@ -215,7 +220,11 @@ pub fn Albums(
                                                                     on_play_track.call(t_p.clone());
                                                                 }
                                                             },
-                                                            if is_current && is_playing { "⏸" } else { "▶" }
+                                                            if is_current && is_playing {
+                                                                span { class: "material-icons md-16", "pause" }
+                                                            } else {
+                                                                span { class: "material-icons md-16", "play_arrow" }
+                                                            }
                                                         }
                                                     }
                                                 }
@@ -260,8 +269,8 @@ pub fn Albums(
                                                 }
                                             } else {
                                                 div {
-                                                    style: "width: 100%; aspect-ratio: 1; border-radius: 10px; background: rgba(255,255,255,0.05); display: flex; align-items: center; justify-content: center; font-size: 36px; margin-bottom: 10px; border: 1px solid var(--border-glass);",
-                                                    "💿"
+                                                    style: "width: 100%; aspect-ratio: 1; border-radius: 10px; background: rgba(255,255,255,0.05); display: flex; align-items: center; justify-content: center; color: var(--text-muted); margin-bottom: 10px; border: 1px solid var(--border-glass);",
+                                                    span { class: "material-icons md-48", "album" }
                                                 }
                                             }
                                             div { style: "display: flex; flex-direction: column; overflow: hidden;",

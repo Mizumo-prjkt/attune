@@ -30,7 +30,7 @@ impl ShuffleMode {
         match self {
             ShuffleMode::Off => "Shuffle: Off",
             ShuffleMode::Linear => "Shuffle: Linear",
-            ShuffleMode::Smart => "✨ Smart Shuffle",
+            ShuffleMode::Smart => "Smart Shuffle",
         }
     }
 }

@@ -23,7 +23,7 @@ pub fn ForYou(
             title: "Harmonic Flow",
             subtitle: "Camelot Wheel Continuous Mix",
             description: "Sequences tracks along adjacent Camelot keys (1A → 2A → 2B) for pitch-perfect, in-key harmonic blends without tonal clashes.",
-            icon: "🪐",
+            icon: "graphic_eq",
             gradient: "linear-gradient(135deg, rgba(45, 212, 191, 0.22), rgba(59, 130, 246, 0.18))",
             vibe_tags: vec!["Harmonic Wheel", "Key-Locked", "Seamless Morph"],
         },
@@ -32,7 +32,7 @@ pub fn ForYou(
             title: "High-Energy Rush",
             subtitle: "Aggression & Drive Index 𝒪(𝒜 ≥ 0.65)",
             description: "High-BPM drives, J-Rock, Drum & Bass, and Synthwave. Uses Attune's fast 2-bar Cold Cut and EQ Swap archetypes.",
-            icon: "⚡",
+            icon: "bolt",
             gradient: "linear-gradient(135deg, rgba(251, 113, 133, 0.22), rgba(249, 115, 22, 0.18))",
             vibe_tags: vec!["Fast Swaps", "Aggression ≥ 0.65", "Bass Cut"],
         },
@@ -41,7 +41,7 @@ pub fn ForYou(
             title: "Midnight Chill",
             subtitle: "Downtempo & Ambient Vocal Sustains",
             description: "Late-night atmosphere, lo-fi, and warm vocals. Employs Tail Freeze and Sustained Vocal Bridge morphs.",
-            icon: "🌙",
+            icon: "bedtime",
             gradient: "linear-gradient(135deg, rgba(168, 85, 247, 0.22), rgba(99, 102, 241, 0.18))",
             vibe_tags: vec!["Vocal Sustain", "Tail Freeze", "Downtempo"],
         },
@@ -50,7 +50,7 @@ pub fn ForYou(
             title: "Vocal Spotlight",
             subtitle: "Formant F1/F2 & Pitch Sustains",
             description: "Highlights resonant vocal performances and acapella intros. Uses multi-layer vocal sustain morphs with formants intact.",
-            icon: "🎤",
+            icon: "mic",
             gradient: "linear-gradient(135deg, rgba(236, 72, 153, 0.22), rgba(168, 85, 247, 0.18))",
             vibe_tags: vec!["Vocal Anchor", "Formant Lock", "Acapella Bridge"],
         },
@@ -59,7 +59,7 @@ pub fn ForYou(
             title: "BPM Drive & Fast Swaps",
             subtitle: "Tempo Climbing & Drop Alignment",
             description: "Progressive energy ascension and quick transition handoffs timed perfectly to 8-bar and 16-bar phrase drops.",
-            icon: "🚀",
+            icon: "speed",
             gradient: "linear-gradient(135deg, rgba(14, 165, 233, 0.22), rgba(45, 212, 191, 0.18))",
             vibe_tags: vec!["Tempo Climb", "Phrase Grid", "Drop Sync"],
         },
@@ -135,8 +135,8 @@ pub fn ForYou(
 
                                 // Mix Icon
                                 div {
-                                    style: "position: relative; z-index: 1; width: 90px; height: 90px; border-radius: 16px; background: rgba(255,255,255,0.06); display: flex; align-items: center; justify-content: center; font-size: 40px; border: 1px solid rgba(255,255,255,0.12); flex-shrink: 0; box-shadow: 0 8px 20px rgba(0,0,0,0.3);",
-                                    "{mix.icon}"
+                                    style: "position: relative; z-index: 1; width: 90px; height: 90px; border-radius: 16px; background: rgba(255,255,255,0.06); display: flex; align-items: center; justify-content: center; border: 1px solid rgba(255,255,255,0.12); flex-shrink: 0; box-shadow: 0 8px 20px rgba(0,0,0,0.3); color: var(--accent-mint);",
+                                    span { class: "material-icons md-48", "{mix.icon}" }
                                 }
 
                                 // Mix Info
@@ -177,9 +177,10 @@ pub fn ForYou(
                                     style: "position: relative; z-index: 1; display: flex; align-items: center; flex-shrink: 0;",
                                     button {
                                         class: "btn-pill active",
-                                        style: "padding: 10px 22px; font-size: 13.5px; font-weight: 600; box-shadow: 0 4px 16px rgba(45,212,191,0.25);",
+                                        style: "padding: 10px 22px; font-size: 13.5px; font-weight: 600; box-shadow: 0 4px 16px rgba(45,212,191,0.25); display: inline-flex; align-items: center; gap: 6px;",
                                         onclick: move |_| on_start_mix.call(all_tracks.clone()),
-                                        "▶ Start Mix"
+                                        span { class: "material-icons md-18", "play_arrow" }
+                                        "Start Mix"
                                     }
                                 }
                             }

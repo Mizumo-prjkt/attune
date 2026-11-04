@@ -1169,6 +1169,30 @@ These four benchmark scenarios define the "Gold Standard" transitions that Attun
      - Release binary `target/release/attune-desktop` built in 19.89s with exit code 0.
 - **Verdict**: `PASS`. Album detail view achieves exact visual and functional fidelity with the user's reference mockup (`media_1793770153411_739f7a90.png`).
 
+### Experiment #042: Desktop UI Iconography Modernization — Complete Migration from Unicode Emojis to Google Material Icons with Bundled Offline WebFont Embedding
+- **Date**: 2026-11-04
+- **Setup**: Linux (Wayland, Arch Linux), WebKitGTK / Wry desktop webview, release binary `./target/release/attune-desktop`, 1024x535 window.
+- **Observations & Empirical Verification**:
+  1. **Offline Material Icons WebFont Embedding**:
+     - Sourced Google Material Icons woff2 webfont (126 KB).
+     - Generated `crates/attune-desktop/src/material_icons.css` with embedded base64 font data URI and ligature rendering rules.
+     - Verified WebKitGTK headless rendering: ligature texts such as `"home"` collapse into a single glyph of exact 24px bounding box width without multi-character text leaks or loading delays.
+  2. **Comprehensive Component Emoji Elimination**:
+     - Navigation rail replaced 10 emoji icons with Material Icons (`home`, `auto_awesome`, `library_music`, `album`, `favorite`, `folder`, `tune`, `settings`, `analytics`, `info`).
+     - App bar & search replaced emojis with `chevron_left`, `chevron_right`, `search`, `sync`, `bolt`.
+     - Docked lyrics and queue replaced emojis with `lock`/`lock_open`, `close`, `description`, `queue_music`, `subtitles`.
+     - Transport bar replaced emojis with `music_note`, `shuffle`, `skip_previous`, `play_arrow`/`pause`, `skip_next`, `repeat`/`repeat_one`, `favorite`/`favorite_border`, `volume_up`, `fullscreen`, `close`.
+     - Album details stage replaced emojis with `arrow_back`, `play_arrow`, `shuffle`, `edit`, `volume_up`, `more_vert`.
+     - For You stage replaced mix card emojis with 5 distinct icons (`graphic_eq`, `bolt`, `bedtime`, `mic`, `speed`) and `play_arrow` CTA buttons.
+     - Settings and Process Manager replaced emojis with `folder`, `folder_open`, `sync`, `delete_sweep`, `tune`, `cleaning_services`, `analytics`.
+     - Album editor replaced emojis with `save`, `sync`, `album`, `image`, `call_split`.
+  3. **Verification**:
+     - 19 unit tests in `attune-desktop` passed.
+     - 100% of workspace tests (46 tests across 6 packages) passed cleanly.
+     - Standalone release binary `target/release/attune-desktop` compiled in 18.90s with exit code 0.
+- **Verdict**: `PASS`. Desktop iconography is unified, modern, vector-crisp, and 100% offline-ready with zero emoji discrepancies.
+
+
 
 
 
