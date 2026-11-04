@@ -111,38 +111,81 @@ pub fn ForYou(
     // Resolve which mix tracks to compute for a given mix id
     let get_mix_tracks = |mix_id: &str| -> Vec<TrackEntry> {
         match mix_id {
+            "harmonic_flow" => {
+                let mut harmonic = tracks.clone();
+                harmonic.sort_by(|a, b| {
+                    let ka = a.key.as_deref().and_then(crate::smart_shuffle::normalize_to_camelot).unwrap_or_default();
+                    let kb = b.key.as_deref().and_then(crate::smart_shuffle::normalize_to_camelot).unwrap_or_default();
+                    ka.cmp(&kb)
+                });
+                harmonic
+            },
             "high_energy" => {
                 let high: Vec<TrackEntry> = tracks.iter()
-                    .filter(|t| t.bpm.unwrap_or(0.0) >= 135.0 || t.format == "FLAC")
+                    .filter(|t| {
+                        let has_high_bpm = t.bpm.map(|b| b >= 135.0).unwrap_or(false);
+                        let is_energetic = {
+                            let text = format!("{} {} {}", t.title, t.artist, t.genre.as_deref().unwrap_or("")).to_lowercase();
+                            text.contains("rock") || text.contains("rush") || text.contains("fever") ||
+                            text.contains("dance") || text.contains("energy") || text.contains("speed") ||
+                            text.contains("fast") || text.contains("hard") || text.contains("boogie") ||
+                            text.contains("drum") || text.contains("bass") || text.contains("eurobeat")
+                        };
+                        has_high_bpm || is_energetic
+                    })
                     .cloned()
                     .collect();
                 if high.is_empty() { tracks.clone() } else { high }
             },
             "midnight_chill" => {
                 let chill: Vec<TrackEntry> = tracks.iter()
-                    .filter(|t| t.bpm.unwrap_or(120.0) < 125.0)
+                    .filter(|t| {
+                        let has_slow_bpm = t.bpm.map(|b| b < 125.0).unwrap_or(false);
+                        let is_chill = {
+                            let text = format!("{} {} {}", t.title, t.artist, t.genre.as_deref().unwrap_or("")).to_lowercase();
+                            text.contains("chill") || text.contains("lo-fi") || text.contains("lofi") ||
+                            text.contains("ambient") || text.contains("slow") || text.contains("night") ||
+                            text.contains("ballad") || text.contains("acoustic") || text.contains("piano") ||
+                            text.contains("symphony") || text.contains("orchestra") || text.contains("sleep")
+                        };
+                        has_slow_bpm || is_chill
+                    })
                     .cloned()
                     .collect();
                 if chill.is_empty() { tracks.clone() } else { chill }
             },
             "vocal_spotlight" => {
                 let vocal: Vec<TrackEntry> = tracks.iter()
-                    .filter(|t| t.genre.as_deref().unwrap_or("").to_lowercase().contains("pop")
-                        || t.genre.as_deref().unwrap_or("").to_lowercase().contains("vocal")
-                        || t.title.to_lowercase().contains("feat")
-                        || t.title.to_lowercase().contains("remix"))
+                    .filter(|t| {
+                        let text = format!("{} {} {}", t.title, t.artist, t.genre.as_deref().unwrap_or("")).to_lowercase();
+                        text.contains("vocal") || text.contains("feat") || text.contains("ft.") ||
+                        text.contains("miku") || text.contains("rin") || text.contains("len") ||
+                        text.contains("luka") || text.contains("teto") || text.contains("gumi") ||
+                        text.contains("pop") || text.contains("sing") || text.contains("chorus") ||
+                        text.contains("duet")
+                    })
                     .cloned()
                     .collect();
                 if vocal.is_empty() { tracks.clone() } else { vocal }
             },
             "bpm_drive" => {
-                let mut sorted = tracks.clone();
-                sorted.sort_by(|a, b| {
+                let mut drive: Vec<TrackEntry> = tracks.iter()
+                    .filter(|t| {
+                        let text = format!("{} {} {}", t.title, t.artist, t.genre.as_deref().unwrap_or("")).to_lowercase();
+                        let is_slow = text.contains("symphony") || text.contains("orchestra") || text.contains("sleep");
+                        !is_slow
+                    })
+                    .cloned()
+                    .collect();
+                drive.sort_by(|a, b| {
                     let ba = a.bpm.unwrap_or(120.0);
                     let bb = b.bpm.unwrap_or(120.0);
                     ba.partial_cmp(&bb).unwrap_or(std::cmp::Ordering::Equal)
                 });
-                sorted
+                if drive.len() > 30 {
+                    drive.truncate(30);
+                }
+                drive
             },
             "surprise_me" => {
                 // Diverse pseudo-random selection across the library
@@ -445,10 +488,12 @@ pub fn ForYou(
                             let track_count = mix_tracks.len();
                             let all_tracks = mix_tracks.clone();
 
-                            // Collect up to 4 real album artworks for preview collage
+                            // Collect up to 4 distinct album artworks for preview collage
+                            let mut seen_arts = HashSet::new();
                             let preview_arts: Vec<String> = mix_tracks
                                 .iter()
                                 .filter_map(|t| t.artwork_data_url.clone())
+                                .filter(|art| seen_arts.insert(art.clone()))
                                 .take(4)
                                 .collect();
 
@@ -631,11 +676,30 @@ pub fn render_mix_svg_art(mix_id: &str) -> Element {
                         stop { offset: "50%", stop_color: "#2dd4bf" }
                         stop { offset: "100%", stop_color: "#eab308" }
                     }
+                    linearGradient { id: "bpm-needle-grad", x1: "0%", y1: "100%", x2: "0%", y2: "0%",
+                        stop { offset: "0%", stop_color: "#f43f5e" }
+                        stop { offset: "100%", stop_color: "#ff758f" }
+                    }
                 }
-                path { d: "M 40 140 A 70 70 0 1 1 160 140", fill: "none", stroke: "rgba(255, 255, 255, 0.15)", stroke_width: "12", stroke_linecap: "round" }
+                // Background Track Arc
+                path { d: "M 40 140 A 70 70 0 1 1 160 140", fill: "none", stroke: "rgba(255, 255, 255, 0.12)", stroke_width: "12", stroke_linecap: "round" }
+                // Active Speed Zone Arc (Cyan to Mint to Amber)
                 path { d: "M 40 140 A 70 70 0 1 1 145 75", fill: "none", stroke: "url(#bpm-grad)", stroke_width: "12", stroke_linecap: "round", class: "bpm-active-arc" }
-                circle { cx: "100", cy: "115", r: "9", fill: "#ffffff" }
-                line { x1: "100", y1: "115", x2: "140", y2: "65", stroke: "#f43f5e", stroke_width: "4", stroke_linecap: "round", class: "bpm-needle" }
+                // Redline Accent Arc
+                path { d: "M 148 78 A 70 70 0 0 1 160 140", fill: "none", stroke: "rgba(244, 63, 94, 0.4)", stroke_width: "12", stroke_linecap: "round" }
+                // Center Hub Base
+                circle { cx: "100", cy: "115", r: "13", fill: "#131823", stroke: "rgba(255, 255, 255, 0.2)", stroke_width: "2" }
+                // Needle (drawn pointing straight up at 12 o'clock, animated by CSS rotate from -60deg to +62deg around 100, 115)
+                line {
+                    x1: "100", y1: "115",
+                    x2: "100", y2: "58",
+                    stroke: "url(#bpm-needle-grad)",
+                    stroke_width: "4.5",
+                    stroke_linecap: "round",
+                    class: "bpm-needle",
+                }
+                // Center Hub Cap
+                circle { cx: "100", cy: "115", r: "6", fill: "#ffffff" }
             }
         },
         _ => rsx! {

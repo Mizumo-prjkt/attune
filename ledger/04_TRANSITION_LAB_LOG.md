@@ -1245,6 +1245,31 @@ These four benchmark scenarios define the "Gold Standard" transitions that Attun
      - Release binary `target/release/attune-desktop` built with exit code 0.
 - **Verdict**: `PASS`. Clean navigation, animated SVGs, rich streaming layout, and wildcard surprise mix successfully verified.
 
+### Experiment #045: BPM Drive Tachometer Needle Geometry Calibration, View-Box Coordinate Locking, and Mix Collage Deduplication
+- **Date**: 2026-11-04
+- **Setup**: Linux (Wayland, Arch Linux), WebKitGTK / Wry desktop webview, release binary `./target/release/attune-desktop`, 1024x535 window.
+- **Observations & Empirical Verification**:
+  1. **Tachometer Needle Geometry & Bounds Calibration**:
+     - Identified root cause of the horizontal needle distortion: the needle vector was initially drawn at $-51.3^\circ$ (`100, 115` to `140, 65`), and when CSS rotated it by $+45^\circ$, the angle reached $-6.3^\circ$ (horizontal pointing out into empty space).
+     - Furthermore, in WebKitGTK without `transform-box: view-box;`, `transform-origin` calculated from the line's bounding box rather than the SVG canvas, leading to pivot drift.
+     - Rebuilt `bpm_drive` SVG art:
+       - Calibrated vertical reference needle (`x1="100" y1="115" x2="100" y2="58"`).
+       - Added redline accent arc at upper right (`d="M 148 78 A 70 70 0 0 1 160 140"`).
+       - Added layered needle hub (13px dark base + 6px center cap) pinning the needle firmly.
+     - Configured CSS:
+       - `transform-box: view-box; transform-origin: 100px 115px;`.
+       - Sweeps between $-58^\circ$ (idle, 10 o'clock) and $+58^\circ$ (redline, 2:05), maintaining realistic tachometer motion.
+  2. **Collage Artwork Deduplication**:
+     - Verified `seen_arts` HashSet deduplication: adjacent tracks from the same album no longer produce repeated duplicate covers on mix cards.
+  3. **Mix Catalog Curation**:
+     - Handled `harmonic_flow` by Camelot keys, refined `high_energy` to avoid file-extension hacks, and capped `bpm_drive` to a curated 30-track ascending tempo journey.
+  4. **Verification**:
+     - 23 unit tests in `attune-desktop` passed.
+     - 50 unit tests across workspace (6 crates) passed cleanly.
+     - Release binary `target/release/attune-desktop` built with exit code 0.
+- **Verdict**: `PASS`. Tachometer needle animation is physically realistic, coordinate-locked in WebKitGTK, and artwork collages are strictly deduplicated.
+
+
 
 
 

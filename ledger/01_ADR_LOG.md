@@ -2714,6 +2714,36 @@ This file records all major architectural decisions for **Attune**, including co
   - All 23 unit tests in `attune-desktop` and 100% of workspace tests (50 tests across 6 crates) pass cleanly.
   - Release binary compiles in 28.1s.
 
+---
+
+## ADR-077: SVG Tachometer Vector Calibration, View-Box Coordinate Locking, Artwork Collage Deduplication, and Dynamic Mix Catalog Curation
+
+- **Status**: **LOCKED** (Implemented & Empirically Verified)
+- **Date**: 2026-11-04
+- **Context**:
+  - The animated tachometer icon for "BPM Drive & Fast Swaps" exhibited a severe visual artifact: the needle rotated clockwise past the dial into a flat horizontal orientation ($90^\circ$ offset, pointing at 3:30 into blank space), breaking outside the gauge arc.
+  - In WebKitGTK / Wry, CSS `transform-origin` on SVG elements computes relative to the element's bounding box (`fill-box`) rather than the SVG coordinate frame unless explicitly specified with `transform-box: view-box;`.
+  - The preview collage on mix cards displayed repeated duplicate covers when adjacent tracks shared the same album.
+  - Mix track resolution in `get_mix_tracks` lacked harmonic sorting for Harmonic Flow, used a flawed format check (`FLAC`) for High Energy, and dumped all 159 songs into BPM Drive rather than curating an ascending tempo sequence.
+- **Decision**:
+  1. **Tachometer SVG Vector & Coordinate Calibration**:
+     - Redrew the BPM Drive needle with a vertical 12 o'clock reference vector (`x1="100" y1="115" x2="100" y2="58"`).
+     - Added a high-RPM redline accent arc (`path d="M 148 78 A 70 70 0 0 1 160 140" stroke="rgba(244, 63, 94, 0.4)"`) and a layered needle hub (13px dark base + 6px white center cap).
+     - Added `transform-box: view-box; transform-origin: 100px 115px;` to `.animated-bpm-drive .bpm-needle`, and updated keyframes to sweep naturally between $-58^\circ$ (idle) and $+58^\circ$ (redline), perfectly contained within the gauge arc.
+     - Added `transform-box: view-box;` to all other SVG vector animations in `style.css`.
+  2. **Artwork Collage Deduplication**:
+     - Applied a `HashSet` filter on `artwork_data_url` when building `preview_arts` in `for_you.rs`, guaranteeing up to 4 distinct album artworks per mix card.
+  3. **Mix Catalog Filtering & Curation**:
+     - Handled `harmonic_flow` by sorting tracks along normalized Camelot keys.
+     - Refined `high_energy` to evaluate tempo and high-drive keyword signatures rather than audio file extensions.
+     - Refined `bpm_drive` to filter out slow orchestral tracks, sort ascending by tempo, and cap at a curated 30-track progressive drive.
+- **Consequences**:
+  - Tachometer needle sweeps smoothly, dynamically, and realistically across the gauge without ever overshooting or detaching.
+  - Mix card collages display 4 unique album covers.
+  - Algorithmic mixes provide properly filtered and curated playlists.
+  - All 50 workspace tests pass cleanly with zero warnings or regressions.
+
+
 
 
 

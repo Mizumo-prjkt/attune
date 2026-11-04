@@ -1394,6 +1394,7 @@ body, html {
 }
 .animated-vocal-spotlight .vocal-wave {
   animation: vocal-wave-radiate 3s cubic-bezier(0.2, 0, 0, 1) infinite;
+  transform-box: view-box;
   transform-origin: 100px 85px;
 }
 .animated-vocal-spotlight .wave-2 {
@@ -1410,30 +1411,34 @@ body, html {
 
 /* 5. BPM Drive Animation */
 .animated-bpm-drive .bpm-needle {
-  animation: bpm-needle-sweep 1.8s cubic-bezier(0.4, 0, 0.2, 1) infinite alternate;
+  transform-box: view-box;
   transform-origin: 100px 115px;
+  animation: bpm-needle-sweep 2.2s cubic-bezier(0.4, 0, 0.2, 1) infinite alternate;
 }
 .animated-bpm-drive .bpm-active-arc {
   animation: bpm-arc-pulse 2s ease-in-out infinite alternate;
 }
 @keyframes bpm-needle-sweep {
-  0% { transform: rotate(-25deg); }
-  40% { transform: rotate(30deg); }
-  70% { transform: rotate(15deg); }
-  100% { transform: rotate(45deg); }
+  0% { transform: rotate(-58deg); }
+  35% { transform: rotate(12deg); }
+  60% { transform: rotate(-8deg); }
+  85% { transform: rotate(42deg); }
+  100% { transform: rotate(58deg); }
 }
 @keyframes bpm-arc-pulse {
-  0%, 100% { filter: drop-shadow(0 0 6px rgba(45, 212, 191, 0.4)); opacity: 0.8; }
-  50% { filter: drop-shadow(0 0 20px rgba(14, 165, 233, 0.9)); opacity: 1; }
+  0%, 100% { filter: drop-shadow(0 0 6px rgba(45, 212, 191, 0.4)); opacity: 0.85; }
+  50% { filter: drop-shadow(0 0 20px rgba(14, 165, 233, 0.95)); opacity: 1; }
 }
 
 /* 6. Surprise Me Animation */
 .animated-surprise-me .mystery-box {
   animation: mystery-box-spin 9s linear infinite;
+  transform-box: view-box;
   transform-origin: 100px 100px;
 }
 .animated-surprise-me .mystery-q {
   animation: mystery-q-pulse 2.2s ease-in-out infinite alternate;
+  transform-box: view-box;
   transform-origin: 100px 100px;
 }
 @keyframes mystery-box-spin {
