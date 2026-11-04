@@ -1,11 +1,96 @@
 //! Background library scanning: discovers audio files and probes their tags
 //! without ever blocking the egui render thread.
 
+use std::collections::HashMap;
+use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{self, Receiver};
+use std::sync::Mutex;
 use std::thread;
 
 use attune_core::{AudioDecoder, LibraryScanner};
+
+static THUMBNAIL_CACHE: Mutex<Option<HashMap<PathBuf, String>>> = Mutex::new(None);
+
+/// Clears the in-memory thumbnail string cache to free heap memory.
+pub fn clear_thumbnail_cache() {
+    let mut guard = THUMBNAIL_CACHE.lock().unwrap();
+    if let Some(ref mut cache) = *guard {
+        cache.clear();
+    }
+}
+
+/// Resolves or downsamples an album cover to a lightweight (~160x160 JPEG, ~4-8 KB) Base64 Data URL.
+/// Deduplicates across tracks in the same album to eliminate memory bloat on library scan.
+pub fn resolve_thumbnail_data_url(art_p: &Path) -> Option<String> {
+    if !art_p.is_file() {
+        return None;
+    }
+
+    // 1. Fast path: check in-memory deduplication cache
+    {
+        let mut guard = THUMBNAIL_CACHE.lock().unwrap();
+        let cache = guard.get_or_insert_with(HashMap::new);
+        if let Some(existing) = cache.get(art_p) {
+            return Some(existing.clone());
+        }
+    }
+
+    // 2. Check disk thumbnail cache in ~/.cache/attune-desktop/thumbnails/
+    let cache_dir = dirs::cache_dir()
+        .unwrap_or_else(|| PathBuf::from("/tmp"))
+        .join("attune-desktop")
+        .join("thumbnails");
+    let _ = std::fs::create_dir_all(&cache_dir);
+
+    let art_meta = art_p.metadata().ok()?;
+    let mod_time = art_meta.modified().ok()
+        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    let key = format!("{}-{}-{}", art_p.to_string_lossy(), art_meta.len(), mod_time);
+
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    key.hash(&mut hasher);
+    let hash_hex = format!("{:016x}", hasher.finish());
+    let cached_file = cache_dir.join(format!("{hash_hex}.jpg"));
+
+    let jpeg_bytes = if cached_file.is_file() {
+        std::fs::read(&cached_file).ok()?
+    } else {
+        let raw_bytes = std::fs::read(art_p).ok()?;
+        // If image is already tiny (<= 16 KB), keep directly
+        if raw_bytes.len() <= 16 * 1024 {
+            raw_bytes
+        } else if let Ok(img) = image::load_from_memory(&raw_bytes) {
+            let thumb = img.thumbnail(160, 160);
+            let mut out = Vec::new();
+            let mut cursor = std::io::Cursor::new(&mut out);
+            if thumb.write_to(&mut cursor, image::ImageFormat::Jpeg).is_ok() {
+                let _ = std::fs::write(&cached_file, &out);
+                out
+            } else {
+                raw_bytes
+            }
+        } else {
+            raw_bytes
+        }
+    };
+
+    use base64::Engine;
+    let b64 = base64::engine::general_purpose::STANDARD.encode(&jpeg_bytes);
+    let data_url = format!("data:image/jpeg;base64,{b64}");
+
+    // Store in in-memory cache
+    {
+        let mut guard = THUMBNAIL_CACHE.lock().unwrap();
+        if let Some(ref mut cache) = *guard {
+            cache.insert(art_p.to_path_buf(), data_url.clone());
+        }
+    }
+
+    Some(data_url)
+}
 
 /// A single playable track in the desktop library.
 #[derive(Debug, Clone, PartialEq)]
@@ -52,23 +137,7 @@ impl TrackEntry {
                     }
                 }
 
-                let artwork_data_url = artwork_path.as_ref().and_then(|art_p| {
-                    if art_p.is_file() {
-                        let bytes = std::fs::read(art_p).ok()?;
-                        let mime = if art_p.extension().map(|e| e.eq_ignore_ascii_case("png")).unwrap_or(false) {
-                            "image/png"
-                        } else if art_p.extension().map(|e| e.eq_ignore_ascii_case("webp")).unwrap_or(false) {
-                            "image/webp"
-                        } else {
-                            "image/jpeg"
-                        };
-                        use base64::Engine;
-                        let b64 = base64::engine::general_purpose::STANDARD.encode(&bytes);
-                        Some(format!("data:{mime};base64,{b64}"))
-                    } else {
-                        None
-                    }
-                });
+                let artwork_data_url = artwork_path.as_deref().and_then(resolve_thumbnail_data_url);
 
                 TrackEntry {
                     path: path.to_path_buf(),

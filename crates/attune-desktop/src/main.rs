@@ -8,6 +8,7 @@ mod components;
 mod config;
 mod library;
 mod player;
+mod process_manager;
 mod smart_shuffle;
 mod stages;
 mod theme;

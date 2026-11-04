@@ -12,6 +12,7 @@ use crate::player::{PendingTransitionInfo, Player};
 use crate::stages::{
     about::About, album_editor::AlbumEditor, albums::{AlbumGroup, Albums}, equalizer::Equalizer,
     favorites::Favorites, for_you::ForYou, home::Home, library::Library,
+    process_manager::ProcessManager, settings::Settings,
 };
 
 #[derive(Debug, Clone, PartialEq)]
@@ -23,6 +24,8 @@ pub enum StageView {
     Favorites,
     Equalizer,
     AlbumEditor(AlbumGroup),
+    Settings,
+    ProcessManager,
     About,
 }
 
@@ -454,6 +457,18 @@ pub fn App() -> Element {
                         span { "Equalizer" }
                     }
                     div {
+                        class: if *current_stage.read() == StageView::Settings { "nav-item active" } else { "nav-item" },
+                        onclick: move |_| navigate_to(StageView::Settings),
+                        span { "⚙️" }
+                        span { "Settings" }
+                    }
+                    div {
+                        class: if *current_stage.read() == StageView::ProcessManager { "nav-item active" } else { "nav-item" },
+                        onclick: move |_| navigate_to(StageView::ProcessManager),
+                        span { "📊" }
+                        span { "Process Manager" }
+                    }
+                    div {
                         class: if *current_stage.read() == StageView::About { "nav-item active" } else { "nav-item" },
                         onclick: move |_| navigate_to(StageView::About),
                         span { "ℹ" }
@@ -642,6 +657,33 @@ pub fn App() -> Element {
                                     favorites.set(favs);
                                 },
                             }
+                        },
+                        StageView::Settings => rsx! {
+                            Settings {
+                                music_dir: music_dir.read().clone(),
+                                on_choose_folder: move |_| {
+                                    if let Some(path) = rfd::FileDialog::new().pick_folder() {
+                                        music_dir.set(Some(path.clone()));
+                                        tracks.set(Vec::new());
+                                        let rx = library::spawn_scan(path);
+                                        *scan_rx.write() = Arc::new(Mutex::new(Some(rx)));
+                                        is_scanning.set(true);
+                                    }
+                                },
+                                on_rescan_library: move |_| {
+                                    if let Some(dir) = music_dir.read().clone() {
+                                        tracks.set(Vec::new());
+                                        let rx = library::spawn_scan(dir);
+                                        *scan_rx.write() = Arc::new(Mutex::new(Some(rx)));
+                                        is_scanning.set(true);
+                                    }
+                                },
+                                on_open_equalizer: move |_| navigate_to(StageView::Equalizer),
+                                on_open_process_manager: move |_| navigate_to(StageView::ProcessManager),
+                            }
+                        },
+                        StageView::ProcessManager => rsx! {
+                            ProcessManager {}
                         },
                         StageView::About => rsx! {
                             About {}
