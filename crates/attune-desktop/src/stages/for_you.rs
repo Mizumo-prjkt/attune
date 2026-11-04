@@ -676,30 +676,25 @@ pub fn render_mix_svg_art(mix_id: &str) -> Element {
                         stop { offset: "50%", stop_color: "#2dd4bf" }
                         stop { offset: "100%", stop_color: "#eab308" }
                     }
-                    linearGradient { id: "bpm-needle-grad", x1: "0%", y1: "100%", x2: "0%", y2: "0%",
-                        stop { offset: "0%", stop_color: "#f43f5e" }
-                        stop { offset: "100%", stop_color: "#ff758f" }
+                }
+                // Background Track Arc (Center 100, 110, Radius 64)
+                path { d: "M 51 151 A 64 64 0 1 1 149 151", fill: "none", stroke: "rgba(255, 255, 255, 0.15)", stroke_width: "10", stroke_linecap: "round" }
+                // Active Speed Zone Arc (Cyan to Mint to Amber, perfectly concentric)
+                path { d: "M 51 151 A 64 64 0 1 1 160 88", fill: "none", stroke: "url(#bpm-grad)", stroke_width: "10", stroke_linecap: "round", class: "bpm-active-arc" }
+                // Redline Accent Arc (Flush continuation from 160,88 to 149,151)
+                path { d: "M 160 88 A 64 64 0 0 1 149 151", fill: "none", stroke: "rgba(244, 63, 94, 0.55)", stroke_width: "10", stroke_linecap: "round" }
+                // Needle Assembly pivoted at exact center (100, 110)
+                g {
+                    transform: "translate(100, 110)",
+                    g {
+                        class: "bpm-needle-rotator",
+                        // Sleek tapering crimson pointer
+                        polygon { points: "-2.5,0 0,-54 2.5,0", fill: "#f43f5e" }
+                        // Center Hub Base & Pin
+                        circle { cx: "0", cy: "0", r: "11", fill: "#131823", stroke: "rgba(255, 255, 255, 0.25)", stroke_width: "2" }
+                        circle { cx: "0", cy: "0", r: "4.5", fill: "#ffffff" }
                     }
                 }
-                // Background Track Arc
-                path { d: "M 40 140 A 70 70 0 1 1 160 140", fill: "none", stroke: "rgba(255, 255, 255, 0.12)", stroke_width: "12", stroke_linecap: "round" }
-                // Active Speed Zone Arc (Cyan to Mint to Amber)
-                path { d: "M 40 140 A 70 70 0 1 1 145 75", fill: "none", stroke: "url(#bpm-grad)", stroke_width: "12", stroke_linecap: "round", class: "bpm-active-arc" }
-                // Redline Accent Arc
-                path { d: "M 148 78 A 70 70 0 0 1 160 140", fill: "none", stroke: "rgba(244, 63, 94, 0.4)", stroke_width: "12", stroke_linecap: "round" }
-                // Center Hub Base
-                circle { cx: "100", cy: "115", r: "13", fill: "#131823", stroke: "rgba(255, 255, 255, 0.2)", stroke_width: "2" }
-                // Needle (drawn pointing straight up at 12 o'clock, animated by CSS rotate from -60deg to +62deg around 100, 115)
-                line {
-                    x1: "100", y1: "115",
-                    x2: "100", y2: "58",
-                    stroke: "url(#bpm-needle-grad)",
-                    stroke_width: "4.5",
-                    stroke_linecap: "round",
-                    class: "bpm-needle",
-                }
-                // Center Hub Cap
-                circle { cx: "100", cy: "115", r: "6", fill: "#ffffff" }
             }
         },
         _ => rsx! {

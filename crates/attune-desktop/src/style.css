@@ -1410,18 +1410,17 @@ body, html {
 }
 
 /* 5. BPM Drive Animation */
-.animated-bpm-drive .bpm-needle {
-  transform-box: view-box;
-  transform-origin: 100px 115px;
-  animation: bpm-needle-sweep 2.2s cubic-bezier(0.4, 0, 0.2, 1) infinite alternate;
+.animated-bpm-drive .bpm-needle-rotator {
+  animation: bpm-needle-sweep 2.4s cubic-bezier(0.4, 0, 0.2, 1) infinite alternate;
+  transform-origin: 0 0;
 }
 .animated-bpm-drive .bpm-active-arc {
   animation: bpm-arc-pulse 2s ease-in-out infinite alternate;
 }
 @keyframes bpm-needle-sweep {
   0% { transform: rotate(-58deg); }
-  35% { transform: rotate(12deg); }
-  60% { transform: rotate(-8deg); }
+  35% { transform: rotate(15deg); }
+  60% { transform: rotate(-10deg); }
   85% { transform: rotate(42deg); }
   100% { transform: rotate(58deg); }
 }

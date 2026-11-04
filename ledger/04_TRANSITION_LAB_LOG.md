@@ -1269,6 +1269,32 @@ These four benchmark scenarios define the "Gold Standard" transitions that Attun
      - Release binary `target/release/attune-desktop` built with exit code 0.
 - **Verdict**: `PASS`. Tachometer needle animation is physically realistic, coordinate-locked in WebKitGTK, and artwork collages are strictly deduplicated.
 
+### Experiment #046: Concentric Radius 64 Gauge Calibration and Local-Origin Translated Needle Hub
+- **Date**: 2026-11-04
+- **Setup**: Linux (Wayland, Arch Linux), WebKitGTK / Wry desktop webview, release binary `./target/release/attune-desktop`, 1024x535 window.
+- **Observations & Empirical Verification**:
+  1. **Root Cause Analysis of Screenshot Artifact (`media_1793783052618_b7afc764.png`)**:
+     - The colored arc bulged upward and outward from the background grey track because `large-arc-flag = 1` on an uncalculated chord placed the center at $(78, 80)$ instead of $(100, 104)$.
+     - The needle completely disappeared because WebKitGTK failed `linearGradient` on zero-width `<line>` elements (divide-by-zero on `objectBoundingBox`), and `transform-box: view-box` caused WebKitGTK to translate the line off-screen.
+  2. **Mathematical Re-Engineering of Gauge Arcs**:
+     - Unified all arcs around center $(100, 110)$ with radius $R = 64$:
+       - Background track: `M 51 151 A 64 64 0 1 1 149 151`
+       - Active speed zone: `M 51 151 A 64 64 0 1 1 160 88`
+       - Redline zone: `M 160 88 A 64 64 0 0 1 149 151`
+     - Verified with `rsvg-convert`: Arcs form a single, perfectly smooth, 100% concentric circular arc with zero bulging or offset.
+  3. **Local Origin Translation Architecture**:
+     - Placed the needle assembly inside `<g transform="translate(100, 110)">`.
+     - Needle rendered as a solid crimson polygon tapering from base width 5px at $(0, 0)$ to a sharp tip at $(0, -54)$.
+     - Needle base anchored under a 22px dark ring and 9px white center pin.
+     - CSS animation targets `.bpm-needle-rotator` with `transform-origin: 0 0;`, rotating naturally between $-58^\circ$ (idle, 10 o'clock) and $+58^\circ$ (redline, 2 o'clock).
+     - Verified rendered images at $-58^\circ$, $0^\circ$, $+42^\circ$, and $+58^\circ$ with `rsvg-convert` and visual inspection.
+  4. **Verification**:
+     - 23 unit tests in `attune-desktop` passed.
+     - 50 unit tests across workspace passed cleanly.
+     - Standalone release binary built with exit code 0.
+- **Verdict**: `PASS`. Tachometer needle is fully visible, crisp, centered, and sweeps smoothly; gauge arcs are 100% mathematically concentric and perfectly aligned.
+
+
 
 
 

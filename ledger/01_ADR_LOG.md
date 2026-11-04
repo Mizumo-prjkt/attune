@@ -2743,6 +2743,37 @@ This file records all major architectural decisions for **Attune**, including co
   - Algorithmic mixes provide properly filtered and curated playlists.
   - All 50 workspace tests pass cleanly with zero warnings or regressions.
 
+---
+
+## ADR-078: Mathematically Concentric Tachometer Gauge Geometry and Local-Coordinate Needle Hub Architecture
+
+- **Status**: **LOCKED** (Implemented & Empirically Verified)
+- **Date**: 2026-11-04
+- **Context**:
+  - In WebKitGTK (Wry), the previous tachometer SVG exhibited two critical defects:
+    1. The colored active arc (`M 40 140 A 70 70 0 1 1 145 75`) bulged out to the upper left like an egg while the background grey arc had a completely different curve, because the chord length and `large-arc-flag` produced a center of $(78, 80)$ rather than $(100, 104)$.
+    2. The needle completely vanished from the gauge because `linearGradient` on a zero-width `<line>` triggered an objectBoundingBox division-by-zero failure in WebKit, and `transform-box: view-box` caused WebKitGTK to throw the needle coordinates completely outside the viewport.
+- **Decision**:
+  1. **Unified Concentric Radius 64 Geometry**:
+     - All 3 arcs now share the identical center $(100, 110)$ and radius $R = 64$:
+       - Background track arc: `d="M 51 151 A 64 64 0 1 1 149 151"` (spans $220^\circ \rightarrow -40^\circ$).
+       - Active colored arc: `d="M 51 151 A 64 64 0 1 1 160 88"` (spans $220^\circ \rightarrow 20^\circ$).
+       - Redline accent arc: `d="M 160 88 A 64 64 0 0 1 149 151"` (spans $20^\circ \rightarrow -40^\circ$).
+     - Both the active and redline arcs are 100% coincident with the background track.
+  2. **Local-Coordinate Needle Hub Architecture**:
+     - Enclosed the needle within `<g transform="translate(100, 110)">`.
+     - In this translated coordinate system, $(0, 0)$ is the pivot hub.
+     - Needle is a tapered solid crimson polygon: `polygon points="-2.5,0 0,-54 2.5,0" fill="#f43f5e"`.
+     - Center hub consists of a dark base ring (`circle cx="0" cy="0" r="11"`) and a white cap (`circle cx="0" cy="0" r="4.5"`).
+     - In `style.css`, rotated via `.animated-bpm-drive .bpm-needle-rotator` with `transform-origin: 0 0;` (pure local origin).
+     - Removed `transform-box: view-box` from the needle, eliminating all WebKitGTK clipping and transform drift.
+- **Consequences**:
+  - The tachometer gauge is perfectly circular, concentric, and visually unified.
+  - The needle renders reliably with solid fill across all WebKitGTK and SVG rendering engines.
+  - Rotation sweeps smoothly from $-58^\circ$ (idle, 10 o'clock) to $+58^\circ$ (redline, 2 o'clock).
+  - All 23 `attune-desktop` unit tests and 50 workspace tests pass cleanly.
+
+
 
 
 
