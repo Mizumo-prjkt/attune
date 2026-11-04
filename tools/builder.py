@@ -586,7 +586,7 @@ def compile_rust(mode="release", target_os=None, log_callback=None):
         return produced[0]
 
     # Host desktop build (linux, windows, macos)
-    cmd = ["cargo", "build", "-p", "attune-ffi", "-p", "attune-watchguard", "-p", "attune-desktop"]
+    cmd = ["cargo", "build", "-p", "attune-ffi", "-p", "attune-watchguard", "-p", "attune-procmgr", "-p", "attune-desktop"]
     if mode.lower() == "release":
         cmd.append("--release")
 
@@ -615,15 +615,19 @@ def compile_rust(mode="release", target_os=None, log_callback=None):
     if effective_target_os == "linux" or system == "Linux":
         lib_name = "libattune_engine.so"
         wg_name = "libattune_watchguard.so"
+        pm_name = "libattune_procmgr.so"
     elif effective_target_os == "windows" or system == "Windows":
         lib_name = "attune_engine.dll"
         wg_name = "attune_watchguard.dll"
+        pm_name = "attune_procmgr.dll"
     elif system == "Darwin":
         lib_name = "libattune_engine.dylib"
         wg_name = "libattune_watchguard.dylib"
+        pm_name = "libattune_procmgr.dylib"
     else:
         lib_name = "libattune_engine.so"
         wg_name = "libattune_watchguard.so"
+        pm_name = "libattune_procmgr.so"
 
     lib_path = target_dir / lib_name
     if not lib_path.exists():
@@ -641,6 +645,12 @@ def compile_rust(mode="release", target_os=None, log_callback=None):
         dest_wg = dest_lib_dir / wg_name
         shutil.copy2(wg_path, dest_wg)
         log(f"[Rust] Copied watchguard library to: {dest_wg}")
+
+    pm_path = target_dir / pm_name
+    if pm_path.exists():
+        dest_pm = dest_lib_dir / pm_name
+        shutil.copy2(pm_path, dest_pm)
+        log(f"[Rust] Copied procmgr library to: {dest_pm}")
     return lib_path
 
 

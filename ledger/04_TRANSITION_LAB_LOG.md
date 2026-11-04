@@ -1294,6 +1294,49 @@ These four benchmark scenarios define the "Gold Standard" transitions that Attun
      - Standalone release binary built with exit code 0.
 - **Verdict**: `PASS`. Tachometer needle is fully visible, crisp, centered, and sweeps smoothly; gauge arcs are 100% mathematically concentric and perfectly aligned.
 
+---
+
+### Experiment #047: Playback Completion Handover, Tri-State Smart Shuffle Rotation Engine, and Decoupled Process Manager Dynamic Library Architecture
+- **Date**: 2026-11-04
+- **Objective**:
+  1. Replace placeholder icons with the official Attune logo image in sidebar and About stages.
+  2. Implement song completion auto-advance to eliminate manual playback stalls.
+  3. Wire `smart_shuffle.rs` tri-state rotation (`Off` -> `Linear` -> `Smart`) into transport controls and docked queue header.
+  4. Decouple process manager into an independent dynamic shared library (`libattune_procmgr.so` / `attune_procmgr.dll`), purge root cause analysis text, and rename button to "Clean up Process Memory" for Windows compliance.
+- **Setup**: Linux (WebKitGTK / Wry), release binary `./target/release/attune-desktop`, `target/release/libattune_procmgr.so`, 159 local FLAC tracks.
+- **Observations & Empirical Verification**:
+  1. **Official Logo Rendering**:
+     - `app_icon_data_url()` returns `data:image/png;base64,{APP_ICON_BASE64}`.
+     - Sidebar brand header renders the official Attune disc logo (28x28 with 7px border radius and mint drop shadow).
+     - About stage renders the hero official logo (72x72 with 18px border radius, glass border, and ambient glow), replacing the generic `tune` Material Icon.
+  2. **Playback Completion Auto-Advance**:
+     - Identified that when a song finishes, `snap.deck_a.state_str == "Finished"` and `!snap.is_playing`. Previously, no handler checked for this condition, causing playback to freeze at the end of the song until manual user input.
+     - Added an auto-advance gate in the 50ms polling loop: when `(is_deck_finished || (is_at_end && is_not_playing)) && is_ready && snap.transition_info.is_none()`, the player triggers `play_next_track()` or replays if `RepeatMode::One`.
+     - Latching with `has_handled_track_end` prevents re-trigger storms across polling intervals.
+  3. **Smart Shuffle Rotation & Candidate Matching**:
+     - Upgraded `shuffle_mode` from boolean to `ShuffleMode` (`Off`, `Linear`, `Smart`).
+     - Wired transport button with dynamic Material Icons:
+       - `Off`: `shuffle` (muted opacity 0.55).
+       - `Linear`: `shuffle` (`#2dd4bf` mint).
+       - `Smart`: `auto_awesome` (`#a855f7` purple with glowing drop shadow).
+     - Cycling to Smart Shuffle evaluates upcoming candidates via `smart_shuffle::evaluate_candidates` and automatically preloads/plans JIT transitions on Deck B.
+     - Added a one-tap shuffle mode badge in the Queue dock header (`[ ✦ Smart Shuffle ]`, `[ ⇄ Shuffle: Linear ]`, `[ ⇄ Shuffle: Off ]`).
+     - Refactored Album view's "Shuffle Album" button to use a seeded Fisher-Yates shuffle.
+  4. **Process Manager Crate & Dynamic Shared Library**:
+     - Built `crates/attune-procmgr` (`libattune_procmgr.so` / `attune_procmgr.dll`) as `cdylib` + `rlib`.
+     - Exposes C-ABI exports: `procmgr_version`, `procmgr_sample_metrics_json`, `procmgr_clean_process_memory`, `procmgr_free_string`.
+     - Added Windows compliance (`EmptyWorkingSet`, `K32GetProcessMemoryInfo`) alongside Linux `/proc` and `/sys` kernel parsing.
+     - In `attune-desktop`, runtime dynamic loader resolves symbols via `libc::dlopen` with graceful fallback if unbuilt.
+     - Removed the "Root Cause Analysis: 1.6GB Memory Usage Resolution" card.
+     - Renamed memory button to "Clean up Process Memory" and subtitle to cross-platform hardware telemetry.
+  5. **Automated Test Results**:
+     - All 23 tests in `attune-desktop` pass.
+     - All 3 tests in `attune-procmgr` pass.
+     - 100% of tests across all workspace crates pass.
+     - Standalone release binary built cleanly (`target/release/attune-desktop` [24M] and `target/release/libattune_procmgr.so` [515K]).
+- **Verdict**: `PASS`. Official branding loaded, playback auto-advances naturally, Smart Shuffle cycles seamlessly with harmonic/BPM intelligence, and process manager is decoupled into a lightweight dynamic library component.
+
+
 
 
 

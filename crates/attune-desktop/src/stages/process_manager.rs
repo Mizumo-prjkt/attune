@@ -1,5 +1,5 @@
 use dioxus::prelude::*;
-use crate::process_manager::{sample_metrics, trim_memory};
+use crate::process_manager::{clean_process_memory, sample_metrics};
 use crate::library::clear_thumbnail_cache;
 
 fn format_bytes(bytes: u64) -> String {
@@ -47,7 +47,7 @@ pub fn ProcessManager() -> Element {
                 div {
                     h1 { style: "font-size: 26px; font-weight: 700;", "Process & Hardware Resource Manager" }
                     p { style: "color: var(--text-secondary); font-size: 13px; margin-top: 4px;",
-                        "Real-time Linux kernel telemetry (/proc & /sys): CPU, GPU, Memory RSS, and Sound Card IRQs"
+                        "Real-time system & hardware telemetry: CPU, GPU, Memory RSS, and Audio Stream Hardware"
                     }
                 }
                 div { style: "display: flex; gap: 12px; align-items: center;",
@@ -59,13 +59,13 @@ pub fn ProcessManager() -> Element {
                         style: "font-weight: 600; padding: 8px 18px; display: inline-flex; align-items: center; gap: 6px;",
                         onclick: move |_| {
                             clear_thumbnail_cache();
-                            let (before, after) = trim_memory();
+                            let (before, after) = clean_process_memory();
                             metrics.set(sample_metrics());
                             let freed = before.saturating_sub(after);
-                            trim_status.set(Some(format!("✓ Freed {} (malloc_trim)", format_bytes(freed))));
+                            trim_status.set(Some(format!("✓ Memory Cleaned (Freed {})", format_bytes(freed))));
                         },
                         span { class: "material-icons md-16", "cleaning_services" }
-                        "Trim Memory (malloc_trim)"
+                        "Clean up Process Memory"
                     }
                 }
             }
@@ -169,21 +169,7 @@ pub fn ProcessManager() -> Element {
                 }
             }
 
-            // Memory Bloat Diagnosis & Mitigation Card
-            div { style: "background: var(--bg-card); padding: 22px; border-radius: 18px; border: 1px solid var(--border-glass); display: flex; flex-direction: column; gap: 14px;",
-                h3 { style: "font-size: 16px; font-weight: 600;", "Root Cause Analysis: 1.6GB Memory Usage Resolution" }
-                
-                div { style: "display: flex; flex-direction: column; gap: 10px; font-size: 13px; color: var(--text-secondary); line-height: 1.5;",
-                    p {
-                        strong { style: "color: #fb7185;", "Why 1.6 GB Occurred: " }
-                        "Lossless audio files (FLAC/ALAC) often embed multi-megabyte (2 MB to 20 MB) uncompressed PNG/JPEG cover art. Loading and base64-encoding raw images for every track caused each track string to consume 3-5 MB. When cloned across Dioxus signals and passed to the WebKitGTK DOM, total memory quickly spiked to 1.6 GB."
-                    }
-                    p {
-                        strong { style: "color: var(--accent-mint);", "Attune's Resolution Applied: " }
-                        "1) Artwork is automatically downsampled to a compact 160x160 JPEG thumbnail (~4-6 KB) and cached to disk. 2) Tracks in the same album share deduplicated in-memory thumbnail references. 3) Total library image memory is reduced by 99.8% (down to ~3 MB for 159 tracks)."
-                    }
-                }
-            }
+
         }
     }
 }

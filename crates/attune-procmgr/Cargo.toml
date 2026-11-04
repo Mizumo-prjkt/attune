@@ -1,0 +1,19 @@
+[package]
+name = "attune-procmgr"
+version = "0.1.0"
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Cross-platform hardware & process manager telemetry shared library (.so / .dll) and memory cleaner for Attune."
+
+[lib]
+name = "attune_procmgr"
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+log.workspace = true
+
+[target.'cfg(target_os = "linux")'.dependencies]
+libc = "0.2"

@@ -158,9 +158,23 @@ pub fn Albums(
                                     class: "album-icon-btn",
                                     title: "Shuffle Album",
                                     onclick: {
-                                        let mut shuffled = group.tracks.clone();
-                                        shuffled.reverse();
-                                        move |_| on_play_tracks.call(shuffled.clone())
+                                        let tracks_to_shuffle = group.tracks.clone();
+                                        move |_| {
+                                            let mut shuffled = tracks_to_shuffle.clone();
+                                            if shuffled.len() > 1 {
+                                                use std::time::SystemTime;
+                                                let mut seed = SystemTime::now()
+                                                    .duration_since(SystemTime::UNIX_EPOCH)
+                                                    .map(|d| d.as_nanos())
+                                                    .unwrap_or(42);
+                                                for i in (1..shuffled.len()).rev() {
+                                                    seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1);
+                                                    let j = ((seed >> 32) as usize) % (i + 1);
+                                                    shuffled.swap(i, j);
+                                                }
+                                            }
+                                            on_play_tracks.call(shuffled);
+                                        }
                                     },
                                     span { class: "material-icons md-28", "shuffle" }
                                 }

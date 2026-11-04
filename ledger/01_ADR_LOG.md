@@ -2773,6 +2773,48 @@ This file records all major architectural decisions for **Attune**, including co
   - Rotation sweeps smoothly from $-58^\circ$ (idle, 10 o'clock) to $+58^\circ$ (redline, 2 o'clock).
   - All 23 `attune-desktop` unit tests and 50 workspace tests pass cleanly.
 
+---
+
+## ADR-079: Official App Icon Integration, Playback Completion Auto-Advance, Tri-State Smart Shuffle Transport Cycling, and Modular Process Manager Dynamic Component (`attune-procmgr`)
+
+- **Status**: `LOCKED`
+- **Date**: 2026-11-04
+- **Context**:
+  - The desktop application exhibited four ergonomic and architectural regressions:
+    1. The sidebar header showed an arbitrary letter `"A"` in a gradient box, and the About stage hero banner displayed a generic `tune` Material Icon rather than Attune's official circular disc branding icon.
+    2. Playback halted when a track reached its conclusion; users had to manually press the Next button because no track-end auto-advance handler progressed the queue when Deck A/B reached `DeckState::Finished` or EOF.
+    3. The Smart Shuffle option could not be toggled or cycled from the transport bar—the button toggled a simple boolean without matching the Flutter client's tri-state rotation (`Off` -> `Linear` -> `Smart`), leaving `smart_shuffle.rs` evaluation code unused.
+    4. The Process Manager UI retained an outdated "Root Cause Analysis: 1.6GB Memory Usage Resolution" card and labeled memory trimming as `malloc_trim` rather than cross-platform "Clean up Process Memory". Furthermore, static linking of kernel telemetry code into the desktop binary increased executable bloat.
+- **Decision**:
+  1. **Official Brand Logo Loading**:
+     - Exported `app_icon_data_url() -> &'static str` in `crates/attune-desktop/src/app_icon.rs` using a static `OnceLock` returning `data:image/png;base64,{APP_ICON_BASE64}`.
+     - Replaced the placeholder `"A"` box in the sidebar header and the `tune` icon in `About` with `<img src="{app_icon_data_url()}">`, guaranteeing zero file-I/O instant rendering and official disc branding parity.
+  2. **Track Completion Auto-Advance**:
+     - Added a track completion gate in `App`'s 50ms poller: when `(is_deck_finished || (is_at_end && is_not_playing)) && is_ready && snap.transition_info.is_none()`, the player auto-advances via `play_next_track()` or restarts on `RepeatMode::One`.
+     - Added `has_handled_track_end` latching to prevent duplicate triggers across polling intervals while playhead is at EOF.
+  3. **Tri-State Smart Shuffle Cycling & Candidate Scoring**:
+     - Changed `shuffle_mode` to `ShuffleMode` enum (`Off`, `Linear`, `Smart`) initialized to `ShuffleMode::Smart` by default.
+     - Implemented `pick_next_index` evaluating Camelot harmonic compatibility, BPM ratio/subdivision, and `SmartShuffleHistory` recency penalties to select optimal candidates.
+     - Transport bar shuffle button displays:
+       - `ShuffleMode::Off`: `shuffle` icon in muted text color.
+       - `ShuffleMode::Linear`: `shuffle` icon in accent mint (`var(--accent-mint)`).
+       - `ShuffleMode::Smart`: `auto_awesome` icon in accent purple (`var(--accent-purple)`) with soft glowing filter.
+     - Clicking the transport shuffle button or the queue header pill cycles between `Off -> Linear -> Smart -> Off` and automatically prepares or clears JIT transition recipes on Deck B.
+     - Refactored `AlbumsStage` "Shuffle Album" button from a static `.reverse()` to an active seeded Fisher-Yates permutation.
+  4. **Modular Dynamic Component (`attune-procmgr`)**:
+     - Extracted process management into a dedicated workspace crate: `crates/attune-procmgr` (`libattune_procmgr.so` on Linux / `attune_procmgr.dll` on Windows).
+     - Provides safe C-ABI exports: `procmgr_version`, `procmgr_sample_metrics_json`, `procmgr_clean_process_memory`, and `procmgr_free_string`.
+     - Added Windows compliance using `EmptyWorkingSet(GetCurrentProcess())` and `K32GetProcessMemoryInfo` alongside Linux `/proc` and `/sys` kernel parsing and `malloc_trim`.
+     - In `attune-desktop`, dynamically loads `libattune_procmgr.so` / `attune_procmgr.dll` at runtime via `libc::dlopen` / `LoadLibraryA` with zero static library bloat and graceful fallback.
+     - Purged the Root Cause Analysis card and renamed button to "Clean up Process Memory".
+- **Consequences**:
+  - Official Attune logo renders consistently across sidebar and About stages.
+  - Songs continuously auto-advance and transition seamlessly without manual user intervention.
+  - Smart Shuffle is prominent, accessible, and accurately matches harmonic/rhythmic profiles.
+  - Process Manager is decoupled into an independent dynamic shared library, keeping the core desktop executable light and modular.
+  - All 23 tests in `attune-desktop`, 3 tests in `attune-procmgr`, and 100% of workspace tests pass. Release binary compiled cleanly.
+
+
 
 
 

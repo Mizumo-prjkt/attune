@@ -18,6 +18,12 @@ pub fn load_app_icon() -> Option<Icon> {
     Icon::from_rgba(raw, width, height).ok()
 }
 
+/// Returns a data URL (`data:image/png;base64,...`) for instant rendering in UI image tags.
+pub fn app_icon_data_url() -> &'static str {
+    static DATA_URL: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    DATA_URL.get_or_init(|| format!("data:image/png;base64,{}", APP_ICON_BASE64))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -5,10 +5,12 @@ use std::sync::{mpsc, Arc, Mutex};
 use std::time::Duration;
 
 use attune_core::MasterFxParams;
+use crate::app_icon::app_icon_data_url;
 use crate::components::lyrics_parser::{resolve_companion_lyrics, LyricsSheet};
 use crate::config;
 use crate::library::{self, fmt_ms, ScanEvent, TrackEntry};
-use crate::player::{PendingTransitionInfo, Player};
+use crate::player::{LoadState, PendingTransitionInfo, Player};
+use crate::smart_shuffle::{self, ShuffleMode, SmartShuffleHistory};
 use crate::stages::{
     about::About, album_editor::AlbumEditor, albums::{AlbumGroup, Albums}, equalizer::Equalizer,
     favorites::Favorites, for_you::ForYou, home::Home, library::Library,
@@ -70,7 +72,9 @@ pub fn App() -> Element {
     let mut playback_pos_ms = use_signal(|| 0u64);
     let mut playback_dur_ms = use_signal(|| 0u64);
     let mut volume_pct = use_signal(|| 85u32); // 0 - 100
-    let mut shuffle_mode = use_signal(|| true); // Smart Shuffle on by default
+    let mut shuffle_mode = use_signal(|| ShuffleMode::Smart); // Smart DJ Shuffle active by default
+    let mut shuffle_history = use_signal(SmartShuffleHistory::default);
+    let mut has_handled_track_end = use_signal(|| false);
     let mut repeat_mode = use_signal(|| RepeatMode::Off);
 
     // 3. Lyrics State
@@ -115,6 +119,80 @@ pub fn App() -> Element {
         }
     };
 
+    // Helper: Select next index using current ShuffleMode (Off, Linear, Smart) and recency history
+    let pick_next_index = move |curr_idx: usize| -> Option<usize> {
+        let mode = *shuffle_mode.read();
+        let q = queue.read().clone();
+        let all = tracks.read().clone();
+        let hist = shuffle_history.read().clone();
+
+        if !q.is_empty() {
+            match mode {
+                ShuffleMode::Off => {
+                    if curr_idx + 1 < q.len() {
+                        Some(curr_idx + 1)
+                    } else {
+                        None
+                    }
+                }
+                ShuffleMode::Linear => {
+                    if q.len() <= 1 {
+                        Some(0)
+                    } else {
+                        use std::time::SystemTime;
+                        let seed = SystemTime::now()
+                            .duration_since(SystemTime::UNIX_EPOCH)
+                            .map(|d| d.as_nanos())
+                            .unwrap_or(0);
+                        let mut next = (seed as usize) % q.len();
+                        if next == curr_idx {
+                            next = (next + 1) % q.len();
+                        }
+                        Some(next)
+                    }
+                }
+                ShuffleMode::Smart => {
+                    if q.len() <= 1 {
+                        Some(0)
+                    } else {
+                        let current = q.get(curr_idx)?;
+                        let candidate_indices: Vec<usize> = (0..q.len()).filter(|&i| i != curr_idx).collect();
+                        let evaluated = smart_shuffle::evaluate_candidates(current, &candidate_indices, &q, &hist);
+                        evaluated.first().map(|c| c.track_idx).or(Some((curr_idx + 1) % q.len()))
+                    }
+                }
+            }
+        } else if !all.is_empty() {
+            match mode {
+                ShuffleMode::Off => Some((curr_idx + 1) % all.len()),
+                ShuffleMode::Linear => {
+                    if all.len() <= 1 {
+                        Some(0)
+                    } else {
+                        use std::time::SystemTime;
+                        let seed = SystemTime::now()
+                            .duration_since(SystemTime::UNIX_EPOCH)
+                            .map(|d| d.as_nanos())
+                            .unwrap_or(0);
+                        let mut idx = (seed as usize) % all.len();
+                        if idx == curr_idx {
+                            idx = (idx + 1) % all.len();
+                        }
+                        Some(idx)
+                    }
+                }
+                ShuffleMode::Smart => {
+                    let current = all.get(curr_idx)?;
+                    let candidate_indices: Vec<usize> = (0..all.len()).filter(|&i| i != curr_idx).collect();
+                    let evaluated = smart_shuffle::evaluate_candidates(current, &candidate_indices, &all, &hist);
+                    evaluated.first().map(|c| c.track_idx).or(Some((curr_idx + 1) % all.len()))
+                }
+            }
+        } else {
+            None
+        }
+    };
+
     // Helper: Play a specific track
     let mut play_track = {
         let player = player.clone();
@@ -122,6 +200,10 @@ pub fn App() -> Element {
             let p = player.read();
             p.play_file(track.path.clone());
             current_track.set(Some(track.clone()));
+            has_handled_track_end.set(false);
+
+            // Record track in rotation history
+            shuffle_history.write().record_played(track.path.clone());
 
             // Update recent tracks
             let mut recents = recent_tracks.read().clone();
@@ -135,16 +217,30 @@ pub fn App() -> Element {
             lyrics_sheet.set(sheet);
             active_lyric_index.set(None);
 
-            // Prepare transition to next track in queue if available
-            let q = queue.read().clone();
-            let pos = *queue_pos.read();
-            if pos + 1 < q.len() {
-                let next_track = &q[pos + 1];
-                p.prepare_transition(
-                    next_track.path.clone(),
-                    next_track.title.clone(),
-                    next_track.artist.clone(),
-                );
+            // Prepare transition to next track in queue/library if Smart Shuffle is active
+            if *shuffle_mode.read() == ShuffleMode::Smart {
+                let curr_pos = *queue_pos.read();
+                if let Some(next_idx) = pick_next_index(curr_pos) {
+                    let q = queue.read().clone();
+                    let all = tracks.read().clone();
+                    let next_track = if !q.is_empty() && next_idx < q.len() {
+                        Some(&q[next_idx])
+                    } else if !all.is_empty() && next_idx < all.len() {
+                        Some(&all[next_idx])
+                    } else {
+                        None
+                    };
+
+                    if let Some(nt) = next_track {
+                        p.prepare_transition(
+                            nt.path.clone(),
+                            nt.title.clone(),
+                            nt.artist.clone(),
+                        );
+                    }
+                }
+            } else {
+                p.clear_pending_transition();
             }
         }
     };
@@ -166,20 +262,29 @@ pub fn App() -> Element {
         move || {
             let q = queue.read().clone();
             let curr_pos = *queue_pos.read();
-            if curr_pos + 1 < q.len() {
-                queue_pos.set(curr_pos + 1);
-                play_track(q[curr_pos + 1].clone());
-            } else if *repeat_mode.read() == RepeatMode::All && !q.is_empty() {
+            let next_idx_opt = pick_next_index(curr_pos);
+
+            if let Some(next_idx) = next_idx_opt {
+                if !q.is_empty() && next_idx < q.len() {
+                    queue_pos.set(next_idx);
+                    play_track(q[next_idx].clone());
+                    return;
+                }
+            }
+
+            // Handle repeat mode when sequential queue ends
+            if *repeat_mode.read() == RepeatMode::All && !q.is_empty() {
                 queue_pos.set(0);
                 play_track(q[0].clone());
             } else {
                 let all_tracks = tracks.read().clone();
-                if !all_tracks.is_empty() {
-                    // Pick a random or harmonic track
-                    use std::time::SystemTime;
-                    let seed = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0);
-                    let idx = (seed as usize) % all_tracks.len();
-                    play_track(all_tracks[idx].clone());
+                if !all_tracks.is_empty() && *shuffle_mode.read() != ShuffleMode::Off {
+                    let next_idx = if let Some(idx) = pick_next_index(curr_pos) {
+                        idx % all_tracks.len()
+                    } else {
+                        0
+                    };
+                    play_track(all_tracks[next_idx].clone());
                 }
             }
         }
@@ -231,9 +336,11 @@ pub fn App() -> Element {
     };
 
     // Background Async Poller (50ms Interval): Updates playback, auto-transitions, scan events, and lyrics
+    let play_next_track_poller = play_next_track.clone();
     use_future(move || {
         let player = player.clone();
         let scan_rx = scan_rx.clone();
+        let mut play_next_track = play_next_track_poller.clone();
         async move {
             loop {
                 tokio::time::sleep(Duration::from_millis(50)).await;
@@ -282,30 +389,68 @@ pub fn App() -> Element {
                     playback_pos_ms.set(pos);
                     playback_dur_ms.set(dur);
 
+                    if snap.is_playing && pos + 1500 < dur {
+                        has_handled_track_end.set(false);
+                    }
+
                     if let Some((_, _, pct, archetype)) = &snap.transition_info {
                         active_trans_name.set(Some(format!("Blending: {archetype} ({:.0}%)", pct * 100.0)));
                     } else {
                         active_trans_name.set(None);
                     }
-                }
 
-                // 3. Check for Automatic JIT Transition Trigger
-                if let Some(triggered) = p.check_auto_transition() {
-                    last_verdict.set(Some(triggered.clone()));
-                    let q = queue.read().clone();
-                    let curr_pos = *queue_pos.read();
-                    if curr_pos + 1 < q.len() {
-                        queue_pos.set(curr_pos + 1);
-                        current_track.set(Some(q[curr_pos + 1].clone()));
-                        let sheet = resolve_companion_lyrics(&q[curr_pos + 1].path).unwrap_or_else(LyricsSheet::empty);
-                        lyrics_sheet.set(sheet);
+                    // 3. Check for Automatic JIT Transition Trigger
+                    if let Some(triggered) = p.check_auto_transition() {
+                        last_verdict.set(Some(triggered.clone()));
+                        let q = queue.read().clone();
+                        let curr_pos = *queue_pos.read();
+                        if let Some(next_idx) = pick_next_index(curr_pos) {
+                            if next_idx < q.len() {
+                                queue_pos.set(next_idx);
+                                current_track.set(Some(q[next_idx].clone()));
+                                let sheet = resolve_companion_lyrics(&q[next_idx].path).unwrap_or_else(LyricsSheet::empty);
+                                lyrics_sheet.set(sheet);
+                                shuffle_history.write().record_played(q[next_idx].path.clone());
+
+                                // Pre-plan next transition for upcoming track
+                                if *shuffle_mode.read() == ShuffleMode::Smart {
+                                    if let Some(upcoming_idx) = pick_next_index(next_idx) {
+                                        if upcoming_idx < q.len() {
+                                            p.prepare_transition(
+                                                q[upcoming_idx].path.clone(),
+                                                q[upcoming_idx].title.clone(),
+                                                q[upcoming_idx].artist.clone(),
+                                            );
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // 4. Track completion auto-advance check
+                    let is_deck_finished = snap.deck_a.state_str == "Finished" || (snap.active_deck_str == "Deck B" && snap.deck_b.state_str == "Finished");
+                    let is_at_end = dur > 3000 && pos >= dur.saturating_sub(400);
+                    let is_not_playing = !snap.is_playing;
+                    let is_ready = p.load_state() == LoadState::Ready;
+
+                    if (is_deck_finished || (is_at_end && is_not_playing)) && is_ready && snap.transition_info.is_none() {
+                        if !*has_handled_track_end.read() {
+                            has_handled_track_end.set(true);
+                            if *repeat_mode.read() == RepeatMode::One {
+                                p.seek_ms(0);
+                                p.play();
+                            } else {
+                                play_next_track();
+                            }
+                        }
                     }
                 }
 
-                // 4. Update Pending Transition Info
+                // 5. Update Pending Transition Info
                 pending_trans_info.set(p.pending_transition());
 
-                // 5. Update Synchronized Lyrics Active Line
+                // 6. Update Synchronized Lyrics Active Line
                 let pos = *playback_pos_ms.read();
                 let active_idx = lyrics_sheet.read().active_line_index(pos);
                 if active_idx != *active_lyric_index.read() {
@@ -357,9 +502,10 @@ pub fn App() -> Element {
             div { class: "sidebar",
                 // Brand Header
                 div { style: "display: flex; align-items: center; gap: 10px; padding: 6px 8px 12px 8px;",
-                    div {
-                        style: "width: 28px; height: 28px; border-radius: 7px; background: linear-gradient(135deg, var(--accent-mint), var(--accent-purple)); display: flex; align-items: center; justify-content: center; font-size: 16px; font-weight: 800; color: #0b101b;",
-                        "A"
+                    img {
+                        src: "{app_icon_data_url()}",
+                        style: "width: 28px; height: 28px; border-radius: 7px; object-fit: contain; filter: drop-shadow(0 2px 6px rgba(45,212,191,0.35));",
+                        alt: "Attune Logo",
                     }
                     span { style: "font-weight: 700; font-size: 16px; letter-spacing: 0.05em;", "ATTUNE" }
                 }
@@ -849,7 +995,36 @@ pub fn App() -> Element {
                         DockMode::Queue => rsx! {
                             div { class: "dock-header",
                                 span { style: "font-weight: 700; font-size: 15px;", "Up Next Queue" }
-                                div { style: "display: flex; gap: 8px; align-items: center;",
+                                div { style: "display: flex; gap: 6px; align-items: center;",
+                                    button {
+                                        class: if *shuffle_mode.read() == ShuffleMode::Smart { "btn-pill active" } else { "btn-pill" },
+                                        style: "font-size: 11px; padding: 2px 8px; display: inline-flex; align-items: center; gap: 4px;",
+                                        title: "Cycle Shuffle Mode (Off / Linear / Smart)",
+                                        onclick: move |_| {
+                                            let next_mode = shuffle_mode.read().next();
+                                            shuffle_mode.set(next_mode);
+                                            let p = player.read();
+                                            if next_mode == ShuffleMode::Smart {
+                                                let curr_pos = *queue_pos.read();
+                                                if let Some(next_idx) = pick_next_index(curr_pos) {
+                                                    let q = queue.read().clone();
+                                                    if next_idx < q.len() {
+                                                        p.prepare_transition(
+                                                            q[next_idx].path.clone(),
+                                                            q[next_idx].title.clone(),
+                                                            q[next_idx].artist.clone(),
+                                                        );
+                                                    }
+                                                }
+                                            } else {
+                                                p.clear_pending_transition();
+                                            }
+                                        },
+                                        span { class: "material-icons md-12",
+                                            if *shuffle_mode.read() == ShuffleMode::Smart { "auto_awesome" } else { "shuffle" }
+                                        }
+                                        span { "{shuffle_mode.read().label()}" }
+                                    }
                                     button {
                                         class: "btn-pill",
                                         style: "font-size: 11px; padding: 2px 8px;",
@@ -970,16 +1145,63 @@ pub fn App() -> Element {
                 // Center: Playback Controls on Top + Timeline Scrubber Directly Below
                 div { class: "transport-center",
                     div { class: "transport-controls-row",
-                        // Shuffle
-                        button {
-                            class: "btn-ctrl",
-                            style: if *shuffle_mode.read() { "color: var(--accent-mint);" } else { "" },
-                            title: "Smart DJ Shuffle",
-                            onclick: move |_| {
-                                let curr = *shuffle_mode.read();
-                                shuffle_mode.set(!curr);
-                            },
-                            span { class: "material-icons md-20", "shuffle" }
+                        // Shuffle Button (Tri-State: Off -> Linear -> Smart)
+                        {
+                            let mode = *shuffle_mode.read();
+                            let (icon_name, style_str, tooltip_text) = match mode {
+                                ShuffleMode::Off => (
+                                    "shuffle",
+                                    "color: var(--text-muted); opacity: 0.55;",
+                                    "Shuffle Off (Linear Sequence)",
+                                ),
+                                ShuffleMode::Linear => (
+                                    "shuffle",
+                                    "color: var(--accent-mint);",
+                                    "Basic Shuffle (Random Track)",
+                                ),
+                                ShuffleMode::Smart => (
+                                    "auto_awesome",
+                                    "color: var(--accent-purple); filter: drop-shadow(0 0 6px rgba(168,85,247,0.7));",
+                                    "Smart Shuffle (Algorithmic Transition Match)",
+                                ),
+                            };
+
+                            rsx! {
+                                button {
+                                    class: "btn-ctrl",
+                                    style: "{style_str}",
+                                    title: "{tooltip_text}",
+                                    onclick: move |_| {
+                                        let next_mode = shuffle_mode.read().next();
+                                        shuffle_mode.set(next_mode);
+                                        let p = player.read();
+                                        if next_mode == ShuffleMode::Smart {
+                                            let curr_pos = *queue_pos.read();
+                                            if let Some(next_idx) = pick_next_index(curr_pos) {
+                                                let q = queue.read().clone();
+                                                let all = tracks.read().clone();
+                                                let next_track = if !q.is_empty() && next_idx < q.len() {
+                                                    Some(&q[next_idx])
+                                                } else if !all.is_empty() && next_idx < all.len() {
+                                                    Some(&all[next_idx])
+                                                } else {
+                                                    None
+                                                };
+                                                if let Some(nt) = next_track {
+                                                    p.prepare_transition(
+                                                        nt.path.clone(),
+                                                        nt.title.clone(),
+                                                        nt.artist.clone(),
+                                                    );
+                                                }
+                                            }
+                                        } else {
+                                            p.clear_pending_transition();
+                                        }
+                                    },
+                                    span { class: "material-icons md-20", "{icon_name}" }
+                                }
+                            }
                         }
                         // Previous
                         button {
