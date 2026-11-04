@@ -327,10 +327,16 @@ pub fn App() -> Element {
         }
     };
 
-    // Calculate time labels for scrubber
+    // Calculate time labels and percentages for scrubber & volume
     let elapsed_str = fmt_ms(*playback_pos_ms.read());
     let rem_ms = playback_dur_ms.read().saturating_sub(*playback_pos_ms.read());
     let remaining_str = format!("-{}", fmt_ms(rem_ms));
+    let progress_pct = if *playback_dur_ms.read() > 0 {
+        ((*playback_pos_ms.read() as f64) / (*playback_dur_ms.read() as f64) * 100.0).clamp(0.0, 100.0)
+    } else {
+        0.0
+    };
+    let vol_pct = (*volume_pct.read()).clamp(0, 100);
     let (scan_curr, scan_total) = *scan_progress.read();
 
     let curr_track_clone = current_track.read().clone();
@@ -837,54 +843,42 @@ pub fn App() -> Element {
             // BOTTOM TRANSPORT BAR
             // ==========================================
             div { class: "transport-bar",
-                // Scrubber Row: 0:42 ━━━━━━━━━━━━━━━━━━●────────────────────── -2:01
-                div { class: "scrubber-row",
-                    span { class: "time-label", "{elapsed_str}" }
-                    input {
-                        r#type: "range",
-                        class: "scrubber-slider",
-                        min: "0",
-                        max: "{playback_dur_ms.read().max(1)}",
-                        value: "{playback_pos_ms.read()}",
-                        oninput: move |evt| {
-                            if let Ok(val) = evt.value().parse::<u64>() {
-                                playback_pos_ms.set(val);
-                                player.read().seek_ms(val);
-                            }
-                        },
-                    }
-                    span { class: "time-label", style: "text-align: right;", "{remaining_str}" }
-                }
-
-                // Controls Row: Left = Album info, Center = Playback controls, Right = Actions & Volume
-                div { class: "controls-row",
-                    // Left: Mini Now Playing Pill
-                    div { class: "transport-left",
-                        if let Some((title, artist_album, art_src)) = mini_pill_info {
-                            div { class: "mini-pill",
-                                if !art_src.is_empty() {
-                                    img { class: "mini-art", src: "{art_src}", alt: "{title}" }
-                                } else {
-                                    div {
-                                        class: "mini-art",
-                                        style: "display: flex; align-items: center; justify-content: center; font-size: 20px;",
-                                        "🎵"
-                                    }
-                                }
-                                div { class: "mini-meta",
-                                    span { class: "mini-title", "{title}" }
-                                    span { class: "mini-artist", "{artist_album}" }
+                // Left: Mini Now Playing Pill (Cover art + Title/Artist)
+                div { class: "transport-left",
+                    if let Some((title, artist_album, art_src)) = mini_pill_info {
+                        div { class: "mini-pill",
+                            if !art_src.is_empty() {
+                                img { class: "mini-art", src: "{art_src}", alt: "{title}" }
+                            } else {
+                                div {
+                                    class: "mini-art",
+                                    style: "display: flex; align-items: center; justify-content: center; font-size: 20px;",
+                                    "🎵"
                                 }
                             }
-                        } else {
-                            div { class: "mini-pill",
-                                span { style: "color: var(--text-muted); font-size: 13px;", "No track selected" }
+                            div { class: "mini-meta",
+                                span { class: "mini-title", "{title}" }
+                                span { class: "mini-artist", "{artist_album}" }
+                            }
+                        }
+                    } else {
+                        div { class: "mini-pill",
+                            div {
+                                class: "mini-art",
+                                style: "display: flex; align-items: center; justify-content: center; font-size: 18px; color: var(--text-muted);",
+                                "🎵"
+                            }
+                            div { class: "mini-meta",
+                                span { class: "mini-title", style: "color: var(--text-muted);", "Attune Player" }
+                                span { class: "mini-artist", "Select a track to play" }
                             }
                         }
                     }
+                }
 
-                    // Center: Playback controls
-                    div { class: "transport-center",
+                // Center: Playback Controls on Top + Timeline Scrubber Directly Below
+                div { class: "transport-center",
+                    div { class: "transport-controls-row",
                         // Shuffle
                         button {
                             class: "btn-ctrl",
@@ -944,39 +938,62 @@ pub fn App() -> Element {
                         }
                     }
 
-                    // Right: Actions (Favorites, Volume, Fullscreen)
-                    div { class: "transport-right",
-                        // Favorite Heart
-                        button {
-                            class: "btn-ctrl",
-                            style: if current_track.read().as_ref().map(|t| favorites.read().contains(&t.path)).unwrap_or(false) {
-                                "color: #fb7185;"
-                            } else {
-                                ""
-                            },
-                            title: "Toggle Favorite",
-                            onclick: move |_| {
-                                if let Some(t) = current_track.read().as_ref() {
-                                    let mut favs = favorites.read().clone();
-                                    if favs.contains(&t.path) {
-                                        favs.remove(&t.path);
-                                    } else {
-                                        favs.insert(t.path.clone());
-                                    }
-                                    favorites.set(favs);
+                    // Scrubber Row: 0:42 ━━━━━━━━━━━━━━━━━━●────────────────────── -2:01
+                    div { class: "scrubber-row",
+                        span { class: "time-label", "{elapsed_str}" }
+                        input {
+                            r#type: "range",
+                            class: "scrubber-slider",
+                            min: "0",
+                            max: "{playback_dur_ms.read().max(1)}",
+                            value: "{playback_pos_ms.read()}",
+                            style: "background: linear-gradient(to right, var(--accent-mint) 0%, var(--accent-mint) {progress_pct}%, rgba(255, 255, 255, 0.15) {progress_pct}%, rgba(255, 255, 255, 0.15) 100%);",
+                            oninput: move |evt| {
+                                if let Ok(val) = evt.value().parse::<u64>() {
+                                    playback_pos_ms.set(val);
+                                    player.read().seek_ms(val);
                                 }
                             },
-                            if current_track.read().as_ref().map(|t| favorites.read().contains(&t.path)).unwrap_or(false) { "♥" } else { "♡" }
                         }
+                        span { class: "time-label", style: "text-align: right;", "{remaining_str}" }
+                    }
+                }
 
-                        // Volume Slider
+                // Right: Actions (Favorites, Volume with Dynamic Fill, Fullscreen)
+                div { class: "transport-right",
+                    // Favorite Heart
+                    button {
+                        class: "btn-ctrl",
+                        style: if current_track.read().as_ref().map(|t| favorites.read().contains(&t.path)).unwrap_or(false) {
+                            "color: #fb7185;"
+                        } else {
+                            ""
+                        },
+                        title: "Toggle Favorite",
+                        onclick: move |_| {
+                            if let Some(t) = current_track.read().as_ref() {
+                                let mut favs = favorites.read().clone();
+                                if favs.contains(&t.path) {
+                                    favs.remove(&t.path);
+                                } else {
+                                    favs.insert(t.path.clone());
+                                }
+                                favorites.set(favs);
+                            }
+                        },
+                        if current_track.read().as_ref().map(|t| favorites.read().contains(&t.path)).unwrap_or(false) { "♥" } else { "♡" }
+                    }
+
+                    // Volume Slider with Mint Linear-Gradient Fill
+                    div { style: "display: flex; align-items: center; gap: 8px;",
                         span { style: "font-size: 14px; color: var(--text-muted);", "🔊" }
                         input {
                             r#type: "range",
                             class: "vol-slider",
                             min: "0",
                             max: "100",
-                            value: "{volume_pct.read()}",
+                            value: "{vol_pct}",
+                            style: "background: linear-gradient(to right, var(--accent-mint) 0%, var(--accent-mint) {vol_pct}%, rgba(255, 255, 255, 0.18) {vol_pct}%, rgba(255, 255, 255, 0.18) 100%);",
                             oninput: move |evt| {
                                 if let Ok(pct) = evt.value().parse::<u32>() {
                                     volume_pct.set(pct);
@@ -989,14 +1006,14 @@ pub fn App() -> Element {
                                 }
                             },
                         }
+                    }
 
-                        // Fullscreen / Stage Toggle
-                        button {
-                            class: "btn-ctrl",
-                            title: "Toggle Now Playing",
-                            onclick: move |_| navigate_to(StageView::Home),
-                            "⛶"
-                        }
+                    // Fullscreen / Stage Toggle
+                    button {
+                        class: "btn-ctrl",
+                        title: "Toggle Now Playing",
+                        onclick: move |_| navigate_to(StageView::Home),
+                        "⛶"
                     }
                 }
             }

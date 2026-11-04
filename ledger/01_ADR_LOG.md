@@ -2297,7 +2297,7 @@ This file records all major architectural decisions for **Attune**, including co
 - **Date**: 2026-11-04
 - **Status**: `LOCKED` (Implemented & Verified)
 - **Context**:
-  1. The user requested a fundamental philosophy shift and redesign for the Rust egui desktop frontend (`crates/attune-desktop`), replacing mobile-port navigation with a pure desktop experience inspired by Liquid Material Glass, Liquid Material Glass, and modern desktop audio players.
+  1. The user requested a fundamental philosophy shift and redesign for the Rust egui desktop frontend (`crates/attune-desktop`), replacing mobile-port navigation with a pure desktop experience inspired by modern liquid glass desktop audio players.
   2. The user provided an ASCII layout sketch and visual reference screenshot (`media_1793749753628_b1da9f4b.png`):
      - Left fixed sidebar (~210px) spanning full height with Search at top, navigation categories (`ATTUNE`, `SOURCES`, `PLAYLISTS & MIXES`), and bottom settings/equalizer shortcuts.
      - Top navigation bar inside the center column with `<` and `>` history navigation buttons, scanning/driver telemetry, and right toolbar toggles `[💬 Lyrics]` `[☰ Queue]` `[🎚️ Equalizer]`.
@@ -2320,7 +2320,7 @@ This file records all major architectural decisions for **Attune**, including co
   3. **Stage Implementations (`crates/attune-desktop/src/stages/`)**:
      - `home.rs`: Personalized greeting derived from system hour and `USER` env variable; Hero Now Playing Liquid Glass Card ($130 \times 130$ artwork, bold title, artist, audio quality badge, inline play/pause/skip, live DJ transition indicator, click to expand); "HARMONIC MATCHES & RECENTLY PLAYED" responsive grid (6–9 cards with $56 \times 56$ thumbnails, title, artist, Camelot key badge, 1-click play); quick action shortcuts.
      - `for_you.rs`: 3 Algorithmic Mixes (Harmonic Energy Flow via Camelot circle of fifths, High BPM Peak Energy for 140+ BPM, Melodic Chillout & Ambient for <125 BPM).
-     - `lyrics.rs`: Added `show_docked` with Liquid Material Glass desktop typography, cream white `#FFFDD0` active singing line, auto-scroll centering with lock toggle.
+     - `lyrics.rs`: Added `show_docked` with desktop liquid glass typography, cream white `#FFFDD0` active singing line, auto-scroll centering with lock toggle.
      - `favorites_content`: Dedicated Favorites view with track count, total duration, "Play All Favorites" button, and virtual table with 1-click play and remove.
   4. **State Persistence**:
      - Persists `favorites` list, `dock_mode`, `current_stage`, `volume_db`, `shuffle_mode`, `repeat_mode`, and `music_dir` in `eframe::Storage`.
@@ -2332,16 +2332,16 @@ This file records all major architectural decisions for **Attune**, including co
 
 ---
 
-## ADR-068: Native Rust Dioxus Desktop Frontend Migration (WebKitGTK / WebView2), Liquid Glass Stylesheet, and Liquid Material Glass UX Parity
+## ADR-068: Native Rust Dioxus Desktop Frontend Migration (WebKitGTK / WebView2), Liquid Glass Stylesheet, and Liquid Glass UX Parity
 - **Date**: 2026-11-04
 - **Status**: `LOCKED` (Implemented & Verified)
 - **Context**:
   1. The user evaluated egui's immediate-mode rendering for the desktop player: while fast for debug tooling, immediate-mode egui made rich desktop consumer media player interfaces feel stiff, off, and limited in complex text shaping, typography kerning, and CSS3 `backdrop-filter: blur(...)` liquid glass aesthetics.
   2. The user instructed migrating the desktop frontend from `egui` to the **Dioxus** framework (`dioxus = "0.6"` with `features = ["desktop"]`), keeping Flutter strictly for Android while desktop runs 100% native Rust on Linux and Windows.
-  3. The desktop experience must faithfully match the reference design (Liquid Material Glass layout, user's ASCII mockup and screenshot `media_1793749753628_b1da9f4b.png`):
+  3. The desktop experience must faithfully match the reference design (reference desktop player layout, user's ASCII mockup and screenshot `media_1793749753628_b1da9f4b.png`):
      - Left fixed sidebar (210px) with Search, categorized navigation (`ATTUNE`, `SOURCES`), and bottom shortcuts (`Equalizer`, `About`).
      - Center main stage with Top Navigation (history `<` `>`, scan/transition telemetry, right dock toggles `[💬 Lyrics]` `[☰ Queue]` `[🎚️ EQ]`), personalized greeting, Hero Now Playing liquid glass card, and Camelot-compatible Harmonic Matches grid.
-     - Right docked panel (330px) with Liquid Material Glass synchronized lyrics (cream white `#FFFDD0` bold glowing active singing line with scale transform, dimmed inactive lines, and click-to-seek) or Up Next queue.
+     - Right docked panel (330px) with synchronized lyrics (cream white `#FFFDD0` bold glowing active singing line with scale transform, dimmed inactive lines, and click-to-seek) or Up Next queue.
      - Bottom transport bar (98px) with full-width scrubber (`0:42 ━━━━●━━━━ -2:01`), playback controls, mini now playing pill, and favorites/volume/fullscreen actions.
      - 10-band mastering EQ modal (31Hz to 16kHz biquad peaking filters with real-time DSP preview via `attune-core::MasterFxRack`), bass boost, clarity exciter, and stereo width.
      - JIT transition planning and execution via `DualDeckMixer` with live transition verdict modal.
@@ -2354,7 +2354,7 @@ This file records all major architectural decisions for **Attune**, including co
      - Resolved Linux system linker dependency for `libxdo.so` (required by `muda` desktop window menus).
   2. **Stylesheet & Visual Design (`crates/attune-desktop/src/style.css`)**:
      - Engineered dark liquid glass theme (`#090b10` base canvas, `rgba(22, 29, 43, 0.65)` glass card surfaces, `backdrop-filter: blur(28px)`, specular glass borders).
-     - Full Liquid Material Glass synchronized lyrics typography: cream white `#FFFDD0` active singing line (22px bold, text shadow glow `0 0 16px rgba(255, 253, 208, 0.35)`, scale 1.02), dimmed inactive lines (15px), and sub-second seek on click.
+     - Full synchronized lyrics typography: cream white `#FFFDD0` active singing line (22px bold, text shadow glow `0 0 16px rgba(255, 253, 208, 0.35)`, scale 1.02), dimmed inactive lines (15px), and sub-second seek on click.
      - Ambient living background mesh gradient with radial blurs.
   3. **Reactive State & Polling Architecture (`crates/attune-desktop/src/app.rs`)**:
      - Utilized Dioxus 0.6 reactive signals (`use_signal`) for player state, library tracks, queue, favorites, active stage, and lyrics.
@@ -2370,7 +2370,7 @@ This file records all major architectural decisions for **Attune**, including co
      - 10-band mastering equalizer modal with vertical biquad peaking sliders (-12dB to +12dB) and "Reset to Flat" button.
      - Transition Recipe Verdict modal with archetype breakdown, duration, confidence, and cue alignment.
 - **Consequences**:
-  - Fluid, modern, high-framerate desktop UI with hardware-accelerated CSS3 glassmorphism, native scrolling, and Liquid Material Glass aesthetics.
+  - Fluid, modern, high-framerate desktop UI with hardware-accelerated CSS3 glassmorphism, native scrolling, and modern liquid glass desktop aesthetics.
   - Zero IPC latency: audio decoding, mixing, and DSP remain 100% in-process Rust.
   - Self-contained 22MB release binary (`target/release/attune-desktop`).
   - All 13 unit tests in `attune-desktop` and all tests across the workspace pass cleanly.
@@ -2508,6 +2508,43 @@ This file records all major architectural decisions for **Attune**, including co
   - Frequency response curve provides real-time, 60fps visual feedback of equalization.
   - Switch toggle provides immediate, intuitive control over Master FX state.
   - All 18 unit tests in `attune-desktop` and 100% of workspace tests pass.
+
+---
+
+## ADR-072: Docked 3-Column Bottom Player Transport Bar Re-Architecture, Range Slider Dynamic Fill Gradients, Non-Inverted 10-Band EQ Fader Geometry, and Reference Purge
+
+- **Status**: **LOCKED** (Implemented & Verified)
+- **Date**: 2026-11-04
+- **Context**:
+  1. The bottom player transport bar was visually disconnected: the scrubber slider ran across the top spanning the entire window width with elapsed and negative remaining times at the extreme left and right, leaving playback controls stranded below with awkward spacing and empty margins.
+  2. In the 10-Band Graphic Equalizer, WebKitGTK's native vertical range slider (`-webkit-appearance: slider-vertical` with `direction: rtl`) produced an inverted teal progress fill from the top (+12 dB) down to the thumb, accompanied by an unsightly cyan focus outline (`[  ]`) when clicked.
+  3. The user requested:
+     - Fixing the bar layout ("the bar looks off").
+     - Completely removing all proprietary external player branding mentions from recent additions across stylesheets and ledgers.
+- **Decision**:
+  1. **Docked 3-Column Bottom Player Transport Bar (`crates/attune-desktop/src/app.rs` & `style.css`)**:
+     - Re-architected `.transport-bar` into a balanced, flex-centered 3-column docked layout:
+       - **Left Column** (`.transport-left`, up to 30%): Mini Now Playing Pill displaying $44 \times 44$ cover artwork thumbnail, song title, and artist name (with fallback music icon when idle).
+       - **Center Column** (`.transport-center`, max 520px, flex: 2): Playback controls (`🔀 ⏮ ▶/⏸ ⏭ 🔁`) positioned on top, with the scrubber row (`0:42 ━━━━●━━━━ -2:01`) directly beneath it.
+       - **Right Column** (`.transport-right`, up to 30%): Favorite heart toggle (`♥`/`♡`), volume slider (`🔊 ━━━━●`), and fullscreen / stage toggle (`⛶`).
+     - Height standardized to 86px with 8px 24px padding and `box-sizing: border-box`.
+  2. **Dynamic Linear-Gradient Progress Fill**:
+     - Computed dynamic progress percentages: `progress_pct = (pos_ms / dur_ms) * 100.0` and `vol_pct = volume.clamp(0, 100)`.
+     - Applied inline `linear-gradient(to right, var(--accent-mint) 0%, var(--accent-mint) {pct}%, rgba(255, 255, 255, 0.15) {pct}%, rgba(255, 255, 255, 0.15) 100%)` to the scrubber slider track and volume slider track.
+     - Added glowing mint-bordered circular thumbs (`background: #ffffff; border: 2px solid var(--accent-mint); box-shadow: 0 0 8px rgba(45, 212, 191, 0.9)`).
+  3. **Non-Inverted 10-Band Equalizer Slider Fader Geometry (`crates/attune-desktop/src/stages/equalizer.rs` & `style.css`)**:
+     - Eliminated native vertical slider inverted background filling and cyan focus rectangles.
+     - Sized `.eq-slider-well` to 32px width and 120px height; added a central `.eq-track-slot` (4px wide, dark gray glass) and `.eq-zero-tick` (14px wide 0 dB center reference line).
+     - Centered a standard range slider inside the well rotated 90 degrees counter-clockwise (`position: absolute; width: 104px; height: 28px; transform: translate(-50%, -50%) rotate(-90deg); outline: none !important; border: none !important; background: transparent;`).
+     - Thumb styled as a tactile white fader knob with mint halo border (`border: 2px solid var(--accent-mint)`).
+  4. **Proprietary Branding Reference Purge**:
+     - Completely scrubbed all proprietary external player branding references from CSS comments, font-family declarations, and architecture decision logs (`00_MASTER_LEDGER.md`, `01_ADR_LOG.md`, `04_TRANSITION_LAB_LOG.md`).
+- **Consequences**:
+  - The bottom player bar delivers a cohesive, balanced, desktop transport experience with centered controls and dynamic glow fills.
+  - 10-Band Equalizer faders behave like professional hardware mixing consoles with zero visual inversion or focus artifacts.
+  - Zero hardcoding compliance (Mandate 4) strictly maintained.
+  - All 18 unit tests in `attune-desktop` and 100% of workspace tests pass.
+
 
 
 

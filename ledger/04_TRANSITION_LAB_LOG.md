@@ -1010,7 +1010,7 @@ These four benchmark scenarios define the "Gold Standard" transitions that Attun
      - *Left Fixed Sidebar (~210px)*: Full-height sidebar with Search box at top; `ATTUNE` section (`Home`, `Now Playing`, `For You`, `Library`, `Albums`); `SOURCES` section with folder path, hover source tooltip, `[Choose]`, `[Rescan]` buttons; `PLAYLISTS & MIXES` section (`❤️ Favorites (<count>)`, `🫧 Bubblegrid`); bottom shortcuts (`⚙ Settings / About`, `🎛 Equalizer`).
      - *Top Navigation Bar*: Inside center column with `<` and `>` history navigation (`navigate_back`, `navigate_forward` with branching truncation), scanning/driver status text, and right toolbar toggles (`[💬 Lyrics]`, `[☰ Queue]`, `[🎚️ Equalizer]`).
      - *Right Docked Panel (~320px)*: Toggleable via toolbar buttons:
-       - `DockMode::Lyrics`: Desktop Liquid Material Glass style typography, active singing line in cream white `#FFFDD0` (22px bold), auto-scroll centering with lock toggle.
+       - `DockMode::Lyrics`: Desktop liquid glass style typography, active singing line in cream white `#FFFDD0` (22px bold), auto-scroll centering with lock toggle.
        - `DockMode::Queue`: Up Next queue with track reordering (↑/↓), removal (✕), and live transition verdict indicators.
      - *Full-Width Scrubber & Negative Remaining Time*:
        - Row 1: Full-width scrubber with elapsed time `0:42` ━━━━●━━━━ negative remaining time `-2:01` formatted as `format!("-{}", fmt_ms(duration.saturating_sub(position)))`.
@@ -1027,7 +1027,7 @@ These four benchmark scenarios define the "Gold Standard" transitions that Attun
      - Release build `./target/release/attune-desktop` compiles cleanly and executes with ALSA hardware output at 48,000 Hz.
 - **Verdict**: `PASS`. Attune Desktop egui frontend successfully implements the pure desktop experience layout and embedded window branding.
 
-### Experiment #036: Native Rust Dioxus Desktop Frontend Migration (WebKitGTK / WebView2), Liquid Glass Stylesheet, and Liquid Material Glass UX Parity
+### Experiment #036: Native Rust Dioxus Desktop Frontend Migration (WebKitGTK / WebView2), Liquid Glass Stylesheet, and Liquid Glass UX Parity
 - **Date**: 2026-11-04
 - **Setup**: Linux (Wayland, Arch Linux), ALSA 48 kHz output, release binary `./target/release/attune-desktop`, 159-track test library (`~/Music`).
 - **Observations**:
@@ -1037,7 +1037,7 @@ These four benchmark scenarios define the "Gold Standard" transitions that Attun
      - Verified WebKitGTK 4.1 backend initialization, hardware-accelerated CSS3 rendering, and embedded Attune window icon.
   2. **Liquid Glass Design System (`style.css`)**:
      - Implemented dark liquid glass stylesheet (`#090b10` base canvas, `backdrop-filter: blur(28px)`, specular glass borders).
-     - Full Liquid Material Glass synchronized lyrics styling: cream white `#FFFDD0` bold glowing active singing line (22px bold, text shadow `0 0 16px rgba(255, 253, 208, 0.35)`, scale 1.02), dimmed inactive lines (15px), and sub-second seek on click.
+     - Full synchronized lyrics styling: cream white `#FFFDD0` bold glowing active singing line (22px bold, text shadow `0 0 16px rgba(255, 253, 208, 0.35)`, scale 1.02), dimmed inactive lines (15px), and sub-second seek on click.
      - Ambient living background mesh gradient with radial blurs.
   3. **In-Process Audio Engine & Master App Grid Layout**:
      - `attune-core` runs directly in-process with zero IPC: `DualDeckMixer` + `cpal` + `AudioDecoder` + `JitPlanner` + `MasterFxRack`.
@@ -1051,7 +1051,7 @@ These four benchmark scenarios define the "Gold Standard" transitions that Attun
      - All 13 unit tests in `attune-desktop` passed.
      - 100% of unit/integration tests across all 6 workspace crates passed with zero failures.
      - Binary launched cleanly, initialized ALSA 48 kHz output, discovered 159 audio files in background.
-- **Verdict**: `PASS`. Dioxus Desktop migration successfully delivers Liquid Material Glass UX parity with native in-process Rust performance.
+- **Verdict**: `PASS`. Dioxus Desktop migration successfully delivers modern liquid glass desktop player UX parity with native in-process Rust performance.
 
 ### Experiment #037: Dioxus Desktop UI Refinement — 3-Column Centered Transport, Base64 Artwork Loading, 5 For You Mixes, Full-Stage Equalizer & Album Metadata Editor
 - **Date**: 2026-11-04
@@ -1120,6 +1120,27 @@ These four benchmark scenarios define the "Gold Standard" transitions that Attun
      - 100% of workspace tests across all crates passed.
      - Release binary `target/release/attune-desktop` built in 20.3s with exit code 0.
 - **Verdict**: `PASS`. 10 bands fit 100% within the card; frequency response curve visually reflects all gains; Master FX toggle is clear and human-understandable.
+
+### Experiment #040: Docked 3-Column Bottom Player Transport Bar Re-Architecture, Range Slider Dynamic Fill Gradients, Non-Inverted 10-Band EQ Fader Geometry, and Reference Purge
+- **Date**: 2026-11-04
+- **Setup**: Linux (Wayland, Arch Linux), WebKitGTK / Wry desktop webview, release binary `./target/release/attune-desktop`, 1024x535 window.
+- **Observations & Empirical Verification**:
+  1. **Transport Bar Re-Architecture**:
+     - Re-anchored bottom player transport bar into a balanced 3-column docked layout: Mini Now Playing Pill on the left (up to 30%), centered playback controls (`🔀 ⏮ ▶/⏸ ⏭ 🔁`) with dynamic-filled scrubber (`0:42 ━━━━●━━━━ -2:01`) directly beneath it (max 520px), and favorite heart/volume slider/fullscreen on the right (up to 30%).
+     - Applied dynamic linear-gradient fills (`var(--accent-mint)`) to scrubber and volume tracks: progress fill matches exact playback position percentage.
+     - Sized bar to 86px with 8px 24px padding.
+  2. **10-Band EQ Slider Inversion & Focus Rectangle Resolution**:
+     - Eliminated WebKit vertical range slider inverted background filling and cyan focus outline.
+     - Added `.eq-track-slot` (4px center groove) and `.eq-zero-tick` (14px 0 dB center mark) behind rotated range input with `background: transparent; outline: none; border: none;`.
+     - Sliders move smoothly without any visual jump or inverted rendering.
+  3. **Branding Reference Purge**:
+     - Verified zero remaining occurrences of proprietary external player branding across all source code, stylesheets, and ledgers.
+  4. **Verification**:
+     - All 18 unit tests in `attune-desktop` passed.
+     - 100% of workspace tests (45 tests across 6 packages) passed.
+     - Release binary `target/release/attune-desktop` compiled cleanly with exit code 0.
+- **Verdict**: `PASS`. Transport bar is balanced and centered with dynamic progress fills; 10-band sliders render cleanly without inversion or focus outlines; all external branding references removed.
+
 
 
 

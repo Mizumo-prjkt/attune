@@ -398,6 +398,8 @@ pub fn Equalizer(
                                         "{gain_str}"
                                     }
                                     div { class: "eq-slider-well",
+                                        div { class: "eq-track-slot" }
+                                        div { class: "eq-zero-tick" }
                                         input {
                                             r#type: "range",
                                             class: "eq-slider-input",
