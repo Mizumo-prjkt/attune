@@ -1,6 +1,5 @@
 use dioxus::prelude::*;
 use crate::library::{fmt_ms, TrackEntry};
-use crate::components::glass::AudioQualityCategory;
 
 #[component]
 pub fn Home(
@@ -12,7 +11,6 @@ pub fn Home(
     harmonic_matches: Vec<TrackEntry>,
     on_play_track: EventHandler<TrackEntry>,
     on_toggle_play: EventHandler<()>,
-    on_open_lyrics: EventHandler<()>,
 ) -> Element {
     let username = std::env::var("USER").unwrap_or_else(|_| "Listener".to_string());
     
@@ -34,7 +32,7 @@ pub fn Home(
 
     rsx! {
         div { class: "home-stage",
-            // Header with greeting and quick actions
+            // Header with greeting (redundant Live Lyrics button removed)
             div { class: "home-header",
                 style: "display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px;",
                 div {
@@ -45,19 +43,11 @@ pub fn Home(
                         "Attune Dynamic DJ Transition Engine is active"
                     }
                 }
-                div { style: "display: flex; gap: 10px;",
-                    button {
-                        class: "btn-pill",
-                        onclick: move |_| on_open_lyrics.call(()),
-                        "💬 Live Lyrics"
-                    }
-                }
             }
 
             // Hero Now Playing Liquid Glass Card
             if let Some(track) = current_track.as_ref() {
                 {
-                    let q = AudioQualityCategory::classify(&track.format, track.sample_rate);
                     let pos_str = fmt_ms(playback_pos_ms);
                     let dur_str = fmt_ms(playback_dur_ms);
                     let progress_pct = if playback_dur_ms > 0 {
@@ -67,17 +57,15 @@ pub fn Home(
                     };
                     let key_label = track.key.as_deref().unwrap_or("—");
                     let bpm_label = track.bpm.map(|b| format!("{:.1}", b)).unwrap_or_else(|| "—".to_string());
-                    let art_src = track.artwork_path.as_ref()
-                        .map(|p| format!("file://{}", p.display()))
-                        .unwrap_or_default();
+                    let art_data = track.artwork_data_url.as_deref().unwrap_or_default();
 
                     rsx! {
                         div { class: "hero-card",
-                            // Album Art
-                            if !art_src.is_empty() {
+                            // Album Art using Data URL for 100% reliable rendering without CORS blocks
+                            if !art_data.is_empty() {
                                 img {
                                     class: "hero-art",
-                                    src: "{art_src}",
+                                    src: "{art_data}",
                                     alt: "{track.title}",
                                 }
                             } else {
@@ -92,7 +80,6 @@ pub fn Home(
                             div { class: "hero-info",
                                 div { style: "display: flex; align-items: center; gap: 8px;",
                                     span { class: "hero-tag", "NOW PLAYING" }
-                                    span { class: "quality-badge {q.css_class()}", "{q.label()}" }
                                 }
                                 h2 { class: "hero-title", "{track.title}" }
                                 p { class: "hero-artist", "{track.artist} • {track.album}" }
@@ -159,12 +146,9 @@ pub fn Home(
                             {
                                 let t = track.clone();
                                 let t_click = t.clone();
-                                let art = t.artwork_path.as_ref()
-                                    .map(|p| format!("file://{}", p.display()))
-                                    .unwrap_or_default();
+                                let art = t.artwork_data_url.as_deref().unwrap_or_default();
                                 let key = t.key.as_deref().unwrap_or("—");
                                 let bpm = t.bpm.map(|b| format!("{:.0} BPM", b)).unwrap_or_else(|| "—".to_string());
-                                let q = AudioQualityCategory::classify(&t.format, t.sample_rate);
 
                                 rsx! {
                                     div {
@@ -187,7 +171,6 @@ pub fn Home(
                                                 span { style: "font-size: 10px; color: var(--accent-mint); font-weight: 600;", "{key}" }
                                                 span { style: "font-size: 10px; color: var(--text-muted);", "•" }
                                                 span { style: "font-size: 10px; color: var(--text-muted);", "{bpm}" }
-                                                span { class: "quality-badge {q.css_class()}", style: "font-size: 9px; padding: 1px 4px;", "{q.label()}" }
                                             }
                                         }
                                     }
@@ -215,11 +198,8 @@ pub fn Home(
                             {
                                 let t = track.clone();
                                 let t_click = t.clone();
-                                let art = t.artwork_path.as_ref()
-                                    .map(|p| format!("file://{}", p.display()))
-                                    .unwrap_or_default();
+                                let art = t.artwork_data_url.as_deref().unwrap_or_default();
                                 let dur = fmt_ms(t.duration_ms);
-                                let q = AudioQualityCategory::classify(&t.format, t.sample_rate);
 
                                 rsx! {
                                     div {
@@ -239,7 +219,6 @@ pub fn Home(
                                             span { style: "font-weight: 600; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;", "{t.title}" }
                                             span { style: "font-size: 11.5px; color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;", "{t.artist}" }
                                             div { style: "display: flex; gap: 6px; align-items: center; margin-top: 4px;",
-                                                span { class: "quality-badge {q.css_class()}", style: "font-size: 9px; padding: 1px 4px;", "{q.label()}" }
                                                 span { style: "font-size: 10px; color: var(--text-muted); font-family: monospace;", "{dur}" }
                                             }
                                         }

@@ -1053,5 +1053,31 @@ These four benchmark scenarios define the "Gold Standard" transitions that Attun
      - Binary launched cleanly, initialized ALSA 48 kHz output, discovered 159 audio files in background.
 - **Verdict**: `PASS`. Dioxus Desktop migration successfully delivers Liquid Material Glass UX parity with native in-process Rust performance.
 
+### Experiment #037: Dioxus Desktop UI Refinement — 3-Column Centered Transport, Base64 Artwork Loading, 5 For You Mixes, Full-Stage Equalizer & Album Metadata Editor
+- **Date**: 2026-11-04
+- **Setup**: Linux (Wayland, Arch Linux), ALSA 48 kHz output, release binary `./target/release/attune-desktop`, 159-track test library (`~/Music`).
+- **Observations**:
+  1. **Menu Bar & Redundant Controls Cleanup**:
+     - Stripped native "Window Edit" menu bar using `Config::new().with_menu(None)` in `main.rs`.
+     - Removed redundant `[💬 Live Lyrics]` button from Home stage greeting header.
+  2. **Centered Transport Layout**:
+     - Re-anchored `.controls-row` into 3 dedicated columns: Left side ($33\%$) holds the mini now-playing pill ($44 \times 44$ cover, title, artist); Center holds playback controls (`🔀 ⏮ ▶/⏸ ⏭ 🔁`); Right side ($33\%$) holds favorite toggle, volume slider, and tools.
+  3. **Artwork Base64 Data URL Loading**:
+     - Resolved WebKitGTK/Wry `file://` CORS block by encoding artwork bytes into `data:image/{png|webp|jpeg};base64,...` in `TrackEntry::from_probe` background scan worker. Album covers render 100% reliably and synchronously across hero cards, track tiles, and album grids.
+  4. **Quality Badges Removal**:
+     - Stripped "Very Good Quality Audio" badges from hero card, mini-pill, track rows, album tracks, and table headers across all stages.
+  5. **5 Frosted Glass For You Mixes**:
+     - Expanded to 5 mixes: *Harmonic Flow*, *High-Energy Rush*, *Midnight Chill*, *Vocal Spotlight*, and *BPM Drive & Fast Swaps*.
+     - Frosted glass cards (`background: rgba(18, 24, 38, 0.45); backdrop-filter: blur(28px)`) embed actual album artwork preview collages from matching tracks.
+  6. **Full-Stage Equalizer Rack & Album Metadata Editor**:
+     - Equalizer upgraded from popup modal to dedicated `StageView::Equalizer`: Preamp gain pad (-12 dB to +6 dB), 6 presets, 10-band graphic EQ (31 Hz to 16 kHz), Pure Bass+ sub-harmonic synth, Clarity exciter, Stereo Width, and True-Peak Limiter.
+     - In-app `StageView::AlbumEditor` added: supports Title, Primary Artist, comma splitting for contributing artists (`[ ✂️ Split Artists (,) ]`), Year, Genre, Custom Splash Art picker via `rfd` with Base64 live preview, and Online Catalog fields. Saves non-destructively to audio files via `attune_music_metadata_changer::write_track_metadata`.
+  7. **Verification**:
+     - All 13 unit tests in `attune-desktop` passing.
+     - 100% of tests across the workspace pass cleanly (0 errors).
+     - Release binary `target/release/attune-desktop` compiled cleanly in 16.5s.
+- **Verdict**: `PASS`. Desktop interface satisfies all user requirements and visual polish points.
+
+
 
 

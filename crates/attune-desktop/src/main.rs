@@ -35,6 +35,7 @@ fn main() {
     let css = include_str!("style.css");
     let cfg = Config::new()
         .with_window(window)
+        .with_menu(None)
         .with_custom_head(format!("<style>{css}</style>"));
 
     dioxus::LaunchBuilder::desktop()

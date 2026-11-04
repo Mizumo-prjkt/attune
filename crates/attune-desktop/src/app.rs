@@ -4,22 +4,25 @@ use std::path::PathBuf;
 use std::sync::{mpsc, Arc, Mutex};
 use std::time::Duration;
 
-use attune_core::{MasterFxParams, EQ_BANDS_COUNT, EQ_CENTER_FREQS};
-
-use crate::components::glass::AudioQualityCategory;
+use attune_core::MasterFxParams;
 use crate::components::lyrics_parser::{resolve_companion_lyrics, LyricsSheet};
 use crate::config;
 use crate::library::{self, fmt_ms, ScanEvent, TrackEntry};
 use crate::player::{PendingTransitionInfo, Player};
-use crate::stages::{about::About, albums::Albums, favorites::Favorites, for_you::ForYou, home::Home, library::Library};
+use crate::stages::{
+    about::About, album_editor::AlbumEditor, albums::{AlbumGroup, Albums}, equalizer::Equalizer,
+    favorites::Favorites, for_you::ForYou, home::Home, library::Library,
+};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum StageView {
     Home,
     ForYou,
     Library,
     Albums,
     Favorites,
+    Equalizer,
+    AlbumEditor(AlbumGroup),
     About,
 }
 
@@ -75,7 +78,6 @@ pub fn App() -> Element {
     let mut active_trans_name = use_signal(|| None::<String>);
     let mut last_verdict = use_signal(|| None::<PendingTransitionInfo>);
     let mut show_verdict_modal = use_signal(|| false);
-    let mut show_eq_modal = use_signal(|| false);
     let mut master_fx = use_signal(MasterFxParams::default);
 
     // 5. Navigation & Docks
@@ -100,7 +102,7 @@ pub fn App() -> Element {
             let mut hist = stage_history.read().clone();
             let curr_idx = *history_index.read();
             hist.truncate(curr_idx + 1);
-            hist.push(new_stage);
+            hist.push(new_stage.clone());
             let next_idx = hist.len() - 1;
             stage_history.set(hist);
             history_index.set(next_idx);
@@ -330,11 +332,8 @@ pub fn App() -> Element {
 
     let curr_track_clone = current_track.read().clone();
     let mini_pill_info = curr_track_clone.as_ref().map(|track| {
-        let art_src = track.artwork_path.as_ref()
-            .map(|p| format!("file://{}", p.display()))
-            .unwrap_or_default();
-        let q = AudioQualityCategory::classify(&track.format, track.sample_rate);
-        (track.title.clone(), format!("{} • {}", track.artist, track.album), art_src, q.label(), q.css_class())
+        let art_src = track.artwork_data_url.clone().unwrap_or_default();
+        (track.title.clone(), format!("{} • {}", track.artist, track.album), art_src)
     });
 
     rsx! {
@@ -449,8 +448,8 @@ pub fn App() -> Element {
                 // Sidebar Bottom
                 div { class: "sidebar-bottom",
                     div {
-                        class: "nav-item",
-                        onclick: move |_| show_eq_modal.set(true),
+                        class: if *current_stage.read() == StageView::Equalizer { "nav-item active" } else { "nav-item" },
+                        onclick: move |_| navigate_to(StageView::Equalizer),
                         span { "🎚️" }
                         span { "Equalizer" }
                     }
@@ -478,7 +477,7 @@ pub fn App() -> Element {
                                 let idx = *history_index.read();
                                 if idx > 0 {
                                     history_index.set(idx - 1);
-                                    current_stage.set(stage_history.read()[idx - 1]);
+                                    current_stage.set(stage_history.read()[idx - 1].clone());
                                 }
                             },
                             "‹"
@@ -490,7 +489,7 @@ pub fn App() -> Element {
                                 let idx = *history_index.read();
                                 if idx + 1 < stage_history.read().len() {
                                     history_index.set(idx + 1);
-                                    current_stage.set(stage_history.read()[idx + 1]);
+                                    current_stage.set(stage_history.read()[idx + 1].clone());
                                 }
                             },
                             "›"
@@ -542,8 +541,9 @@ pub fn App() -> Element {
                             "☰ Queue"
                         }
                         button {
-                            class: "btn-icon",
-                            onclick: move |_| show_eq_modal.set(true),
+                            class: if *current_stage.read() == StageView::Equalizer { "btn-icon active" } else { "btn-icon" },
+                            title: "Master Equalizer Rack",
+                            onclick: move |_| navigate_to(StageView::Equalizer),
                             "🎚️"
                         }
                     }
@@ -551,7 +551,7 @@ pub fn App() -> Element {
 
                 // Stage View Content Scroll
                 div { class: "content-scroll",
-                    match *current_stage.read() {
+                    match current_stage.read().clone() {
                         StageView::Home => rsx! {
                             Home {
                                 current_track: current_track.read().clone(),
@@ -565,7 +565,6 @@ pub fn App() -> Element {
                                     let p = player.read();
                                     if *is_playing.read() { p.pause(); } else { p.play(); }
                                 },
-                                on_open_lyrics: move |_| dock_mode.set(DockMode::Lyrics),
                             }
                         },
                         StageView::Library => rsx! {
@@ -593,6 +592,30 @@ pub fn App() -> Element {
                                 tracks: tracks.read().clone(),
                                 on_play_track: move |t| play_track(t),
                                 on_play_tracks: move |list| play_track_list(list),
+                                on_edit_album: move |group| navigate_to(StageView::AlbumEditor(group)),
+                            }
+                        },
+                        StageView::AlbumEditor(group) => rsx! {
+                            AlbumEditor {
+                                group,
+                                on_back: move |_| navigate_to(StageView::Albums),
+                                on_saved: move |_| {
+                                    if let Some(dir) = music_dir.read().clone() {
+                                        tracks.set(Vec::new());
+                                        let rx = library::spawn_scan(dir);
+                                        *scan_rx.write() = Arc::new(Mutex::new(Some(rx)));
+                                        is_scanning.set(true);
+                                    }
+                                },
+                            }
+                        },
+                        StageView::Equalizer => rsx! {
+                            Equalizer {
+                                params: master_fx.read().clone(),
+                                on_change: move |new_params: MasterFxParams| {
+                                    master_fx.set(new_params.clone());
+                                    player.read().set_master_fx_params(new_params);
+                                },
                             }
                         },
                         StageView::ForYou => rsx! {
@@ -791,10 +814,35 @@ pub fn App() -> Element {
                     span { class: "time-label", style: "text-align: right;", "{remaining_str}" }
                 }
 
-                // Controls Row
+                // Controls Row: Left = Album info, Center = Playback controls, Right = Actions & Volume
                 div { class: "controls-row",
-                    // Left: Playback controls
+                    // Left: Mini Now Playing Pill
                     div { class: "transport-left",
+                        if let Some((title, artist_album, art_src)) = mini_pill_info {
+                            div { class: "mini-pill",
+                                if !art_src.is_empty() {
+                                    img { class: "mini-art", src: "{art_src}", alt: "{title}" }
+                                } else {
+                                    div {
+                                        class: "mini-art",
+                                        style: "display: flex; align-items: center; justify-content: center; font-size: 20px;",
+                                        "🎵"
+                                    }
+                                }
+                                div { class: "mini-meta",
+                                    span { class: "mini-title", "{title}" }
+                                    span { class: "mini-artist", "{artist_album}" }
+                                }
+                            }
+                        } else {
+                            div { class: "mini-pill",
+                                span { style: "color: var(--text-muted); font-size: 13px;", "No track selected" }
+                            }
+                        }
+                    }
+
+                    // Center: Playback controls
+                    div { class: "transport-center",
                         // Shuffle
                         button {
                             class: "btn-ctrl",
@@ -854,33 +902,7 @@ pub fn App() -> Element {
                         }
                     }
 
-                    // Center: Mini Now Playing Pill
-                    if let Some((title, artist_album, art_src, q_label, q_class)) = mini_pill_info {
-                        div { class: "mini-pill",
-                            if !art_src.is_empty() {
-                                img { class: "mini-art", src: "{art_src}", alt: "{title}" }
-                            } else {
-                                div {
-                                    class: "mini-art",
-                                    style: "display: flex; align-items: center; justify-content: center; font-size: 20px;",
-                                    "🎵"
-                                }
-                            }
-                            div { class: "mini-meta",
-                                div { style: "display: flex; align-items: center; gap: 6px;",
-                                    span { class: "mini-title", "{title}" }
-                                    span { class: "quality-badge {q_class}", style: "font-size: 8.5px; padding: 0 4px;", "{q_label}" }
-                                }
-                                span { class: "mini-artist", "{artist_album}" }
-                            }
-                        }
-                    } else {
-                        div { class: "mini-pill",
-                            span { style: "color: var(--text-muted); font-size: 13px;", "No track selected" }
-                        }
-                    }
-
-                    // Right: Actions (Favorites, Volume, Modals)
+                    // Right: Actions (Favorites, Volume, Fullscreen)
                     div { class: "transport-right",
                         // Favorite Heart
                         button {
@@ -938,85 +960,8 @@ pub fn App() -> Element {
             }
 
             // ==========================================
-            // MODALS: EQUALIZER & VERDICT
+            // MODALS: VERDICT
             // ==========================================
-            if *show_eq_modal.read() {
-                div {
-                    style: "position: fixed; inset: 0; background: rgba(0,0,0,0.65); backdrop-filter: blur(12px); display: flex; align-items: center; justify-content: center; z-index: 100;",
-                    div {
-                        style: "background: var(--bg-card); border: 1px solid var(--border-glass); border-radius: 20px; padding: 28px; width: 620px; box-shadow: 0 16px 48px rgba(0,0,0,0.7); display: flex; flex-direction: column; gap: 20px;",
-                        div { style: "display: flex; justify-content: space-between; align-items: center;",
-                            div {
-                                h2 { style: "font-size: 20px; font-weight: 700;", "10-Band Mastering Equalizer" }
-                                p { style: "font-size: 12px; color: var(--text-secondary); margin-top: 2px;", "Studio biquad peaking filters with real-time DSP preview" }
-                            }
-                            button {
-                                class: "btn-icon",
-                                onclick: move |_| show_eq_modal.set(false),
-                                "✕"
-                            }
-                        }
-
-                        // 10-Band EQ Sliders
-                        div { style: "display: flex; justify-content: space-between; gap: 10px; padding: 10px 0;",
-                            for idx in 0..EQ_BANDS_COUNT {
-                                {
-                                    let freq = EQ_CENTER_FREQS[idx];
-                                    let freq_label = if freq >= 1000.0 { format!("{:.0}k", freq / 1000.0) } else { format!("{:.0}", freq) };
-                                    let gain = master_fx.read().band_gains_db[idx];
-                                    let player = player.clone();
-
-                                    rsx! {
-                                        div {
-                                            key: "{idx}",
-                                            style: "display: flex; flex-direction: column; align-items: center; gap: 8px; flex: 1;",
-                                            span { style: "font-size: 11px; font-family: monospace; color: if gain.abs() > 0.1 { \"var(--accent-mint)\" } else { \"var(--text-muted)\" };",
-                                                "{gain:+.1}"
-                                            }
-                                            input {
-                                                r#type: "range",
-                                                min: "-12",
-                                                max: "12",
-                                                step: "0.5",
-                                                value: "{gain}",
-                                                style: "writing-mode: vertical-lr; direction: rtl; width: 28px; height: 140px; cursor: pointer;",
-                                                oninput: move |evt| {
-                                                    if let Ok(v) = evt.value().parse::<f32>() {
-                                                        let mut p = master_fx.read().clone();
-                                                        p.band_gains_db[idx] = v;
-                                                        master_fx.set(p.clone());
-                                                        player.read().set_master_fx_params(p);
-                                                    }
-                                                },
-                                            }
-                                            span { style: "font-size: 11px; font-weight: 600; color: var(--text-secondary);", "{freq_label}" }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-
-                        // Bottom Actions
-                        div { style: "display: flex; justify-content: space-between; align-items: center; border-top: 1px solid var(--border-glass); padding-top: 16px;",
-                            button {
-                                class: "btn-pill",
-                                onclick: move |_| {
-                                    let mut p = master_fx.read().clone();
-                                    p.band_gains_db = [0.0; EQ_BANDS_COUNT];
-                                    master_fx.set(p.clone());
-                                    player.read().set_master_fx_params(p);
-                                },
-                                "Reset to Flat"
-                            }
-                            button {
-                                class: "btn-pill active",
-                                onclick: move |_| show_eq_modal.set(false),
-                                "Done"
-                            }
-                        }
-                    }
-                }
-            }
 
             if *show_verdict_modal.read() {
                 if let Some(verdict) = last_verdict.read().as_ref() {

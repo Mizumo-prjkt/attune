@@ -23,6 +23,7 @@ pub struct TrackEntry {
     #[allow(dead_code)]
     pub bit_depth: u32,
     pub artwork_path: Option<PathBuf>,
+    pub artwork_data_url: Option<String>,
 }
 
 impl TrackEntry {
@@ -34,20 +35,57 @@ impl TrackEntry {
             .map(|s| s.to_string_lossy().to_string())
             .unwrap_or_default();
         match AudioDecoder::probe_metadata(path) {
-            Ok(p) => TrackEntry {
-                path: path.to_path_buf(),
-                title: p.title.filter(|t| !t.trim().is_empty()).unwrap_or(file_stem),
-                artist: p.artist.filter(|a| !a.trim().is_empty()).unwrap_or_else(|| "Unknown Artist".into()),
-                album: p.album.filter(|a| !a.trim().is_empty()).unwrap_or_else(|| "Unknown Album".into()),
-                genre: p.genre,
-                duration_ms: p.duration_ms,
-                bpm: p.bpm,
-                key: p.initial_key,
-                format: p.format,
-                sample_rate: p.sample_rate,
-                bit_depth: p.bit_depth,
-                artwork_path: p.artwork_path.map(PathBuf::from),
-            },
+            Ok(p) => {
+                let mut artwork_path = p.artwork_path.map(PathBuf::from);
+                if artwork_path.as_ref().map(|p| !p.is_file()).unwrap_or(true) {
+                    if let Some(parent) = path.parent() {
+                        for candidate_name in &[
+                            "cover.jpg", "cover.png", "folder.jpg", "folder.png",
+                            "front.jpg", "front.png", "Cover.jpg", "Cover.png",
+                        ] {
+                            let cand = parent.join(candidate_name);
+                            if cand.is_file() {
+                                artwork_path = Some(cand);
+                                break;
+                            }
+                        }
+                    }
+                }
+
+                let artwork_data_url = artwork_path.as_ref().and_then(|art_p| {
+                    if art_p.is_file() {
+                        let bytes = std::fs::read(art_p).ok()?;
+                        let mime = if art_p.extension().map(|e| e.eq_ignore_ascii_case("png")).unwrap_or(false) {
+                            "image/png"
+                        } else if art_p.extension().map(|e| e.eq_ignore_ascii_case("webp")).unwrap_or(false) {
+                            "image/webp"
+                        } else {
+                            "image/jpeg"
+                        };
+                        use base64::Engine;
+                        let b64 = base64::engine::general_purpose::STANDARD.encode(&bytes);
+                        Some(format!("data:{mime};base64,{b64}"))
+                    } else {
+                        None
+                    }
+                });
+
+                TrackEntry {
+                    path: path.to_path_buf(),
+                    title: p.title.filter(|t| !t.trim().is_empty()).unwrap_or(file_stem),
+                    artist: p.artist.filter(|a| !a.trim().is_empty()).unwrap_or_else(|| "Unknown Artist".into()),
+                    album: p.album.filter(|a| !a.trim().is_empty()).unwrap_or_else(|| "Unknown Album".into()),
+                    genre: p.genre,
+                    duration_ms: p.duration_ms,
+                    bpm: p.bpm,
+                    key: p.initial_key,
+                    format: p.format,
+                    sample_rate: p.sample_rate,
+                    bit_depth: p.bit_depth,
+                    artwork_path,
+                    artwork_data_url,
+                }
+            }
             Err(e) => {
                 log::warn!("Metadata probe failed for {}: {}", path.display(), e);
                 TrackEntry {
@@ -66,6 +104,7 @@ impl TrackEntry {
                     sample_rate: 0,
                     bit_depth: 0,
                     artwork_path: None,
+                    artwork_data_url: None,
                 }
             }
         }
@@ -149,6 +188,7 @@ mod tests {
             sample_rate: 44_100,
             bit_depth: 16,
             artwork_path: None,
+            artwork_data_url: None,
         }
     }
 

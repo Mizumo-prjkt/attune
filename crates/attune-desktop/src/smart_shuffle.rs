@@ -299,6 +299,7 @@ mod tests {
             sample_rate: 48000,
             bit_depth: 24,
             artwork_path: None,
+            artwork_data_url: None,
         }
     }
 

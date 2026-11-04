@@ -1,6 +1,5 @@
 use dioxus::prelude::*;
 use crate::library::{fmt_ms, TrackEntry};
-use crate::components::glass::AudioQualityCategory;
 use std::collections::HashMap;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -8,6 +7,7 @@ pub struct AlbumGroup {
     pub name: String,
     pub artist: String,
     pub artwork_path: Option<std::path::PathBuf>,
+    pub artwork_data_url: Option<String>,
     pub tracks: Vec<TrackEntry>,
 }
 
@@ -16,6 +16,7 @@ pub fn Albums(
     tracks: Vec<TrackEntry>,
     on_play_track: EventHandler<TrackEntry>,
     on_play_tracks: EventHandler<Vec<TrackEntry>>,
+    on_edit_album: EventHandler<AlbumGroup>,
 ) -> Element {
     let mut selected_album = use_signal(|| None::<String>);
 
@@ -26,10 +27,14 @@ pub fn Albums(
             name: track.album.clone(),
             artist: track.artist.clone(),
             artwork_path: track.artwork_path.clone(),
+            artwork_data_url: track.artwork_data_url.clone(),
             tracks: Vec::new(),
         });
         if entry.artwork_path.is_none() && track.artwork_path.is_some() {
             entry.artwork_path = track.artwork_path.clone();
+        }
+        if entry.artwork_data_url.is_none() && track.artwork_data_url.is_some() {
+            entry.artwork_data_url = track.artwork_data_url.clone();
         }
         entry.tracks.push(track);
     }
@@ -53,9 +58,9 @@ pub fn Albums(
 
                     // Album Header Banner
                     div { style: "display: flex; gap: 24px; align-items: flex-end; background: var(--bg-card); padding: 24px; border-radius: 16px; border: 1px solid var(--border-glass);",
-                        if let Some(art) = group.artwork_path.as_ref() {
+                        if let Some(art) = group.artwork_data_url.as_ref() {
                             img {
-                                src: "file://{art.display()}",
+                                src: "{art}",
                                 alt: "{group.name}",
                                 style: "width: 150px; height: 150px; border-radius: 12px; object-fit: cover; box-shadow: 0 8px 24px rgba(0,0,0,0.5);",
                             }
@@ -71,7 +76,7 @@ pub fn Albums(
                             h1 { style: "font-size: 28px; font-weight: 700;", "{group.name}" }
                             p { style: "color: var(--text-secondary); font-size: 15px;", "{group.artist} • {group.tracks.len()} songs" }
 
-                            div { style: "display: flex; gap: 10px; margin-top: 14px;",
+                            div { style: "display: flex; gap: 10px; margin-top: 14px; flex-wrap: wrap;",
                                 button {
                                     class: "btn-pill active",
                                     onclick: {
@@ -89,6 +94,15 @@ pub fn Albums(
                                     },
                                     "🔀 Shuffle Album"
                                 }
+                                button {
+                                    class: "btn-pill",
+                                    style: "border-color: rgba(45,212,191,0.3); color: var(--accent-mint);",
+                                    onclick: {
+                                        let g = group.clone();
+                                        move |_| on_edit_album.call(g.clone())
+                                    },
+                                    "✏️ Edit Album Info"
+                                }
                             }
                         }
                     }
@@ -99,12 +113,11 @@ pub fn Albums(
                             {
                                 let t = track.clone();
                                 let dur = fmt_ms(t.duration_ms);
-                                let q = AudioQualityCategory::classify(&t.format, t.sample_rate);
                                 rsx! {
                                     div {
                                         key: "{t.path.display()}",
                                         class: "track-row",
-                                        style: "display: grid; grid-template-columns: 40px 1fr 100px 80px; align-items: center; padding: 10px 14px;",
+                                        style: "display: grid; grid-template-columns: 40px 1fr 80px; align-items: center; padding: 10px 14px;",
                                         ondoubleclick: {
                                             let t_clone = t.clone();
                                             move |_| on_play_track.call(t_clone.clone())
@@ -114,7 +127,6 @@ pub fn Albums(
                                             span { style: "font-weight: 500; font-size: 14px;", "{t.title}" }
                                             span { style: "color: var(--text-muted); font-size: 12px;", "{t.artist}" }
                                         }
-                                        span { class: "quality-badge {q.css_class()}", style: "font-size: 9.5px;", "{q.label()}" }
                                         span { style: "text-align: right; color: var(--text-muted); font-family: monospace; font-size: 12px;", "{dur}" }
                                     }
                                 }
@@ -139,9 +151,7 @@ pub fn Albums(
                             for album in album_list.iter() {
                                 {
                                     let name = album.name.clone();
-                                    let art = album.artwork_path.as_ref()
-                                        .map(|p| format!("file://{}", p.display()))
-                                        .unwrap_or_default();
+                                    let art = album.artwork_data_url.as_deref().unwrap_or_default();
                                     let track_count = album.tracks.len();
 
                                     rsx! {

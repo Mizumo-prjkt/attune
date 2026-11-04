@@ -1,6 +1,5 @@
 use dioxus::prelude::*;
 use crate::library::{fmt_ms, TrackEntry};
-use crate::components::glass::AudioQualityCategory;
 use std::collections::HashSet;
 use std::path::PathBuf;
 
@@ -68,7 +67,7 @@ pub fn Library(
             }
 
             // Track Table Header
-            div { style: "display: grid; grid-template-columns: 44px 2fr 1.5fr 1.5fr 70px 70px 80px 70px 60px; padding: 8px 12px; border-bottom: 1px solid var(--border-glass); color: var(--text-muted); font-size: 11.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em;",
+            div { style: "display: grid; grid-template-columns: 44px 2fr 1.5fr 1.5fr 70px 70px 70px 60px; padding: 8px 12px; border-bottom: 1px solid var(--border-glass); color: var(--text-muted); font-size: 11.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em;",
                 span { "#" }
                 span {
                     style: "cursor: pointer;",
@@ -123,7 +122,6 @@ pub fn Library(
                     "BPM" if *sort_by.read() == "bpm" { if *sort_asc.read() { " ▲" } else { " ▼" } }
                 }
                 span { "Key" }
-                span { "Quality" }
                 span {
                     style: "cursor: pointer; text-align: right;",
                     onclick: move |_| {
@@ -157,7 +155,6 @@ pub fn Library(
                             let is_current = current_track_path.as_ref() == Some(&t.path);
                             let is_fav = favorites.contains(&t.path);
                             let dur_str = fmt_ms(t.duration_ms);
-                            let q = AudioQualityCategory::classify(&t.format, t.sample_rate);
                             let key_label = t.key.as_deref().unwrap_or("—");
                             let bpm_label = t.bpm.map(|b| format!("{:.0}", b)).unwrap_or_else(|| "—".to_string());
                             let path_clone = t.path.clone();
@@ -166,7 +163,7 @@ pub fn Library(
                                 div {
                                     key: "{t.path.display()}",
                                     class: if is_current { "track-row playing" } else { "track-row" },
-                                    style: "display: grid; grid-template-columns: 44px 2fr 1.5fr 1.5fr 70px 70px 80px 70px 60px; align-items: center; padding: 7px 12px; font-size: 13px;",
+                                    style: "display: grid; grid-template-columns: 44px 2fr 1.5fr 1.5fr 70px 70px 70px 60px; align-items: center; padding: 7px 12px; font-size: 13px;",
                                     ondoubleclick: {
                                         let t_clone = t.clone();
                                         move |_| on_play_track.call(t_clone.clone())
@@ -210,11 +207,6 @@ pub fn Library(
                                     span {
                                         style: "color: var(--accent-mint); font-weight: 500;",
                                         "{key_label}"
-                                    }
-
-                                    // Quality
-                                    span {
-                                        span { class: "quality-badge {q.css_class()}", style: "font-size: 9.5px;", "{q.label()}" }
                                     }
 
                                     // Duration

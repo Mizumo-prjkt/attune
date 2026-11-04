@@ -342,12 +342,25 @@ body, html {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 16px;
+  position: relative;
 }
 
 .transport-left {
+  flex: 1;
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 12px;
+  min-width: 0;
+  max-width: 33%;
+}
+
+.transport-center {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  flex-shrink: 0;
 }
 
 .btn-ctrl {
@@ -385,7 +398,8 @@ body, html {
   display: flex;
   align-items: center;
   gap: 12px;
-  max-width: 340px;
+  width: 100%;
+  overflow: hidden;
 }
 
 .mini-art {
@@ -394,12 +408,15 @@ body, html {
   border-radius: 8px;
   object-fit: cover;
   background: rgba(255, 255, 255, 0.05);
+  flex-shrink: 0;
 }
 
 .mini-meta {
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  flex: 1;
+  min-width: 0;
 }
 
 .mini-title {
@@ -419,9 +436,13 @@ body, html {
 }
 
 .transport-right {
+  flex: 1;
   display: flex;
   align-items: center;
+  justify-content: flex-end;
   gap: 12px;
+  min-width: 0;
+  max-width: 33%;
 }
 
 .vol-slider {
