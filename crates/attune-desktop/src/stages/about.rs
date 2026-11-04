@@ -12,8 +12,8 @@ pub fn About() -> Element {
             // Header Banner
             div { style: "display: flex; align-items: center; gap: 20px; background: var(--bg-card); padding: 24px; border-radius: 18px; border: 1px solid var(--border-glass); margin-bottom: 24px;",
                 img {
-                    src: "{crate::app_icon::app_icon_data_url()}",
-                    style: "width: 72px; height: 72px; border-radius: 18px; object-fit: contain; border: 1px solid var(--border-glass); background: rgba(0,0,0,0.25); box-shadow: 0 8px 24px rgba(0,0,0,0.5), 0 0 20px rgba(45,212,191,0.2);",
+                    src: "{crate::app_icon::app_icon_tile_data_url()}",
+                    style: "width: 72px; height: 72px; border-radius: 16px; object-fit: cover; flex-shrink: 0; box-shadow: 0 8px 24px rgba(0,0,0,0.4), 0 0 20px rgba(45,212,191,0.2);",
                     alt: "Attune Official Logo",
                 }
                 div {

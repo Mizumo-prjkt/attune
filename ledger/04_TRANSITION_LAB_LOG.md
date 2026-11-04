@@ -1336,6 +1336,30 @@ These four benchmark scenarios define the "Gold Standard" transitions that Attun
      - Standalone release binary built cleanly (`target/release/attune-desktop` [24M] and `target/release/libattune_procmgr.so` [515K]).
 - **Verdict**: `PASS`. Official branding loaded, playback auto-advances naturally, Smart Shuffle cycles seamlessly with harmonic/BPM intelligence, and process manager is decoupled into a lightweight dynamic library component.
 
+---
+
+### [2026-11-04] Exp #048: Dual App Icon Architecture & About Stage Hero Squircle Tile Rendering
+- **Feature Area**: UI Branding / Asset Architecture / About Page Presentation
+- **Algorithm Version / Commit**: Post-ADR-079 / Branch `main`
+- **Context & Motivation**:
+  - In Exp #047, the transparent circular disc (`icon-transparent.png`) was embedded as `APP_ICON_BASE64` and used in both the sidebar and About stage.
+  - While circular transparency excels in the 28x28 sidebar header beside textual typography ("ATTUNE"), inside the 72x72 About hero banner it appeared awkward: a circle floating against a dark rectangular container with double borders.
+  - `icon/icon.png` is the canonical full app tile featuring a glossy slate/blue gradient background and rounded squircle geometry.
+- **Implementation & Refactoring**:
+  1. Downscaled `icon/icon.png` (2048x2048, 3.5 MB) to a 256x256 PNG with stripped metadata and level-9 compression (24 KB, 31,460 base64 chars).
+  2. Embedded `APP_ICON_TILE_BASE64` in `crates/attune-desktop/src/app_icon.rs` and exposed `pub fn app_icon_tile_data_url() -> &'static str`.
+  3. Added loaders `load_app_tile_icon_raw()` and `load_app_tile_icon()`.
+  4. Updated `crates/attune-desktop/src/stages/about.rs` to render `app_icon_tile_data_url()`.
+  5. Refined hero `img` CSS to `border-radius: 16px; object-fit: cover; flex-shrink: 0; box-shadow: 0 8px 24px rgba(0,0,0,0.4), 0 0 20px rgba(45,212,191,0.2);`, eliminating artificial inner background containers and double borders.
+- **Empirical & Automated Verification**:
+  - Verified image composite preview with `magick`: the squircle tile sits seamlessly next to the "Attune Desktop" title with clean drop-shadow and zero border clipping.
+  - Sidebar continues using `app_icon_data_url()` with transparent disc icon.
+  - Added unit tests `test_load_app_tile_icon_dimensions_and_payload` (verifying 256x256 dimensions and 262,144 non-empty RGBA bytes) and `test_app_icon_tile_data_url_prefix`.
+  - All 25 unit tests in `attune-desktop` pass.
+  - All 50 workspace tests pass cleanly.
+- **Verdict**: `PASS`. Dual icon architecture cleanly separates inline transparent branding from squircle hero tile presentation.
+
+
 
 
 

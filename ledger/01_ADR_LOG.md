@@ -2814,6 +2814,38 @@ This file records all major architectural decisions for **Attune**, including co
   - Process Manager is decoupled into an independent dynamic shared library, keeping the core desktop executable light and modular.
   - All 23 tests in `attune-desktop`, 3 tests in `attune-procmgr`, and 100% of workspace tests pass. Release binary compiled cleanly.
 
+---
+
+## ADR-080: Dual-Icon Asset Architecture — Transparent Disc vs. Squircle App Tile
+
+- **Status**: `LOCKED`
+- **Date**: 2026-11-04
+- **Context**:
+  - Following the integration of the official Attune logo (ADR-079), the About stage hero banner rendered the transparent circular disc icon (`icon-transparent.png`).
+  - Because `icon-transparent.png` is purely circular with a transparent boundary, placing it inside the 72x72 hero container resulted in a visually awkward presentation: a circle floating against a dark rectangular container with double-borders.
+  - The repository maintains two distinct brand icons in `icon/`:
+    1. `icon-transparent.png` (850x850): Transparent circular disc symbol only.
+    2. `icon.png` (2048x2048): Full application tile with glossy blue-grey gradient background, rounded squircle corners, and subtle inner bezel.
+  - User feedback requested a second embedded base64 representation specifically for the squircle app tile (`icon.png`) to fit the About stage hero banner layout naturally without visual incongruity.
+- **Decision**:
+  1. **Dual Asset Base64 Embedding**:
+     - Retained `APP_ICON_BASE64` (128x128 transparent disc) in `crates/attune-desktop/src/app_icon.rs` for sidebar brand header and window icon decoration where circular transparency beside text is desired.
+     - Downscaled `icon/icon.png` (2048x2048) to a compact, HiDPI-ready 256x256 PNG with stripped metadata and level-9 compression (24 KB, 31,460 base64 chars).
+     - Defined `pub const APP_ICON_TILE_BASE64: &str` and exported `app_icon_tile_data_url() -> &'static str` via static `OnceLock`.
+     - Provided helper loaders `load_app_tile_icon_raw() -> (Vec<u8>, u32, u32)` and `load_app_tile_icon() -> Option<Icon>`.
+  2. **About Stage Hero Banner Styling**:
+     - Updated `crates/attune-desktop/src/stages/about.rs` to render `app_icon_tile_data_url()`.
+     - Replaced the inner container styling (`border: 1px solid var(--border-glass); background: rgba(0,0,0,0.25);`) with clean direct tile rendering: `border-radius: 16px; object-fit: cover; flex-shrink: 0; box-shadow: 0 8px 24px rgba(0,0,0,0.4), 0 0 20px rgba(45,212,191,0.2);`.
+     - This allows the natural squircle gradient tile and rounded corners of `icon.png` to fill the 72x72 hero slot cleanly without artificial double borders or floating circles.
+  3. **Automated Verification**:
+     - Added unit tests `test_load_app_tile_icon_dimensions_and_payload` (verifying 256x256 dimensions and 262,144 non-empty RGBA bytes) and `test_app_icon_tile_data_url_prefix` in `app_icon.rs`.
+- **Consequences**:
+  - The About page presents a crisp, native squircle app tile with glossy gradient depth matching modern desktop OS design languages.
+  - The sidebar header continues to display the circular transparent disc symbol cleanly beside "ATTUNE".
+  - Binary size impact is minimal (~24 KB) while providing full HiDPI sharpness up to 3.5x scale factors.
+  - All 25 `attune-desktop` unit tests and 50 workspace tests pass.
+
+
 
 
 
