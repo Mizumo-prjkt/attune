@@ -230,15 +230,6 @@ pub fn ForYou(
                             class: "album-detail-view",
                             style: "background: linear-gradient(180deg, {mix.hero_gradient_top} 0%, rgba(18, 18, 18, 0.72) 280px, var(--bg-canvas) 460px);",
 
-                            // Navigation Back Button
-                            button {
-                                class: "btn-pill",
-                                style: "display: inline-flex; align-items: center; gap: 6px; margin-bottom: 16px; background: rgba(255, 255, 255, 0.08); border: 1px solid rgba(255, 255, 255, 0.12); cursor: pointer; color: var(--text-primary); font-size: 13px; padding: 6px 14px; border-radius: 999px; transition: background 0.15s ease;",
-                                onclick: move |_| on_back.call(()),
-                                span { class: "material-icons md-18", "arrow_back" }
-                                "Back to For You"
-                            }
-
                             // Hero Header: 232px Animated SVG Art on left + Big Metadata on right
                             div { class: "album-detail-hero",
                                 div { class: "album-cover-box",

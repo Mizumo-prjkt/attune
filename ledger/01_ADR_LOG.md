@@ -2966,10 +2966,9 @@ This file records all major architectural decisions for **Attune**, including co
      - `push(next)`: Returns `false` if `next == current()`, preventing duplicate history spam; truncates forward history when branching from an earlier stack position.
      - `back()`: Decrements stack pointer, returns `Some(StageView)` or `None` when at history root.
      - `forward()`: Increments stack pointer safely up to stack bounds.
-  3. **Detail View In-Page Back Action Pills**:
-     - Added `on_back: EventHandler<()>` to `Albums`, `AlbumEditor`, and `ForYou`.
-     - Placed high-contrast `[← Back to Albums]` and `[← Back to For You]` action pills at the top of detail heroes, providing users with both in-page and top-nav back navigation.
-     - `go_back` pops history if `can_go_back()`, and provides fallback to parent stage if pressed at history index 0.
+  3. **Clean Header & Top-Nav Navigation Unification**:
+     - Detail views rely on the top navigation bar's `<` / `>` history controls, keeping the hero header uncluttered and avoiding redundant in-page back buttons.
+     - `go_back` pops history when `can_go_back()`, and provides a fallback to the parent stage if pressed at history index 0.
   4. **Comprehensive Unit Testing**:
      - Added 6 unit tests covering initial state, 1-for-1 back navigation from detail views, forward traversal, forward history truncation upon branching, duplicate push suppression, and album detail back flow.
 - **Consequences**:
