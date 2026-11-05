@@ -35,6 +35,8 @@ pub fn ForYou(
     favorites: HashSet<PathBuf>,
     #[props(default)]
     on_select_mix: EventHandler<String>,
+    #[props(default)]
+    on_back: EventHandler<()>,
     on_start_mix: EventHandler<Vec<TrackEntry>>,
     #[props(default)]
     on_play_track: EventHandler<TrackEntry>,
@@ -45,8 +47,6 @@ pub fn ForYou(
     #[props(default)]
     on_toggle_play: EventHandler<()>,
 ) -> Element {
-    let mut local_selected = use_signal(|| None::<String>);
-
     let mut mixes = vec![
         AlgorithmicMix {
             id: "harmonic_flow",
@@ -207,8 +207,8 @@ pub fn ForYou(
         }
     };
 
-    let active_mix_id = selected_mix_id.or_else(|| local_selected.read().clone());
-    let active_mix = active_mix_id.as_ref().and_then(|id| mixes.iter().find(|m| &m.id == id).cloned());
+    let active_mix_id = selected_mix_id.as_ref();
+    let active_mix = active_mix_id.and_then(|id| mixes.iter().find(|m| &m.id == id).cloned());
 
     rsx! {
         div { class: "for-you-stage",
@@ -229,6 +229,15 @@ pub fn ForYou(
                         div {
                             class: "album-detail-view",
                             style: "background: linear-gradient(180deg, {mix.hero_gradient_top} 0%, rgba(18, 18, 18, 0.72) 280px, var(--bg-canvas) 460px);",
+
+                            // Navigation Back Button
+                            button {
+                                class: "btn-pill",
+                                style: "display: inline-flex; align-items: center; gap: 6px; margin-bottom: 16px; background: rgba(255, 255, 255, 0.08); border: 1px solid rgba(255, 255, 255, 0.12); cursor: pointer; color: var(--text-primary); font-size: 13px; padding: 6px 14px; border-radius: 999px; transition: background 0.15s ease;",
+                                onclick: move |_| on_back.call(()),
+                                span { class: "material-icons md-18", "arrow_back" }
+                                "Back to For You"
+                            }
 
                             // Hero Header: 232px Animated SVG Art on left + Big Metadata on right
                             div { class: "album-detail-hero",
@@ -504,7 +513,6 @@ pub fn ForYou(
                                     onclick: {
                                         let id = mix_id_str.clone();
                                         move |_| {
-                                            local_selected.set(Some(id.clone()));
                                             on_select_mix.call(id.clone());
                                         }
                                     },

@@ -1432,6 +1432,40 @@ These four benchmark scenarios define the "Gold Standard" transitions that Attun
   - Release binary built cleanly (`target/release/attune-desktop`).
 - **Verdict**: `PASS`. Two-song ping-pong looping is eliminated; Smart Shuffle explores the catalog with artist variety and smooth harmonic pacing. Flutter codebase is confirmed untouched and healthy.
 
+---
+
+### [2026-11-05] Exp #051: Navigation State Machine & Detail View Back Isolation
+- **Feature Area**: UI Navigation Stack / Detail View Back History / History Stack State Machine
+- **Algorithm Version / Commit**: Post-ADR-083 / Branch `main`
+- **Context & Motivation**:
+  - User reported: "when i try to view any albums, when i try to go back, i had to press around two of times before proceeding and would sometimes yeet me to your last two visits, its supposed to be like harmonic flow view > for you but then its just this: harmonic flow view > harmonic flow view (stuck) > last area you visited before visiting for you (like home, or about or process manaement) instead of the for you since i came there or albums area after i view an album info. often times its also just sending me home, after two presses to the back."
+- **Empirical Findings & Root Cause Analysis**:
+  1. `stages/for_you.rs` kept `let mut local_selected = use_signal(|| None::<String>)` and `stages/albums.rs` kept `let mut selected_album = use_signal(|| None::<String>)`.
+  2. Clicking an album or mix card set both `local_selected` and called `on_select_mix.call(id)`.
+  3. When the user pressed `<` (top-nav back), `app.rs` decremented `history_index` and transitioned `current_stage` from `ForYouDetail("harmonic_flow")` to `ForYou` (`selected_mix_id: None`).
+  4. However, inside `for_you.rs`, `let active_mix_id = selected_mix_id.or_else(|| local_selected.read().clone())` caught `None` and fell back to the lingering `local_selected` signal (`"harmonic_flow"`), rendering the detail view again ("stuck").
+  5. The second `<` click decremented `history_index` past `ForYou` to whatever stage was visited before `ForYou` (`Home`, `ProcessManager`), yeeting the user back.
+- **Architectural Fixes Applied**:
+  1. **Single Source of Truth**: Removed `local_selected` and `selected_album` signals from `for_you.rs` and `albums.rs`. Props (`selected_mix_id` and `selected_album_name`) are the single source of truth.
+  2. **Encapsulated `NavigationState`**:
+     - Unified history stack and stack pointer into an atomic `NavigationState` machine.
+     - Handled stack truncation on forward branches and duplicate push suppression.
+  3. **In-Page Action Pills**:
+     - Added `[← Back to For You]` and `[← Back to Albums]` action pills to the top of the detail hero headers.
+     - Wired `on_back: move |_| go_back()`.
+- **Automated Verification**:
+  - Added 6 new unit tests in `app.rs` covering:
+    - Initial state assertions.
+    - Single-press back navigation from detail views (`Home` $\to$ `ForYou` $\to$ `Harmonic Flow` $\to$ `<` strictly returns to `ForYou` on press 1, and `Home` on press 2).
+    - Forward history navigation.
+    - Forward history truncation upon branching.
+    - Duplicate stage push suppression.
+    - Album detail single-press back navigation.
+  - All 33 unit tests in `attune-desktop` pass (100% pass rate).
+  - 100% of workspace tests pass.
+  - Release binary compiled cleanly (`cargo build --release`).
+- **Verdict**: `PASS`. Navigation between parent catalogs and detail views is 1-for-1 with zero sticking, zero double-presses, and zero unexpected view jumps.
+
 
 
 

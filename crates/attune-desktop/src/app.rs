@@ -33,6 +33,61 @@ pub enum StageView {
     About,
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub struct NavigationState {
+    pub history: Vec<StageView>,
+    pub index: usize,
+}
+
+impl NavigationState {
+    pub fn new(initial: StageView) -> Self {
+        Self {
+            history: vec![initial],
+            index: 0,
+        }
+    }
+
+    pub fn current(&self) -> &StageView {
+        &self.history[self.index]
+    }
+
+    pub fn can_go_back(&self) -> bool {
+        self.index > 0
+    }
+
+    pub fn can_go_forward(&self) -> bool {
+        self.index + 1 < self.history.len()
+    }
+
+    pub fn push(&mut self, next: StageView) -> bool {
+        if self.current() == &next {
+            return false;
+        }
+        self.history.truncate(self.index + 1);
+        self.history.push(next);
+        self.index = self.history.len() - 1;
+        true
+    }
+
+    pub fn back(&mut self) -> Option<&StageView> {
+        if self.can_go_back() {
+            self.index -= 1;
+            Some(self.current())
+        } else {
+            None
+        }
+    }
+
+    pub fn forward(&mut self) -> Option<&StageView> {
+        if self.can_go_forward() {
+            self.index += 1;
+            Some(self.current())
+        } else {
+            None
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DockMode {
     Lyrics,
@@ -93,9 +148,7 @@ pub fn App() -> Element {
     let mut master_fx = use_signal(MasterFxParams::default);
 
     // 5. Navigation & Docks
-    let mut current_stage = use_signal(|| StageView::Home);
-    let mut stage_history = use_signal(|| vec![StageView::Home]);
-    let mut history_index = use_signal(|| 0usize);
+    let mut nav_state = use_signal(|| NavigationState::new(StageView::Home));
     let mut dock_mode = use_signal(|| DockMode::Lyrics);
     let mut search_query = use_signal(String::new);
 
@@ -110,16 +163,28 @@ pub fn App() -> Element {
 
     // Helper: Navigation change with history tracking
     let mut navigate_to = move |new_stage: StageView| {
-        if *current_stage.read() != new_stage {
-            let mut hist = stage_history.read().clone();
-            let curr_idx = *history_index.read();
-            hist.truncate(curr_idx + 1);
-            hist.push(new_stage.clone());
-            let next_idx = hist.len() - 1;
-            stage_history.set(hist);
-            history_index.set(next_idx);
-            current_stage.set(new_stage);
+        nav_state.write().push(new_stage);
+    };
+
+    // Helper: History back navigation
+    let mut go_back = move || {
+        let mut nav = nav_state.write();
+        if nav.back().is_none() {
+            match nav.current() {
+                StageView::AlbumDetail(_) | StageView::AlbumEditor(_) => {
+                    nav.push(StageView::Albums);
+                }
+                StageView::ForYouDetail(_) => {
+                    nav.push(StageView::ForYou);
+                }
+                _ => {}
+            }
         }
+    };
+
+    // Helper: History forward navigation
+    let mut go_forward = move || {
+        nav_state.write().forward();
     };
 
     // Helper: Select next index using current ShuffleMode (Off, Linear, Smart) and recency history
@@ -679,7 +744,7 @@ pub fn App() -> Element {
                         value: "{search_query}",
                         oninput: move |evt| {
                             search_query.set(evt.value());
-                            if *current_stage.read() != StageView::Library {
+                            if *nav_state.read().current() != StageView::Library {
                                 navigate_to(StageView::Library);
                             }
                         },
@@ -690,31 +755,31 @@ pub fn App() -> Element {
                 div { class: "nav-section",
                     span { class: "section-label", "ATTUNE" }
                     div {
-                        class: if *current_stage.read() == StageView::Home { "nav-item active" } else { "nav-item" },
+                        class: if *nav_state.read().current() == StageView::Home { "nav-item active" } else { "nav-item" },
                         onclick: move |_| navigate_to(StageView::Home),
                         span { class: "material-icons md-20", "home" }
                         span { "Home" }
                     }
                     div {
-                        class: if matches!(*current_stage.read(), StageView::ForYou | StageView::ForYouDetail(_)) { "nav-item active" } else { "nav-item" },
+                        class: if matches!(nav_state.read().current(), StageView::ForYou | StageView::ForYouDetail(_)) { "nav-item active" } else { "nav-item" },
                         onclick: move |_| navigate_to(StageView::ForYou),
                         span { class: "material-icons md-20", "auto_awesome" }
                         span { "For You" }
                     }
                     div {
-                        class: if *current_stage.read() == StageView::Library { "nav-item active" } else { "nav-item" },
+                        class: if *nav_state.read().current() == StageView::Library { "nav-item active" } else { "nav-item" },
                         onclick: move |_| navigate_to(StageView::Library),
                         span { class: "material-icons md-20", "library_music" }
                         span { "Library" }
                     }
                     div {
-                        class: if matches!(*current_stage.read(), StageView::Albums | StageView::AlbumDetail(_)) { "nav-item active" } else { "nav-item" },
+                        class: if matches!(nav_state.read().current(), StageView::Albums | StageView::AlbumDetail(_)) { "nav-item active" } else { "nav-item" },
                         onclick: move |_| navigate_to(StageView::Albums),
                         span { class: "material-icons md-20", "album" }
                         span { "Albums" }
                     }
                     div {
-                        class: if *current_stage.read() == StageView::Favorites { "nav-item active" } else { "nav-item" },
+                        class: if *nav_state.read().current() == StageView::Favorites { "nav-item active" } else { "nav-item" },
                         onclick: move |_| navigate_to(StageView::Favorites),
                         span { class: "material-icons md-20", "favorite" }
                         span { "Favorite Songs" }
@@ -767,25 +832,25 @@ pub fn App() -> Element {
                 // Sidebar Bottom
                 div { class: "sidebar-bottom",
                     div {
-                        class: if *current_stage.read() == StageView::Equalizer { "nav-item active" } else { "nav-item" },
+                        class: if *nav_state.read().current() == StageView::Equalizer { "nav-item active" } else { "nav-item" },
                         onclick: move |_| navigate_to(StageView::Equalizer),
                         span { class: "material-icons md-20", "tune" }
                         span { "Equalizer" }
                     }
                     div {
-                        class: if *current_stage.read() == StageView::Settings { "nav-item active" } else { "nav-item" },
+                        class: if *nav_state.read().current() == StageView::Settings { "nav-item active" } else { "nav-item" },
                         onclick: move |_| navigate_to(StageView::Settings),
                         span { class: "material-icons md-20", "settings" }
                         span { "Settings" }
                     }
                     div {
-                        class: if *current_stage.read() == StageView::ProcessManager { "nav-item active" } else { "nav-item" },
+                        class: if *nav_state.read().current() == StageView::ProcessManager { "nav-item active" } else { "nav-item" },
                         onclick: move |_| navigate_to(StageView::ProcessManager),
                         span { class: "material-icons md-20", "analytics" }
                         span { "Process Manager" }
                     }
                     div {
-                        class: if *current_stage.read() == StageView::About { "nav-item active" } else { "nav-item" },
+                        class: if *nav_state.read().current() == StageView::About { "nav-item active" } else { "nav-item" },
                         onclick: move |_| navigate_to(StageView::About),
                         span { class: "material-icons md-20", "info" }
                         span { "About Attune" }
@@ -803,26 +868,14 @@ pub fn App() -> Element {
                     div { class: "history-nav",
                         button {
                             class: "btn-icon",
-                            disabled: *history_index.read() == 0,
-                            onclick: move |_| {
-                                let idx = *history_index.read();
-                                if idx > 0 {
-                                    history_index.set(idx - 1);
-                                    current_stage.set(stage_history.read()[idx - 1].clone());
-                                }
-                            },
+                            disabled: !nav_state.read().can_go_back(),
+                            onclick: move |_| go_back(),
                             span { class: "material-icons md-18", "chevron_left" }
                         }
                         button {
                             class: "btn-icon",
-                            disabled: *history_index.read() + 1 >= stage_history.read().len(),
-                            onclick: move |_| {
-                                let idx = *history_index.read();
-                                if idx + 1 < stage_history.read().len() {
-                                    history_index.set(idx + 1);
-                                    current_stage.set(stage_history.read()[idx + 1].clone());
-                                }
-                            },
+                            disabled: !nav_state.read().can_go_forward(),
+                            onclick: move |_| go_forward(),
                             span { class: "material-icons md-18", "chevron_right" }
                         }
                     }
@@ -869,7 +922,7 @@ pub fn App() -> Element {
                             span { "Queue" }
                         }
                         button {
-                            class: if *current_stage.read() == StageView::Equalizer { "btn-icon active" } else { "btn-icon" },
+                            class: if *nav_state.read().current() == StageView::Equalizer { "btn-icon active" } else { "btn-icon" },
                             title: "Master Equalizer Rack",
                             onclick: move |_| navigate_to(StageView::Equalizer),
                             span { class: "material-icons md-18", "tune" }
@@ -879,7 +932,7 @@ pub fn App() -> Element {
 
                 // Stage View Content Scroll
                 div { class: "content-scroll",
-                    match current_stage.read().clone() {
+                    match nav_state.read().current().clone() {
                         StageView::Home => rsx! {
                             Home {
                                 current_track: current_track.read().clone(),
@@ -923,6 +976,7 @@ pub fn App() -> Element {
                                 is_playing: *is_playing.read(),
                                 favorites: favorites.read().clone(),
                                 on_select_album: move |name: String| navigate_to(StageView::AlbumDetail(name)),
+                                on_back: move |_| go_back(),
                                 on_play_track: move |t| play_track(t),
                                 on_play_tracks: move |list| play_track_list(list),
                                 on_queue_track: move |t| queue.write().push(t),
@@ -946,6 +1000,7 @@ pub fn App() -> Element {
                                 is_playing: *is_playing.read(),
                                 favorites: favorites.read().clone(),
                                 on_select_album: move |name: String| navigate_to(StageView::AlbumDetail(name)),
+                                on_back: move |_| go_back(),
                                 on_play_track: move |t| play_track(t),
                                 on_play_tracks: move |list| play_track_list(list),
                                 on_queue_track: move |t| queue.write().push(t),
@@ -964,7 +1019,7 @@ pub fn App() -> Element {
                         StageView::AlbumEditor(group) => rsx! {
                             AlbumEditor {
                                 group,
-                                on_back: move |_| navigate_to(StageView::Albums),
+                                on_back: move |_| go_back(),
                                 on_saved: move |_| {
                                     if let Some(dir) = music_dir.read().clone() {
                                         tracks.set(Vec::new());
@@ -992,6 +1047,7 @@ pub fn App() -> Element {
                                 is_playing: *is_playing.read(),
                                 favorites: favorites.read().clone(),
                                 on_select_mix: move |id: String| navigate_to(StageView::ForYouDetail(id)),
+                                on_back: move |_| go_back(),
                                 on_start_mix: move |list| play_track_list(list),
                                 on_play_track: move |t| play_track(t),
                                 on_queue_track: move |t| queue.write().push(t),
@@ -1014,6 +1070,7 @@ pub fn App() -> Element {
                                 is_playing: *is_playing.read(),
                                 favorites: favorites.read().clone(),
                                 on_select_mix: move |id: String| navigate_to(StageView::ForYouDetail(id)),
+                                on_back: move |_| go_back(),
                                 on_start_mix: move |list| play_track_list(list),
                                 on_play_track: move |t| play_track(t),
                                 on_queue_track: move |t| queue.write().push(t),
@@ -1726,5 +1783,123 @@ pub fn App() -> Element {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_navigation_initial_state() {
+        let nav = NavigationState::new(StageView::Home);
+        assert_eq!(nav.current(), &StageView::Home);
+        assert_eq!(nav.index, 0);
+        assert_eq!(nav.history.len(), 1);
+        assert!(!nav.can_go_back());
+        assert!(!nav.can_go_forward());
+    }
+
+    #[test]
+    fn test_navigation_push_and_back_single_press() {
+        let mut nav = NavigationState::new(StageView::Home);
+
+        // Home -> ForYou
+        assert!(nav.push(StageView::ForYou));
+        assert_eq!(nav.current(), &StageView::ForYou);
+        assert_eq!(nav.index, 1);
+        assert!(nav.can_go_back());
+        assert!(!nav.can_go_forward());
+
+        // ForYou -> Harmonic Flow
+        assert!(nav.push(StageView::ForYouDetail("harmonic_flow".into())));
+        assert_eq!(nav.current(), &StageView::ForYouDetail("harmonic_flow".into()));
+        assert_eq!(nav.index, 2);
+        assert!(nav.can_go_back());
+        assert!(!nav.can_go_forward());
+
+        // Single Back press MUST return to ForYou, NOT get stuck on Harmonic Flow and NOT yeet to Home
+        let back_res = nav.back();
+        assert_eq!(back_res, Some(&StageView::ForYou));
+        assert_eq!(nav.current(), &StageView::ForYou);
+        assert_eq!(nav.index, 1);
+        assert!(nav.can_go_back());
+        assert!(nav.can_go_forward());
+
+        // Second Back press returns to Home
+        let back_res2 = nav.back();
+        assert_eq!(back_res2, Some(&StageView::Home));
+        assert_eq!(nav.current(), &StageView::Home);
+        assert_eq!(nav.index, 0);
+        assert!(!nav.can_go_back());
+        assert!(nav.can_go_forward());
+
+        // Third Back press at root returns None
+        assert_eq!(nav.back(), None);
+        assert_eq!(nav.current(), &StageView::Home);
+    }
+
+    #[test]
+    fn test_navigation_forward_flow() {
+        let mut nav = NavigationState::new(StageView::Home);
+        nav.push(StageView::ForYou);
+        nav.push(StageView::ForYouDetail("harmonic_flow".into()));
+
+        nav.back(); // At ForYou
+        nav.back(); // At Home
+
+        // Forward 1 -> ForYou
+        assert_eq!(nav.forward(), Some(&StageView::ForYou));
+        assert_eq!(nav.current(), &StageView::ForYou);
+
+        // Forward 2 -> Harmonic Flow
+        assert_eq!(nav.forward(), Some(&StageView::ForYouDetail("harmonic_flow".into())));
+        assert_eq!(nav.current(), &StageView::ForYouDetail("harmonic_flow".into()));
+        assert!(!nav.can_go_forward());
+
+        // Forward 3 at tip returns None
+        assert_eq!(nav.forward(), None);
+    }
+
+    #[test]
+    fn test_navigation_duplicate_push_is_ignored() {
+        let mut nav = NavigationState::new(StageView::Home);
+        assert!(!nav.push(StageView::Home));
+        assert_eq!(nav.history.len(), 1);
+
+        nav.push(StageView::Albums);
+        assert!(!nav.push(StageView::Albums));
+        assert_eq!(nav.history.len(), 2);
+        assert_eq!(nav.index, 1);
+    }
+
+    #[test]
+    fn test_navigation_album_detail_single_press_back() {
+        let mut nav = NavigationState::new(StageView::Home);
+        nav.push(StageView::Albums);
+        nav.push(StageView::AlbumDetail("Super Trouper".into()));
+
+        assert_eq!(nav.current(), &StageView::AlbumDetail("Super Trouper".into()));
+
+        // Exactly one back returns to Albums catalog
+        assert_eq!(nav.back(), Some(&StageView::Albums));
+        assert_eq!(nav.current(), &StageView::Albums);
+    }
+
+    #[test]
+    fn test_navigation_branch_truncates_forward_history() {
+        let mut nav = NavigationState::new(StageView::Home);
+        nav.push(StageView::ForYou);
+        nav.push(StageView::ForYouDetail("harmonic_flow".into()));
+        assert_eq!(nav.history.len(), 3);
+
+        nav.back(); // back at ForYou
+        assert!(nav.can_go_forward());
+
+        // Now branch to High Energy
+        nav.push(StageView::ForYouDetail("high_energy".into()));
+        assert_eq!(nav.history.len(), 3);
+        assert_eq!(nav.history[2], StageView::ForYouDetail("high_energy".into()));
+        assert!(!nav.can_go_forward());
     }
 }

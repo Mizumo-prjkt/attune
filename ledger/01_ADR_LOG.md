@@ -2939,6 +2939,45 @@ This file records all major architectural decisions for **Attune**, including co
   - Flutter codebase remains 100% untouched and intact.
   - All 27 unit tests in `attune-desktop` and 100% of workspace tests pass. Release binary compiled cleanly.
 
+---
+
+## ADR-083: Navigation State Stack Synchronization, Single-Press Back History Architecture & Detail-View Isolation
+
+- **Status**: `LOCKED`
+- **Date**: 2026-11-05
+- **Context**:
+  - In `attune-desktop`, users reported a broken back-navigation history flow when inspecting album detail views or algorithmic mix views (e.g. *Harmonic Flow*):
+    `Harmonic Flow` $\rightarrow$ pressing `<` once stayed stuck on `Harmonic Flow` $\rightarrow$ pressing `<` a second time skipped `For You` and yeeted the user back to whatever area they had visited previously (such as `Home`, `Process Manager`, or `About`).
+  - **Root Cause Analysis**:
+    1. **Stale Inner Stage Signals Overriding Props**:
+       Both `stages/for_you.rs` (`local_selected`) and `stages/albums.rs` (`selected_album`) kept internal component signals that were mutated on click (`local_selected.set(Some(id))`). When the view resolved which mix or album to display, it evaluated `selected_mix_id.or_else(|| local_selected.read().clone())`.
+       When the user pressed `<` (top-nav back button), the top-level app correctly transitioned `current_stage` from `StageView::ForYouDetail("harmonic_flow")` to `StageView::ForYou` (passing `selected_mix_id: None`).
+       However, because the `ForYou` component's internal `local_selected` signal persisted across re-renders with `Some("harmonic_flow")`, `or_else` caught the `None` and re-rendered the detail view! To the user, the screen appeared completely stuck on the first press.
+       When the user pressed `<` a second time, `history_index` decremented again, jumping past `ForYou` to whatever stage had been visited prior to `ForYou` (e.g. `Home` or `ProcessManager`).
+    2. **Disjointed Navigation State Signals**:
+       In `app.rs`, navigation was tracked using 3 independent signals: `current_stage`, `stage_history: Vec<StageView>`, and `history_index: usize`. Although `navigate_to` attempted to keep them in sync, `AlbumEditor` and subview handlers bypassed history by pushing new stages or lacking pop handlers.
+- **Decision**:
+  1. **Elimination of Internal Detail Signals in Stages**:
+     - Stripped `local_selected` from `stages/for_you.rs` and `selected_album` from `stages/albums.rs`.
+     - `ForYou` and `Albums` now treat their props (`selected_mix_id: Option<String>` and `selected_album_name: Option<String>`) as the single source of truth.
+     - When `current_stage` transitions back to `StageView::ForYou` or `StageView::Albums`, the prop is immediately `None`, rendering the parent overview without delay on the very first click.
+  2. **Encapsulated Atomic `NavigationState` Machine**:
+     - Introduced `NavigationState` managing `history: Vec<StageView>` and `index: usize` atomically in `crates/attune-desktop/src/app.rs`.
+     - `push(next)`: Returns `false` if `next == current()`, preventing duplicate history spam; truncates forward history when branching from an earlier stack position.
+     - `back()`: Decrements stack pointer, returns `Some(StageView)` or `None` when at history root.
+     - `forward()`: Increments stack pointer safely up to stack bounds.
+  3. **Detail View In-Page Back Action Pills**:
+     - Added `on_back: EventHandler<()>` to `Albums`, `AlbumEditor`, and `ForYou`.
+     - Placed high-contrast `[← Back to Albums]` and `[← Back to For You]` action pills at the top of detail heroes, providing users with both in-page and top-nav back navigation.
+     - `go_back` pops history if `can_go_back()`, and provides fallback to parent stage if pressed at history index 0.
+  4. **Comprehensive Unit Testing**:
+     - Added 6 unit tests covering initial state, 1-for-1 back navigation from detail views, forward traversal, forward history truncation upon branching, duplicate push suppression, and album detail back flow.
+- **Consequences**:
+  - Eliminates sticking, double-presses, and unexpected jumps to `Home` or previous stages.
+  - Navigation between `Home` $\leftrightarrow$ `For You` $\leftrightarrow$ `Harmonic Flow` and `Albums` $\leftrightarrow$ `AlbumDetail` works 1-for-1 with precision.
+  - Flutter codebase remains 100% untouched and intact.
+  - All 33 unit tests in `attune-desktop` and 100% of workspace tests pass. Release binary compiled cleanly.
+
 
 
 

@@ -24,6 +24,8 @@ pub fn Albums(
     selected_album_name: Option<String>,
     #[props(default)]
     on_select_album: EventHandler<String>,
+    #[props(default)]
+    on_back: EventHandler<()>,
     on_play_track: EventHandler<TrackEntry>,
     on_play_tracks: EventHandler<Vec<TrackEntry>>,
     on_queue_track: EventHandler<TrackEntry>,
@@ -33,8 +35,6 @@ pub fn Albums(
     on_toggle_play: EventHandler<()>,
     on_edit_album: EventHandler<AlbumGroup>,
 ) -> Element {
-    let mut selected_album = use_signal(|| None::<String>);
-
     // Group tracks by album
     let mut album_map: HashMap<String, AlbumGroup> = HashMap::new();
     for track in tracks {
@@ -57,8 +57,8 @@ pub fn Albums(
     let mut album_list: Vec<AlbumGroup> = album_map.into_values().collect();
     album_list.sort_by(|a, b| a.name.cmp(&b.name));
 
-    let selected_name = selected_album_name.or_else(|| selected_album.read().clone());
-    let selected_group = selected_name.as_ref().and_then(|name| album_list.iter().find(|a| &a.name == name).cloned());
+    let selected_name = selected_album_name.as_ref();
+    let selected_group = selected_name.and_then(|name| album_list.iter().find(|a| &a.name == name).cloned());
 
     rsx! {
         div { class: "albums-stage",
@@ -92,6 +92,15 @@ pub fn Albums(
                         div {
                             class: "album-detail-view",
                             style: "background: linear-gradient(180deg, {hero_color_rgb} 0%, rgba(18, 18, 18, 0.72) 280px, var(--bg-canvas) 460px);",
+
+                            // Navigation Back Button
+                            button {
+                                class: "btn-pill",
+                                style: "display: inline-flex; align-items: center; gap: 6px; margin-bottom: 16px; background: rgba(255, 255, 255, 0.08); border: 1px solid rgba(255, 255, 255, 0.12); cursor: pointer; color: var(--text-primary); font-size: 13px; padding: 6px 14px; border-radius: 999px; transition: background 0.15s ease;",
+                                onclick: move |_| on_back.call(()),
+                                span { class: "material-icons md-18", "arrow_back" }
+                                "Back to Albums"
+                            }
 
                             // Hero Header: 232px Cover Artwork on left + Big Metadata on right
                             div { class: "album-detail-hero",
@@ -393,7 +402,6 @@ pub fn Albums(
                                             onclick: {
                                                 let n = name.clone();
                                                 move |_| {
-                                                    selected_album.set(Some(n.clone()));
                                                     on_select_album.call(n.clone());
                                                 }
                                             },
