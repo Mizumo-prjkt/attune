@@ -3024,6 +3024,39 @@ This file records all major architectural decisions for **Attune**, including co
   - Flutter codebase remains 100% untouched and intact.
   - All 38 unit tests in `attune-desktop` and 100% of workspace tests pass. Release binary compiled cleanly.
 
+---
+
+## ADR-085: Decoupled Mixer-Player Transition Lifecycle State Machine, Stale Snapshot Race Elimination, Camelot Key Normalization & Navigation History Loop Prevention
+- **Date**: 2026-11-05
+- **Status**: `LOCKED`
+- **Context**:
+  - During Smart Shuffle automatic and manual transitions, an audio/UI desync occurred where the physical audio engine was playing one track (e.g., *World is Mine*) while the desktop UI displayed a different track (e.g., *Cute*).
+  - Tracing the 50ms poller in `app.rs` revealed a race condition: `snap = p.snapshot()` was captured at the top of the tick with `snap.transition_info == None`. When `check_auto_transition()` triggered later in the same tick, `is_transition_active.set(true)` was set, and immediately evaluated by `if *is_transition_active.read() { if snap.transition_info.is_none() { ... } }`. Because `snap` was captured before the trigger, the UI mistakenly evaluated the transition as already completed in the same tick, advanced `current_track` to *World is Mine*, cleared `transitioning_to_track`, and pre-planned the next song (*Cute*) into Deck B. When the physical blend actually finished in `DualDeckMixer` seconds later, `transition_info` became `None` again, causing a second completion pass that advanced the UI to *Cute* while Deck A had just swapped to *World is Mine*.
+  - Furthermore, Harmonic Matches on Home showed "Scan your music library to generate harmonic transition pairings" because `camelot_compatibility` received raw ID3 key strings (e.g. `"C Major"`) instead of normalized Camelot codes (`"8B"`), returning default compatibility 0.40 which failed the $\ge 0.70$ threshold for all tracks.
+  - Navigating back from detail views (e.g., `ForYouDetail` or `AlbumDetail`) could get caught in ping-pong cycles (`harmonic flow view -> harmonic flow view (stuck) -> last area`) due to consecutive duplicate history pushes.
+- **Decision**:
+  1. **Atomic Player-Mixer Lifecycle State Machine (`crates/attune-desktop/src/player.rs`)**:
+     - Added `active_transition: Arc<Mutex<Option<PendingTransitionInfo>>>` and `current_track_path: Arc<Mutex<Option<PathBuf>>>` to `Player`.
+     - When `check_auto_transition()` or `trigger_transition_now()` triggers in `DualDeckMixer`, `active_transition` is populated with `Some(info)` and `DualDeckMixer::is_transitioning()` becomes `true`.
+     - Implemented `poll_transition_completed(&self) -> Option<PendingTransitionInfo>`: Queries whether an active transition is recorded AND `!mixer.is_transitioning()`. When the audio thread executes `std::mem::swap(&mut self.deck_a, &mut self.deck_b)` and clears `self.transition`, `poll_transition_completed` atomically consumes `active_transition.take()`, updates `current_track_path` to `completed.incoming_path`, and returns `Some(completed)` **exactly once**.
+     - It returns `None` on the trigger tick and on every tick during the blend.
+  2. **Refactored GUI Poller Loop (`crates/attune-desktop/src/app.rs`)**:
+     - Replaced boolean state guessing with `if let Some(completed) = p.poll_transition_completed()`.
+     - Looks up incoming track directly by `completed.incoming_path`, updates `current_track`, resets `has_handled_track_end`, and only then pre-plans the next track on Deck B.
+     - Natural track completion check is guarded behind `else if !p.is_transitioning()`, preventing spurious end-of-track triggers during crossfades.
+  3. **Camelot Key Normalization (`app.rs` & `stages/home.rs`)**:
+     - Wrapped key evaluation in `smart_shuffle::normalize_to_camelot` across both outgoing and candidate tracks in `harmonic_matches`.
+     - Home Hero Now Playing card displays human-friendly format (e.g., `"C Major (8B)"`) whenever Camelot notation is derived.
+  4. **Navigation History Loop Prevention (`NavigationState::push`)**:
+     - Updated `NavigationState::push`: If `self.index > 0 && self.history[self.index - 1] == next`, steps backward (`self.index -= 1`) rather than creating ping-pong history cycles (`[A, B, A, B]`).
+     - Updated `can_go_back` to return `true` at root when viewing detail stages (`AlbumDetail`, `AlbumEditor`, `ForYouDetail`), gracefully returning to `Albums` or `ForYou`.
+- **Consequences**:
+  - Zero audio/UI desync during transitions; physical audio output and GUI display are 100% synchronized via atomic completion handshake.
+  - Harmonic Matches accurately displays Camelot-compatible pairings for all indexed songs.
+  - History back navigation operates with predictable single-press responsiveness without loops.
+  - All 41 unit tests in `attune-desktop` and 100% of workspace tests pass cleanly. Release binary compiled successfully.
+
+
 
 
 

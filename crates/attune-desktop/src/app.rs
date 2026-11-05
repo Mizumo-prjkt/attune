@@ -54,6 +54,12 @@ impl NavigationState {
 
     pub fn can_go_back(&self) -> bool {
         self.index > 0
+            || matches!(
+                self.current(),
+                StageView::AlbumDetail(_)
+                    | StageView::AlbumEditor(_)
+                    | StageView::ForYouDetail(_)
+            )
     }
 
     pub fn can_go_forward(&self) -> bool {
@@ -63,6 +69,12 @@ impl NavigationState {
     pub fn push(&mut self, next: StageView) -> bool {
         if self.current() == &next {
             return false;
+        }
+        // If the immediate previous history entry is identical to `next`,
+        // step back to avoid ping-pong history loops [A, B, A, B].
+        if self.index > 0 && self.history[self.index - 1] == next {
+            self.index -= 1;
+            return true;
         }
         self.history.truncate(self.index + 1);
         self.history.push(next);
@@ -183,7 +195,7 @@ pub fn App() -> Element {
     let mut go_back = move || {
         let mut nav = nav_state.write();
         if nav.back().is_none() {
-            match nav.current() {
+            match nav.current().clone() {
                 StageView::AlbumDetail(_) | StageView::AlbumEditor(_) => {
                     nav.push(StageView::Albums);
                 }
@@ -573,7 +585,7 @@ pub fn App() -> Element {
                     }
 
                     // 3. Check for Automatic JIT Transition Trigger
-                    if !*is_transition_active.read() {
+                    if !p.is_transitioning() {
                         if let Some(triggered) = p.check_auto_transition() {
                             last_verdict.set(Some(triggered.clone()));
                             is_transition_active.set(true);
@@ -603,73 +615,81 @@ pub fn App() -> Element {
                     }
 
                     // 4. Handle Transition Completion or Natural Track End
-                    if *is_transition_active.read() {
-                        if snap.transition_info.is_none() {
-                            // Transition officially concluded in DualDeckMixer (Deck B swapped into Deck A)
-                            is_transition_active.set(false);
-                            active_trans_name.set(None);
-                            let mut q = queue.cloned();
-                            let all = tracks.cloned();
-                            let curr_pos = *queue_pos.read();
+                    if let Some(completed) = p.poll_transition_completed() {
+                        // Transition officially concluded in DualDeckMixer (Deck B swapped into Deck A)
+                        is_transition_active.set(false);
+                        active_trans_name.set(None);
+                        let mut q = queue.cloned();
+                        let all = tracks.cloned();
+                        let curr_pos = *queue_pos.read();
 
-                            let (next_idx, mut new_track) = if let Some(target) = transitioning_to_track.read().as_ref() {
-                                if let Some(idx) = q.iter().position(|t| t.path == target.path) {
-                                    (idx, q[idx].clone())
-                                } else {
-                                    let insert_idx = (curr_pos + 1).min(q.len());
-                                    q.insert(insert_idx, target.clone());
-                                    queue.set(q.clone());
-                                    (insert_idx, target.clone())
-                                }
-                            } else if let Some(idx) = pick_next_index(curr_pos) {
-                                if idx < q.len() {
-                                    (idx, q[idx].clone())
-                                } else {
-                                    (0, q.first().cloned().unwrap_or_else(|| all[0].clone()))
-                                }
-                            } else {
-                                ((curr_pos + 1) % q.len().max(1), q.first().cloned().unwrap_or_else(|| all[0].clone()))
+                        let (next_idx, mut new_track) = if let Some(idx) = q.iter().position(|t| t.path == completed.incoming_path) {
+                            (idx, q[idx].clone())
+                        } else if let Some(t) = all.iter().find(|t| t.path == completed.incoming_path) {
+                            let insert_idx = (curr_pos + 1).min(q.len());
+                            q.insert(insert_idx, t.clone());
+                            queue.set(q.clone());
+                            (insert_idx, t.clone())
+                        } else {
+                            let insert_idx = (curr_pos + 1).min(q.len());
+                            let fallback = TrackEntry {
+                                path: completed.incoming_path.clone(),
+                                title: completed.incoming_title.clone(),
+                                artist: completed.incoming_artist.clone(),
+                                album: "Mix".into(),
+                                genre: None,
+                                duration_ms: (completed.duration_sec * 1000.0) as u64,
+                                bpm: Some(completed.incoming_bpm),
+                                key: Some(completed.incoming_key.clone()),
+                                format: "FLAC".into(),
+                                sample_rate: 44100,
+                                bit_depth: 16,
+                                artwork_path: None,
+                                artwork_data_url: None,
+                                aggression: None,
+                                vibe_family: None,
                             };
+                            q.insert(insert_idx, fallback.clone());
+                            queue.set(q.clone());
+                            (insert_idx, fallback)
+                        };
 
-                            queue_pos.set(next_idx);
-                            if let Some(last) = last_verdict.read().as_ref() {
-                                if new_track.bpm.is_none() && last.incoming_bpm > 10.0 {
-                                    new_track.bpm = Some(last.incoming_bpm);
-                                }
-                                if (new_track.key.is_none() || new_track.key.as_deref() == Some("Unknown") || new_track.key.as_deref() == Some("—")) && !last.incoming_key.is_empty() && last.incoming_key != "Unknown" {
-                                    new_track.key = Some(last.incoming_key.clone());
-                                }
-                                p.set_current_profile(last.incoming_bpm, last.incoming_key.clone());
-                            }
-                            current_track.set(Some(new_track.clone()));
-                            shuffle_history.write().record_played(new_track.path.clone());
-                            let sheet = resolve_companion_lyrics(&new_track.path).unwrap_or_else(LyricsSheet::empty);
-                            lyrics_sheet.set(sheet);
-                            active_lyric_index.set(None);
-                            transitioning_to_track.set(None);
-                            has_handled_track_end.set(false);
+                        queue_pos.set(next_idx);
+                        if new_track.bpm.is_none() && completed.incoming_bpm > 10.0 {
+                            new_track.bpm = Some(completed.incoming_bpm);
+                        }
+                        if (new_track.key.is_none() || new_track.key.as_deref() == Some("Unknown") || new_track.key.as_deref() == Some("—")) && !completed.incoming_key.is_empty() && completed.incoming_key != "Unknown" {
+                            new_track.key = Some(completed.incoming_key.clone());
+                        }
+                        p.set_current_profile(completed.incoming_bpm, completed.incoming_key.clone());
+                        current_track.set(Some(new_track.clone()));
+                        shuffle_history.write().record_played(new_track.path.clone());
+                        let sheet = resolve_companion_lyrics(&new_track.path).unwrap_or_else(LyricsSheet::empty);
+                        lyrics_sheet.set(sheet);
+                        active_lyric_index.set(None);
+                        transitioning_to_track.set(None);
+                        has_handled_track_end.set(false);
 
-                            // Pre-plan next transition for the new incoming track
-                            if *shuffle_mode.read() == ShuffleMode::Smart {
-                                if let Some(upcoming_idx) = pick_next_index(next_idx) {
-                                    let cand_track = if upcoming_idx < q.len() {
-                                        Some(&q[upcoming_idx])
-                                    } else if upcoming_idx < all.len() {
-                                        Some(&all[upcoming_idx])
-                                    } else {
-                                        None
-                                    };
-                                    if let Some(ct) = cand_track {
-                                        p.prepare_transition(
-                                            ct.path.clone(),
-                                            ct.title.clone(),
-                                            ct.artist.clone(),
-                                        );
-                                    }
+                        // Pre-plan next transition for the new incoming track
+                        if *shuffle_mode.read() == ShuffleMode::Smart {
+                            if let Some(upcoming_idx) = pick_next_index(next_idx) {
+                                let cand_track = if upcoming_idx < q.len() {
+                                    Some(&q[upcoming_idx])
+                                } else if upcoming_idx < all.len() {
+                                    Some(&all[upcoming_idx])
+                                } else {
+                                    None
+                                };
+                                if let Some(ct) = cand_track {
+                                    p.prepare_transition(
+                                        ct.path.clone(),
+                                        ct.title.clone(),
+                                        ct.artist.clone(),
+                                    );
                                 }
                             }
                         }
-                    } else {
+                    } else if !p.is_transitioning() {
                         // Natural track completion auto-advance check (no transition occurred)
                         let is_deck_finished = snap.deck_a.state_str == "Finished";
                         let is_at_end = dur > 3000 && pos >= dur.saturating_sub(400);
@@ -707,14 +727,18 @@ pub fn App() -> Element {
     let harmonic_matches: Vec<TrackEntry> = {
         let all = tracks.read().clone();
         if let Some(curr) = current_track.read().as_ref() {
-            if let Some(curr_key) = curr.key.as_deref().filter(|k| !k.is_empty() && *k != "—" && *k != "Unknown") {
+            if let Some(curr_raw_key) = curr.key.as_deref().filter(|k| !k.is_empty() && *k != "—" && *k != "Unknown") {
+                let curr_camelot = smart_shuffle::normalize_to_camelot(curr_raw_key)
+                    .unwrap_or_else(|| curr_raw_key.to_string());
                 all.into_iter()
                     .filter(|t| {
                         if t.path == curr.path {
                             return false;
                         }
-                        if let Some(cand_key) = t.key.as_deref().filter(|k| !k.is_empty() && *k != "—" && *k != "Unknown") {
-                            let (compat, _) = smart_shuffle::camelot_compatibility(curr_key, cand_key);
+                        if let Some(cand_raw_key) = t.key.as_deref().filter(|k| !k.is_empty() && *k != "—" && *k != "Unknown") {
+                            let cand_camelot = smart_shuffle::normalize_to_camelot(cand_raw_key)
+                                .unwrap_or_else(|| cand_raw_key.to_string());
+                            let (compat, _) = smart_shuffle::camelot_compatibility(&curr_camelot, &cand_camelot);
                             compat >= 0.70
                         } else {
                             false
@@ -1944,5 +1968,30 @@ mod tests {
         assert_eq!(nav.history.len(), 3);
         assert_eq!(nav.history[2], StageView::ForYouDetail("high_energy".into()));
         assert!(!nav.can_go_forward());
+    }
+
+    #[test]
+    fn test_navigation_ping_pong_deduplication() {
+        let mut nav = NavigationState::new(StageView::Home);
+        nav.push(StageView::ForYou);
+        nav.push(StageView::ForYouDetail("harmonic_flow".into()));
+        assert_eq!(nav.index, 2);
+
+        // Clicking ForYou while on Harmonic Flow steps back to ForYou instead of pushing a duplicate loop
+        assert!(nav.push(StageView::ForYou));
+        assert_eq!(nav.current(), &StageView::ForYou);
+        assert_eq!(nav.index, 1);
+
+        // Single back goes to Home
+        assert_eq!(nav.back(), Some(&StageView::Home));
+        assert_eq!(nav.current(), &StageView::Home);
+    }
+
+    #[test]
+    fn test_navigation_detail_can_go_back_at_root() {
+        let nav = NavigationState::new(StageView::ForYouDetail("harmonic_flow".into()));
+        assert_eq!(nav.index, 0);
+        // Can go back because it has a logical parent stage (ForYou)
+        assert!(nav.can_go_back());
     }
 }

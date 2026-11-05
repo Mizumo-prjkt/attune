@@ -55,7 +55,19 @@ pub fn Home(
                     } else {
                         0.0
                     };
-                    let key_label = track.key.as_deref().unwrap_or("—");
+                    let key_label = if let Some(k) = track.key.as_deref().filter(|k| !k.is_empty() && *k != "—" && *k != "Unknown") {
+                        if let Some(cam) = crate::smart_shuffle::normalize_to_camelot(k) {
+                            if k.to_uppercase() != cam {
+                                format!("{k} ({cam})")
+                            } else {
+                                k.to_string()
+                            }
+                        } else {
+                            k.to_string()
+                        }
+                    } else {
+                        "—".to_string()
+                    };
                     let bpm_label = track.bpm.map(|b| format!("{:.1}", b)).unwrap_or_else(|| "—".to_string());
                     let art_data = track.artwork_data_url.as_deref().unwrap_or_default();
 

@@ -54,6 +54,8 @@ pub struct Player {
     gain_db_bits: Arc<AtomicU32>,
     pending_transition: Arc<Mutex<Option<PendingTransitionInfo>>>,
     current_profile: Arc<Mutex<Option<(f32, String)>>>,
+    current_track_path: Arc<Mutex<Option<PathBuf>>>,
+    active_transition: Arc<Mutex<Option<PendingTransitionInfo>>>,
 }
 
 impl Player {
@@ -86,6 +88,8 @@ impl Player {
             gain_db_bits: Arc::new(AtomicU32::new(0f32.to_bits())),
             pending_transition: Arc::new(Mutex::new(None)),
             current_profile: Arc::new(Mutex::new(None)),
+            current_track_path: Arc::new(Mutex::new(None)),
+            active_transition: Arc::new(Mutex::new(None)),
         }
     }
 
@@ -107,6 +111,12 @@ impl Player {
         self.clear_pending_transition();
         if let Ok(mut prof) = self.current_profile.lock() {
             *prof = None;
+        }
+        if let Ok(mut cur) = self.current_track_path.lock() {
+            *cur = Some(path.clone());
+        }
+        if let Ok(mut act) = self.active_transition.lock() {
+            *act = None;
         }
 
         if let Ok(mut m) = self.mixer.lock() {
@@ -259,6 +269,9 @@ impl Player {
             mixer.trigger_transition(info.recipe.clone());
             let triggered = info.clone();
             *pending_guard = None;
+            if let Ok(mut act) = self.active_transition.lock() {
+                *act = Some(triggered.clone());
+            }
             Some(triggered)
         } else {
             None
@@ -272,7 +285,43 @@ impl Player {
 
         let mut mixer = self.mixer.lock().ok()?;
         mixer.trigger_transition(info.recipe.clone());
+        if let Ok(mut act) = self.active_transition.lock() {
+            *act = Some(info.clone());
+        }
         Some(info)
+    }
+
+    /// Polls whether an active transition has officially finished in `DualDeckMixer`.
+    ///
+    /// When `DualDeckMixer` completes blending, Deck B is swapped into Deck A and
+    /// `mixer.is_transitioning()` becomes false. This method atomically consumes
+    /// the active transition, updates `current_track_path` to the incoming track,
+    /// and returns `Some(completed)` EXACTLY ONCE.
+    pub fn poll_transition_completed(&self) -> Option<PendingTransitionInfo> {
+        let mut active_guard = self.active_transition.lock().ok()?;
+        if active_guard.is_some() {
+            let is_trans = self.mixer.lock().ok()?.is_transitioning();
+            if !is_trans {
+                let completed = active_guard.take();
+                if let Some(ref c) = completed {
+                    if let Ok(mut cur) = self.current_track_path.lock() {
+                        *cur = Some(c.incoming_path.clone());
+                    }
+                }
+                return completed;
+            }
+        }
+        None
+    }
+
+    /// Returns true if `DualDeckMixer` is currently in the middle of a transition blend.
+    pub fn is_transitioning(&self) -> bool {
+        self.mixer.lock().map(|m| m.is_transitioning()).unwrap_or(false)
+    }
+
+    /// Returns the path of the track currently assigned to Deck A.
+    pub fn current_track_path(&self) -> Option<PathBuf> {
+        self.current_track_path.lock().ok().and_then(|p| p.clone())
     }
 
     pub fn pending_transition(&self) -> Option<PendingTransitionInfo> {
@@ -338,5 +387,85 @@ impl Player {
     /// Sub-microsecond snapshot; never holds the lock while the UI renders.
     pub fn snapshot(&self) -> Option<MixerSnapshot> {
         self.mixer.lock().ok().map(|m| m.snapshot())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_player_transition_lifecycle_and_poll_completed() {
+        let player = Player::new();
+        assert_eq!(player.current_track_path(), None);
+        assert!(!player.is_transitioning());
+        assert!(player.poll_transition_completed().is_none());
+
+        let path_a = PathBuf::from("/music/song_a.flac");
+        let path_b = PathBuf::from("/music/song_b.flac");
+
+        if let Ok(mut cur) = player.current_track_path.lock() {
+            *cur = Some(path_a.clone());
+        }
+        assert_eq!(player.current_track_path(), Some(path_a.clone()));
+
+        // Simulate priming active transition
+        let dummy_recipe = attune_core::TransitionRecipe {
+            schema_version: 1,
+            track_a_hash: "dummy_a".into(),
+            track_b_hash: "dummy_b".into(),
+            archetype: TransitionArchetype::EqSwap,
+            confidence_score: 0.94,
+            timing: attune_core::schema::TransitionTiming {
+                track_a_transition_start_ms: 1000,
+                track_a_exit_end_ms: 3000,
+                track_b_entry_start_ms: 0,
+                track_b_native_lock_ms: 2000,
+            },
+            optional_stem_bridge_uri: None,
+            dsp_automation_keyframes: Vec::new(),
+        };
+
+        let info = PendingTransitionInfo {
+            incoming_path: path_b.clone(),
+            incoming_title: "Song B".into(),
+            incoming_artist: "Artist B".into(),
+            recipe: dummy_recipe,
+            archetype_name: "3 EQ Swap",
+            duration_sec: 2.0,
+            confidence_pct: 94,
+            scheduled_start_ms: 1000,
+            incoming_bpm: 120.0,
+            incoming_key: "8B".into(),
+        };
+
+        // When transition is active in mixer, poll_transition_completed MUST return None
+        if let Ok(mut act) = player.active_transition.lock() {
+            *act = Some(info.clone());
+        }
+        if let Ok(mut m) = player.mixer.lock() {
+            m.transition = Some(attune_core::engine::ActiveTransition {
+                recipe: info.recipe.clone(),
+                elapsed_frames: 0,
+                total_transition_frames: 48000,
+            });
+        }
+        assert!(player.is_transitioning());
+        assert!(player.poll_transition_completed().is_none());
+
+        // When mixer finishes transition, poll_transition_completed MUST return Some(info) EXACTLY ONCE
+        if let Ok(mut m) = player.mixer.lock() {
+            m.transition = None;
+        }
+        assert!(!player.is_transitioning());
+
+        let completed = player.poll_transition_completed();
+        assert!(completed.is_some());
+        let c = completed.unwrap();
+        assert_eq!(c.incoming_path, path_b);
+        assert_eq!(player.current_track_path(), Some(path_b));
+
+        // Subsequent poll MUST return None (atomic one-shot consumption)
+        assert!(player.poll_transition_completed().is_none());
     }
 }

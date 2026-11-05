@@ -1466,6 +1466,32 @@ These four benchmark scenarios define the "Gold Standard" transitions that Attun
   - Release binary compiled cleanly (`cargo build --release`).
 - **Verdict**: `PASS`. Navigation between parent catalogs and detail views is 1-for-1 with zero sticking, zero double-presses, and zero unexpected view jumps.
 
+---
+
+### Experiment #032: Player-Mixer Transition Lifecycle State Machine, Stale Snapshot Elimination & Camelot Key Normalization
+- **Date**: 2026-11-05
+- **Hypothesis**: The audio/UI desync during transitions (e.g. speakers playing *World is Mine* while GUI displays *Cute*) is caused by an asynchronous race condition in the 50ms GUI poller loop, where a snapshot captured before `check_auto_transition()` mistakenly evaluates `snap.transition_info.is_none()` on the exact same tick the transition is triggered. By implementing an atomic transition lifecycle state machine (`Player::poll_transition_completed`) that queries physical `DualDeckMixer` swap completion and consumes the active transition exactly once, the GUI and audio engine will remain 100% synchronized.
+- **Empirical Findings & Root Cause Analysis**:
+  1. In `app.rs`, `snap = p.snapshot()` was taken at the start of the tick when `transition_info` was `None`.
+  2. `check_auto_transition()` triggered the blend to *World is Mine* in `DualDeckMixer`, setting `is_transition_active.set(true)`.
+  3. In the exact same tick, `if *is_transition_active.read() { if snap.transition_info.is_none() { ... } }` evaluated to `true` against the stale pre-trigger snapshot, prematurely advancing `current_track` to *World is Mine*, wiping `transitioning_to_track`, and pre-planning the next track (*Cute*) into Deck B.
+  4. When the actual audio crossfade completed seconds later, `transition_info` transitioned to `None` a second time, triggering completion again and advancing the UI to *Cute* while *World is Mine* was physically playing.
+  5. Harmonic Matches evaluated raw key strings (e.g. `"C Major"`) against Camelot codes (`"8B"`), yielding 0 matches.
+- **Engineering Changes Applied**:
+  1. Added `active_transition: Arc<Mutex<Option<PendingTransitionInfo>>>` and `current_track_path: Arc<Mutex<Option<PathBuf>>>` to `Player`.
+  2. Implemented `Player::poll_transition_completed`: Atomically returns `Some(completed)` and sets `current_track_path` only when an active transition exists AND `!mixer.is_transitioning()`.
+  3. Refactored `app.rs` transition poller to consume `poll_transition_completed()` exclusively.
+  4. Guarded natural track end check behind `else if !p.is_transitioning()`.
+  5. Applied `smart_shuffle::normalize_to_camelot` to both current and candidate keys in `harmonic_matches`.
+  6. Home Hero card now formats derived Camelot keys alongside musical keys (e.g. `C Major (8B)`).
+  7. Added `NavigationState::push` step-back deduplication preventing ping-pong navigation loops (`[A, B, A, B]`).
+- **Empirical Verification**:
+  - `cargo test -p attune-desktop`: All 41 tests pass (including new `test_player_transition_lifecycle_and_poll_completed`, `test_navigation_ping_pong_deduplication`, and `test_navigation_detail_can_go_back_at_root`).
+  - `cargo test --workspace`: 100% of workspace tests pass across all crates.
+  - `cargo build --release`: Compiled successfully in 30.74s.
+- **Listening & Stability Verdict**: `PASS`. Transitions advance the UI exactly once when the mixer physically completes the crossfade, key matches populate accurately, and navigation operates seamlessly.
+
+
 
 
 

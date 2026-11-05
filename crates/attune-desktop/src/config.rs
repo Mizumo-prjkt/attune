@@ -146,10 +146,9 @@ mod tests {
     #[test]
     fn persisted_dir_is_ignored_when_missing_on_disk() {
         // A persisted path that no longer exists must never be returned.
-        let (dir, src) = resolve_music_dir(Some(PathBuf::from("/nonexistent/attune/music")));
-        if std::env::var_os("ATTUNE_MUSIC_DIR").is_none() {
-            assert_ne!(src, MusicDirSource::Persisted);
-        }
+        let nonexistent = PathBuf::from("/nonexistent/attune/music");
+        let (dir, _src) = resolve_music_dir(Some(nonexistent.clone()));
+        assert_ne!(dir, Some(nonexistent));
         if let Some(d) = dir {
             assert!(d.is_dir());
         }
