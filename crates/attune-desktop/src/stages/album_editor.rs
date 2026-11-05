@@ -1,6 +1,6 @@
 use dioxus::prelude::*;
 use crate::stages::albums::AlbumGroup;
-use attune_music_metadata_changer::{write_track_metadata, TrackMetadata};
+use crate::dynamic_components::music_metadata_changer::{write_track_metadata, TrackMetadata};
 use std::path::PathBuf;
 
 #[component]

@@ -169,6 +169,41 @@ pub fn ProcessManager() -> Element {
                 }
             }
 
+            // Certified Dynamic Shared Libraries Card (.so / .dll)
+            div { style: "background: var(--bg-card); padding: 22px; border-radius: 18px; border: 1px solid var(--border-glass); display: flex; flex-direction: column; gap: 14px;",
+                div { style: "display: flex; justify-content: space-between; align-items: center;",
+                    div {
+                        h3 { style: "font-size: 16px; font-weight: 600;", "Certified External Shared Libraries (.so / .dll)" }
+                        p { style: "font-size: 12px; color: var(--text-muted); margin-top: 2px;", "Verified dynamic C-ABI components loaded at runtime without static code fallbacks" }
+                    }
+                    span { class: "quality-badge quality-very-good",
+                        span { class: "material-icons md-14", style: "margin-right: 4px; vertical-align: -2px;", "verified" }
+                        "All Components Active"
+                    }
+                }
+
+                div { style: "display: flex; flex-direction: column; gap: 8px;",
+                    for comp in crate::dynamic_components::get_loaded_components_summary() {
+                        div {
+                            key: "{comp.filename}",
+                            style: "display: flex; justify-content: space-between; align-items: center; padding: 10px 14px; background: rgba(255,255,255,0.03); border-radius: 10px; border: 1px solid var(--border-glass); font-size: 12.5px;",
+                            div { style: "display: flex; flex-direction: column; gap: 2px;",
+                                span { style: "font-weight: 600; color: var(--text-primary);", "{comp.name}" }
+                                span { style: "font-family: monospace; font-size: 11px; color: var(--text-muted);", "{comp.path.display()}" }
+                            }
+                            div { style: "display: flex; gap: 8px; align-items: center;",
+                                span { style: "padding: 2px 8px; border-radius: 6px; background: rgba(45,212,191,0.12); color: var(--accent-mint); font-family: monospace; font-size: 11px; font-weight: 700;",
+                                    "v{comp.version}"
+                                }
+                                span { style: "padding: 2px 8px; border-radius: 6px; background: rgba(255,255,255,0.06); color: var(--text-secondary); font-family: monospace; font-size: 11px;",
+                                    "{comp.filename}"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
 
         }
     }

@@ -14,11 +14,12 @@ use crate::smart_shuffle::{self, ShuffleMode, SmartShuffleHistory};
 use crate::stages::{
     about::About, album_editor::AlbumEditor, albums::{AlbumGroup, Albums}, equalizer::Equalizer,
     favorites::Favorites, for_you::ForYou, home::Home, library::Library,
-    process_manager::ProcessManager, settings::Settings,
+    process_manager::ProcessManager, settings::Settings, setup::SetupStage,
 };
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum StageView {
+    Setup,
     Home,
     ForYou,
     ForYouDetail(String),
@@ -148,16 +149,28 @@ pub fn App() -> Element {
     let mut master_fx = use_signal(MasterFxParams::default);
 
     // 5. Navigation & Docks
-    let mut nav_state = use_signal(|| NavigationState::new(StageView::Home));
+    let initial_stage = if crate::config::is_setup_completed() {
+        StageView::Home
+    } else {
+        StageView::Setup
+    };
+    let mut nav_state = use_signal(move || NavigationState::new(initial_stage));
     let mut dock_mode = use_signal(|| DockMode::Lyrics);
     let mut search_query = use_signal(String::new);
 
-    // Initial scan on launch if music directory is resolved
+    // Initial cache loading or scan on launch if music directory is resolved
     use_hook(|| {
         if let Some(dir) = music_dir.read().clone() {
-            let rx = library::spawn_scan(dir);
-            *scan_rx.write() = Arc::new(Mutex::new(Some(rx)));
-            is_scanning.set(true);
+            if let Some(cached) = library::load_library_cache(&dir) {
+                tracks.set(cached.clone());
+                if queue.read().is_empty() {
+                    queue.set(cached);
+                }
+            } else if crate::config::is_setup_completed() {
+                let rx = library::spawn_scan(dir);
+                *scan_rx.write() = Arc::new(Mutex::new(Some(rx)));
+                is_scanning.set(true);
+            }
         }
     });
 
@@ -455,6 +468,8 @@ pub fn App() -> Element {
                         bit_depth: 16,
                         artwork_path: None,
                         artwork_data_url: None,
+                        aggression: None,
+                        vibe_family: None,
                     });
                 transitioning_to_track.set(Some(incoming));
             } else {
@@ -580,6 +595,8 @@ pub fn App() -> Element {
                                     bit_depth: 16,
                                     artwork_path: None,
                                     artwork_data_url: None,
+                                    aggression: None,
+                                    vibe_family: None,
                                 });
                             transitioning_to_track.set(Some(incoming));
                         }
@@ -686,15 +703,28 @@ pub fn App() -> Element {
         }
     });
 
-    // Compute harmonic matches for the currently playing track
+    // Compute harmonic matches for the currently playing track using Camelot wheel
     let harmonic_matches: Vec<TrackEntry> = {
         let all = tracks.read().clone();
         if let Some(curr) = current_track.read().as_ref() {
-            let curr_key = curr.key.as_deref().unwrap_or("");
-            all.into_iter()
-                .filter(|t| t.path != curr.path && t.key.as_deref().unwrap_or("").len() > 1 && (curr_key.is_empty() || t.key.as_deref() == Some(curr_key)))
-                .take(6)
-                .collect()
+            if let Some(curr_key) = curr.key.as_deref().filter(|k| !k.is_empty() && *k != "—" && *k != "Unknown") {
+                all.into_iter()
+                    .filter(|t| {
+                        if t.path == curr.path {
+                            return false;
+                        }
+                        if let Some(cand_key) = t.key.as_deref().filter(|k| !k.is_empty() && *k != "—" && *k != "Unknown") {
+                            let (compat, _) = smart_shuffle::camelot_compatibility(curr_key, cand_key);
+                            compat >= 0.70
+                        } else {
+                            false
+                        }
+                    })
+                    .take(6)
+                    .collect()
+            } else {
+                all.into_iter().filter(|t| t.path != curr.path).take(6).collect()
+            }
         } else {
             all.into_iter().take(6).collect()
         }
@@ -1104,6 +1134,18 @@ pub fn App() -> Element {
                                 },
                             }
                         },
+                        StageView::Setup => rsx! {
+                            SetupStage {
+                                initial_dir: music_dir.read().clone(),
+                                on_complete: move |scanned_tracks: Vec<TrackEntry>| {
+                                    tracks.set(scanned_tracks.clone());
+                                    if queue.read().is_empty() {
+                                        queue.set(scanned_tracks);
+                                    }
+                                    navigate_to(StageView::Home);
+                                }
+                            }
+                        },
                         StageView::Settings => rsx! {
                             Settings {
                                 music_dir: music_dir.read().clone(),
@@ -1126,6 +1168,7 @@ pub fn App() -> Element {
                                 },
                                 on_open_equalizer: move |_| navigate_to(StageView::Equalizer),
                                 on_open_process_manager: move |_| navigate_to(StageView::ProcessManager),
+                                on_open_setup: move |_| navigate_to(StageView::Setup),
                             }
                         },
                         StageView::ProcessManager => rsx! {

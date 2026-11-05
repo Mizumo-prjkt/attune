@@ -10,3 +10,4 @@ pub mod home;
 pub mod library;
 pub mod process_manager;
 pub mod settings;
+pub mod setup;

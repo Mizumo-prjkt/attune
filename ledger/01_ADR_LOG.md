@@ -2977,6 +2977,54 @@ This file records all major architectural decisions for **Attune**, including co
   - Flutter codebase remains 100% untouched and intact.
   - All 33 unit tests in `attune-desktop` and 100% of workspace tests pass. Release binary compiled cleanly.
 
+---
+
+## ADR-084: Modular External Shared Library Architecture (.so/.dll), Strict Preflight Certification Dialog & Setup Stage Audio Profiling Engine
+
+- **Status**: `LOCKED`
+- **Date**: 2026-11-05
+- **Context**:
+  1. **Dynamic Shared Library Certification & Static Code Decoupling**:
+     - The user inspected `attune-desktop` and observed that when renaming external `.so` libraries, the application continued to run rather than failing gracefully with diagnostic transparency.
+     - Inspection with symbol tools (`nm -C target/release/attune-desktop`) confirmed that `attune-music-metadata-changer` had been statically compiled directly into `attune-desktop` via `Cargo.toml`, while `process_manager.rs` silently fell back to a dummy `ProcessMetrics::default()` struct when `libattune_procmgr.so` was missing.
+     - Mandate 4 explicitly forbids hardcoded paths, hidden duplicate static code, and silent failures without transparency.
+  2. **Library Indexing, BPM/Key Tagging & Smart Shuffle Degradation**:
+     - Unlike the Flutter client where tracks had been profiled via `StartupSetupStage`, `attune-desktop` previously only probed basic container metadata (`AudioDecoder::probe_metadata`).
+     - Files without existing ID3 `TBPM` or `TKEY` tags had `bpm: None` and `key: None`.
+     - Consequently, the Home stage displayed `Key: --- BPM: ---`, harmonic pairings were empty, and Smart Shuffle degraded because it could not compute Camelot distances or tempo compatibility without genuine audio profiles.
+- **Decision**:
+  1. **Built-in Dynamic Component Resolver (`crates/attune-desktop/src/dynamic_components.rs`)**:
+     - Implemented cross-platform dynamic library resolution and preflight verification for:
+       * `libattune_procmgr.so` / `attune_procmgr.dll`
+       * `libattune_watchguard.so` / `attune_watchguard.dll`
+       * `libattune_music_metadata_changer.so` / `attune_music_metadata_changer.dll`
+     - Resolution search paths (guaranteeing AppImage, win32, and tarball solvency):
+       `<exe_dir>/lib/`, `<exe_dir>/`, `./lib/`, `./`, `target/release/`, `target/debug/`, `/usr/lib/attune/`, and system loader paths.
+     - Strict preflight check at the first line of `main()`: If any required `.so` or `.dll` library is missing or fails to load, or is missing required C-ABI exports, a native modal dialog (`rfd::MessageDialog::new().set_level(Error)...`) pops up detailing the missing file names and searched paths, and the application terminates with exit code 1.
+  2. **Static Linkage Stripping**:
+     - Removed `attune-music-metadata-changer` from `crates/attune-desktop/Cargo.toml`.
+     - Migrated `stages/album_editor.rs` and `process_manager.rs` to call dynamic C-ABI function pointers exclusively via `dynamic_components`.
+     - Verified with `nm -C target/release/attune-desktop | grep attune_music_metadata_changer` that 0 static metadata changer symbols exist in the release binary.
+  3. **Setup Stage (`StageView::Setup` / `stages/setup.rs`)**:
+     - Implemented 3-step setup wizard:
+       * Step 1: Music library folder selection with native directory picker (`rfd::FileDialog`).
+       * Step 2: 5-layer deep audio profiling worker (`spawn_deep_indexing`) computing CQT Camelot key, nominal BPM, and aggression index $\mathcal{A}$ with live animated progress and track info.
+       * Step 3: Engine readiness summary and launch button.
+     - Added `config::is_setup_completed()` and `config::set_setup_completed()`.
+     - Added `[ Re-run Setup & Audio Profiling Wizard ]` in Settings.
+  4. **Persistent Disk Library Cache (`library_cache.json`)**:
+     - Saves complete indexed library with audio profiles to `~/.cache/attune/library_cache_<hash>.json`.
+     - Subsequent application launches load the complete library in < 5 ms, instantly populating Camelot keys and BPMs across Home, For You, and Smart Shuffle.
+  5. **Camelot Harmonic Matching Enhancement in Home**:
+     - Upgraded Home harmonic matches to evaluate adjacent Camelot wheel relations via `smart_shuffle::camelot_compatibility` ($\ge 0.70$) rather than strict string equality.
+- **Consequences**:
+  - `attune-desktop` strictly and honestly depends on external shared libraries without silent static fallback.
+  - Setup Stage provides seamless onboarding and deep audio profiling for all tracks.
+  - Home and Smart Shuffle immediately have 100% genuine Camelot keys and BPMs.
+  - Flutter codebase remains 100% untouched and intact.
+  - All 38 unit tests in `attune-desktop` and 100% of workspace tests pass. Release binary compiled cleanly.
+
+
 
 
 

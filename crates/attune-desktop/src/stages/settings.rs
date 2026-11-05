@@ -10,6 +10,7 @@ pub fn Settings(
     on_rescan_library: EventHandler<()>,
     on_open_equalizer: EventHandler<()>,
     on_open_process_manager: EventHandler<()>,
+    on_open_setup: EventHandler<()>,
 ) -> Element {
     let mut username = use_signal(|| std::env::var("USER").unwrap_or_else(|_| "Listener".to_string()));
     let mut smart_shuffle_enabled = use_signal(|| true);
@@ -69,7 +70,7 @@ pub fn Settings(
                         span { class: "material-icons md-16", "folder" }
                         "{dir_display}"
                     }
-                    div { style: "display: flex; gap: 10px; margin-top: 6px;",
+                    div { style: "display: flex; gap: 10px; margin-top: 6px; flex-wrap: wrap;",
                         button {
                             class: "btn-pill active",
                             style: "display: inline-flex; align-items: center; gap: 6px;",
@@ -83,6 +84,13 @@ pub fn Settings(
                             onclick: move |_| on_rescan_library.call(()),
                             span { class: "material-icons md-16", "sync" }
                             "Rescan Library"
+                        }
+                        button {
+                            class: "btn-pill",
+                            style: "display: inline-flex; align-items: center; gap: 6px; border: 1px solid rgba(45,212,191,0.4); background: rgba(45,212,191,0.08); color: var(--accent-mint); font-weight: 600;",
+                            onclick: move |_| on_open_setup.call(()),
+                            span { class: "material-icons md-16", "auto_awesome" }
+                            "Re-run Setup & Audio Profiling Wizard"
                         }
                     }
                 }

@@ -1,5 +1,6 @@
-//! Background library scanning: discovers audio files and probes their tags
-//! without ever blocking the egui render thread.
+//! Background library scanning and deep audio profiling: discovers audio files,
+//! extracts genuine CQT Camelot musical keys & nominal BPMs via AudioProfiler,
+//! and caches the indexed library to disk for instantaneous startup.
 
 use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
@@ -8,7 +9,10 @@ use std::sync::mpsc::{self, Receiver};
 use std::sync::Mutex;
 use std::thread;
 
+use attune_core::profiler::AudioProfiler;
+use attune_core::schema::AnalysisTier;
 use attune_core::{AudioDecoder, LibraryScanner};
+use serde::{Deserialize, Serialize};
 
 static THUMBNAIL_CACHE: Mutex<Option<HashMap<PathBuf, String>>> = Mutex::new(None);
 
@@ -44,7 +48,9 @@ pub fn resolve_thumbnail_data_url(art_p: &Path) -> Option<String> {
     let _ = std::fs::create_dir_all(&cache_dir);
 
     let art_meta = art_p.metadata().ok()?;
-    let mod_time = art_meta.modified().ok()
+    let mod_time = art_meta
+        .modified()
+        .ok()
         .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
         .map(|d| d.as_secs())
         .unwrap_or(0);
@@ -93,7 +99,7 @@ pub fn resolve_thumbnail_data_url(art_p: &Path) -> Option<String> {
 }
 
 /// A single playable track in the desktop library.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TrackEntry {
     pub path: PathBuf,
     pub title: String,
@@ -109,11 +115,15 @@ pub struct TrackEntry {
     pub bit_depth: u32,
     pub artwork_path: Option<PathBuf>,
     pub artwork_data_url: Option<String>,
+    #[serde(default)]
+    pub aggression: Option<f32>,
+    #[serde(default)]
+    pub vibe_family: Option<String>,
 }
 
 impl TrackEntry {
-    /// Builds an entry from a probed file; falls back to filename/"Unknown" only
-    /// when tags are genuinely missing (never fabricated BPM/duration).
+    /// Builds an entry from a probed file metadata; falls back to filename/"Unknown"
+    /// when tags are missing.
     pub fn from_probe(path: &Path) -> Self {
         let file_stem = path
             .file_stem()
@@ -153,6 +163,8 @@ impl TrackEntry {
                     bit_depth: p.bit_depth,
                     artwork_path,
                     artwork_data_url,
+                    aggression: None,
+                    vibe_family: None,
                 }
             }
             Err(e) => {
@@ -174,9 +186,46 @@ impl TrackEntry {
                     bit_depth: 0,
                     artwork_path: None,
                     artwork_data_url: None,
+                    aggression: None,
+                    vibe_family: None,
                 }
             }
         }
+    }
+
+    /// Performs deep 5-layer audio profiling using `AudioProfiler` if BPM or Key
+    /// are not already provided in ID3 tags.
+    pub fn profile_and_index(path: &Path) -> Self {
+        let mut entry = Self::from_probe(path);
+
+        let need_bpm = entry.bpm.map(|b| b < 10.0).unwrap_or(true);
+        let need_key = entry
+            .key
+            .as_deref()
+            .map(|k| k.is_empty() || k == "—" || k == "Unknown")
+            .unwrap_or(true);
+
+        if need_bpm || need_key {
+            // Load Head/Tail cue zones (first 45s and last 45s) for fast JIT profiling
+            if let Ok((head, _tail, dur_ms)) = AudioDecoder::load_head_tail(path, 45.0, 45.0) {
+                if entry.duration_ms == 0 {
+                    entry.duration_ms = dur_ms;
+                }
+                let profiler = AudioProfiler::new();
+                let tap = profiler.profile_track(&head, &path.to_string_lossy(), AnalysisTier::FastHeadTail);
+
+                if need_bpm && tap.global_summary.nominal_bpm > 10.0 {
+                    entry.bpm = Some(tap.global_summary.nominal_bpm);
+                }
+                if need_key && !tap.global_summary.primary_key.is_empty() && tap.global_summary.primary_key != "Unknown" {
+                    entry.key = Some(tap.global_summary.primary_key);
+                }
+                entry.aggression = Some(tap.global_summary.mean_aggression_index);
+                entry.vibe_family = Some(tap.global_summary.macro_vibe_family);
+            }
+        }
+
+        entry
     }
 
     /// Multi-line hover summary of the track's container + tag profile.
@@ -204,29 +253,253 @@ impl TrackEntry {
     }
 }
 
-/// Progress events emitted by the scan worker.
+// ---------------------------------------------------------------------------
+// Persistent Library Cache Schema & Disk I/O
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LibraryCache {
+    pub version: u32,
+    pub root_path: PathBuf,
+    pub total_tracks: usize,
+    pub last_updated_secs: u64,
+    pub tracks: Vec<TrackEntry>,
+}
+
+/// Computes cache path for a given music directory.
+pub fn library_cache_path(root: &Path) -> PathBuf {
+    let cache_dir = dirs::cache_dir()
+        .unwrap_or_else(|| PathBuf::from("/tmp"))
+        .join("attune");
+    let _ = std::fs::create_dir_all(&cache_dir);
+
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    root.to_string_lossy().hash(&mut hasher);
+    let root_hash = format!("{:012x}", hasher.finish());
+
+    cache_dir.join(format!("library_cache_{root_hash}.json"))
+}
+
+/// Loads cached library from disk if available and valid.
+pub fn load_library_cache(root: &Path) -> Option<Vec<TrackEntry>> {
+    let p = library_cache_path(root);
+    if !p.is_file() {
+        return None;
+    }
+
+    let bytes = std::fs::read(&p).ok()?;
+    let cache: LibraryCache = serde_json::from_slice(&bytes).ok()?;
+
+    if cache.version == 1 && cache.root_path == root && !cache.tracks.is_empty() {
+        log::info!(
+            "Loaded {} indexed tracks from disk cache in {}",
+            cache.tracks.len(),
+            p.display()
+        );
+        Some(cache.tracks)
+    } else {
+        None
+    }
+}
+
+/// Persists indexed library tracks to disk cache.
+pub fn save_library_cache(root: &Path, tracks: &[TrackEntry]) -> Result<(), std::io::Error> {
+    let p = library_cache_path(root);
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+
+    let cache = LibraryCache {
+        version: 1,
+        root_path: root.to_path_buf(),
+        total_tracks: tracks.len(),
+        last_updated_secs: now,
+        tracks: tracks.to_vec(),
+    };
+
+    let data = serde_json::to_vec_pretty(&cache)
+        .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+
+    // Atomic write via temp file
+    let tmp_path = p.with_extension("tmp");
+    std::fs::write(&tmp_path, data)?;
+    std::fs::rename(tmp_path, &p)?;
+
+    log::info!(
+        "Persisted {} indexed tracks with audio profiles to {}",
+        tracks.len(),
+        p.display()
+    );
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Library Scanning & Deep Profiling Events
+// ---------------------------------------------------------------------------
+
+/// Events emitted during deep library indexing and profiling.
+#[derive(Debug, Clone)]
+pub enum IndexingProgressEvent {
+    Discovered { total_files: usize },
+    Progress {
+        current: usize,
+        total: usize,
+        track_title: String,
+        track_artist: String,
+        bpm: Option<f32>,
+        key: Option<String>,
+        format: String,
+    },
+    Finished {
+        tracks: Vec<TrackEntry>,
+        lossless_count: usize,
+    },
+    Error(String),
+}
+
+/// Spawns a background worker that performs full 5-layer audio indexing & profiling.
+/// Reuses existing cached profiles for unmodified tracks unless `reindex_all` is true.
+pub fn spawn_deep_indexing(root: PathBuf, reindex_all: bool) -> Receiver<IndexingProgressEvent> {
+    let (tx, rx) = mpsc::channel();
+
+    thread::Builder::new()
+        .name("attune-deep-indexer".into())
+        .spawn(move || {
+            let files = LibraryScanner::discover_audio_files(&root);
+            let total = files.len();
+            log::info!(
+                "Deep Indexer: Discovered {} audio files under {}",
+                total,
+                root.display()
+            );
+
+            if tx.send(IndexingProgressEvent::Discovered { total_files: total }).is_err() {
+                return;
+            }
+
+            if total == 0 {
+                let _ = tx.send(IndexingProgressEvent::Finished {
+                    tracks: Vec::new(),
+                    lossless_count: 0,
+                });
+                return;
+            }
+
+            // Existing cache lookup map for fast incremental indexing
+            let existing_map: HashMap<PathBuf, TrackEntry> = if !reindex_all {
+                load_library_cache(&root)
+                    .unwrap_or_default()
+                    .into_iter()
+                    .map(|t| (t.path.clone(), t))
+                    .collect()
+            } else {
+                HashMap::new()
+            };
+
+            let mut indexed_tracks = Vec::with_capacity(total);
+            let mut lossless_count = 0usize;
+
+            for (idx, file) in files.iter().enumerate() {
+                let current_num = idx + 1;
+
+                // Check if already completely profiled in cache
+                let entry = if let Some(existing) = existing_map.get(file) {
+                    let has_bpm = existing.bpm.map(|b| b > 10.0).unwrap_or(false);
+                    let has_key = existing
+                        .key
+                        .as_deref()
+                        .map(|k| !k.is_empty() && k != "—" && k != "Unknown")
+                        .unwrap_or(false);
+
+                    if has_bpm && has_key {
+                        existing.clone()
+                    } else {
+                        TrackEntry::profile_and_index(file)
+                    }
+                } else {
+                    TrackEntry::profile_and_index(file)
+                };
+
+                if entry.format == "FLAC" || entry.format == "WAV" || entry.format == "ALAC" {
+                    lossless_count += 1;
+                }
+
+                let ev = IndexingProgressEvent::Progress {
+                    current: current_num,
+                    total,
+                    track_title: entry.title.clone(),
+                    track_artist: entry.artist.clone(),
+                    bpm: entry.bpm,
+                    key: entry.key.clone(),
+                    format: entry.format.clone(),
+                };
+
+                if tx.send(ev).is_err() {
+                    log::warn!("Deep Indexer: Receiver dropped early, saving partial cache");
+                    let _ = save_library_cache(&root, &indexed_tracks);
+                    return;
+                }
+
+                indexed_tracks.push(entry);
+            }
+
+            // Save completed cache to disk
+            let _ = save_library_cache(&root, &indexed_tracks);
+
+            let _ = tx.send(IndexingProgressEvent::Finished {
+                tracks: indexed_tracks,
+                lossless_count,
+            });
+        })
+        .expect("failed to spawn deep indexing thread");
+
+    rx
+}
+
+/// Progress events emitted by the fast scan worker.
 pub enum ScanEvent {
     Discovered(usize),
     Track(Box<TrackEntry>),
     Finished,
 }
 
-/// Spawns a worker that discovers and probes every audio file under `root`.
+/// Spawns a fast worker that yields existing cached tracks immediately,
+/// then indexes any missing files without blocking.
 pub fn spawn_scan(root: PathBuf) -> Receiver<ScanEvent> {
     let (tx, rx) = mpsc::channel();
     thread::Builder::new()
         .name("attune-library-scan".into())
         .spawn(move || {
+            // 1. If disk cache exists, yield all cached tracks immediately (< 5ms)
+            if let Some(cached_tracks) = load_library_cache(&root) {
+                if tx.send(ScanEvent::Discovered(cached_tracks.len())).is_err() {
+                    return;
+                }
+                for t in cached_tracks {
+                    if tx.send(ScanEvent::Track(Box::new(t))).is_err() {
+                        return;
+                    }
+                }
+                let _ = tx.send(ScanEvent::Finished);
+                return;
+            }
+
+            // 2. Otherwise discover and probe files
             let files = LibraryScanner::discover_audio_files(&root);
             log::info!("Discovered {} audio files under {}", files.len(), root.display());
             if tx.send(ScanEvent::Discovered(files.len())).is_err() {
                 return;
             }
+            let mut scanned = Vec::with_capacity(files.len());
             for file in files.iter() {
-                if tx.send(ScanEvent::Track(Box::new(TrackEntry::from_probe(file)))).is_err() {
-                    return; // Receiver dropped — stop quietly.
+                let entry = TrackEntry::profile_and_index(file);
+                scanned.push(entry.clone());
+                if tx.send(ScanEvent::Track(Box::new(entry))).is_err() {
+                    return;
                 }
             }
+            let _ = save_library_cache(&root, &scanned);
             let _ = tx.send(ScanEvent::Finished);
         })
         .expect("failed to spawn library scan thread");
@@ -258,6 +531,8 @@ mod tests {
             bit_depth: 16,
             artwork_path: None,
             artwork_data_url: None,
+            aggression: Some(0.75),
+            vibe_family: Some("HighEnergyRock".into()),
         }
     }
 
@@ -293,5 +568,27 @@ mod tests {
         assert_eq!(t.duration_ms, 0);
         assert!(t.bpm.is_none());
         assert_eq!(t.format, "MP3");
+    }
+
+    #[test]
+    fn cache_serialization_roundtrip() {
+        let root = PathBuf::from("/test/music");
+        let tracks = vec![
+            entry("Song 1", "Artist 1", "Album 1"),
+            entry("Song 2", "Artist 2", "Album 2"),
+        ];
+        let cache = LibraryCache {
+            version: 1,
+            root_path: root.clone(),
+            total_tracks: 2,
+            last_updated_secs: 12345678,
+            tracks: tracks.clone(),
+        };
+        let json = serde_json::to_string(&cache).unwrap();
+        let loaded: LibraryCache = serde_json::from_str(&json).unwrap();
+        assert_eq!(loaded.total_tracks, 2);
+        assert_eq!(loaded.tracks[0].title, "Song 1");
+        assert_eq!(loaded.tracks[0].bpm, Some(171.4));
+        assert_eq!(loaded.tracks[0].aggression, Some(0.75));
     }
 }

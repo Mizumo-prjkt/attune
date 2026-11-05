@@ -12,7 +12,6 @@ path = "src/main.rs"
 
 [dependencies]
 attune-core = { path = "../attune-core" }
-attune-music-metadata-changer = { path = "../attune-music-metadata-changer" }
 dioxus = { version = "0.6", features = ["desktop"] }
 image = { version = "0.25", default-features = false, features = ["jpeg", "png", "webp"] }
 base64 = "0.22"

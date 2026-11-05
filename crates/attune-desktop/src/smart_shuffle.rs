@@ -399,6 +399,8 @@ mod tests {
             bit_depth: 24,
             artwork_path: None,
             artwork_data_url: None,
+            aggression: None,
+            vibe_family: None,
         }
     }
 

@@ -489,6 +489,8 @@ mod tests {
                     bit_depth: 16,
                     artwork_path: None,
                     artwork_data_url: None,
+                    aggression: None,
+                    vibe_family: None,
                 },
                 TrackEntry {
                     path: PathBuf::from("/music/track2.flac"),
@@ -504,6 +506,8 @@ mod tests {
                     bit_depth: 16,
                     artwork_path: None,
                     artwork_data_url: None,
+                    aggression: None,
+                    vibe_family: None,
                 },
             ],
         };
@@ -531,6 +535,8 @@ mod tests {
                 bit_depth: 16,
                 artwork_path: None,
                 artwork_data_url: None,
+                aggression: None,
+                vibe_family: None,
             },
             TrackEntry {
                 path: PathBuf::from("/music/track2.flac"),
@@ -546,6 +552,8 @@ mod tests {
                 bit_depth: 16,
                 artwork_path: None,
                 artwork_data_url: None,
+                aggression: None,
+                vibe_family: None,
             },
         ];
 
