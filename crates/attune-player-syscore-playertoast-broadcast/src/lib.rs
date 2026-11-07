@@ -19,6 +19,12 @@ use std::time::Duration;
 use playwire::{Capabilities, Event, MediaControls, PlaybackState, PlayerConfig, Repeat, Track};
 use serde::{Deserialize, Serialize};
 
+#[cfg(all(unix, not(any(target_os = "macos", target_os = "ios", target_os = "android"))))]
+pub mod mpris;
+
+#[cfg(all(unix, not(any(target_os = "macos", target_os = "ios", target_os = "android"))))]
+use self::mpris::MprisHost;
+
 /// Payload describing the current player transport state and song metadata.
 /// Retained for backward compatibility with existing toast notification callers.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -164,6 +170,8 @@ pub enum MediaControlCommand {
 /// Handles media keys and remote GUI controls, while streaming playback state and track
 /// metadata into the host notification center / taskbar / quick settings flyout.
 pub struct SystemMediaService {
+    #[cfg(all(unix, not(any(target_os = "macos", target_os = "ios", target_os = "android"))))]
+    mpris: Option<MprisHost>,
     controls: Option<MediaControls>,
     cmd_rx: Receiver<MediaControlCommand>,
     cached_artwork_file: Option<PathBuf>,
@@ -172,13 +180,26 @@ pub struct SystemMediaService {
 impl SystemMediaService {
     /// Initializes OS-level media integration.
     ///
-    /// On Linux, connects to the D-Bus session bus as `org.mpris.MediaPlayer2.attune`.
-    /// On Windows, binds to the window's HWND and WinRT `SystemMediaTransportControls`.
+    /// On Linux, connects to the D-Bus session bus as `org.mpris.MediaPlayer2.attune`
+    /// via native `MprisHost` (supporting accurate `Position` and `Seeked` emissions).
+    /// On Windows, binds to the window's HWND and WinRT `SystemMediaTransportControls` via `playwire`.
     ///
     /// If initialization fails on the host OS (e.g. running in headless CI/CD, or WinRT unavailable),
     /// fails gracefully with `is_active() == false` without interrupting playback.
     pub fn new(hwnd: Option<u64>) -> Self {
         let (cmd_tx, cmd_rx) = channel::<MediaControlCommand>();
+
+        #[cfg(all(unix, not(any(target_os = "macos", target_os = "ios", target_os = "android"))))]
+        let mpris = match MprisHost::new(cmd_tx.clone()) {
+            Ok(host) => {
+                log::info!("Initialized native MPRIS v2 D-Bus host on org.mpris.MediaPlayer2.attune");
+                Some(host)
+            }
+            Err(e) => {
+                log::warn!("Native MPRIS initialization failed: {e}; attempting fallback");
+                None
+            }
+        };
 
         let mut config = PlayerConfig::new("attune")
             .desktop_entry("attune")
@@ -189,8 +210,28 @@ impl SystemMediaService {
             config = config.hwnd(h);
         }
 
-        let tx = cmd_tx.clone();
-        let controls = match MediaControls::new(config, move |event| {
+        // On Linux with active native MPRIS host, we do not need secondary playwire controls claiming the same bus name.
+        #[cfg(all(unix, not(any(target_os = "macos", target_os = "ios", target_os = "android"))))]
+        let controls = if mpris.is_some() {
+            None
+        } else {
+            Self::init_playwire(config, cmd_tx.clone())
+        };
+
+        #[cfg(not(all(unix, not(any(target_os = "macos", target_os = "ios", target_os = "android")))))]
+        let controls = Self::init_playwire(config, cmd_tx.clone());
+
+        Self {
+            #[cfg(all(unix, not(any(target_os = "macos", target_os = "ios", target_os = "android"))))]
+            mpris,
+            controls,
+            cmd_rx,
+            cached_artwork_file: None,
+        }
+    }
+
+    fn init_playwire(config: PlayerConfig, tx: std::sync::mpsc::Sender<MediaControlCommand>) -> Option<MediaControls> {
+        match MediaControls::new(config, move |event| {
             let cmd = match event {
                 Event::Play => MediaControlCommand::Play,
                 Event::Pause => MediaControlCommand::Pause,
@@ -210,24 +251,22 @@ impl SystemMediaService {
             let _ = tx.send(cmd);
         }) {
             Ok(c) => {
-                log::info!("Initialized system media player integration (MPRIS/SMTC)");
+                log::info!("Initialized system media player integration (SMTC/Fallback)");
                 Some(c)
             }
             Err(e) => {
                 log::warn!("System media player integration unavailable: {e}");
                 None
             }
-        };
-
-        Self {
-            controls,
-            cmd_rx,
-            cached_artwork_file: None,
         }
     }
 
     /// Whether native OS media controls (MPRIS or SMTC) are actively running.
     pub fn is_active(&self) -> bool {
+        #[cfg(all(unix, not(any(target_os = "macos", target_os = "ios", target_os = "android"))))]
+        if self.mpris.is_some() {
+            return true;
+        }
         self.controls.is_some()
     }
 
@@ -238,7 +277,7 @@ impl SystemMediaService {
 
     /// Publishes current playback state, timeline, track metadata, and capabilities to the host OS.
     pub fn update_state(&mut self, state: &SystemPlaybackState) {
-        if self.controls.is_none() {
+        if !self.is_active() {
             return;
         }
 
@@ -247,6 +286,12 @@ impl SystemMediaService {
         } else {
             String::new()
         };
+
+        #[cfg(all(unix, not(any(target_os = "macos", target_os = "ios", target_os = "android"))))]
+        if let Some(ref mut mpris) = self.mpris {
+            mpris.update_state(state, &artwork_url);
+            return;
+        }
 
         let Some(ref mut controls) = self.controls else {
             return;

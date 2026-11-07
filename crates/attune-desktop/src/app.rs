@@ -837,7 +837,7 @@ pub fn App() -> Element {
                     }
 
                     // Determine active deck position and duration
-                    let (pos, dur) = if snap.active_deck_str == "Deck B" {
+                    let (pos, dur) = if snap.active_deck_str == "Deck B" || snap.active_deck_str == "DeckB" {
                         (snap.deck_b.position_ms, snap.deck_b.duration_ms)
                     } else {
                         (snap.deck_a.position_ms, snap.deck_a.duration_ms)

@@ -12,5 +12,9 @@ serde_json = { workspace = true }
 log = { workspace = true }
 playwire = "2.1.0"
 
+[target.'cfg(all(unix, not(any(target_os = "macos", target_os = "ios", target_os = "android"))))'.dependencies]
+zbus = "5.19"
+zvariant = "5.14"
+
 [dev-dependencies]
 tempfile = "3"

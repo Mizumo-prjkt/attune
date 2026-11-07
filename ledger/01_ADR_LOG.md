@@ -3846,3 +3846,42 @@ This file records all major architectural decisions for **Attune**, including co
   - Listeners can easily search, verify, preview, and apply lyrics from local files, file picker, or online databases.
   - Safe, robust validation prevents corrupted or malicious files from affecting the player.
   - Full adherence to Mandate 4 (zero hardcoding) and license gating requirements.
+
+---
+
+## ADR-110: Native MPRIS v2 Linux Engine (`MprisHost`) via ZBus, Real-Time Position D-Bus Emission, Dynamic Seeked Anchor Signals, Bidirectional Remote Scrubbing & Desktop Media Timeline Synchronization
+- **Date**: 2026-11-08
+- **Status**: `LOCKED`
+- **Context**:
+  1. In ADR-106, OS media controls (KDE Plasma MPRIS / Windows SMTC) were integrated into Attune. However, empirical testing on KDE Plasma 6 revealed that while track metadata, artwork, and playback status transmitted correctly, the playback timeline scrubber in the system tray / lock screen media widget remained frozen at `0:00` (with remaining time fixed at total track length).
+  2. Investigation into the underlying implementation revealed that the third-party `playwire` crate suppressed D-Bus `PropertiesChanged` notifications for the `Position` property (`#[zbus(property(emits_changed_signal = "false"))]`), and only emitted `Seeked` signals if position drift exceeded `1.5s`. On typical 250ms periodic updates, drift was only `~0.25s`, causing zero `Seeked` signals to ever be emitted.
+  3. Reverse-engineering of KDE Plasma 6's `/usr/lib/libkmpris.so.6` (`PlayerContainer::updateFromMap`, `PlayerContainer::onSeeked`) confirmed that `libkmpris` maintains no internal clock extrapolation timers. Instead, it relies on D-Bus `PropertiesChanged` signals carrying `"Position"` or `Seeked(micros)` signals to trigger `positionChanged()` and advance `seekSlider.value` in QML.
+  4. Furthermore, remote scrubbing from OS media widgets (dragging the KDE Plasma timeline slider or running `playerctl position <sec>`) required bi-directional translation into sample-accurate playback seeks.
+  5. In accordance with Mandate 4 (avoid hardcoded values, adapt dynamically to system state, fail gracefully with transparency), a robust, native MPRIS v2 implementation was required for Linux.
+- **Decision**:
+  1. **Dedicated Native MPRIS v2 D-Bus Host (`crates/attune-player-syscore-playertoast-broadcast/src/mpris.rs`)**:
+     - Built a native `MprisHost` using `zbus 5.19` and `zvariant 5.14` exposing `org.mpris.MediaPlayer2` and `org.mpris.MediaPlayer2.Player` on `org.mpris.MediaPlayer2.attune` (with fallback to `org.mpris.MediaPlayer2.attune.instance_{pid}`).
+     - Registered `RootInterface` providing app identity (`Attune`), desktop entry (`attune`), supported URI schemes (`file`, `http`, `https`), and supported audio MIME types.
+     - Registered `PlayerInterface` with reactive properties: `PlaybackStatus`, `LoopStatus`, `Shuffle`, `Volume`, `Metadata`, `Position`, `Rate`, `CanGoNext`, `CanGoPrevious`, `CanPlay`, `CanPause`, and `CanSeek`.
+  2. **Real-Time Timeline Scrubber Synchronization**:
+     - Enabled active signal emission for the `Position` property (`position_changed`), broadcasting `org.freedesktop.DBus.Properties.PropertiesChanged` with `"Position"` in microseconds on every 250ms tick.
+     - Implemented dynamic `Seeked(micros)` signal emission triggered on:
+       * Initial playback start when a track is first loaded.
+       * Track transitions and track changes.
+       * Playback state unpausing (transitioning from Paused to Playing) to establish the clock anchor.
+       * Discontinuous leaps or seeking events (`|current - (old + elapsed)| > 1200ms`).
+  3. **Bidirectional Remote Scrubbing & Media Controls**:
+     - Implemented `SetPosition(track_id, position)`: validates the track path, converts microseconds to milliseconds, and dispatches `MediaControlCommand::SeekToMs((position / 1000) as u64)`.
+     - Implemented `Seek(offset)`: converts microsecond offsets to seconds and dispatches `MediaControlCommand::SeekBySec(offset as f64 / 1_000_000.0)`.
+     - In `app.rs`, remote seek commands immediately execute `player.read().seek_ms(target)` and update `playback_pos_ms`.
+  4. **Active Deck String Comparison Fix (`crates/attune-desktop/src/app.rs`)**:
+     - Fixed `snap.active_deck_str == "Deck B" || snap.active_deck_str == "DeckB"` to ensure active deck position and duration are accurately tracked regardless of deck naming formatting.
+  5. **Verification**:
+     - Verified with 4 unit tests in `mpris.rs`: loop status conversion, track object path sanitization, metadata dictionary construction, and host lifecycle.
+     - Ran `cargo test -p attune-player-syscore-playertoast-broadcast`: 10 passed, 0 failed.
+     - Ran `cargo test -p attune-desktop`: 80 passed, 0 failed.
+     - Recompiled release binary `cargo build --release -p attune-desktop` in 57.09s.
+- **Consequences**:
+  - KDE Plasma 6 media player widget, GNOME media center, and lock screen sliders reflect moving elapsed time and remaining duration smoothly in real-time.
+  - Dragging the timeline slider in the OS widget accurately scrubs Attune's playback position.
+  - Zero hardcoding and robust fallback to SMTC / headless environments.
