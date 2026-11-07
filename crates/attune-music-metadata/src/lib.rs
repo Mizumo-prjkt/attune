@@ -17,6 +17,7 @@ pub mod audio;
 pub mod dsp;
 pub mod error;
 pub mod ffi;
+pub mod innertube;
 pub mod metadata;
 
 // Re-exports
@@ -27,4 +28,9 @@ pub use dsp::{
 };
 pub use error::{MetadataChangerError, TrackTweaksError};
 pub use ffi::*;
+pub use innertube::{
+    clean_innertube_bio, fetch_artist_browse_innertube, fetch_artist_online_profile,
+    fetch_wikipedia_artist_profile, resize_google_avatar_url, search_artist_innertube,
+    InnertubeArtistProfile,
+};
 pub use metadata::{read_track_metadata, write_track_metadata, TrackMetadata};

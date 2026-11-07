@@ -73,12 +73,13 @@ struct WatchguardModule {
 unsafe impl Send for WatchguardModule {}
 unsafe impl Sync for WatchguardModule {}
 
-// 3. attune_music_metadata_changer
+// 3. attune_music_metadata_changer / attune_music_metadata
 type FnMetadataVersion = unsafe extern "C" fn() -> *const c_char;
 type FnMetadataFreeString = unsafe extern "C" fn(*mut c_char);
 type FnMetadataReadMetadata = unsafe extern "C" fn(*const c_char) -> *mut c_char;
 type FnMetadataWriteMetadata = unsafe extern "C" fn(*const c_char, *const c_char) -> i32;
 type FnMetadataUpdateTag = unsafe extern "C" fn(*const c_char, *const c_char, *const c_char) -> i32;
+type FnMetadataFetchArtistOnline = unsafe extern "C" fn(*const c_char) -> *mut c_char;
 
 struct MetadataModule {
     _handle: *mut std::ffi::c_void,
@@ -88,6 +89,7 @@ struct MetadataModule {
     fn_read_metadata: FnMetadataReadMetadata,
     fn_write_metadata: FnMetadataWriteMetadata,
     fn_update_tag: FnMetadataUpdateTag,
+    fn_fetch_artist_online: Option<FnMetadataFetchArtistOnline>,
 }
 unsafe impl Send for MetadataModule {}
 unsafe impl Sync for MetadataModule {}
@@ -484,9 +486,10 @@ fn load_watchguard() -> Result<(), MissingComponentError> {
 }
 
 fn load_metadata_changer() -> Result<(), MissingComponentError> {
-    let base = "attune_music_metadata_changer";
+    let base = "attune_music_metadata";
     let filename = component_filename(base);
-    let candidates = resolve_candidate_paths(base);
+    let mut candidates = resolve_candidate_paths("attune_music_metadata");
+    candidates.extend(resolve_candidate_paths("attune_music_metadata_changer"));
     let mut specific_errors = Vec::new();
     let mut fallback_error = None;
 
@@ -505,6 +508,8 @@ fn load_metadata_changer() -> Result<(), MissingComponentError> {
                     let r_sym = os_dlsym(handle, "attune_track_tweaks_read_metadata");
                     let w_sym = os_dlsym(handle, "attune_track_tweaks_write_metadata");
                     let u_sym = os_dlsym(handle, "attune_track_tweaks_update_tag");
+                    let fetch_sym = os_dlsym(handle, "attune_metadata_fetch_artist_online")
+                        .or_else(|_| os_dlsym(handle, "attune_metadata_changer_fetch_artist_online"));
 
                     match (v_sym, f_sym, r_sym, w_sym, u_sym) {
                         (Ok(v), Ok(f), Ok(r), Ok(w), Ok(u)) => {
@@ -516,6 +521,7 @@ fn load_metadata_changer() -> Result<(), MissingComponentError> {
                                 fn_read_metadata: std::mem::transmute(r),
                                 fn_write_metadata: std::mem::transmute(w),
                                 fn_update_tag: std::mem::transmute(u),
+                                fn_fetch_artist_online: fetch_sym.ok().map(|s| std::mem::transmute(s)),
                             };
                             let ver_ptr = (module.fn_version)();
                             let ver_str = if !ver_ptr.is_null() {
@@ -935,6 +941,33 @@ pub mod music_metadata_changer {
             Ok(())
         } else {
             Err(format!("attune_track_tweaks_update_tag failed with error code: {code}"))
+        }
+    }
+
+    /// Queries online artist metadata via dynamic shared library C-ABI.
+    /// Returns raw JSON string containing `{ name, avatar_url, banner_url, bio, subscribers, views, browse_id }`.
+    pub fn fetch_artist_online(artist_name: &str) -> Result<String, String> {
+        let guard = METADATA
+            .lock()
+            .map_err(|e| format!("metadata mutex poisoned: {e}"))?;
+        let module = guard
+            .as_ref()
+            .ok_or_else(|| "libattune_music_metadata is not loaded".to_string())?;
+
+        let fn_fetch = module
+            .fn_fetch_artist_online
+            .ok_or_else(|| "attune_metadata_fetch_artist_online symbol not available".to_string())?;
+
+        let c_artist = CString::new(artist_name).map_err(|e| e.to_string())?;
+        unsafe {
+            let ptr = (fn_fetch)(c_artist.as_ptr());
+            if ptr.is_null() {
+                return Err("attune_metadata_fetch_artist_online returned null pointer".to_string());
+            }
+            let c_str = CStr::from_ptr(ptr);
+            let json_str = c_str.to_string_lossy().into_owned();
+            (module.fn_free_string)(ptr);
+            Ok(json_str)
         }
     }
 }

@@ -1,13 +1,13 @@
 use std::ffi::{CStr, CString};
 use std::f32::consts::PI;
 
-use attune_music_metadata_changer::audio::{decode_audio_file, write_wav_file, AudioData};
-use attune_music_metadata_changer::dsp::{
+use attune_music_metadata::audio::{decode_audio_file, write_wav_file, AudioData};
+use attune_music_metadata::dsp::{
     apply_speed_factor, detect_silence_bounds, normalize_gain, normalize_gain_copy, slice_region,
     trim_silence,
 };
-use attune_music_metadata_changer::ffi::*;
-use attune_music_metadata_changer::metadata::{read_track_metadata, write_track_metadata, TrackMetadata};
+use attune_music_metadata::ffi::*;
+use attune_music_metadata::metadata::{read_track_metadata, write_track_metadata, TrackMetadata};
 
 /// Generates synthetic stereo audio with a sine tone
 fn generate_synthetic_audio(

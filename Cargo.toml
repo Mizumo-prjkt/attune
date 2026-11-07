@@ -6,7 +6,7 @@ members = [
     "crates/attune-cli",
     "crates/attune-ffi",
     "crates/watchguard",
-    "crates/attune-music-metadata-changer",
+    "crates/attune-music-metadata",
     "crates/attune-procmgr",
     "crates/attune-desktop",
 ]

@@ -9,9 +9,14 @@ static ARTIST_PROFILE_CACHE: LazyLock<RwLock<HashMap<String, OnlineArtistInfo>>>
 
 #[derive(Debug, Clone, Default, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct OnlineArtistInfo {
+    pub name: Option<String>,
     pub description: Option<String>,
     pub bio: Option<String>,
     pub image_url: Option<String>,
+    pub banner_url: Option<String>,
+    pub subscribers: Option<String>,
+    pub views: Option<String>,
+    pub browse_id: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -21,6 +26,71 @@ pub struct ArtistSummary {
     pub album_count: usize,
     pub sample_track: TrackEntry,
     pub fallback_artwork_url: Option<String>,
+    pub photo_url: Option<String>,
+}
+
+/// Returns the cache file path for an artist profile (~/.cache/attune/artists/{safe_name}.json).
+pub fn artist_cache_file_path(artist_name: &str) -> Option<std::path::PathBuf> {
+    let clean = clean_primary_artist(artist_name);
+    if clean.is_empty() {
+        return None;
+    }
+    let cache_dir = dirs::cache_dir()?.join("attune").join("artists");
+    let _ = std::fs::create_dir_all(&cache_dir);
+    let safe_name: String = clean
+        .chars()
+        .map(|c| if c.is_alphanumeric() || c == '_' || c == '-' { c } else { '_' })
+        .collect();
+    Some(cache_dir.join(format!("{safe_name}.json")))
+}
+
+/// Loads a cached artist profile from memory or disk cache.
+pub fn load_cached_artist_profile(artist_name: &str) -> Option<OnlineArtistInfo> {
+    let clean = clean_primary_artist(artist_name);
+    if clean.is_empty() {
+        return None;
+    }
+
+    // 1. Memory cache
+    if let Ok(cache) = ARTIST_PROFILE_CACHE.read() {
+        if let Some(entry) = cache.get(&clean) {
+            return Some(entry.clone());
+        }
+    }
+
+    // 2. Disk cache
+    if let Some(path) = artist_cache_file_path(&clean) {
+        if path.is_file() {
+            if let Ok(data) = std::fs::read_to_string(&path) {
+                if let Ok(info) = serde_json::from_str::<OnlineArtistInfo>(&data) {
+                    if let Ok(mut cache) = ARTIST_PROFILE_CACHE.write() {
+                        cache.insert(clean, info.clone());
+                    }
+                    return Some(info);
+                }
+            }
+        }
+    }
+
+    None
+}
+
+/// Persists an artist profile to both memory and disk cache.
+pub fn save_cached_artist_profile(artist_name: &str, info: &OnlineArtistInfo) {
+    let clean = clean_primary_artist(artist_name);
+    if clean.is_empty() {
+        return;
+    }
+
+    if let Ok(mut cache) = ARTIST_PROFILE_CACHE.write() {
+        cache.insert(clean.clone(), info.clone());
+    }
+
+    if let Some(path) = artist_cache_file_path(&clean) {
+        if let Ok(json_str) = serde_json::to_string_pretty(info) {
+            let _ = std::fs::write(path, json_str);
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -390,6 +460,7 @@ pub fn extract_all_unique_artists(tracks: &[TrackEntry]) -> Vec<ArtistSummary> {
         .map(|(lower, (artist_tracks, albums))| {
             let name = canonical_names.get(&lower).cloned().unwrap_or(lower);
             let fallback_artwork_url = artist_tracks.iter().find_map(|t| t.artwork_data_url.clone());
+            let photo_url = load_cached_artist_profile(&name).and_then(|p| p.image_url);
             let sample_track = artist_tracks[0].clone();
             ArtistSummary {
                 name,
@@ -397,6 +468,7 @@ pub fn extract_all_unique_artists(tracks: &[TrackEntry]) -> Vec<ArtistSummary> {
                 album_count: albums.len(),
                 sample_track,
                 fallback_artwork_url,
+                photo_url,
             }
         })
         .collect();
@@ -530,6 +602,252 @@ fn is_ignorable_artist(artist: &str) -> bool {
         || lower == "various"
 }
 
+/// Resizes Google CDN image URL to square dimensions with high quality (e.g. `=w512-h512-p-l90-rj`).
+pub fn resize_google_avatar_url(url: &str, size: u32) -> String {
+    let target_token = format!("=w{size}-h{size}-p-l90-rj");
+    if let Some(idx) = url.find('=') {
+        let base = &url[..idx];
+        format!("{base}{target_token}")
+    } else {
+        format!("{url}{target_token}")
+    }
+}
+
+/// Trims trailing Wikipedia / Creative Commons attribution links from YouTube Music's description shelf.
+pub fn clean_innertube_bio(raw: &str) -> String {
+    let mut text = raw.trim().to_string();
+    if let Some(pos) = text.find("\n\nFrom Wikipedia (") {
+        text.truncate(pos);
+    } else if let Some(pos) = text.find("\n\nFrom Wikipedia") {
+        text.truncate(pos);
+    } else if let Some(pos) = text.find("From Wikipedia (") {
+        text.truncate(pos);
+    }
+    text.trim().to_string()
+}
+
+/// Queries YouTube Music Innertube API directly (Search + Browse) without OAuth or API keys.
+pub fn query_innertube_artist_profile(artist: &str) -> OnlineArtistInfo {
+    let clean = clean_primary_artist(artist);
+    if clean.is_empty() {
+        return OnlineArtistInfo::default();
+    }
+
+    // 1. Search endpoint
+    let search_payload = serde_json::json!({
+        "context": {
+            "client": {
+                "clientName": "WEB_REMIX",
+                "clientVersion": "1.20240101.01.00",
+                "hl": "en",
+                "gl": "US"
+            }
+        },
+        "query": clean
+    });
+
+    let search_res = ureq::post("https://music.youtube.com/youtubei/v1/search")
+        .set("Content-Type", "application/json")
+        .set(
+            "User-Agent",
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        )
+        .set("Origin", "https://music.youtube.com")
+        .timeout(std::time::Duration::from_millis(3000))
+        .send_json(search_payload);
+
+    let mut browse_id: Option<String> = None;
+    let mut search_avatar: Option<String> = None;
+    let mut canonical_name: Option<String> = None;
+
+    if let Ok(resp) = search_res {
+        if let Ok(json) = resp.into_json::<serde_json::Value>() {
+            let tabs = json
+                .get("contents")
+                .and_then(|c| c.get("tabbedSearchResultsRenderer"))
+                .and_then(|t| t.get("tabs"))
+                .and_then(|t| t.as_array());
+
+            if let Some(first_tab) = tabs.and_then(|t| t.first()).and_then(|t| t.get("tabRenderer")).and_then(|t| t.get("content")).and_then(|c| c.get("sectionListRenderer")).and_then(|s| s.get("contents")).and_then(|c| c.as_array()) {
+                // Check musicCardShelfRenderer
+                for section in first_tab {
+                    if let Some(card) = section.get("musicCardShelfRenderer") {
+                        let name = card
+                            .get("title")
+                            .and_then(|t| t.get("runs"))
+                            .and_then(|r| r.as_array())
+                            .and_then(|a| a.first())
+                            .and_then(|f| f.get("text"))
+                            .and_then(|t| t.as_str())
+                            .map(|s| s.to_string());
+
+                        let id = card
+                            .get("title")
+                            .and_then(|t| t.get("runs"))
+                            .and_then(|r| r.as_array())
+                            .and_then(|a| a.first())
+                            .and_then(|f| f.get("navigationEndpoint"))
+                            .and_then(|n| n.get("browseEndpoint"))
+                            .and_then(|b| b.get("browseId"))
+                            .and_then(|b| b.as_str())
+                            .or_else(|| {
+                                card.get("onTap")
+                                    .and_then(|o| o.get("browseEndpoint"))
+                                    .and_then(|b| b.get("browseId"))
+                                    .and_then(|b| b.as_str())
+                            })
+                            .map(|s| s.to_string());
+
+                        let thumb = card
+                            .get("thumbnail")
+                            .and_then(|t| t.get("musicThumbnailRenderer"))
+                            .and_then(|t| t.get("thumbnail"))
+                            .and_then(|t| t.get("thumbnails"))
+                            .and_then(|t| t.as_array())
+                            .and_then(|arr| arr.last())
+                            .and_then(|item| item.get("url"))
+                            .and_then(|u| u.as_str())
+                            .map(|u| resize_google_avatar_url(u, 512));
+
+                        if id.is_some() {
+                            browse_id = id;
+                            canonical_name = name;
+                            search_avatar = thumb;
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    let mut info = OnlineArtistInfo {
+        name: canonical_name,
+        image_url: search_avatar,
+        browse_id: browse_id.clone(),
+        ..Default::default()
+    };
+
+    // 2. Browse endpoint if browse_id is available
+    if let Some(ref b_id) = browse_id {
+        let browse_payload = serde_json::json!({
+            "context": {
+                "client": {
+                    "clientName": "WEB_REMIX",
+                    "clientVersion": "1.20240101.01.00",
+                    "hl": "en",
+                    "gl": "US"
+                }
+            },
+            "browseId": b_id
+        });
+
+        let browse_res = ureq::post("https://music.youtube.com/youtubei/v1/browse")
+            .set("Content-Type", "application/json")
+            .set(
+                "User-Agent",
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            )
+            .set("Origin", "https://music.youtube.com")
+            .timeout(std::time::Duration::from_millis(3000))
+            .send_json(browse_payload);
+
+        if let Ok(resp) = browse_res {
+            if let Ok(json) = resp.into_json::<serde_json::Value>() {
+                if let Some(header) = json.get("header").and_then(|h| {
+                    h.get("musicImmersiveHeaderRenderer")
+                        .or_else(|| h.get("musicVisualHeaderRenderer"))
+                }) {
+                    if let Some(subs) = header
+                        .get("subscriptionButton")
+                        .and_then(|s| s.get("subscribeButtonRenderer"))
+                        .and_then(|s| s.get("subscriberCountText"))
+                        .and_then(|s| s.get("runs"))
+                        .and_then(|r| r.as_array())
+                        .and_then(|a| a.first())
+                        .and_then(|f| f.get("text"))
+                        .and_then(|t| t.as_str())
+                    {
+                        info.subscribers = Some(subs.to_string());
+                    }
+
+                    if let Some(banner) = header
+                        .get("thumbnail")
+                        .and_then(|t| t.get("musicThumbnailRenderer"))
+                        .and_then(|t| t.get("thumbnail"))
+                        .and_then(|t| t.get("thumbnails"))
+                        .and_then(|t| t.as_array())
+                        .and_then(|arr| arr.last())
+                        .and_then(|item| item.get("url"))
+                        .and_then(|u| u.as_str())
+                    {
+                        info.banner_url = Some(banner.to_string());
+                    }
+
+                    if let Some(desc) = header
+                        .get("description")
+                        .and_then(|d| d.get("runs"))
+                        .and_then(|r| r.as_array())
+                        .and_then(|a| a.first())
+                        .and_then(|f| f.get("text"))
+                        .and_then(|t| t.as_str())
+                    {
+                        info.bio = Some(clean_innertube_bio(desc));
+                    }
+                }
+
+                // Check description shelf
+                if let Some(contents) = json
+                    .get("contents")
+                    .and_then(|c| c.get("singleColumnBrowseResultsRenderer"))
+                    .and_then(|s| s.get("tabs"))
+                    .and_then(|t| t.as_array())
+                    .and_then(|arr| arr.first())
+                    .and_then(|t| t.get("tabRenderer"))
+                    .and_then(|t| t.get("content"))
+                    .and_then(|c| c.get("sectionListRenderer"))
+                    .and_then(|s| s.get("contents"))
+                    .and_then(|c| c.as_array())
+                {
+                    for section in contents {
+                        if let Some(shelf) = section.get("musicDescriptionShelfRenderer") {
+                            if let Some(subhead) = shelf
+                                .get("subheader")
+                                .and_then(|s| s.get("runs"))
+                                .and_then(|r| r.as_array())
+                                .and_then(|a| a.first())
+                                .and_then(|f| f.get("text"))
+                                .and_then(|t| t.as_str())
+                            {
+                                info.views = Some(subhead.to_string());
+                            }
+
+                            if let Some(runs) = shelf
+                                .get("description")
+                                .and_then(|d| d.get("runs"))
+                                .and_then(|r| r.as_array())
+                            {
+                                let mut full_desc = String::new();
+                                for r in runs {
+                                    if let Some(txt) = r.get("text").and_then(|t| t.as_str()) {
+                                        full_desc.push_str(txt);
+                                    }
+                                }
+                                let cleaned = clean_innertube_bio(&full_desc);
+                                if !cleaned.is_empty() {
+                                    info.bio = Some(cleaned);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    info
+}
+
 fn query_wikipedia_summary(url: &str) -> OnlineArtistInfo {
     let res = ureq::get(url)
         .set("User-Agent", "Attune/0.1.0 (https://github.com/Mizumo-prjkt/attune)")
@@ -561,6 +879,7 @@ fn query_wikipedia_summary(url: &str) -> OnlineArtistInfo {
                     description,
                     bio,
                     image_url,
+                    ..Default::default()
                 }
             } else {
                 OnlineArtistInfo::default()
@@ -577,13 +896,6 @@ pub fn fetch_wikipedia_artist_profile(artist: &str) -> OnlineArtistInfo {
     let clean = clean_primary_artist(artist);
     if clean.is_empty() || is_ignorable_artist(&clean) {
         return OnlineArtistInfo::default();
-    }
-
-    // Check memory cache
-    if let Ok(cache) = ARTIST_PROFILE_CACHE.read() {
-        if let Some(entry) = cache.get(&clean) {
-            return entry.clone();
-        }
     }
 
     let encoded_name = urlencoding(&clean);
@@ -607,11 +919,82 @@ pub fn fetch_wikipedia_artist_profile(artist: &str) -> OnlineArtistInfo {
         }
     }
 
-    if let Ok(mut cache) = ARTIST_PROFILE_CACHE.write() {
-        cache.insert(clean, info.clone());
+    info
+}
+
+/// Comprehensive online artist profile resolver.
+///
+/// Priority sequence:
+/// 1. Memory / disk cache (unless `force_refresh` is true)
+/// 2. Dynamic shared library C-ABI (`attune_metadata_fetch_artist_online`)
+/// 3. Direct YouTube Music Innertube API (512x512 Google CDN portrait, 16:9 banner, subscriber count, views)
+/// 4. Multi-language Wikipedia REST API fallback (`en.wikipedia.org` -> `ja.wikipedia.org`)
+///
+/// Results are persistently cached to disk in `~/.cache/attune/artists/{safe_name}.json`.
+pub fn fetch_online_artist_profile(artist: &str, force_refresh: bool) -> OnlineArtistInfo {
+    let clean = clean_primary_artist(artist);
+    if clean.is_empty() || is_ignorable_artist(&clean) {
+        return OnlineArtistInfo::default();
     }
 
-    info
+    // 1. Check cache
+    if !force_refresh {
+        if let Some(cached) = load_cached_artist_profile(&clean) {
+            if cached.image_url.is_some() || cached.bio.is_some() {
+                return cached;
+            }
+        }
+    }
+
+    // 2. Try dynamic C-ABI component if available
+    let mut profile = if let Ok(json_str) = crate::dynamic_components::music_metadata_changer::fetch_artist_online(&clean) {
+        if let Ok(c_abi_info) = serde_json::from_str::<OnlineArtistInfo>(&json_str) {
+            c_abi_info
+        } else {
+            OnlineArtistInfo::default()
+        }
+    } else {
+        OnlineArtistInfo::default()
+    };
+
+    // 3. Fallback to direct Innertube query if C-ABI was empty or missing avatar/bio
+    if profile.image_url.is_none() || profile.bio.is_none() {
+        let innertube_info = query_innertube_artist_profile(&clean);
+        if profile.image_url.is_none() {
+            profile.image_url = innertube_info.image_url;
+        }
+        if profile.bio.is_none() {
+            profile.bio = innertube_info.bio;
+        }
+        if profile.banner_url.is_none() {
+            profile.banner_url = innertube_info.banner_url;
+        }
+        if profile.subscribers.is_none() {
+            profile.subscribers = innertube_info.subscribers;
+        }
+        if profile.views.is_none() {
+            profile.views = innertube_info.views;
+        }
+        if profile.browse_id.is_none() {
+            profile.browse_id = innertube_info.browse_id;
+        }
+    }
+
+    // 4. Fallback to Wikipedia if avatar or bio still missing
+    if profile.image_url.is_none() || profile.bio.is_none() {
+        let wiki_info = fetch_wikipedia_artist_profile(&clean);
+        if profile.image_url.is_none() {
+            profile.image_url = wiki_info.image_url;
+        }
+        if profile.bio.is_none() {
+            profile.bio = wiki_info.bio.or(wiki_info.description);
+        }
+    }
+
+    // Save to disk & memory cache
+    save_cached_artist_profile(&clean, &profile);
+
+    profile
 }
 
 /// Asynchronously fetches the artist portrait image from Wikipedia REST API.
@@ -976,5 +1359,47 @@ mod tests {
         let fav = find_favorite_artist(&tracks, &tracks).expect("favorite artist found");
         assert_eq!(fav.artist, "Kasane Teto");
         assert_eq!(fav.tracks.len(), 2);
+    }
+
+    #[test]
+    fn test_resize_google_avatar_url() {
+        let url = "https://lh3.googleusercontent.com/abc=w120-h120-p-l90-rj";
+        let resized = resize_google_avatar_url(url, 512);
+        assert_eq!(resized, "https://lh3.googleusercontent.com/abc=w512-h512-p-l90-rj");
+
+        let plain = "https://lh3.googleusercontent.com/xyz";
+        let resized_plain = resize_google_avatar_url(plain, 512);
+        assert_eq!(resized_plain, "https://lh3.googleusercontent.com/xyz=w512-h512-p-l90-rj");
+    }
+
+    #[test]
+    fn test_clean_innertube_bio() {
+        let text = "Deco*27 is a Japanese musician.\n\nFrom Wikipedia (https://en.wikipedia.org/wiki/Deco*27)";
+        assert_eq!(clean_innertube_bio(text), "Deco*27 is a Japanese musician.");
+
+        let text2 = "No wiki link here";
+        assert_eq!(clean_innertube_bio(text2), "No wiki link here");
+    }
+
+    #[test]
+    fn test_artist_cache_memory_and_file_path() {
+        let path = artist_cache_file_path("DECO*27").expect("path created");
+        assert!(path.to_string_lossy().contains("DECO_27.json"));
+
+        let info = OnlineArtistInfo {
+            name: Some("DECO*27".to_string()),
+            image_url: Some("https://example.com/avatar.jpg".to_string()),
+            bio: Some("Famous producer".to_string()),
+            subscribers: Some("2.91M".to_string()),
+            views: Some("1.8B views".to_string()),
+            browse_id: Some("UC123".to_string()),
+            ..Default::default()
+        };
+        save_cached_artist_profile("DECO*27", &info);
+
+        let loaded = load_cached_artist_profile("DECO*27").expect("cached loaded");
+        assert_eq!(loaded.name.as_deref(), Some("DECO*27"));
+        assert_eq!(loaded.image_url.as_deref(), Some("https://example.com/avatar.jpg"));
+        assert_eq!(loaded.subscribers.as_deref(), Some("2.91M"));
     }
 }

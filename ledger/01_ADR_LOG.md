@@ -3334,6 +3334,42 @@ This file records all major architectural decisions for **Attune**, including co
   - Full adherence to Mandate 4 (zero hardcoded paths or exclusions).
   - All 56 desktop tests and 107 workspace tests pass cleanly. Release binary compiles in under 45s.
 
+---
+
+## ADR-094: YouTube Music Innertube API Integration, `attune-music-metadata` Crate Modernization, Persistent Artist Web Profile Cache, Artist Detail Action Menu & Main Grid Portrait Unification
+- **Date**: 2026-11-07
+- **Status**: `LOCKED`
+- **Context**:
+  1. The `...` button in the Artist detail view hero previously directly added all tracks to the queue, surprising users who expected a context options dropdown menu.
+  2. Main Artists grid cards displayed local track album art thumbnails rather than the artist's web portrait avatar (e.g. DECO*27 showed an album cover on the grid, but the official B&W logo in detail view). Furthermore, web profiles were only queried when visiting individual artist detail views.
+  3. YouTube Music's internal unauthenticated Innertube API (`WEB_REMIX` client with `/youtubei/v1/search` and `/youtubei/v1/browse`) provides high-res portraits, 16:9 widescreen banners up to 2880x1200, subscriber counts, total views, and curated Knowledge Graph / Wikipedia biographies without API keys or OAuth quotas.
+  4. The native crate `attune-music-metadata-changer` needed modernization and renaming to `attune-music-metadata` to reflect its dual role: non-destructive audio file metadata manipulation and online metadata querying with thread-safe C-ABI exports.
+- **Decision**:
+  1. **Crate Renaming & Modernization (`attune-music-metadata`)**:
+     - Renamed crate `crates/attune-music-metadata-changer` to `crates/attune-music-metadata`.
+     - Implemented `innertube.rs` with `search_artist_innertube` and `fetch_artist_browse_innertube` using unauthenticated `WEB_REMIX` client payloads.
+     - Implemented `resize_google_avatar_url` dynamic CDN resizing to 512x512 (`=w512-h512-p-l90-rj`) and `clean_innertube_bio`.
+     - Exported C-ABI functions `attune_metadata_fetch_artist_online` and backward-compatible aliases in `ffi.rs`.
+     - Updated `tools/builder.py` and `crates/attune-desktop/src/dynamic_components.rs` with dynamic symbol resolution.
+  2. **Artist Detail Action Bar Dropdown (`...`)**:
+     - Replaced the direct queue button with a multi-item context dropdown menu (`show_artist_options`):
+       - `Add All to Queue`: Enqueues all artist songs.
+       - `Play Next`: Prepend-enqueues all artist songs next.
+       - `Query / Refresh Profile from Web`: Triggers live web fetch via Innertube + Wikipedia, updating the active profile, header banner, and cache.
+       - `Exclude Artist from Library`: Adds artist tracks to the persistent Song Exclusion Index.
+       - `Copy Artist Name`: Copies artist name to clipboard with feedback.
+  3. **Main Grid Portrait Unification & Batch Querying**:
+     - Implemented persistent disk caching in `~/.cache/attune/artists/{safe_name}.json` alongside memory caching.
+     - Added `photo_url` to `ArtistSummary`, ensuring `extract_all_unique_artists` checks cached web profiles first. Grid cards render `artist.photo_url` first before falling back to local track artwork.
+     - Added a "Fetch Web Profiles" button with real-time progress indicator in the main Artists header row to batch query missing artist profiles in the background.
+  4. **Immersive 16:9 Widescreen Artist Header**:
+     - If Innertube returns a 16:9 banner URL, the artist detail hero renders the banner as an atmospheric backdrop, and displays subscriber count and view metrics alongside the Verified Artist badge.
+- **Consequences**:
+  - Full visual consistency between main Artists grid and Artist detail view.
+  - Zero hardcoding (Mandate 4): dynamic Innertube search, automatic Wikipedia fallback, and persistent disk caching.
+  - All 59 desktop tests and 112 workspace tests pass cleanly. Release binary compiles in 1m 00s.
+
+
 
 
 

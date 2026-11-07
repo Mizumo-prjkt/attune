@@ -591,7 +591,7 @@ def compile_rust(mode="release", target_os=None, log_callback=None):
         "-p", "attune-ffi",
         "-p", "attune-watchguard",
         "-p", "attune-procmgr",
-        "-p", "attune-music-metadata-changer",
+        "-p", "attune-music-metadata",
         "-p", "attune-desktop",
     ]
     if mode.lower() == "release":
@@ -623,22 +623,22 @@ def compile_rust(mode="release", target_os=None, log_callback=None):
         lib_name = "libattune_engine.so"
         wg_name = "libattune_watchguard.so"
         pm_name = "libattune_procmgr.so"
-        mc_name = "libattune_music_metadata_changer.so"
+        mc_name = "libattune_music_metadata.so"
     elif effective_target_os == "windows" or system == "Windows":
         lib_name = "attune_engine.dll"
         wg_name = "attune_watchguard.dll"
         pm_name = "attune_procmgr.dll"
-        mc_name = "attune_music_metadata_changer.dll"
+        mc_name = "attune_music_metadata.dll"
     elif system == "Darwin":
         lib_name = "libattune_engine.dylib"
         wg_name = "libattune_watchguard.dylib"
         pm_name = "libattune_procmgr.dylib"
-        mc_name = "libattune_music_metadata_changer.dylib"
+        mc_name = "libattune_music_metadata.dylib"
     else:
         lib_name = "libattune_engine.so"
         wg_name = "libattune_watchguard.so"
         pm_name = "libattune_procmgr.so"
-        mc_name = "libattune_music_metadata_changer.so"
+        mc_name = "libattune_music_metadata.so"
 
     lib_path = target_dir / lib_name
     if not lib_path.exists():
@@ -866,7 +866,7 @@ def package_bundle(target_os="linux", mode="release", localversion="", bundle_ty
             os.chmod(dest_native, 0o755)
             dist_lib_dir = dist_dir / "lib"
             dist_lib_dir.mkdir(parents=True, exist_ok=True)
-            for so_name in ("libattune_procmgr.so", "libattune_watchguard.so", "libattune_music_metadata_changer.so"):
+            for so_name in ("libattune_procmgr.so", "libattune_watchguard.so", "libattune_music_metadata.so", "libattune_music_metadata_changer.so"):
                 so_src = REPO_ROOT / "target" / mode.lower() / so_name
                 if so_src.exists():
                     shutil.copy2(so_src, dist_lib_dir / so_name)
@@ -883,7 +883,7 @@ def package_bundle(target_os="linux", mode="release", localversion="", bundle_ty
             shutil.copy2(native_desktop_exe, dest_native_exe)
             dist_lib_dir = dist_dir / "lib"
             dist_lib_dir.mkdir(parents=True, exist_ok=True)
-            for dll_name in ("attune_procmgr.dll", "attune_watchguard.dll", "attune_music_metadata_changer.dll"):
+            for dll_name in ("attune_procmgr.dll", "attune_watchguard.dll", "attune_music_metadata.dll", "attune_music_metadata_changer.dll"):
                 dll_src = REPO_ROOT / "target" / mode.lower() / dll_name
                 if dll_src.exists():
                     shutil.copy2(dll_src, dist_lib_dir / dll_name)

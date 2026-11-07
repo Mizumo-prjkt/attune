@@ -407,3 +407,33 @@ pub extern "C" fn attune_metadata_changer_set_tag(
 ) -> i32 {
     attune_track_tweaks_update_tag(file_path, tag_name, tag_value)
 }
+
+/// Fetches comprehensive online artist metadata (YouTube Music Innertube 512x512 portrait,
+/// 16:9 banner, subscriber count, bio, and Wikipedia fallback).
+/// Returns a JSON string containing `{ name, avatar_url, banner_url, bio, subscribers, views, browse_id }`.
+/// Caller must free the returned pointer using `attune_track_tweaks_free_string`.
+#[no_mangle]
+pub extern "C" fn attune_metadata_fetch_artist_online(artist_name: *const c_char) -> *mut c_char {
+    let res = catch_unwind(|| {
+        let name = match parse_cstr(artist_name) {
+            Ok(s) => s,
+            Err(_) => return std::ptr::null_mut(),
+        };
+        let profile = crate::innertube::fetch_artist_online_profile(name);
+        match serde_json::to_string(&profile) {
+            Ok(json_str) => match CString::new(json_str) {
+                Ok(c) => c.into_raw(),
+                Err(_) => std::ptr::null_mut(),
+            },
+            Err(_) => std::ptr::null_mut(),
+        }
+    });
+
+    res.unwrap_or(std::ptr::null_mut())
+}
+
+#[no_mangle]
+pub extern "C" fn attune_metadata_changer_fetch_artist_online(artist_name: *const c_char) -> *mut c_char {
+    attune_metadata_fetch_artist_online(artist_name)
+}
+

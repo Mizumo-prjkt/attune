@@ -1,13 +1,13 @@
 [package]
-name = "attune-music-metadata-changer"
+name = "attune-music-metadata"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
 license.workspace = true
-description = "Sound track metadata modification, container tagging without touching audio streams, normalization, slicing, silence trimming, and speed adjustment for Attune"
+description = "Sound track metadata modification, container tagging without touching audio streams, YouTube Music Innertube & Wikipedia online metadata querying, normalization, slicing, silence trimming, and speed adjustment for Attune"
 
 [lib]
-name = "attune_music_metadata_changer"
+name = "attune_music_metadata"
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
@@ -17,6 +17,7 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
 log = { workspace = true }
+ureq = { workspace = true, features = ["json", "tls"] }
 
 [dev-dependencies]
 env_logger = { workspace = true }

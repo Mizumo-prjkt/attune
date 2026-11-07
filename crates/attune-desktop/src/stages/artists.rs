@@ -1,7 +1,7 @@
 use dioxus::prelude::*;
 use crate::artist_profile::{
     clean_primary_artist, extract_all_artists_from_track, extract_all_unique_artists,
-    fetch_wikipedia_artist_profile, track_has_artist, OnlineArtistInfo,
+    fetch_online_artist_profile, track_has_artist, OnlineArtistInfo,
 };
 use crate::library::{fmt_ms, TrackEntry};
 use crate::stages::albums::AlbumGroup;
@@ -15,6 +15,11 @@ pub fn Artists(
     on_select_artist: EventHandler<String>,
 ) -> Element {
     let mut search_query = use_signal(String::new);
+    let mut is_syncing = use_signal(|| false);
+    let mut sync_status = use_signal(String::new);
+    let mut refresh_trigger = use_signal(|| 0usize);
+
+    let _ = *refresh_trigger.read();
     let all_artists = extract_all_unique_artists(&tracks);
 
     let query = search_query.read().trim().to_lowercase();
@@ -32,13 +37,63 @@ pub fn Artists(
                         "{filtered_artists.len()} artists in your library"
                     }
                 }
-                div { style: "width: 240px;",
-                    input {
-                        class: "form-input",
-                        style: "padding: 8px 12px; font-size: 13px;",
-                        placeholder: "Filter artists...",
-                        value: "{search_query}",
-                        oninput: move |e| search_query.set(e.value()),
+                div { style: "display: flex; gap: 12px; align-items: center;",
+                    button {
+                        class: "btn-glass",
+                        style: "padding: 8px 14px; font-size: 13px; display: flex; align-items: center; gap: 6px; cursor: pointer;",
+                        disabled: *is_syncing.read(),
+                        title: "Query and cache web artist portraits (YouTube Music Innertube / Wikipedia) for your library",
+                        onclick: {
+                            let missing_artists: Vec<String> = filtered_artists
+                                .iter()
+                                .filter(|a| a.photo_url.is_none())
+                                .map(|a| a.name.clone())
+                                .collect();
+                            move |_| {
+                                if missing_artists.is_empty() {
+                                    sync_status.set("All profiles are up to date!".to_string());
+                                    return;
+                                }
+                                is_syncing.set(true);
+                                let to_fetch = missing_artists.clone();
+                                let total = to_fetch.len();
+                                sync_status.set(format!("Fetching 0/{total}..."));
+                                spawn(async move {
+                                    for (idx, name) in to_fetch.into_iter().enumerate() {
+                                        let n = name.clone();
+                                        let n_fetch = n.clone();
+                                        let _ = tokio::task::spawn_blocking(move || {
+                                            fetch_online_artist_profile(&n_fetch, false)
+                                        })
+                                        .await;
+                                        sync_status.set(format!("{}/{total} ({n})", idx + 1));
+                                    }
+                                    is_syncing.set(false);
+                                    sync_status.set("Profiles updated!".to_string());
+                                    let current = *refresh_trigger.read();
+                                    refresh_trigger.set(current + 1);
+                                });
+                            }
+                        },
+                        span { class: "material-icons md-18", "cloud_sync" }
+                        span {
+                            if *is_syncing.read() {
+                                "{sync_status}"
+                            } else if !sync_status.read().is_empty() {
+                                "{sync_status}"
+                            } else {
+                                "Fetch Web Profiles"
+                            }
+                        }
+                    }
+                    div { style: "width: 220px;",
+                        input {
+                            class: "form-input",
+                            style: "padding: 8px 12px; font-size: 13px;",
+                            placeholder: "Filter artists...",
+                            value: "{search_query}",
+                            oninput: move |e| search_query.set(e.value()),
+                        }
                     }
                 }
             }
@@ -55,7 +110,7 @@ pub fn Artists(
                             let name_click = name.clone();
                             let track_count = artist.track_count;
                             let album_count = artist.album_count;
-                            let art_url = artist.fallback_artwork_url.clone();
+                            let art_url = artist.photo_url.clone().or_else(|| artist.fallback_artwork_url.clone());
 
                             rsx! {
                                 div {
@@ -141,15 +196,18 @@ pub fn ArtistDetail(
     let mut artist_albums: Vec<AlbumGroup> = album_map.into_values().collect();
     artist_albums.sort_by(|a, b| b.tracks.len().cmp(&a.tracks.len()).then_with(|| a.name.cmp(&b.name)));
 
-    // 3. Online profile query via Wikipedia REST API
+    // 3. Online profile query via YouTube Music Innertube + Wikipedia REST API
     let mut online_info = use_signal(OnlineArtistInfo::default);
+    let mut show_artist_options = use_signal(|| false);
+    let mut is_refreshing_profile = use_signal(|| false);
+    let mut copy_feedback = use_signal(String::new);
     let artist_for_fetch = artist_name.clone();
 
     use_effect(move || {
         let a = artist_for_fetch.clone();
         spawn(async move {
             let info = tokio::task::spawn_blocking(move || {
-                fetch_wikipedia_artist_profile(&a)
+                fetch_online_artist_profile(&a, false)
             })
             .await
             .unwrap_or_default();
@@ -219,10 +277,20 @@ pub fn ArtistDetail(
     let mut active_menu_track = use_signal(|| None::<TrackEntry>);
     let mut show_credits_track = use_signal(|| None::<TrackEntry>);
 
+    let hero_bg_style = if let Some(ref banner) = profile.banner_url {
+        format!(
+            "background: linear-gradient(180deg, rgba(18, 18, 18, 0.40) 0%, rgba(18, 18, 18, 0.85) 280px, var(--bg-canvas) 460px), url('{banner}') top center / cover no-repeat;"
+        )
+    } else {
+        format!(
+            "background: linear-gradient(180deg, {hero_color_rgb} 0%, rgba(18, 18, 18, 0.72) 280px, var(--bg-canvas) 460px);"
+        )
+    };
+
     rsx! {
         div {
             class: "artist-detail-view",
-            style: "background: linear-gradient(180deg, {hero_color_rgb} 0%, rgba(18, 18, 18, 0.72) 280px, var(--bg-canvas) 460px);",
+            style: "{hero_bg_style}",
 
             // 1. Hero Header: 232px Artist Avatar on left + Big Metadata on right
             div { class: "album-detail-hero",
@@ -252,6 +320,10 @@ pub fn ArtistDetail(
                             }
                         }
                         span { class: "album-artist-name", "Verified Artist" }
+                        if let Some(ref subs) = profile.subscribers {
+                            span { class: "album-dot-sep", "•" }
+                            span { class: "album-meta-dur", "{subs} subscribers" }
+                        }
                         span { class: "album-dot-sep", "•" }
                         span { class: "album-meta-songs", "{total_tracks} songs," }
                         span { class: "album-meta-dur", "{total_dur_str}" }
@@ -330,18 +402,139 @@ pub fn ArtistDetail(
                     }
                 }
 
-                button {
-                    class: "album-icon-btn",
-                    title: "Add All to Queue",
-                    onclick: {
-                        let all_tracks = artist_tracks.clone();
-                        move |_| {
-                            for t in &all_tracks {
-                                on_queue_track.call(t.clone());
+                div {
+                    style: "position: relative; display: inline-block;",
+                    button {
+                        class: if *show_artist_options.read() { "album-icon-btn active" } else { "album-icon-btn" },
+                        title: "Artist options",
+                        onclick: move |e: MouseEvent| {
+                            e.stop_propagation();
+                            let cur = *show_artist_options.read();
+                            show_artist_options.set(!cur);
+                        },
+                        span { class: "material-icons md-28", "more_horiz" }
+                    }
+
+                    if *show_artist_options.read() {
+                        div {
+                            class: "track-context-menu",
+                            style: "top: 48px; left: 0; min-width: 260px; z-index: 100;",
+                            onclick: move |e: MouseEvent| e.stop_propagation(),
+
+                            // 1. Add All to Queue
+                            button {
+                                class: "context-menu-item",
+                                onclick: {
+                                    let all_tracks = artist_tracks.clone();
+                                    move |_| {
+                                        show_artist_options.set(false);
+                                        for t in &all_tracks {
+                                            on_queue_track.call(t.clone());
+                                        }
+                                    }
+                                },
+                                span { class: "material-icons md-18", "queue_music" }
+                                span { "Add All to Queue" }
+                            }
+
+                            // 2. Play Next
+                            button {
+                                class: "context-menu-item",
+                                onclick: {
+                                    let all_tracks = artist_tracks.clone();
+                                    move |_| {
+                                        show_artist_options.set(false);
+                                        for t in all_tracks.iter().rev() {
+                                            on_play_next.call(t.clone());
+                                        }
+                                    }
+                                },
+                                span { class: "material-icons md-18", "playlist_play" }
+                                span { "Play Next" }
+                            }
+
+                            // 3. Query / Refresh Profile from Web
+                            button {
+                                class: "context-menu-item",
+                                disabled: *is_refreshing_profile.read(),
+                                onclick: {
+                                    let a_name = artist_name.clone();
+                                    move |_| {
+                                        is_refreshing_profile.set(true);
+                                        let a = a_name.clone();
+                                        spawn(async move {
+                                            let refreshed = tokio::task::spawn_blocking(move || {
+                                                fetch_online_artist_profile(&a, true)
+                                            })
+                                            .await
+                                            .unwrap_or_default();
+                                            online_info.set(refreshed);
+                                            is_refreshing_profile.set(false);
+                                            show_artist_options.set(false);
+                                        });
+                                    }
+                                },
+                                span { class: "material-icons md-18", "cloud_sync" }
+                                span {
+                                    if *is_refreshing_profile.read() {
+                                        "Querying Web Profile..."
+                                    } else {
+                                        "Query / Refresh Profile from Web"
+                                    }
+                                }
+                            }
+
+                            // 4. Exclude All Artist Songs from Library
+                            button {
+                                class: "context-menu-item",
+                                onclick: {
+                                    let all_tracks = artist_tracks.clone();
+                                    move |_| {
+                                        show_artist_options.set(false);
+                                        for t in &all_tracks {
+                                            crate::config::add_song_exclusion(t.path.to_string_lossy().to_string());
+                                        }
+                                    }
+                                },
+                                span { class: "material-icons md-18", style: "color: #f43f5e;", "block" }
+                                span { style: "color: #f43f5e;", "Exclude Artist from Library" }
+                            }
+
+                            // 5. Copy Artist Name
+                            button {
+                                class: "context-menu-item",
+                                onclick: {
+                                    let a_name = artist_name.clone();
+                                    move |_| {
+                                        show_artist_options.set(false);
+                                        copy_feedback.set(format!("Copied '{a_name}'!"));
+                                        #[cfg(target_os = "linux")]
+                                        {
+                                            use std::io::Write;
+                                            if let Ok(mut child) = std::process::Command::new("wl-copy")
+                                                .stdin(std::process::Stdio::piped())
+                                                .spawn()
+                                            {
+                                                if let Some(mut stdin) = child.stdin.take() {
+                                                    let _ = stdin.write_all(a_name.as_bytes());
+                                                }
+                                            } else if let Ok(mut child) = std::process::Command::new("xclip")
+                                                .args(["-selection", "clipboard"])
+                                                .stdin(std::process::Stdio::piped())
+                                                .spawn()
+                                            {
+                                                if let Some(mut stdin) = child.stdin.take() {
+                                                    let _ = stdin.write_all(a_name.as_bytes());
+                                                }
+                                            }
+                                        }
+                                    }
+                                },
+                                span { class: "material-icons md-18", "content_copy" }
+                                span { "Copy Artist Name" }
                             }
                         }
-                    },
-                    span { class: "material-icons md-28", "more_horiz" }
+                    }
                 }
             }
 
@@ -701,7 +894,7 @@ pub fn ArtistDetail(
                     }
                 }
 
-                // 6. About Artist (Wikipedia Bio & Description)
+                // 6. About Artist (YouTube Music Innertube / Wikipedia Bio & Description)
                 if let Some(ref bio) = profile.bio {
                     div { class: "artist-bio-card",
                         h3 { style: "font-size: 16px; font-weight: 700; margin-bottom: 10px; display: flex; align-items: center; gap: 8px;",
@@ -712,6 +905,27 @@ pub fn ArtistDetail(
                             p { style: "color: var(--accent-mint); font-size: 13.5px; font-weight: 600; margin-bottom: 8px;", "{desc}" }
                         }
                         p { class: "artist-bio-text", "{bio}" }
+                        if profile.subscribers.is_some() || profile.views.is_some() {
+                            div { style: "margin-top: 14px; padding-top: 10px; border-top: 1px solid var(--border-glass); display: flex; gap: 20px; font-size: 12.5px; color: var(--text-muted); align-items: center;",
+                                if let Some(ref subs) = profile.subscribers {
+                                    div { style: "display: flex; align-items: center; gap: 6px;",
+                                        span { class: "material-icons md-16", style: "color: #f43f5e;", "smart_display" }
+                                        span { "{subs} subscribers" }
+                                    }
+                                }
+                                if let Some(ref views) = profile.views {
+                                    div { style: "display: flex; align-items: center; gap: 6px;",
+                                        span { class: "material-icons md-16", "visibility" }
+                                        span { "{views}" }
+                                    }
+                                }
+                                if let Some(ref b_id) = profile.browse_id {
+                                    div { style: "font-size: 11px; color: var(--text-muted); opacity: 0.7;",
+                                        "ID: {b_id}"
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
             }
