@@ -16,6 +16,8 @@ pub fn Home(
     on_play_tracks: EventHandler<Vec<TrackEntry>>,
     #[props(default)]
     on_queue_track: EventHandler<TrackEntry>,
+    #[props(default)]
+    on_select_artist: EventHandler<String>,
     on_toggle_play: EventHandler<()>,
 ) -> Element {
     let username = std::env::var("USER").unwrap_or_else(|_| "Listener".to_string());
@@ -208,7 +210,18 @@ pub fn Home(
                                     div { class: "fav-artist-tag-row",
                                         span { class: "fav-artist-badge", "MADE FOR YOU • ARTIST CATALOG" }
                                     }
-                                    h2 { class: "fav-artist-title", "Your favourite {artist_name} catalogs." }
+                                    {
+                                        let a_click = artist_name.clone();
+                                        rsx! {
+                                            h2 {
+                                                class: "fav-artist-title",
+                                                style: "cursor: pointer;",
+                                                title: "View {artist_name} catalog",
+                                                onclick: move |_| on_select_artist.call(a_click.clone()),
+                                                "Your favourite {artist_name} catalogs."
+                                            }
+                                        }
+                                    }
                                     p { class: "fav-artist-rationale", "{rationale}" }
 
                                     div { class: "fav-artist-meta",
@@ -236,6 +249,18 @@ pub fn Home(
                                             },
                                             span { class: "material-icons md-18", "playlist_add" }
                                             span { "Add to Queue" }
+                                        }
+                                        {
+                                            let a_btn = artist_name.clone();
+                                            rsx! {
+                                                button {
+                                                    class: "btn-fav-queue",
+                                                    title: "View Artist Discography & Profile",
+                                                    onclick: move |_| on_select_artist.call(a_btn.clone()),
+                                                    span { class: "material-icons md-18", "person" }
+                                                    span { "View Artist" }
+                                                }
+                                            }
                                         }
                                     }
                                 }

@@ -435,7 +435,19 @@ pub fn ArtistDetail(
                                                 class: if is_current { "album-row-title-text active" } else { "album-row-title-text" },
                                                 "{t.title}"
                                             }
-                                            span { class: "album-row-artist-text", "{t.album}" }
+                                            span {
+                                                class: "album-row-artist-text",
+                                                style: "cursor: pointer;",
+                                                title: "Go to album {t.album}",
+                                                onclick: {
+                                                    let alb = t.album.clone();
+                                                    move |evt: MouseEvent| {
+                                                        evt.stop_propagation();
+                                                        on_select_album.call(alb.clone());
+                                                    }
+                                                },
+                                                "{t.album}"
+                                            }
                                         }
 
                                         div { class: "album-row-audio-col", "{audio_details}" }

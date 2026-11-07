@@ -148,6 +148,7 @@ pub fn Albums(
                                         div {
                                             class: "album-artist-avatar",
                                             style: "cursor: pointer;",
+                                            title: "View artist catalog",
                                             onclick: {
                                                 let art = crate::artist_profile::clean_primary_artist(&group.artist);
                                                 move |_| on_select_artist.call(art.clone())
@@ -158,14 +159,32 @@ pub fn Albums(
                                                 span { class: "material-icons md-14", "person" }
                                             }
                                         }
-                                        span {
-                                            class: "album-artist-name",
-                                            style: "cursor: pointer;",
-                                            onclick: {
-                                                let art = crate::artist_profile::clean_primary_artist(&group.artist);
-                                                move |_| on_select_artist.call(art.clone())
-                                            },
-                                            "{group.artist}"
+                                        {
+                                            let split_artists = crate::artist_profile::split_artist_string(&group.artist);
+                                            let display_artists = if split_artists.is_empty() {
+                                                vec![group.artist.clone()]
+                                            } else {
+                                                split_artists
+                                            };
+                                            rsx! {
+                                                for (a_idx, a_name) in display_artists.into_iter().enumerate() {
+                                                    {
+                                                        let a_click = a_name.clone();
+                                                        rsx! {
+                                                            if a_idx > 0 {
+                                                                span { style: "color: rgba(255, 255, 255, 0.7); margin: 0 4px;", "&" }
+                                                            }
+                                                            span {
+                                                                class: "album-artist-name",
+                                                                style: "cursor: pointer;",
+                                                                title: "View {a_name} catalog",
+                                                                onclick: move |_| on_select_artist.call(a_click.clone()),
+                                                                "{a_name}"
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            }
                                         }
                                         if let Some(ref yr) = album_year {
                                             span { class: "album-dot-sep", "•" }
@@ -359,7 +378,37 @@ pub fn Albums(
                                                             class: if is_current { "album-row-title-text active" } else { "album-row-title-text" },
                                                             "{t.title}"
                                                         }
-                                                        span { class: "album-row-artist-text", "{t.artist}" }
+                                                        div { class: "album-row-artist-text",
+                                                            {
+                                                                let split_artists = crate::artist_profile::split_artist_string(&t.artist);
+                                                                let display_artists = if split_artists.is_empty() {
+                                                                    vec![t.artist.clone()]
+                                                                } else {
+                                                                    split_artists
+                                                                };
+                                                                rsx! {
+                                                                    for (a_idx, a_name) in display_artists.into_iter().enumerate() {
+                                                                        {
+                                                                            let a_click = a_name.clone();
+                                                                            rsx! {
+                                                                                if a_idx > 0 {
+                                                                                    span { style: "color: var(--text-muted); margin: 0 2px;", ", " }
+                                                                                }
+                                                                                span {
+                                                                                    style: "cursor: pointer;",
+                                                                                    title: "View {a_name} catalog",
+                                                                                    onclick: move |evt: MouseEvent| {
+                                                                                        evt.stop_propagation();
+                                                                                        on_select_artist.call(a_click.clone());
+                                                                                    },
+                                                                                    "{a_name}"
+                                                                                }
+                                                                            }
+                                                                        }
+                                                                    }
+                                                                }
+                                                            }
+                                                        }
                                                     }
 
                                                     // Column 3: Audio Profile & Format

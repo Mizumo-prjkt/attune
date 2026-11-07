@@ -974,6 +974,12 @@ body, html {
 .album-artist-name {
   font-weight: 700;
   color: #ffffff;
+  transition: color 0.15s ease;
+}
+
+.album-artist-name:hover {
+  color: var(--accent-mint);
+  text-decoration: underline;
 }
 
 .album-dot-sep {
@@ -1191,6 +1197,15 @@ body, html {
   overflow: hidden;
   text-overflow: ellipsis;
   margin-top: 3px;
+}
+
+.album-row-artist-text span {
+  transition: color 0.15s ease;
+}
+
+.album-row-artist-text span:hover {
+  color: var(--accent-mint);
+  text-decoration: underline;
 }
 
 .album-row-audio-col {

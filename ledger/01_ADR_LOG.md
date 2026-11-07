@@ -3247,6 +3247,35 @@ This file records all major architectural decisions for **Attune**, including co
   - Featured artists in titles (such as Kasane Teto & Ui) are seamlessly indexed into the library's artist catalog.
   - All 50 desktop tests and 101 workspace tests pass cleanly, and release binary compiles without error.
 
+---
+
+## ADR-091: Multilingual CJK Delimiters (・, ×, 、, ＆), Wikipedia REST API Fallback to ja.wikipedia.org, Cross-View Artist/Album Deep Links, and Favorite Artist Casing Consolidation
+- **Date**: 2026-11-07
+- **Status**: `LOCKED`
+- **Context**:
+  - In addition to ASCII ampersands and features, vocaloid, anime, and East Asian music collections frequently utilize full-width typography (e.g. `【feat. KASANE TETO & Ui】`, `DECO*27 × ピノキオピー`, `初音ミク・鏡音リン`, `Artist A ＆ Artist B`).
+  - Many Japanese and vocaloid artists lack primary English Wikipedia entries or are filed under their native Japanese names, resulting in empty biography cards when querying only `en.wikipedia.org`.
+  - Furthermore, in the Album and Home views, collaborator names were either rendered as monolithic strings or plain text, preventing users from clicking individual artists directly from album headers, track rows, or the "Top Picks for You" recommendation card.
+  - In `find_favorite_artist`, casing variations (such as `"Kasane Teto"` vs `"KASANE TETO"`) could fragment affinity scores across separate buckets.
+- **Decision**:
+  1. **Full-Width Brackets & CJK Delimiter Expansion (`is_open_bracket`, `is_close_bracket`, `split_artist_string`)**:
+     - Supported full-width Japanese and Asian brackets: `（`, `）`, `【`, `】`, `〔`, `〕`, `［`, `］`, `｛`, `｝`.
+     - Added native multilingual delimiters: `・` (katakana middle dot), `×` / `✕` (multiplication collaboration mark), `、` (ideographic comma)，`，` (full-width comma), `＆` (full-width ampersand), `／` (full-width slash), `；` (full-width semicolon), `＋` / `+` (plus sign).
+  2. **Multi-Region Wikipedia REST API Fallback (`query_wikipedia_summary`)**:
+     - Refactored `fetch_wikipedia_artist_profile` to query `en.wikipedia.org` first, and if unindexed/empty, seamlessly fall back to `ja.wikipedia.org` to resolve descriptions, biographies, and artist portraits.
+  3. **Case-Insensitive Affinity Score Aggregation (`find_favorite_artist`)**:
+     - Pooled play count and library weight scores using lowercase artist keys while resolving back to canonical title-cased names (`canonical_names`), preventing casing fragmentation.
+  4. **Cross-View Interactive Deep-Links (`albums.rs`, `artists.rs`, `home.rs`, `app.rs`)**:
+     - In Album view hero banner, split `group.artist` and rendered each collaborator as an individually clickable link to their artist profile (`on_select_artist`).
+     - In Album view track table, converted `album-row-artist-text` into individual clickable artist links.
+     - In Artist view track table, converted `{t.album}` in `album-row-artist-text` into an interactive clickable link navigating directly to that album (`on_select_album`).
+     - In Home view, connected `on_select_artist` to the "Your favourite {artist_name} catalogs." card header and added a "View Artist" action button.
+- **Consequences**:
+  - Full support for J-Pop, Vocaloid, and multilingual collaboration syntax across metadata and title tags.
+  - Automatic Wikipedia bio and portrait resolution across English and Japanese Wikimedia repositories.
+  - Fluid, Spotify-grade navigation where clicking any artist or album across Home, Album, or Artist views instantly routes to the respective catalog.
+  - All 53 desktop tests and 104 workspace tests pass cleanly, and release binary compiles in 40.04s.
+
 
 
 

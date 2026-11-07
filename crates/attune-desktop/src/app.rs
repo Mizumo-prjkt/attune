@@ -1043,6 +1043,7 @@ pub fn App() -> Element {
                                 on_play_track: move |t| play_track(t),
                                 on_play_tracks: move |list| play_track_list(list),
                                 on_queue_track: move |t| queue.write().push(t),
+                                on_select_artist: move |a| navigate_to(StageView::ArtistDetail(a)),
                                 on_toggle_play: move |_| {
                                     let p = player.read();
                                     if *is_playing.read() { p.pause(); } else { p.play(); }

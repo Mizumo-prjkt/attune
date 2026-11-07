@@ -32,8 +32,19 @@ pub struct FavoriteArtistCatalog {
     pub rationale: String,
 }
 
+/// Helper checking for opening parenthesis or bracket (supporting half-width and full-width/CJK characters)
+fn is_open_bracket(ch: char) -> bool {
+    matches!(ch, '(' | '[' | '{' | '（' | '【' | '〔' | '［' | '｛')
+}
+
+/// Helper checking for closing parenthesis or bracket (supporting half-width and full-width/CJK characters)
+fn is_close_bracket(ch: char) -> bool {
+    matches!(ch, ')' | ']' | '}' | '）' | '】' | '〕' | '］' | '｝')
+}
+
 /// Splits an artist string into distinct individual artists, recognizing
-/// delimiters such as ',', ';', '/', '&', '&amp;', 'x', 'vs.', 'feat.', 'ft.', 'featuring', 'with'.
+/// delimiters such as ',', ';', '/', '&', '&amp;', 'x', 'vs.', 'feat.', 'ft.', 'featuring', 'with',
+/// and Japanese / East Asian punctuation: '＆', '，', '、', '・', '×', '✕', '／', '；', '＋'.
 pub fn split_artist_string(raw: &str) -> Vec<String> {
     let trimmed = raw.trim();
     if trimmed.is_empty() {
@@ -47,10 +58,10 @@ pub fn split_artist_string(raw: &str) -> Vec<String> {
     let mut current_paren = String::new();
 
     for ch in trimmed.chars() {
-        if ch == '(' || ch == '[' {
+        if is_open_bracket(ch) {
             in_paren = true;
             current_paren.clear();
-        } else if ch == ')' || ch == ']' {
+        } else if is_close_bracket(ch) {
             if in_paren {
                 in_paren = false;
                 let paren_lower = current_paren.trim().to_lowercase();
@@ -112,19 +123,33 @@ pub fn split_artist_string(raw: &str) -> Vec<String> {
         } else if remaining_lower.starts_with(" &amp; ") {
             output.push('\x1f');
             i += 7;
-        } else if remaining_lower.starts_with(" & ") {
+        } else if remaining_lower.starts_with(" & ") || remaining_lower.starts_with(" ＆ ") {
             output.push('\x1f');
             i += 3;
-        } else if remaining_lower.starts_with(" x ") || remaining_lower.starts_with(" vs ") {
+        } else if remaining_lower.starts_with(" x ")
+            || remaining_lower.starts_with(" × ")
+            || remaining_lower.starts_with(" ✕ ")
+            || remaining_lower.starts_with(" vs ")
+            || remaining_lower.starts_with(" + ")
+            || remaining_lower.starts_with(" ＋ ")
+        {
             output.push('\x1f');
             i += 3;
         } else if remaining_lower.starts_with(" vs. ") {
             output.push('\x1f');
             i += 5;
-        } else if chars[i] == ',' || chars[i] == ';' || chars[i] == '/' {
+        } else if chars[i] == ','
+            || chars[i] == ';'
+            || chars[i] == '/'
+            || chars[i] == '，'
+            || chars[i] == '、'
+            || chars[i] == '；'
+            || chars[i] == '／'
+            || chars[i] == '・'
+        {
             output.push('\x1f');
             i += 1;
-        } else if chars[i] == '&' {
+        } else if chars[i] == '&' || chars[i] == '＆' || chars[i] == '×' || chars[i] == '✕' {
             output.push('\x1f');
             i += 1;
         } else {
@@ -175,10 +200,10 @@ pub fn extract_featured_artists_from_title(title: &str) -> Vec<String> {
     let mut current_paren = String::new();
 
     for ch in trimmed.chars() {
-        if ch == '(' || ch == '[' {
+        if is_open_bracket(ch) {
             in_paren = true;
             current_paren.clear();
-        } else if ch == ')' || ch == ']' {
+        } else if is_close_bracket(ch) {
             if in_paren {
                 in_paren = false;
                 let paren_lower = current_paren.trim().to_lowercase();
@@ -386,6 +411,7 @@ pub fn find_favorite_artist(
     }
 
     let mut artist_scores: HashMap<String, u32> = HashMap::new();
+    let mut canonical_names: HashMap<String, String> = HashMap::new();
 
     // 1. Score from recent plays (high weight for listening affinity across all pinpointed artists)
     for (idx, track) in recent_tracks.iter().enumerate() {
@@ -395,7 +421,15 @@ pub fn find_favorite_artist(
             if is_ignorable_artist(&artist) {
                 continue;
             }
-            *artist_scores.entry(artist).or_insert(0) += recency_weight;
+            let lower = artist.to_lowercase();
+            if let Some(existing) = canonical_names.get_mut(&lower) {
+                if should_prefer_casing(&artist, existing) {
+                    *existing = artist.clone();
+                }
+            } else {
+                canonical_names.insert(lower.clone(), artist.clone());
+            }
+            *artist_scores.entry(lower).or_insert(0) += recency_weight;
         }
     }
 
@@ -406,12 +440,21 @@ pub fn find_favorite_artist(
             if is_ignorable_artist(&artist) {
                 continue;
             }
-            *artist_scores.entry(artist).or_insert(0) += 2;
+            let lower = artist.to_lowercase();
+            if let Some(existing) = canonical_names.get_mut(&lower) {
+                if should_prefer_casing(&artist, existing) {
+                    *existing = artist.clone();
+                }
+            } else {
+                canonical_names.insert(lower.clone(), artist.clone());
+            }
+            *artist_scores.entry(lower).or_insert(0) += 2;
         }
     }
 
     // Select artist with the highest composite score
-    let (top_artist, _) = artist_scores.into_iter().max_by_key(|(_, score)| *score)?;
+    let (top_lower, _) = artist_scores.into_iter().max_by_key(|(_, score)| *score)?;
+    let top_artist = canonical_names.get(&top_lower).cloned().unwrap_or(top_lower);
 
     // Bundle all library tracks by this artist using pinpointed track_has_artist
     let mut bundled: Vec<TrackEntry> = library_tracks
@@ -471,7 +514,48 @@ fn is_ignorable_artist(artist: &str) -> bool {
         || lower == "various"
 }
 
+fn query_wikipedia_summary(url: &str) -> OnlineArtistInfo {
+    let res = ureq::get(url)
+        .set("User-Agent", "Attune/0.1.0 (https://github.com/Mizumo-prjkt/attune)")
+        .set("Accept", "application/json")
+        .timeout(std::time::Duration::from_millis(2000))
+        .call();
+
+    match res {
+        Ok(response) if response.status() == 200 => {
+            if let Ok(val) = response.into_json::<serde_json::Value>() {
+                let description = val.get("description")
+                    .and_then(|d| d.as_str())
+                    .map(|s| s.to_string());
+                let bio = val.get("extract")
+                    .and_then(|e| e.as_str())
+                    .map(|s| s.to_string());
+                let image_url = val.get("thumbnail")
+                    .and_then(|t| t.get("source"))
+                    .and_then(|s| s.as_str())
+                    .map(|s| s.to_string())
+                    .or_else(|| {
+                        val.get("originalimage")
+                            .and_then(|o| o.get("source"))
+                            .and_then(|s| s.as_str())
+                            .map(|s| s.to_string())
+                    });
+
+                OnlineArtistInfo {
+                    description,
+                    bio,
+                    image_url,
+                }
+            } else {
+                OnlineArtistInfo::default()
+            }
+        }
+        _ => OnlineArtistInfo::default(),
+    }
+}
+
 /// Asynchronously fetches comprehensive artist profile info from Wikipedia REST API.
+/// Queries English Wikipedia first, and if unindexed, queries Japanese Wikipedia (`ja.wikipedia.org`).
 /// If cached, returns immediately. If network fails or is unindexed, falls back gracefully.
 pub fn fetch_wikipedia_artist_profile(artist: &str) -> OnlineArtistInfo {
     let clean = clean_primary_artist(artist);
@@ -486,52 +570,26 @@ pub fn fetch_wikipedia_artist_profile(artist: &str) -> OnlineArtistInfo {
         }
     }
 
-    let url = format!(
+    let encoded_name = urlencoding(&clean);
+
+    // 1. Query English Wikipedia
+    let en_url = format!(
         "https://en.wikipedia.org/api/rest_v1/page/summary/{}",
-        urlencoding(&clean)
+        encoded_name
     );
+    let mut info = query_wikipedia_summary(&en_url);
 
-    let res = ureq::get(&url)
-        .set("User-Agent", "Attune/0.1.0 (https://github.com/Mizumo-prjkt/attune)")
-        .set("Accept", "application/json")
-        .timeout(std::time::Duration::from_millis(2000))
-        .call();
-
-    let info = match res {
-        Ok(response) => {
-            if response.status() == 200 {
-                if let Ok(val) = response.into_json::<serde_json::Value>() {
-                    let description = val.get("description")
-                        .and_then(|d| d.as_str())
-                        .map(|s| s.to_string());
-                    let bio = val.get("extract")
-                        .and_then(|e| e.as_str())
-                        .map(|s| s.to_string());
-                    let image_url = val.get("thumbnail")
-                        .and_then(|t| t.get("source"))
-                        .and_then(|s| s.as_str())
-                        .map(|s| s.to_string())
-                        .or_else(|| {
-                            val.get("originalimage")
-                                .and_then(|o| o.get("source"))
-                                .and_then(|s| s.as_str())
-                                .map(|s| s.to_string())
-                        });
-
-                    OnlineArtistInfo {
-                        description,
-                        bio,
-                        image_url,
-                    }
-                } else {
-                    OnlineArtistInfo::default()
-                }
-            } else {
-                OnlineArtistInfo::default()
-            }
+    // 2. If English Wikipedia yielded no bio or image, try Japanese Wikipedia
+    if info.description.is_none() && info.bio.is_none() && info.image_url.is_none() {
+        let ja_url = format!(
+            "https://ja.wikipedia.org/api/rest_v1/page/summary/{}",
+            encoded_name
+        );
+        let ja_info = query_wikipedia_summary(&ja_url);
+        if ja_info.description.is_some() || ja_info.bio.is_some() || ja_info.image_url.is_some() {
+            info = ja_info;
         }
-        Err(_) => OnlineArtistInfo::default(),
-    };
+    }
 
     if let Ok(mut cache) = ARTIST_PROFILE_CACHE.write() {
         cache.insert(clean, info.clone());
@@ -832,5 +890,50 @@ mod tests {
 
         assert_eq!(names, vec!["HALLO CEL", "Kasane Teto", "Ui"]);
         assert!(!names.contains(&"HALLO CEL & Kasane Teto"));
+    }
+
+    #[test]
+    fn test_split_artist_string_japanese_and_multilingual_delimiters() {
+        assert_eq!(
+            split_artist_string("DECO*27 × ピノキオピー"),
+            vec!["DECO*27", "ピノキオピー"]
+        );
+        assert_eq!(
+            split_artist_string("初音ミク・鏡音リン・鏡音レン"),
+            vec!["初音ミク", "鏡音リン", "鏡音レン"]
+        );
+        assert_eq!(
+            split_artist_string("Artist A ＆ Artist B"),
+            vec!["Artist A", "Artist B"]
+        );
+        assert_eq!(
+            split_artist_string("Artist A、Artist B；Artist C／Artist D"),
+            vec!["Artist A", "Artist B", "Artist C", "Artist D"]
+        );
+    }
+
+    #[test]
+    fn test_extract_featured_artists_from_title_japanese_brackets() {
+        assert_eq!(
+            extract_featured_artists_from_title("メルト（feat. 初音ミク）"),
+            vec!["初音ミク"]
+        );
+        assert_eq!(
+            extract_featured_artists_from_title("Track Title【feat. KASANE TETO & Ui】"),
+            vec!["KASANE TETO", "Ui"]
+        );
+    }
+
+    #[test]
+    fn test_find_favorite_artist_casing_consolidation() {
+        let tracks = vec![
+            make_test_track("Song 1", "Kasane Teto", "Album A", 120000),
+            make_test_track("Song 2", "KASANE TETO", "Album B", 130000),
+            make_test_track("Song 3", "Other Artist", "Album C", 140000),
+        ];
+
+        let fav = find_favorite_artist(&tracks, &tracks).expect("favorite artist found");
+        assert_eq!(fav.artist, "Kasane Teto");
+        assert_eq!(fav.tracks.len(), 2);
     }
 }
