@@ -25,6 +25,12 @@ pub struct TrackMetadata {
     pub disc_number: Option<u32>,
     pub disc_total: Option<u32>,
     pub composer: Option<String>,
+    #[serde(default)]
+    pub writer: Option<String>,
+    #[serde(default)]
+    pub vocalist: Option<String>,
+    #[serde(default)]
+    pub producer: Option<String>,
     pub comment: Option<String>,
     pub lyrics: Option<String>,
     pub bpm: Option<f32>,
@@ -131,6 +137,9 @@ impl TrackMetadata {
                 }
             }
             "COMPOSER" | "TCOM" => self.composer = Some(val_trimmed.to_string()),
+            "WRITER" | "LYRICIST" | "TEXT" | "AUTHOR" => self.writer = Some(val_trimmed.to_string()),
+            "VOCAL" | "VOCALS" | "PERFORMER" | "SINGER" => self.vocalist = Some(val_trimmed.to_string()),
+            "PRODUCER" | "ARRANGER" | "MIXER" => self.producer = Some(val_trimmed.to_string()),
             "COMMENT" | "ICMT" | "COMM" => self.comment = Some(val_trimmed.to_string()),
             "LYRICS" | "USLT" => self.lyrics = Some(val_trimmed.to_string()),
             "BPM" | "TBPM" => {
@@ -383,6 +392,15 @@ fn merge_metadata(target: &mut TrackMetadata, source: TrackMetadata) {
     }
     if source.composer.is_some() {
         target.composer = source.composer;
+    }
+    if source.writer.is_some() {
+        target.writer = source.writer;
+    }
+    if source.vocalist.is_some() {
+        target.vocalist = source.vocalist;
+    }
+    if source.producer.is_some() {
+        target.producer = source.producer;
     }
     if source.comment.is_some() {
         target.comment = source.comment;

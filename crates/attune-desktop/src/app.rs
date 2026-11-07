@@ -12,7 +12,8 @@ use crate::library::{self, fmt_ms, ScanEvent, TrackEntry};
 use crate::player::{LoadState, PendingTransitionInfo, Player};
 use crate::smart_shuffle::{self, ShuffleMode, SmartShuffleHistory};
 use crate::stages::{
-    about::About, album_editor::AlbumEditor, albums::{AlbumGroup, Albums}, equalizer::Equalizer,
+    about::About, album_editor::AlbumEditor, albums::{AlbumGroup, Albums},
+    artists::{ArtistDetail, Artists}, equalizer::Equalizer,
     favorites::Favorites, for_you::ForYou, home::Home, library::Library,
     process_manager::ProcessManager, settings::Settings, setup::SetupStage,
 };
@@ -26,6 +27,8 @@ pub enum StageView {
     Library,
     Albums,
     AlbumDetail(String),
+    Artists,
+    ArtistDetail(String),
     Favorites,
     Equalizer,
     AlbumEditor(AlbumGroup),
@@ -59,6 +62,7 @@ impl NavigationState {
                 StageView::AlbumDetail(_)
                     | StageView::AlbumEditor(_)
                     | StageView::ForYouDetail(_)
+                    | StageView::ArtistDetail(_)
             )
     }
 
@@ -198,6 +202,9 @@ pub fn App() -> Element {
             match nav.current().clone() {
                 StageView::AlbumDetail(_) | StageView::AlbumEditor(_) => {
                     nav.push(StageView::Albums);
+                }
+                StageView::ArtistDetail(_) => {
+                    nav.push(StageView::Artists);
                 }
                 StageView::ForYouDetail(_) => {
                     nav.push(StageView::ForYou);
@@ -367,6 +374,26 @@ pub fn App() -> Element {
             queue.set(list.clone());
             queue_pos.set(0);
             play_track(list[0].clone());
+        }
+    };
+
+    // Helper: Insert track to play next in queue
+    let mut play_next_in_queue = move |track: TrackEntry| {
+        let mut q = queue.read().clone();
+        let curr = *queue_pos.read();
+        if q.is_empty() {
+            q.push(track);
+            queue.set(q);
+        } else {
+            let insert_pos = (curr + 1).min(q.len());
+            if let Some(pos) = q.iter().position(|t| t.path == track.path) {
+                let item = q.remove(pos);
+                let new_slot = if pos < insert_pos { insert_pos.saturating_sub(1) } else { insert_pos };
+                q.insert(new_slot.min(q.len()), item);
+            } else {
+                q.insert(insert_pos, track);
+            }
+            queue.set(q);
         }
     };
 
@@ -844,6 +871,12 @@ pub fn App() -> Element {
                         span { "Albums" }
                     }
                     div {
+                        class: if matches!(nav_state.read().current(), StageView::Artists | StageView::ArtistDetail(_)) { "nav-item active" } else { "nav-item" },
+                        onclick: move |_| navigate_to(StageView::Artists),
+                        span { class: "material-icons md-20", "person" }
+                        span { "Artists" }
+                    }
+                    div {
                         class: if *nav_state.read().current() == StageView::Favorites { "nav-item active" } else { "nav-item" },
                         onclick: move |_| navigate_to(StageView::Favorites),
                         span { class: "material-icons md-20", "favorite" }
@@ -1044,10 +1077,12 @@ pub fn App() -> Element {
                                 is_playing: *is_playing.read(),
                                 favorites: favorites.read().clone(),
                                 on_select_album: move |name: String| navigate_to(StageView::AlbumDetail(name)),
+                                on_select_artist: move |artist: String| navigate_to(StageView::ArtistDetail(artist)),
                                 on_back: move |_| go_back(),
                                 on_play_track: move |t| play_track(t),
                                 on_play_tracks: move |list| play_track_list(list),
                                 on_queue_track: move |t| queue.write().push(t),
+                                on_play_next: move |t| play_next_in_queue(t),
                                 on_toggle_favorite: move |path: PathBuf| {
                                     let mut favs = favorites.read().clone();
                                     if favs.contains(&path) { favs.remove(&path); } else { favs.insert(path); }
@@ -1068,10 +1103,12 @@ pub fn App() -> Element {
                                 is_playing: *is_playing.read(),
                                 favorites: favorites.read().clone(),
                                 on_select_album: move |name: String| navigate_to(StageView::AlbumDetail(name)),
+                                on_select_artist: move |artist: String| navigate_to(StageView::ArtistDetail(artist)),
                                 on_back: move |_| go_back(),
                                 on_play_track: move |t| play_track(t),
                                 on_play_tracks: move |list| play_track_list(list),
                                 on_queue_track: move |t| queue.write().push(t),
+                                on_play_next: move |t| play_next_in_queue(t),
                                 on_toggle_favorite: move |path: PathBuf| {
                                     let mut favs = favorites.read().clone();
                                     if favs.contains(&path) { favs.remove(&path); } else { favs.insert(path); }
@@ -1082,6 +1119,35 @@ pub fn App() -> Element {
                                     if *is_playing.read() { p.pause(); } else { p.play(); }
                                 },
                                 on_edit_album: move |group| navigate_to(StageView::AlbumEditor(group)),
+                            }
+                        },
+                        StageView::Artists => rsx! {
+                            Artists {
+                                tracks: tracks.read().clone(),
+                                on_select_artist: move |name: String| navigate_to(StageView::ArtistDetail(name)),
+                            }
+                        },
+                        StageView::ArtistDetail(name) => rsx! {
+                            ArtistDetail {
+                                artist_name: name.clone(),
+                                tracks: tracks.read().clone(),
+                                current_track_path: current_track.read().as_ref().map(|t| t.path.clone()),
+                                is_playing: *is_playing.read(),
+                                favorites: favorites.read().clone(),
+                                on_select_album: move |name: String| navigate_to(StageView::AlbumDetail(name)),
+                                on_play_track: move |t| play_track(t),
+                                on_play_tracks: move |list| play_track_list(list),
+                                on_queue_track: move |t| queue.write().push(t),
+                                on_play_next: move |t| play_next_in_queue(t),
+                                on_toggle_favorite: move |path: PathBuf| {
+                                    let mut favs = favorites.read().clone();
+                                    if favs.contains(&path) { favs.remove(&path); } else { favs.insert(path); }
+                                    favorites.set(favs);
+                                },
+                                on_toggle_play: move |_| {
+                                    let p = player.read();
+                                    if *is_playing.read() { p.pause(); } else { p.play(); }
+                                },
                             }
                         },
                         StageView::AlbumEditor(group) => rsx! {

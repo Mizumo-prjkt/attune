@@ -25,10 +25,14 @@ pub fn Albums(
     #[props(default)]
     on_select_album: EventHandler<String>,
     #[props(default)]
+    on_select_artist: EventHandler<String>,
+    #[props(default)]
     on_back: EventHandler<()>,
     on_play_track: EventHandler<TrackEntry>,
     on_play_tracks: EventHandler<Vec<TrackEntry>>,
     on_queue_track: EventHandler<TrackEntry>,
+    #[props(default)]
+    on_play_next: EventHandler<TrackEntry>,
     #[props(default)]
     on_toggle_favorite: EventHandler<PathBuf>,
     #[props(default)]
@@ -60,7 +64,8 @@ pub fn Albums(
     let selected_name = selected_album_name.as_ref();
     let selected_group = selected_name.and_then(|name| album_list.iter().find(|a| &a.name == name).cloned());
 
-    let mut discography_filter = use_signal(|| "all".to_string());
+    let mut active_menu_track = use_signal(|| None::<TrackEntry>);
+    let mut show_credits_track = use_signal(|| None::<TrackEntry>);
 
     rsx! {
         div { class: "albums-stage",
@@ -98,16 +103,6 @@ pub fn Albums(
                         others.sort_by(|a, b| b.tracks.len().cmp(&a.tracks.len()).then_with(|| a.name.cmp(&b.name)));
                         others
                     };
-
-                    let active_filter = discography_filter.read().clone();
-                    let filtered_discography: Vec<AlbumGroup> = catalog_pool
-                        .into_iter()
-                        .filter(|a| match active_filter.as_str() {
-                            "albums" => a.tracks.len() > 5,
-                            "singles" => a.tracks.len() <= 5,
-                            _ => true,
-                        })
-                        .collect();
 
                     // Dominant color extraction for atmospheric header gradient
                     let hero_color_rgb = group.artwork_path.as_deref()
@@ -150,14 +145,28 @@ pub fn Albums(
                                     span { class: "album-meta-type", "Album" }
                                     h1 { class: "album-meta-title", "{group.name}" }
                                     div { class: "album-meta-subline",
-                                        div { class: "album-artist-avatar",
+                                        div {
+                                            class: "album-artist-avatar",
+                                            style: "cursor: pointer;",
+                                            onclick: {
+                                                let art = crate::artist_profile::clean_primary_artist(&group.artist);
+                                                move |_| on_select_artist.call(art.clone())
+                                            },
                                             if let Some(art) = art_data_url.as_ref() {
                                                 img { src: "{art}", alt: "{group.artist}" }
                                             } else {
                                                 span { class: "material-icons md-14", "person" }
                                             }
                                         }
-                                        span { class: "album-artist-name", "{group.artist}" }
+                                        span {
+                                            class: "album-artist-name",
+                                            style: "cursor: pointer;",
+                                            onclick: {
+                                                let art = crate::artist_profile::clean_primary_artist(&group.artist);
+                                                move |_| on_select_artist.call(art.clone())
+                                            },
+                                            "{group.artist}"
+                                        }
                                         if let Some(ref yr) = album_year {
                                             span { class: "album-dot-sep", "•" }
                                             span { "{yr}" }
@@ -314,10 +323,13 @@ pub fn Albums(
                                                 parts.join(" • ")
                                             };
 
+                                            let is_menu_open = active_menu_track.read().as_ref().map(|m| m.path == t.path).unwrap_or(false);
+
                                             rsx! {
                                                 div {
                                                     key: "{t.path.display()}",
                                                     class: if is_current { "album-table-row active" } else { "album-table-row" },
+                                                    style: "position: relative;",
                                                     ondoubleclick: move |_| on_play_track.call(t_for_row.clone()),
 
                                                     // Column 1: Index / Play Icon / Volume indicator
@@ -378,15 +390,112 @@ pub fn Albums(
 
                                                         button {
                                                             class: "album-row-menu-btn",
-                                                            title: "Add to Queue",
+                                                            title: "More options",
                                                             onclick: {
-                                                                let t_q = t_for_menu.clone();
+                                                                let t_m = t_for_menu.clone();
                                                                 move |evt: MouseEvent| {
                                                                     evt.stop_propagation();
-                                                                    on_queue_track.call(t_q.clone());
+                                                                    let curr = active_menu_track.read().clone();
+                                                                    if curr.as_ref().map(|c| c.path == t_m.path).unwrap_or(false) {
+                                                                        active_menu_track.set(None);
+                                                                    } else {
+                                                                        active_menu_track.set(Some(t_m.clone()));
+                                                                    }
                                                                 }
                                                             },
                                                             span { class: "material-icons md-18", "more_horiz" }
+                                                        }
+
+                                                        // Context Menu Popover
+                                                        if is_menu_open {
+                                                            div {
+                                                                class: "track-context-menu",
+                                                                onclick: move |evt: MouseEvent| evt.stop_propagation(),
+
+                                                                button {
+                                                                    class: "track-menu-item",
+                                                                    onclick: {
+                                                                        let t_p = t.clone();
+                                                                        move |_| {
+                                                                            active_menu_track.set(None);
+                                                                            on_play_track.call(t_p.clone());
+                                                                        }
+                                                                    },
+                                                                    span { class: "material-icons md-16", "play_arrow" }
+                                                                    span { "Play Now" }
+                                                                }
+
+                                                                button {
+                                                                    class: "track-menu-item",
+                                                                    onclick: {
+                                                                        let t_n = t.clone();
+                                                                        move |_| {
+                                                                            active_menu_track.set(None);
+                                                                            on_play_next.call(t_n.clone());
+                                                                        }
+                                                                    },
+                                                                    span { class: "material-icons md-16", "skip_next" }
+                                                                    span { "Play Next" }
+                                                                }
+
+                                                                button {
+                                                                    class: "track-menu-item",
+                                                                    onclick: {
+                                                                        let t_q = t.clone();
+                                                                        move |_| {
+                                                                            active_menu_track.set(None);
+                                                                            on_queue_track.call(t_q.clone());
+                                                                        }
+                                                                    },
+                                                                    span { class: "material-icons md-16", "playlist_add" }
+                                                                    span { "Add to Queue" }
+                                                                }
+
+                                                                button {
+                                                                    class: "track-menu-item",
+                                                                    onclick: {
+                                                                        let p = t.path.clone();
+                                                                        move |_| {
+                                                                            active_menu_track.set(None);
+                                                                            on_toggle_favorite.call(p.clone());
+                                                                        }
+                                                                    },
+                                                                    if is_fav {
+                                                                        span { class: "material-icons md-16", style: "color: #fb7185;", "favorite" }
+                                                                    } else {
+                                                                        span { class: "material-icons md-16", "favorite_border" }
+                                                                    }
+                                                                    span { if is_fav { "Remove Favorite" } else { "Add to Favorites" } }
+                                                                }
+
+                                                                div { class: "track-menu-divider" }
+
+                                                                button {
+                                                                    class: "track-menu-item",
+                                                                    onclick: {
+                                                                        let artist = crate::artist_profile::clean_primary_artist(&t.artist);
+                                                                        move |_| {
+                                                                            active_menu_track.set(None);
+                                                                            on_select_artist.call(artist.clone());
+                                                                        }
+                                                                    },
+                                                                    span { class: "material-icons md-16", "person" }
+                                                                    span { "Go to Artist" }
+                                                                }
+
+                                                                button {
+                                                                    class: "track-menu-item",
+                                                                    onclick: {
+                                                                        let t_c = t.clone();
+                                                                        move |_| {
+                                                                            active_menu_track.set(None);
+                                                                            show_credits_track.set(Some(t_c.clone()));
+                                                                        }
+                                                                    },
+                                                                    span { class: "material-icons md-16", "info" }
+                                                                    span { "View Track Credits & Metadata" }
+                                                                }
+                                                            }
                                                         }
                                                     }
                                                 }
@@ -400,45 +509,28 @@ pub fn Albums(
                                     p { class: "album-footer-lore", "{lore_description}" }
                                 }
 
-                                // 6. Discography & More Catalogs Section
+                                // 6. Discography & More Catalogs Section (No filter chips, those belong to Artist view)
                                 div { class: "album-discography-section",
                                     div { class: "discography-header-row",
                                         div { style: "display: flex; align-items: center; gap: 16px; flex-wrap: wrap;",
                                             h2 { class: "discography-title",
                                                 if has_artist_discography {
-                                                    "Discography"
+                                                    "More by {group.artist}"
                                                 } else {
                                                     "More Albums in Your Library"
                                                 }
                                             }
-                                            div { class: "discography-chips",
-                                                button {
-                                                    class: if active_filter == "all" { "discography-chip active" } else { "discography-chip" },
-                                                    onclick: move |_| discography_filter.set("all".to_string()),
-                                                    if has_artist_discography { "Popular releases" } else { "All releases" }
-                                                }
-                                                button {
-                                                    class: if active_filter == "albums" { "discography-chip active" } else { "discography-chip" },
-                                                    onclick: move |_| discography_filter.set("albums".to_string()),
-                                                    "Albums"
-                                                }
-                                                button {
-                                                    class: if active_filter == "singles" { "discography-chip active" } else { "discography-chip" },
-                                                    onclick: move |_| discography_filter.set("singles".to_string()),
-                                                    "Singles and EPs"
-                                                }
-                                            }
                                         }
-                                        span { class: "discography-count", "{filtered_discography.len()} releases" }
+                                        span { class: "discography-count", "{catalog_pool.len()} releases" }
                                     }
 
-                                    if filtered_discography.is_empty() {
+                                    if catalog_pool.is_empty() {
                                         div { class: "discography-empty",
-                                            "No releases found matching the selected filter category."
+                                            "No other albums found in your library."
                                         }
                                     } else {
                                         div { class: "discography-shelf",
-                                            for disc_album in filtered_discography.iter() {
+                                            for disc_album in catalog_pool.iter() {
                                                 {
                                                     let a_name = disc_album.name.clone();
                                                     let a_name_click = disc_album.name.clone();
@@ -502,6 +594,116 @@ pub fn Albums(
                                                             div { class: "discography-meta-col",
                                                                 span { class: "discography-card-title", title: "{a_name}", "{a_name}" }
                                                                 span { class: "discography-card-sub", "{subtitle}" }
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            // Track Credits & Metadata Modal
+                            if let Some(track) = show_credits_track.read().clone() {
+                                {
+                                    let dur_str = fmt_ms(track.duration_ms);
+                                    let vocalist_str = track.vocalist.clone().unwrap_or_else(|| {
+                                        if track.artist.contains("feat.") || track.artist.contains("ft.") {
+                                            crate::artist_profile::clean_primary_artist(&track.artist)
+                                        } else {
+                                            "—".to_string()
+                                        }
+                                    });
+                                    let writer_str = track.writer.clone().or(track.composer.clone()).unwrap_or_else(|| "—".to_string());
+                                    let producer_str = track.producer.clone().unwrap_or_else(|| "—".to_string());
+                                    let sample_rate_str = format!("{} Hz ({:.1} kHz)", track.sample_rate, track.sample_rate as f32 / 1000.0);
+                                    let bpm_str = track.bpm.map(|b| format!("{:.1} BPM", b)).unwrap_or_else(|| "—".to_string());
+                                    let key_str = track.key.clone().unwrap_or_else(|| "—".to_string());
+                                    let genre_str = track.genre.clone().unwrap_or_else(|| "—".to_string());
+
+                                    rsx! {
+                                        div {
+                                            class: "credits-modal-backdrop",
+                                            onclick: move |_| show_credits_track.set(None),
+
+                                            div {
+                                                class: "credits-modal-dialog",
+                                                onclick: move |e: MouseEvent| e.stop_propagation(),
+
+                                                div { class: "credits-modal-header",
+                                                    div {
+                                                        h2 { style: "font-size: 18px; font-weight: 700; margin: 0;", "Track Credits & Metadata" }
+                                                        p { style: "font-size: 12px; color: var(--text-muted); margin: 4px 0 0 0;", "{track.title}" }
+                                                    }
+                                                    button {
+                                                        class: "modal-close-btn",
+                                                        onclick: move |_| show_credits_track.set(None),
+                                                        span { class: "material-icons md-20", "close" }
+                                                    }
+                                                }
+
+                                                div { class: "credits-modal-body",
+                                                    // Creative Roles
+                                                    div { class: "credits-section",
+                                                        h3 { class: "credits-section-title", "Creative Credits" }
+                                                        div { class: "credits-grid",
+                                                            div { class: "credits-cell",
+                                                                span { class: "credits-label", "Performed By / Artist" }
+                                                                span { class: "credits-value", "{track.artist}" }
+                                                            }
+                                                            div { class: "credits-cell",
+                                                                span { class: "credits-label", "Vocals" }
+                                                                span { class: "credits-value", "{vocalist_str}" }
+                                                            }
+                                                            div { class: "credits-cell",
+                                                                span { class: "credits-label", "Writers & Composers" }
+                                                                span { class: "credits-value", "{writer_str}" }
+                                                            }
+                                                            div { class: "credits-cell",
+                                                                span { class: "credits-label", "Producer / Arranger" }
+                                                                span { class: "credits-value", "{producer_str}" }
+                                                            }
+                                                        }
+                                                    }
+
+                                                    // Audio & Acoustic DSP Profile
+                                                    div { class: "credits-section",
+                                                        h3 { class: "credits-section-title", "Audio Fidelity & Profile" }
+                                                        div { class: "credits-grid",
+                                                            div { class: "credits-cell",
+                                                                span { class: "credits-label", "Format & Codec" }
+                                                                span { class: "credits-value", "{track.format}" }
+                                                            }
+                                                            div { class: "credits-cell",
+                                                                span { class: "credits-label", "Sample Rate" }
+                                                                span { class: "credits-value", "{sample_rate_str}" }
+                                                            }
+                                                            div { class: "credits-cell",
+                                                                span { class: "credits-label", "Duration" }
+                                                                span { class: "credits-value", "{dur_str}" }
+                                                            }
+                                                            div { class: "credits-cell",
+                                                                span { class: "credits-label", "Tempo (BPM)" }
+                                                                span { class: "credits-value", "{bpm_str}" }
+                                                            }
+                                                            div { class: "credits-cell",
+                                                                span { class: "credits-label", "Harmonic Key (Camelot)" }
+                                                                span { class: "credits-value", "{key_str}" }
+                                                            }
+                                                            div { class: "credits-cell",
+                                                                span { class: "credits-label", "Genre" }
+                                                                span { class: "credits-value", "{genre_str}" }
+                                                            }
+                                                        }
+                                                    }
+
+                                                    // Disk Location
+                                                    div { class: "credits-section",
+                                                        h3 { class: "credits-section-title", "File Source" }
+                                                        div { class: "credits-path-box",
+                                                            span { style: "font-family: monospace; font-size: 11.5px; color: var(--text-muted); word-break: break-all;",
+                                                                "{track.path.display()}"
                                                             }
                                                         }
                                                     }
@@ -639,6 +841,7 @@ mod tests {
                     artwork_data_url: None,
                     aggression: None,
                     vibe_family: None,
+                    ..Default::default()
                 },
                 TrackEntry {
                     path: PathBuf::from("/music/track2.flac"),
@@ -656,6 +859,7 @@ mod tests {
                     artwork_data_url: None,
                     aggression: None,
                     vibe_family: None,
+                    ..Default::default()
                 },
             ],
         };
@@ -685,6 +889,7 @@ mod tests {
                 artwork_data_url: None,
                 aggression: None,
                 vibe_family: None,
+                ..Default::default()
             },
             TrackEntry {
                 path: PathBuf::from("/music/track2.flac"),
@@ -702,6 +907,7 @@ mod tests {
                 artwork_data_url: None,
                 aggression: None,
                 vibe_family: None,
+                ..Default::default()
             },
         ];
 
@@ -732,6 +938,7 @@ mod tests {
                 artwork_data_url: None,
                 aggression: None,
                 vibe_family: None,
+                ..Default::default()
             }],
         };
 
@@ -757,6 +964,7 @@ mod tests {
                     artwork_data_url: None,
                     aggression: None,
                     vibe_family: None,
+                    ..Default::default()
                 })
                 .collect(),
         };
@@ -783,6 +991,7 @@ mod tests {
                     artwork_data_url: None,
                     aggression: None,
                     vibe_family: None,
+                    ..Default::default()
                 })
                 .collect(),
         };

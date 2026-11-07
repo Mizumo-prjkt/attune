@@ -401,6 +401,7 @@ mod tests {
             artwork_data_url: None,
             aggression: None,
             vibe_family: None,
+            ..Default::default()
         }
     }
 

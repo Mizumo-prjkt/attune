@@ -3171,6 +3171,54 @@ This file records all major architectural decisions for **Attune**, including co
   - The Album detail view is populated with a Spotify-grade horizontal discography shelf.
   - 100% compliance with Mandate 4 (zero hardcoding) and zero regressions across all 45 native desktop tests and 83 workspace tests.
 
+---
+
+## ADR-089: Track Action Context Menu, Dedicated Artists Navigation Rail & Discography View, Online Wikipedia Profile Ingestion, Creative Metadata Roles & Liquid Glass Dropdown Form Overhaul
+- **Date**: 2026-11-07
+- **Status**: `LOCKED`
+- **Context**:
+  1. **Track `...` Context Menu**:
+     - The `...` button on track rows previously only appended the track to the queue.
+     - Users required an interactive context menu offering actions: Play Now, Play Next, Add to Queue, Favorite/Unfavorite, Go to Artist, and Track Credits & Metadata.
+  2. **Album View vs. Artist View Discography Clean-up**:
+     - The user identified that filter chips (`All releases`, `Albums`, `Singles and EPs`) belong in an Artist catalog view rather than an individual Album view.
+     - The Album detail shelf was simplified to display `"More by {artist}"` or `"More Albums in Your Library"` directly, reserving category filtering for the dedicated Artist view.
+  3. **Dedicated "Artists" Navigation Rail Tab**:
+     - A dedicated "Artists" sidebar menu destination was required.
+     - Artists needed to be cleanly extracted and split on commas (`,`), so collaborations like `"DECO*27, PinocchioP"` create separate catalog cards for each distinct artist rather than merging them.
+  4. **Rich Online Artist Profiles via Wikipedia REST API**:
+     - To enrich the artist view with real metadata, Attune queries the public Wikipedia REST API (`https://en.wikipedia.org/api/rest_v1/page/summary/{artist}`) for biography snippets, descriptions, and artist portrait imagery, backed by offline local artwork fallbacks.
+  5. **Creative Metadata Roles**:
+     - Extended tags for vocals (`vocalist`), writers/composers (`writer`, `composer`), and producers (`producer`) across the audio probe engine (`attune-core`), metadata editor (`attune-music-metadata-changer`), and desktop UI (`TrackEntry`).
+  6. **Album Editor Dropdown Appearance Fix**:
+     - The `<select>` element rendered in WebKitGTK with a solid white background and light text. It required custom Liquid Material Glass styling (`appearance: none;` and custom SVG chevron) to match the dark glass UI theme.
+- **Decision**:
+  1. **Track Action Context Menu & Modal**:
+     - Styled `.track-context-menu` and `.credits-modal-backdrop` in `style.css`.
+     - Wired the `...` button to toggle `active_menu_track` and show Play Now, Play Next (inserting at `queue_pos + 1`), Add to Queue, Favorite, Go to Artist, and View Track Credits.
+     - Created the `Track Credits & Metadata Modal` detailing Creative Credits, Audio Fidelity (BPM, Camelot Key, Sample Rate, Codec), and File Source.
+  2. **Dedicated Artists Stage (`crates/attune-desktop/src/stages/artists.rs`)**:
+     - Built `Artists` grid view with circular avatars and search filter.
+     - Built `ArtistDetail` view with hero header, online Wikipedia biography card, discography shelf with filter chips (`Popular releases`, `Albums`, `Singles and EPs`), all songs table, and track action menus.
+     - Implemented `extract_all_unique_artists` splitting comma-separated artist strings into individual artist entities.
+  3. **Sidebar Rail & Navigation State Integration**:
+     - Added `StageView::Artists` and `StageView::ArtistDetail(String)` to `NavigationState` with back/forward history support.
+     - Added "Artists" button to the Left Sidebar under `ATTUNE` section.
+     - Made artist avatar and name in Album header and track rows clickable to navigate directly to `StageView::ArtistDetail`.
+  4. **Creative Roles Extension**:
+     - Added `composer`, `writer`, `vocalist`, and `producer` to `TrackMetadataProbe` in `attune-core`.
+     - Added `writer`, `vocalist`, and `producer` to `TrackMetadata` in `attune-music-metadata-changer`.
+     - Added `composer`, `writer`, `vocalist`, and `producer` to `TrackEntry` in `attune-desktop` with `#[derive(Default)]`.
+  5. **Custom Glass Form Inputs**:
+     - Styled `.form-select` and `.form-input` in `style.css` with `-webkit-appearance: none; appearance: none;` and inline SVG chevron.
+     - Replaced all inappropriate `.search-bar` classes in `AlbumEditor` with `.form-input` and `.form-select`.
+- **Consequences**:
+  1. Tracks across Album and Artist detail views now have full context menus and credit modals.
+  2. The Artists view provides rich, comma-separated artist catalogs with online Wikipedia biographies and filtered discographies.
+  3. Form inputs in `AlbumEditor` render with consistent Liquid Material Glass styling across WebKitGTK.
+  4. All 97 workspace tests pass and the release binary builds cleanly.
+
+
 
 
 

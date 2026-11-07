@@ -3,6 +3,7 @@
 pub mod about;
 pub mod album_editor;
 pub mod albums;
+pub mod artists;
 pub mod equalizer;
 pub mod favorites;
 pub mod for_you;

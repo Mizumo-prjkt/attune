@@ -268,8 +268,7 @@ pub fn AlbumEditor(
                     div {
                         label { style: "display: block; font-size: 11.5px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; margin-bottom: 6px;", "Album Title" }
                         input {
-                            class: "search-bar",
-                            style: "width: 100%; font-size: 14px; padding: 10px 14px; border-radius: 8px; background: rgba(255,255,255,0.06); border: 1px solid var(--border-glass); color: #fff;",
+                            class: "form-input",
                             value: "{album_name}",
                             oninput: move |e| album_name.set(e.value()),
                         }
@@ -278,8 +277,7 @@ pub fn AlbumEditor(
                     div {
                         label { style: "display: block; font-size: 11.5px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; margin-bottom: 6px;", "Primary Album Artist" }
                         input {
-                            class: "search-bar",
-                            style: "width: 100%; font-size: 14px; padding: 10px 14px; border-radius: 8px; background: rgba(255,255,255,0.06); border: 1px solid var(--border-glass); color: #fff;",
+                            class: "form-input",
                             value: "{primary_artist}",
                             oninput: move |e| primary_artist.set(e.value()),
                         }
@@ -308,8 +306,7 @@ pub fn AlbumEditor(
                             }
                         }
                         input {
-                            class: "search-bar",
-                            style: "width: 100%; font-size: 14px; padding: 10px 14px; border-radius: 8px; background: rgba(255,255,255,0.06); border: 1px solid var(--border-glass); color: #fff;",
+                            class: "form-input",
                             placeholder: "e.g. Hatsune Miku, DECO*27, Sirup",
                             value: "{additional_artists_str}",
                             oninput: move |e| additional_artists_str.set(e.value()),
@@ -321,8 +318,7 @@ pub fn AlbumEditor(
                         div {
                             label { style: "display: block; font-size: 11.5px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; margin-bottom: 6px;", "Release Year" }
                             input {
-                                class: "search-bar",
-                                style: "width: 100%; font-size: 14px; padding: 10px 14px; border-radius: 8px; background: rgba(255,255,255,0.06); border: 1px solid var(--border-glass); color: #fff;",
+                                class: "form-input",
                                 placeholder: "e.g. 2024",
                                 value: "{year_str}",
                                 oninput: move |e| year_str.set(e.value()),
@@ -331,8 +327,7 @@ pub fn AlbumEditor(
                         div {
                             label { style: "display: block; font-size: 11.5px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; margin-bottom: 6px;", "Genre" }
                             input {
-                                class: "search-bar",
-                                style: "width: 100%; font-size: 14px; padding: 10px 14px; border-radius: 8px; background: rgba(255,255,255,0.06); border: 1px solid var(--border-glass); color: #fff;",
+                                class: "form-input",
                                 placeholder: "e.g. J-Rock / Vocaloid",
                                 value: "{genre_str}",
                                 oninput: move |e| genre_str.set(e.value()),
@@ -351,8 +346,7 @@ pub fn AlbumEditor(
                     div {
                         label { style: "display: block; font-size: 11.5px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; margin-bottom: 6px;", "Record Label" }
                         input {
-                            class: "search-bar",
-                            style: "width: 100%; font-size: 13.5px; padding: 9px 12px; border-radius: 8px; background: rgba(255,255,255,0.06); border: 1px solid var(--border-glass); color: #fff;",
+                            class: "form-input",
                             placeholder: "e.g. Victor Entertainment, Sony Music",
                             value: "{record_label}",
                             oninput: move |e| record_label.set(e.value()),
@@ -361,8 +355,7 @@ pub fn AlbumEditor(
                     div {
                         label { style: "display: block; font-size: 11.5px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; margin-bottom: 6px;", "Catalog Number" }
                         input {
-                            class: "search-bar",
-                            style: "width: 100%; font-size: 13.5px; padding: 9px 12px; border-radius: 8px; background: rgba(255,255,255,0.06); border: 1px solid var(--border-glass); color: #fff;",
+                            class: "form-input",
                             placeholder: "e.g. VICL-65800",
                             value: "{catalog_number}",
                             oninput: move |e| catalog_number.set(e.value()),
@@ -374,8 +367,7 @@ pub fn AlbumEditor(
                     div {
                         label { style: "display: block; font-size: 11.5px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; margin-bottom: 6px;", "Album Type" }
                         select {
-                            class: "search-bar",
-                            style: "width: 100%; font-size: 13.5px; padding: 9px 12px; border-radius: 8px; background: #161b26; border: 1px solid var(--border-glass); color: #fff; cursor: pointer; outline: none;",
+                            class: "form-select",
                             value: "{album_type}",
                             onchange: move |e| album_type.set(e.value()),
                             option { value: "Album", selected: *album_type.read() == "Album", "Album (Studio Album)" }
@@ -391,8 +383,7 @@ pub fn AlbumEditor(
                     div {
                         label { style: "display: block; font-size: 11.5px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; margin-bottom: 6px;", "MusicBrainz Release ID" }
                         input {
-                            class: "search-bar",
-                            style: "width: 100%; font-size: 13.5px; padding: 9px 12px; border-radius: 8px; background: rgba(255,255,255,0.06); border: 1px solid var(--border-glass); color: #fff;",
+                            class: "form-input",
                             placeholder: "UUID string",
                             value: "{musicbrainz_id}",
                             oninput: move |e| musicbrainz_id.set(e.value()),

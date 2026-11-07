@@ -3,9 +3,25 @@ use crate::library::{fmt_ms, TrackEntry};
 use std::collections::HashMap;
 use std::sync::{LazyLock, RwLock};
 
-/// Cached artist image URLs from Wikipedia REST API / local resolution.
-static ARTIST_IMAGE_CACHE: LazyLock<RwLock<HashMap<String, Option<String>>>> =
+/// Cached artist full profile info from Wikipedia REST API / local resolution.
+static ARTIST_PROFILE_CACHE: LazyLock<RwLock<HashMap<String, OnlineArtistInfo>>> =
     LazyLock::new(|| RwLock::new(HashMap::new()));
+
+#[derive(Debug, Clone, Default, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct OnlineArtistInfo {
+    pub description: Option<String>,
+    pub bio: Option<String>,
+    pub image_url: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ArtistSummary {
+    pub name: String,
+    pub track_count: usize,
+    pub album_count: usize,
+    pub sample_track: TrackEntry,
+    pub fallback_artwork_url: Option<String>,
+}
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct FavoriteArtistCatalog {
@@ -14,6 +30,47 @@ pub struct FavoriteArtistCatalog {
     pub total_duration_str: String,
     pub fallback_artwork_url: Option<String>,
     pub rationale: String,
+}
+
+/// Extracts all unique individual artists across all tracks in the library,
+/// splitting multi-artist strings on comma (",") and trimming collaborator clauses.
+pub fn extract_all_unique_artists(tracks: &[TrackEntry]) -> Vec<ArtistSummary> {
+    use std::collections::HashSet;
+
+    let mut artist_map: HashMap<String, (Vec<TrackEntry>, HashSet<String>)> = HashMap::new();
+
+    for track in tracks {
+        // Split on comma to extract distinct individual artists
+        let pieces = track.artist.split(',');
+        for piece in pieces {
+            let clean = clean_primary_artist(piece);
+            if clean.is_empty() || is_ignorable_artist(&clean) {
+                continue;
+            }
+
+            let entry = artist_map.entry(clean).or_insert_with(|| (Vec::new(), HashSet::new()));
+            entry.0.push(track.clone());
+            entry.1.insert(track.album.clone());
+        }
+    }
+
+    let mut list: Vec<ArtistSummary> = artist_map
+        .into_iter()
+        .map(|(name, (artist_tracks, albums))| {
+            let fallback_artwork_url = artist_tracks.iter().find_map(|t| t.artwork_data_url.clone());
+            let sample_track = artist_tracks[0].clone();
+            ArtistSummary {
+                name,
+                track_count: artist_tracks.len(),
+                album_count: albums.len(),
+                sample_track,
+                fallback_artwork_url,
+            }
+        })
+        .collect();
+
+    list.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+    list
 }
 
 /// Computes the primary artist name, stripping collaborative "feat." or "ft." clauses
@@ -145,22 +202,21 @@ fn is_ignorable_artist(artist: &str) -> bool {
         || lower == "various"
 }
 
-/// Asynchronously fetches the artist portrait image from Wikipedia REST API.
-/// If cached, returns immediately. If network fails, falls back gracefully.
-pub fn fetch_wikipedia_artist_image(artist: &str) -> Option<String> {
+/// Asynchronously fetches comprehensive artist profile info from Wikipedia REST API.
+/// If cached, returns immediately. If network fails or is unindexed, falls back gracefully.
+pub fn fetch_wikipedia_artist_profile(artist: &str) -> OnlineArtistInfo {
     let clean = clean_primary_artist(artist);
     if clean.is_empty() || is_ignorable_artist(&clean) {
-        return None;
+        return OnlineArtistInfo::default();
     }
 
     // Check memory cache
-    if let Ok(cache) = ARTIST_IMAGE_CACHE.read() {
+    if let Ok(cache) = ARTIST_PROFILE_CACHE.read() {
         if let Some(entry) = cache.get(&clean) {
             return entry.clone();
         }
     }
 
-    // Query Wikipedia REST API in background
     let url = format!(
         "https://en.wikipedia.org/api/rest_v1/page/summary/{}",
         urlencoding(&clean)
@@ -169,14 +225,20 @@ pub fn fetch_wikipedia_artist_image(artist: &str) -> Option<String> {
     let res = ureq::get(&url)
         .set("User-Agent", "Attune/0.1.0 (https://github.com/Mizumo-prjkt/attune)")
         .set("Accept", "application/json")
-        .timeout(std::time::Duration::from_millis(1500))
+        .timeout(std::time::Duration::from_millis(2000))
         .call();
 
-    let img_url = match res {
+    let info = match res {
         Ok(response) => {
             if response.status() == 200 {
                 if let Ok(val) = response.into_json::<serde_json::Value>() {
-                    val.get("thumbnail")
+                    let description = val.get("description")
+                        .and_then(|d| d.as_str())
+                        .map(|s| s.to_string());
+                    let bio = val.get("extract")
+                        .and_then(|e| e.as_str())
+                        .map(|s| s.to_string());
+                    let image_url = val.get("thumbnail")
                         .and_then(|t| t.get("source"))
                         .and_then(|s| s.as_str())
                         .map(|s| s.to_string())
@@ -185,22 +247,34 @@ pub fn fetch_wikipedia_artist_image(artist: &str) -> Option<String> {
                                 .and_then(|o| o.get("source"))
                                 .and_then(|s| s.as_str())
                                 .map(|s| s.to_string())
-                        })
+                        });
+
+                    OnlineArtistInfo {
+                        description,
+                        bio,
+                        image_url,
+                    }
                 } else {
-                    None
+                    OnlineArtistInfo::default()
                 }
             } else {
-                None
+                OnlineArtistInfo::default()
             }
         }
-        Err(_) => None,
+        Err(_) => OnlineArtistInfo::default(),
     };
 
-    if let Ok(mut cache) = ARTIST_IMAGE_CACHE.write() {
-        cache.insert(clean, img_url.clone());
+    if let Ok(mut cache) = ARTIST_PROFILE_CACHE.write() {
+        cache.insert(clean, info.clone());
     }
 
-    img_url
+    info
+}
+
+/// Asynchronously fetches the artist portrait image from Wikipedia REST API.
+/// If cached, returns immediately. If network fails, falls back gracefully.
+pub fn fetch_wikipedia_artist_image(artist: &str) -> Option<String> {
+    fetch_wikipedia_artist_profile(artist).image_url
 }
 
 fn urlencoding(input: &str) -> String {
@@ -351,6 +425,7 @@ mod tests {
             artwork_data_url: None,
             aggression: None,
             vibe_family: None,
+            ..Default::default()
         }
     }
 
@@ -395,5 +470,21 @@ mod tests {
         let fav = find_favorite_artist(&recents, &library).expect("should resolve library most frequent");
         assert_eq!(fav.artist, "Miku");
         assert_eq!(fav.tracks.len(), 2);
+    }
+
+    #[test]
+    fn test_extract_all_unique_artists_splits_on_comma() {
+        let tracks = vec![
+            make_test_track("(Not) A Devil", "DECO*27, PinocchioP", "Singles", 180000),
+            make_test_track("on the rocks", "OSTER project feat. KAITO, MEIKO", "mirai", 240000),
+        ];
+
+        let artists = extract_all_unique_artists(&tracks);
+        let names: Vec<&str> = artists.iter().map(|a| a.name.as_str()).collect();
+
+        // Must split comma-separated contributors into individual artists
+        assert!(names.contains(&"DECO*27"));
+        assert!(names.contains(&"PinocchioP"));
+        assert!(names.contains(&"OSTER project"));
     }
 }

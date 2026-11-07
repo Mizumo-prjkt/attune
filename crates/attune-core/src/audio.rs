@@ -333,44 +333,62 @@ impl AudioDecoder {
         let mut bpm = None;
         let mut initial_key = None;
         let mut artwork_path = None;
+        let mut composer = None;
+        let mut writer = None;
+        let mut vocalist = None;
+        let mut producer = None;
 
         // Helper to extract tags and visuals from a metadata revision
         let mut process_revision = |metadata: &symphonia::core::meta::MetadataRevision| {
             for tag in metadata.tags() {
                 let tag_key_str = tag.key.to_uppercase();
+                let tag_val_str = tag.value.to_string().trim().to_string();
+
                 if let Some(std_key) = tag.std_key {
                     match std_key {
                         symphonia::core::meta::StandardTagKey::Artist => {
-                            if artist.is_none() {
-                                let s = tag.value.to_string().trim().to_string();
-                                if !s.is_empty() {
-                                    artist = Some(s);
-                                }
+                            if artist.is_none() && !tag_val_str.is_empty() {
+                                artist = Some(tag_val_str.clone());
                             }
                         }
                         symphonia::core::meta::StandardTagKey::TrackTitle => {
-                            if title.is_none() {
-                                let s = tag.value.to_string().trim().to_string();
-                                if !s.is_empty() {
-                                    title = Some(s);
-                                }
+                            if title.is_none() && !tag_val_str.is_empty() {
+                                title = Some(tag_val_str.clone());
                             }
                         }
                         symphonia::core::meta::StandardTagKey::Album => {
-                            if album.is_none() {
-                                let s = tag.value.to_string().trim().to_string();
-                                if !s.is_empty() {
-                                    album = Some(s);
-                                }
+                            if album.is_none() && !tag_val_str.is_empty() {
+                                album = Some(tag_val_str.clone());
                             }
                         }
                         symphonia::core::meta::StandardTagKey::Genre => {
-                            if genre.is_none() {
-                                let s = tag.value.to_string().trim().to_string();
-                                if !s.is_empty() {
-                                    genre = Some(s);
-                                }
+                            if genre.is_none() && !tag_val_str.is_empty() {
+                                genre = Some(tag_val_str.clone());
                             }
+                        }
+                        symphonia::core::meta::StandardTagKey::Composer => {
+                            if composer.is_none() && !tag_val_str.is_empty() {
+                                composer = Some(tag_val_str.clone());
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+
+                // Check specific role tags (Writer, Vocals, Producer)
+                if !tag_val_str.is_empty() {
+                    match tag_key_str.as_str() {
+                        "COMPOSER" | "TCOM" => {
+                            if composer.is_none() { composer = Some(tag_val_str.clone()); }
+                        }
+                        "WRITER" | "LYRICIST" | "TEXT" | "AUTHOR" => {
+                            if writer.is_none() { writer = Some(tag_val_str.clone()); }
+                        }
+                        "VOCAL" | "VOCALS" | "PERFORMER" | "SINGER" => {
+                            if vocalist.is_none() { vocalist = Some(tag_val_str.clone()); }
+                        }
+                        "PRODUCER" | "ARRANGER" | "MIXER" => {
+                            if producer.is_none() { producer = Some(tag_val_str.clone()); }
                         }
                         _ => {}
                     }
@@ -451,6 +469,23 @@ impl AudioDecoder {
             }
         }
 
+        // Heuristic fallback: if vocalist was not explicitly set in tags, check if artist has "feat." or "ft."
+        if vocalist.is_none() {
+            if let Some(ref a) = artist {
+                let lower = a.to_lowercase();
+                if let Some(pos) = lower.find(" feat. ") {
+                    vocalist = Some(a[pos + 7..].trim().to_string());
+                } else if let Some(pos) = lower.find(" ft. ") {
+                    vocalist = Some(a[pos + 5..].trim().to_string());
+                }
+            }
+        }
+
+        // If writer is none but composer exists, composer represents the musical writer
+        if writer.is_none() && composer.is_some() {
+            writer = composer.clone();
+        }
+
         Ok(TrackMetadataProbe {
             duration_ms,
             sample_rate,
@@ -464,6 +499,10 @@ impl AudioDecoder {
             bpm,
             initial_key,
             artwork_path,
+            composer,
+            writer,
+            vocalist,
+            producer,
         })
     }
 
@@ -637,6 +676,14 @@ pub struct TrackMetadataProbe {
     pub bpm: Option<f32>,
     pub initial_key: Option<String>,
     pub artwork_path: Option<String>,
+    #[serde(default)]
+    pub composer: Option<String>,
+    #[serde(default)]
+    pub writer: Option<String>,
+    #[serde(default)]
+    pub vocalist: Option<String>,
+    #[serde(default)]
+    pub producer: Option<String>,
 }
 
 #[cfg(test)]

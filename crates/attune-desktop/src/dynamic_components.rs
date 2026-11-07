@@ -843,6 +843,12 @@ pub mod music_metadata_changer {
         pub disc_number: Option<u32>,
         pub disc_total: Option<u32>,
         pub composer: Option<String>,
+        #[serde(default)]
+        pub writer: Option<String>,
+        #[serde(default)]
+        pub vocalist: Option<String>,
+        #[serde(default)]
+        pub producer: Option<String>,
         pub comment: Option<String>,
         pub lyrics: Option<String>,
         pub bpm: Option<f32>,

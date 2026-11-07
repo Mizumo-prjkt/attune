@@ -99,7 +99,7 @@ pub fn resolve_thumbnail_data_url(art_p: &Path) -> Option<String> {
 }
 
 /// A single playable track in the desktop library.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 pub struct TrackEntry {
     pub path: PathBuf,
     pub title: String,
@@ -119,6 +119,14 @@ pub struct TrackEntry {
     pub aggression: Option<f32>,
     #[serde(default)]
     pub vibe_family: Option<String>,
+    #[serde(default)]
+    pub composer: Option<String>,
+    #[serde(default)]
+    pub writer: Option<String>,
+    #[serde(default)]
+    pub vocalist: Option<String>,
+    #[serde(default)]
+    pub producer: Option<String>,
 }
 
 impl TrackEntry {
@@ -165,6 +173,10 @@ impl TrackEntry {
                     artwork_data_url,
                     aggression: None,
                     vibe_family: None,
+                    composer: p.composer,
+                    writer: p.writer,
+                    vocalist: p.vocalist,
+                    producer: p.producer,
                 }
             }
             Err(e) => {
@@ -188,6 +200,10 @@ impl TrackEntry {
                     artwork_data_url: None,
                     aggression: None,
                     vibe_family: None,
+                    composer: None,
+                    writer: None,
+                    vocalist: None,
+                    producer: None,
                 }
             }
         }
@@ -540,6 +556,7 @@ mod tests {
             artwork_data_url: None,
             aggression: Some(0.75),
             vibe_family: Some("HighEnergyRock".into()),
+            ..Default::default()
         }
     }
 
