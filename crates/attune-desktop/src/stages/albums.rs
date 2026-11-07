@@ -66,6 +66,8 @@ pub fn Albums(
 
     let mut active_menu_track = use_signal(|| None::<TrackEntry>);
     let mut show_credits_track = use_signal(|| None::<TrackEntry>);
+    let mut show_album_options = use_signal(|| false);
+    let mut copy_album_feedback = use_signal(|| None::<String>);
 
     rsx! {
         div { class: "albums-stage",
@@ -124,6 +126,10 @@ pub fn Albums(
                         div {
                             class: "album-detail-view",
                             style: "background: linear-gradient(180deg, {hero_color_rgb} 0%, rgba(18, 18, 18, 0.72) 280px, var(--bg-canvas) 460px);",
+                            onclick: move |_| {
+                                active_menu_track.set(None);
+                                show_album_options.set(false);
+                            },
 
                             // Hero Header: 232px Cover Artwork on left + Big Metadata on right
                             div { class: "album-detail-hero",
@@ -276,18 +282,163 @@ pub fn Albums(
                                     span { class: "material-icons md-24", "edit" }
                                 }
 
-                                button {
-                                    class: "album-icon-btn",
-                                    title: "Add All to Queue",
-                                    onclick: {
-                                        let all_tracks = group.tracks.clone();
-                                        move |_| {
-                                            for t in &all_tracks {
-                                                on_queue_track.call(t.clone());
+                                div {
+                                    style: "position: relative; display: inline-block;",
+                                    button {
+                                        class: if *show_album_options.read() { "album-icon-btn active" } else { "album-icon-btn" },
+                                        title: "Album options",
+                                        onclick: move |e: MouseEvent| {
+                                            e.stop_propagation();
+                                            let cur = *show_album_options.read();
+                                            show_album_options.set(!cur);
+                                        },
+                                        span { class: "material-icons md-28", "more_horiz" }
+                                    }
+
+                                    if *show_album_options.read() {
+                                        div {
+                                            class: "track-context-menu",
+                                            style: "top: 48px; left: 0; right: auto; min-width: 250px; z-index: 100;",
+                                            onclick: move |e: MouseEvent| e.stop_propagation(),
+
+                                            // 1. Play Now
+                                            button {
+                                                class: "track-menu-item",
+                                                onclick: {
+                                                    let all_tracks = group.tracks.clone();
+                                                    move |_| {
+                                                        show_album_options.set(false);
+                                                        on_play_tracks.call(all_tracks.clone());
+                                                    }
+                                                },
+                                                span { class: "material-icons md-16", "play_arrow" }
+                                                span { "Play Now" }
+                                            }
+
+                                            // 2. Play Next
+                                            button {
+                                                class: "track-menu-item",
+                                                onclick: {
+                                                    let all_tracks = group.tracks.clone();
+                                                    move |_| {
+                                                        show_album_options.set(false);
+                                                        for t in all_tracks.iter().rev() {
+                                                            on_play_next.call(t.clone());
+                                                        }
+                                                    }
+                                                },
+                                                span { class: "material-icons md-16", "skip_next" }
+                                                span { "Play Next" }
+                                            }
+
+                                            // 3. Add to Queue
+                                            button {
+                                                class: "track-menu-item",
+                                                onclick: {
+                                                    let all_tracks = group.tracks.clone();
+                                                    move |_| {
+                                                        show_album_options.set(false);
+                                                        for t in &all_tracks {
+                                                            on_queue_track.call(t.clone());
+                                                        }
+                                                    }
+                                                },
+                                                span { class: "material-icons md-16", "playlist_add" }
+                                                span { "Add to Queue" }
+                                            }
+
+                                            div { class: "track-menu-divider" }
+
+                                            // 4. Favorite All Songs
+                                            button {
+                                                class: "track-menu-item",
+                                                onclick: {
+                                                    let all_tracks = group.tracks.clone();
+                                                    move |_| {
+                                                        show_album_options.set(false);
+                                                        for t in &all_tracks {
+                                                            on_toggle_favorite.call(t.path.clone());
+                                                        }
+                                                    }
+                                                },
+                                                span { class: "material-icons md-16", style: "color: #fb7185;", "favorite" }
+                                                span { "Favorite All Songs" }
+                                            }
+
+                                            // 5. Edit Album Metadata & Artwork
+                                            button {
+                                                class: "track-menu-item",
+                                                onclick: {
+                                                    let g = group.clone();
+                                                    move |_| {
+                                                        show_album_options.set(false);
+                                                        on_edit_album.call(g.clone());
+                                                    }
+                                                },
+                                                span { class: "material-icons md-16", "edit" }
+                                                span { "Edit Album Metadata & Artwork" }
+                                            }
+
+                                            // 6. Copy Album Title
+                                            button {
+                                                class: "track-menu-item",
+                                                onclick: {
+                                                    let alb_name = group.name.clone();
+                                                    move |_| {
+                                                        show_album_options.set(false);
+                                                        copy_album_feedback.set(Some(format!("Copied '{alb_name}'!")));
+                                                        spawn({
+                                                            let mut fb = copy_album_feedback.clone();
+                                                            async move {
+                                                                tokio::time::sleep(std::time::Duration::from_millis(2200)).await;
+                                                                fb.set(None);
+                                                            }
+                                                        });
+                                                        #[cfg(target_os = "linux")]
+                                                        {
+                                                            use std::io::Write;
+                                                            if let Ok(mut child) = std::process::Command::new("wl-copy")
+                                                                .stdin(std::process::Stdio::piped())
+                                                                .spawn()
+                                                            {
+                                                                if let Some(mut stdin) = child.stdin.take() {
+                                                                    let _ = stdin.write_all(alb_name.as_bytes());
+                                                                }
+                                                            } else if let Ok(mut child) = std::process::Command::new("xclip")
+                                                                .args(["-selection", "clipboard"])
+                                                                .stdin(std::process::Stdio::piped())
+                                                                .spawn()
+                                                            {
+                                                                if let Some(mut stdin) = child.stdin.take() {
+                                                                    let _ = stdin.write_all(alb_name.as_bytes());
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+                                                },
+                                                span { class: "material-icons md-16", "content_copy" }
+                                                span { "Copy Album Title" }
+                                            }
+
+                                            div { class: "track-menu-divider" }
+
+                                            // 7. Exclude Album from Library
+                                            button {
+                                                class: "track-menu-item danger",
+                                                onclick: {
+                                                    let all_tracks = group.tracks.clone();
+                                                    move |_| {
+                                                        show_album_options.set(false);
+                                                        for t in &all_tracks {
+                                                            crate::config::add_song_exclusion(t.path.to_string_lossy().to_string());
+                                                        }
+                                                    }
+                                                },
+                                                span { class: "material-icons md-16", style: "color: #fb7185;", "block" }
+                                                span { style: "color: #fb7185;", "Exclude Album from Library" }
                                             }
                                         }
-                                    },
-                                    span { class: "material-icons md-28", "more_horiz" }
+                                    }
                                 }
 
                                 div { class: "album-action-right",
@@ -782,6 +933,14 @@ pub fn Albums(
                                             }
                                         }
                                     }
+                                }
+                            }
+
+                            if let Some(msg) = copy_album_feedback.read().as_ref() {
+                                div {
+                                    class: "copy-feedback-toast",
+                                    span { class: "material-icons md-16", "check_circle" }
+                                    span { "{msg}" }
                                 }
                             }
                         }

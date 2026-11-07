@@ -3369,6 +3369,46 @@ This file records all major architectural decisions for **Attune**, including co
   - Zero hardcoding (Mandate 4): dynamic Innertube search, automatic Wikipedia fallback, and persistent disk caching.
   - All 59 desktop tests and 112 workspace tests pass cleanly. Release binary compiles in 1m 00s.
 
+---
+
+## ADR-095: Desktop Action Bar & Context Menu Visual Uniformity, Album Detail Options Dropdown Wiring & Toast Feedback Architecture
+- **Date**: 2026-11-07
+- **Status**: `LOCKED`
+- **Context**:
+  1. The Artist detail action bar `...` button rendered with default OS-themed white rectangular button boxes, beveled gray borders, black text, and broken/unbundled icon glyphs (e.g. `cloud_sync`, `queue_music`), sharply contrasting with the sleek dark frosted glass track row context menu (`.track-context-menu` + `.track-menu-item`).
+  2. The Albums detail hero `...` button (`more_horiz`) did not work as an options menu; it was hardcoded to directly enqueue all tracks with zero visual feedback or context menu.
+  3. Clicking outside context menus in Album and Artist views did not automatically dismiss open menus.
+  4. The For You algorithmic mix hero also used `more_horiz` for a direct "Add All to Queue" action.
+- **Decision**:
+  1. **Complete CSS Styling & Selector Aliasing**:
+     - Updated `style.css` so both `.track-menu-item` and `.context-menu-item` share identical dark liquid glass styling (`rgba(22, 28, 45, 0.95)`, `background: transparent`, `color: #ffffff`, hover: `rgba(255, 255, 255, 0.10)` + `var(--accent-mint)`).
+     - Added `.track-menu-item.danger:hover` and `.context-menu-item.danger:hover` (`background: rgba(244, 63, 94, 0.15); color: #fb7185;`) and disabled state opacity.
+     - Added `.copy-feedback-toast` floating pill badge at bottom-right (`bottom: 110px; right: 24px`) with `var(--accent-mint)` border, backdrop blur, and auto-dismissal.
+  2. **Artist Detail Action Bar Menu Overhaul**:
+     - Updated `stages/artists.rs` to use `track-menu-item`, verified Material Icons (`playlist_add`, `skip_next`, `sync`, `content_copy`, `block`), and clean section dividers.
+     - Added auto-dismissing clipboard feedback toast (`copy_feedback`) when copying artist name.
+     - Added `onclick` dismiss handler on the outer `.artist-detail-view` container.
+  3. **Albums Detail Hero Options Menu Wiring**:
+     - In `stages/albums.rs`, replaced the direct queue trigger on `more_horiz` with an interactive dropdown menu (`show_album_options`):
+       - `Play Now` (`play_arrow`)
+       - `Play Next` (`skip_next`)
+       - `Add to Queue` (`playlist_add`)
+       - Divider
+       - `Favorite All Songs` (`favorite`, `#fb7185`)
+       - `Edit Album Metadata & Artwork` (`edit`)
+       - `Copy Album Title` (`content_copy`)
+       - Divider
+       - `Exclude Album from Library` (`block`, danger style)
+     - Added auto-dismissing clipboard feedback toast (`copy_album_feedback`) when copying album title.
+     - Added `onclick` dismiss handler on the outer `.album-detail-view` container.
+  4. **Iconography Precision in For You**:
+     - Updated `stages/for_you.rs` action bar button from `more_horiz` to `playlist_add` to honestly indicate direct queue addition.
+- **Consequences**:
+  - 100% visual and interactive uniformity across all track context menus, artist action bar menus, and album action bar menus.
+  - Zero unstyled buttons or default white boxes.
+  - All 59 desktop tests and 112 workspace tests pass cleanly. Release binary compiles in under 1 minute.
+
+
 
 
 

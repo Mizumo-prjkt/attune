@@ -1910,7 +1910,8 @@ body, html {
   gap: 2px;
 }
 
-.track-menu-item {
+.track-menu-item,
+.context-menu-item {
   display: flex;
   align-items: center;
   gap: 10px;
@@ -1924,18 +1925,54 @@ body, html {
   font-weight: 500;
   cursor: pointer;
   text-align: left;
-  transition: background-color 0.12s ease;
+  transition: background-color 0.12s ease, color 0.12s ease;
+  box-sizing: border-box;
 }
 
-.track-menu-item:hover {
+.track-menu-item:hover,
+.context-menu-item:hover {
   background: rgba(255, 255, 255, 0.10);
   color: var(--accent-mint);
 }
 
-.track-menu-divider {
+.track-menu-item.danger:hover,
+.context-menu-item.danger:hover {
+  background: rgba(244, 63, 94, 0.15);
+  color: #fb7185;
+}
+
+.track-menu-item:disabled,
+.context-menu-item:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.track-menu-divider,
+.context-menu-divider {
   height: 1px;
   background: rgba(255, 255, 255, 0.08);
   margin: 4px 6px;
+}
+
+.copy-feedback-toast {
+  position: fixed;
+  bottom: 110px;
+  right: 24px;
+  background: rgba(20, 26, 40, 0.95);
+  border: 1px solid var(--accent-mint);
+  border-radius: 8px;
+  padding: 8px 16px;
+  color: var(--accent-mint);
+  font-size: 13px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  z-index: 1000;
+  pointer-events: none;
 }
 
 /* ==========================================================================

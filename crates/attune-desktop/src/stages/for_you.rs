@@ -319,7 +319,7 @@ pub fn ForYou(
                                             }
                                         }
                                     },
-                                    span { class: "material-icons md-28", "more_horiz" }
+                                    span { class: "material-icons md-28", "playlist_add" }
                                 }
                             }
 

@@ -200,7 +200,7 @@ pub fn ArtistDetail(
     let mut online_info = use_signal(OnlineArtistInfo::default);
     let mut show_artist_options = use_signal(|| false);
     let mut is_refreshing_profile = use_signal(|| false);
-    let mut copy_feedback = use_signal(String::new);
+    let mut copy_feedback = use_signal(|| None::<String>);
     let artist_for_fetch = artist_name.clone();
 
     use_effect(move || {
@@ -291,6 +291,10 @@ pub fn ArtistDetail(
         div {
             class: "artist-detail-view",
             style: "{hero_bg_style}",
+            onclick: move |_| {
+                active_menu_track.set(None);
+                show_artist_options.set(false);
+            },
 
             // 1. Hero Header: 232px Artist Avatar on left + Big Metadata on right
             div { class: "album-detail-hero",
@@ -418,12 +422,12 @@ pub fn ArtistDetail(
                     if *show_artist_options.read() {
                         div {
                             class: "track-context-menu",
-                            style: "top: 48px; left: 0; min-width: 260px; z-index: 100;",
+                            style: "top: 48px; left: 0; right: auto; min-width: 250px; z-index: 100;",
                             onclick: move |e: MouseEvent| e.stop_propagation(),
 
                             // 1. Add All to Queue
                             button {
-                                class: "context-menu-item",
+                                class: "track-menu-item",
                                 onclick: {
                                     let all_tracks = artist_tracks.clone();
                                     move |_| {
@@ -433,13 +437,13 @@ pub fn ArtistDetail(
                                         }
                                     }
                                 },
-                                span { class: "material-icons md-18", "queue_music" }
+                                span { class: "material-icons md-16", "playlist_add" }
                                 span { "Add All to Queue" }
                             }
 
                             // 2. Play Next
                             button {
-                                class: "context-menu-item",
+                                class: "track-menu-item",
                                 onclick: {
                                     let all_tracks = artist_tracks.clone();
                                     move |_| {
@@ -449,13 +453,15 @@ pub fn ArtistDetail(
                                         }
                                     }
                                 },
-                                span { class: "material-icons md-18", "playlist_play" }
+                                span { class: "material-icons md-16", "skip_next" }
                                 span { "Play Next" }
                             }
 
+                            div { class: "track-menu-divider" }
+
                             // 3. Query / Refresh Profile from Web
                             button {
-                                class: "context-menu-item",
+                                class: "track-menu-item",
                                 disabled: *is_refreshing_profile.read(),
                                 onclick: {
                                     let a_name = artist_name.clone();
@@ -474,7 +480,7 @@ pub fn ArtistDetail(
                                         });
                                     }
                                 },
-                                span { class: "material-icons md-18", "cloud_sync" }
+                                span { class: "material-icons md-16", "sync" }
                                 span {
                                     if *is_refreshing_profile.read() {
                                         "Querying Web Profile..."
@@ -484,30 +490,21 @@ pub fn ArtistDetail(
                                 }
                             }
 
-                            // 4. Exclude All Artist Songs from Library
+                            // 4. Copy Artist Name
                             button {
-                                class: "context-menu-item",
-                                onclick: {
-                                    let all_tracks = artist_tracks.clone();
-                                    move |_| {
-                                        show_artist_options.set(false);
-                                        for t in &all_tracks {
-                                            crate::config::add_song_exclusion(t.path.to_string_lossy().to_string());
-                                        }
-                                    }
-                                },
-                                span { class: "material-icons md-18", style: "color: #f43f5e;", "block" }
-                                span { style: "color: #f43f5e;", "Exclude Artist from Library" }
-                            }
-
-                            // 5. Copy Artist Name
-                            button {
-                                class: "context-menu-item",
+                                class: "track-menu-item",
                                 onclick: {
                                     let a_name = artist_name.clone();
                                     move |_| {
                                         show_artist_options.set(false);
-                                        copy_feedback.set(format!("Copied '{a_name}'!"));
+                                        copy_feedback.set(Some(format!("Copied '{a_name}'!")));
+                                        spawn({
+                                            let mut fb = copy_feedback.clone();
+                                            async move {
+                                                tokio::time::sleep(std::time::Duration::from_millis(2200)).await;
+                                                fb.set(None);
+                                            }
+                                        });
                                         #[cfg(target_os = "linux")]
                                         {
                                             use std::io::Write;
@@ -530,8 +527,26 @@ pub fn ArtistDetail(
                                         }
                                     }
                                 },
-                                span { class: "material-icons md-18", "content_copy" }
+                                span { class: "material-icons md-16", "content_copy" }
                                 span { "Copy Artist Name" }
+                            }
+
+                            div { class: "track-menu-divider" }
+
+                            // 5. Exclude All Artist Songs from Library
+                            button {
+                                class: "track-menu-item danger",
+                                onclick: {
+                                    let all_tracks = artist_tracks.clone();
+                                    move |_| {
+                                        show_artist_options.set(false);
+                                        for t in &all_tracks {
+                                            crate::config::add_song_exclusion(t.path.to_string_lossy().to_string());
+                                        }
+                                    }
+                                },
+                                span { class: "material-icons md-16", style: "color: #fb7185;", "block" }
+                                span { style: "color: #fb7185;", "Exclude Artist from Library" }
                             }
                         }
                     }
@@ -1037,6 +1052,14 @@ pub fn ArtistDetail(
                             }
                         }
                     }
+                }
+            }
+
+            if let Some(msg) = copy_feedback.read().as_ref() {
+                div {
+                    class: "copy-feedback-toast",
+                    span { class: "material-icons md-16", "check_circle" }
+                    span { "{msg}" }
                 }
             }
         }
