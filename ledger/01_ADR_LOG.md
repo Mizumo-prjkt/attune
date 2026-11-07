@@ -3885,3 +3885,35 @@ This file records all major architectural decisions for **Attune**, including co
   - KDE Plasma 6 media player widget, GNOME media center, and lock screen sliders reflect moving elapsed time and remaining duration smoothly in real-time.
   - Dragging the timeline slider in the OS widget accurately scrubs Attune's playback position.
   - Zero hardcoding and robust fallback to SMTC / headless environments.
+
+---
+
+## ADR-111: Elimination of Reactive `use_effect` Loop Clobbering Online Lyrics Search Results in Standalone Lyrics Finder Window, Auto-Search Initialization & Structured Query Fallbacks
+- **Date**: 2026-11-08
+- **Status**: `LOCKED`
+- **Context**:
+  1. When querying online lyrics in the Lyrics Finder standalone window (e.g., searching `1/6 noa feat. Hatsune Miku`), the search successfully contacted LRCLIB and retrieved valid matching lyrics candidates.
+  2. However, the user reported that while the search results appeared on the screen for a brief split-second, they immediately vanished and were overwritten by: `"No companion lyric files found in audio directory. Browse device or query online."` alongside `"No Lyric Candidates Selected"`.
+  3. Investigation identified the root cause in `crates/attune-desktop/src/stages/lyrics_finder.rs`: the initial local directory scan was placed inside a Dioxus `use_effect` that read `candidates.read()`.
+  4. In Dioxus's reactive signal graph, reading `candidates.read()` inside `use_effect` registers `candidates` as an active dependency of that effect.
+  5. When the background async task called `candidates.set(results)`, Dioxus scheduled a re-render (rendering the search results for one frame), but immediately followed by re-executing `use_effect` because its tracked dependency (`candidates`) had changed.
+  6. The re-executed `use_effect` called `scan_local_lyric_files(&t)`, found 0 companion files in the audio directory, and called `candidates.set(local_matches)` (`[]`), wiping out the online candidates and setting the error message.
+- **Decision**:
+  1. **Purged Reactive `use_effect` Loop**:
+     - Removed `use_effect` completely from `crates/attune-desktop/src/stages/lyrics_finder.rs`.
+     - Initialized `candidates`, `selected_idx`, `active_tab`, and `status_message` cleanly at stage initialization time using `use_signal(|| ...)`.
+  2. **Intelligent Initial Tab Selection & Automatic Online Search**:
+     - If local companion lyric files (`.lrc`, `.elrc`, `.ttml`, `.yrc`, `.txt`) exist on disk, defaults to `FinderTab::LocalDisk` and auto-selects the first file.
+     - If no local companion files exist on disk, defaults directly to `FinderTab::Lrclib` and triggers an initial search on launch via `use_hook` (which runs strictly once on mount without reactive subscription to signals), providing instant search results without requiring manual user interaction.
+  3. **Structured Search Fallback in `fetch_lrclib_candidates`**:
+     - Added secondary query fallback: if free-text query `?q=` yields zero results, automatically attempts structured query `?track_name={}&artist_name={}`.
+     - Increased HTTP network timeout from 5s to 8s to prevent timeout dropouts on slower connections.
+     - Handled empty search queries gracefully by defaulting to `format!("{} {}", track_title, artist)`.
+  4. **Verification**:
+     - Verified with unit tests in `attune-desktop` (all 80 tests pass cleanly).
+     - Verified LRCLIB API query `1/6 noa feat. Hatsune Miku` returns 5 candidates and properly persists in the UI without clobbering.
+- **Consequences**:
+  - Online search results persist reliably in the candidate strip and live preview without disappearing.
+  - Songs without local lyrics immediately display matching online candidates upon opening the Lyrics Finder window.
+  - No reactive loops or state corruption.
+

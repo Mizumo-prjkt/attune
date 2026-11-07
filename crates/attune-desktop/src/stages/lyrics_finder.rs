@@ -113,25 +113,63 @@ pub fn LyricsFinderStandaloneWindow() -> Element {
     let current_track = track.read().clone();
     let initial_query = format!("{} {}", current_track.title, current_track.artist).trim().to_string();
 
-    let mut active_tab = use_signal(|| FinderTab::LocalDisk);
-    let mut search_query = use_signal(|| initial_query);
+    let initial_local = scan_local_lyric_files(&current_track);
+    let has_local = !initial_local.is_empty();
+
+    let initial_tab = if has_local {
+        FinderTab::LocalDisk
+    } else {
+        FinderTab::Lrclib
+    };
+
+    let initial_status = if has_local {
+        Some(format!("Found {} local companion lyric file(s)", initial_local.len()))
+    } else {
+        Some("No local companion files found. Searching LRCLIB online...".into())
+    };
+
+    let initial_candidates = if has_local {
+        initial_local
+    } else {
+        Vec::new()
+    };
+    let initial_selected = if has_local { Some(0) } else { None };
+
+    let mut active_tab = use_signal(|| initial_tab);
+    let mut search_query = use_signal(|| initial_query.clone());
     let mut is_loading = use_signal(|| false);
-    let mut status_message = use_signal(|| None::<String>);
+    let mut status_message = use_signal(|| initial_status);
     let mut toast_feedback = use_signal(|| None::<String>);
 
-    let mut candidates = use_signal(Vec::<LyricCandidate>::new);
-    let mut selected_idx = use_signal(|| None::<usize>);
+    let mut candidates = use_signal(|| initial_candidates);
+    let mut selected_idx = use_signal(|| initial_selected);
 
-    // Scan initial local candidates on stage mount
-    use_effect(move || {
-        let t = track.read().clone();
-        let local_matches = scan_local_lyric_files(&t);
-        candidates.set(local_matches);
-        if !candidates.read().is_empty() {
-            selected_idx.set(Some(0));
-            status_message.set(Some(format!("Found {} local companion lyric file(s)", candidates.read().len())));
-        } else {
-            status_message.set(Some("No companion lyric files found in audio directory. Browse device or query online.".into()));
+    // Automatically trigger initial online search if no local companion files are found on disk
+    use_hook(|| {
+        if !has_local && !initial_query.is_empty() {
+            let q = initial_query.clone();
+            let t = current_track.clone();
+            is_loading.set(true);
+
+            dioxus::prelude::spawn(async move {
+                let q_for_task = q.clone();
+                let results = tokio::task::spawn_blocking(move || {
+                    fetch_lrclib_candidates(&q_for_task, &t.title, &t.artist, t.duration_ms)
+                })
+                .await
+                .unwrap_or_default();
+
+                let count = results.len();
+                candidates.set(results);
+                is_loading.set(false);
+                if count > 0 {
+                    status_message.set(Some(format!("LRCLIB search finished: found {} match(es)", count)));
+                    selected_idx.set(Some(0));
+                } else {
+                    status_message.set(Some(format!("No matching lyrics found on LRCLIB for '{}'. Try modifying the search query.", q)));
+                    selected_idx.set(None);
+                }
+            });
         }
     });
 
@@ -145,12 +183,15 @@ pub fn LyricsFinderStandaloneWindow() -> Element {
         match tab {
             FinderTab::LocalDisk => {
                 let local = scan_local_lyric_files(&t);
+                let count = local.len();
                 candidates.set(local);
                 is_loading.set(false);
-                let count = candidates.read().len();
-                status_message.set(Some(format!("Scanned local disk: found {} candidate(s)", count)));
                 if count > 0 {
+                    status_message.set(Some(format!("Scanned local disk: found {} candidate(s)", count)));
                     selected_idx.set(Some(0));
+                } else {
+                    status_message.set(Some("No companion lyric files found in audio directory. Browse device or query online.".into()));
+                    selected_idx.set(None);
                 }
             }
             FinderTab::Lrclib => {
@@ -160,8 +201,9 @@ pub fn LyricsFinderStandaloneWindow() -> Element {
                 let query = q.clone();
 
                 dioxus::prelude::spawn(async move {
+                    let q_for_task = query.clone();
                     let results = tokio::task::spawn_blocking(move || {
-                        fetch_lrclib_candidates(&query, &title, &artist, dur)
+                        fetch_lrclib_candidates(&q_for_task, &title, &artist, dur)
                     })
                     .await
                     .unwrap_or_default();
@@ -169,9 +211,12 @@ pub fn LyricsFinderStandaloneWindow() -> Element {
                     let count = results.len();
                     candidates.set(results);
                     is_loading.set(false);
-                    status_message.set(Some(format!("LRCLIB search finished: found {} match(es)", count)));
                     if count > 0 {
+                        status_message.set(Some(format!("LRCLIB search finished: found {} match(es)", count)));
                         selected_idx.set(Some(0));
+                    } else {
+                        status_message.set(Some(format!("No matching lyrics found on LRCLIB for '{}'. Try modifying the search query.", query)));
+                        selected_idx.set(None);
                     }
                 });
             }
@@ -181,8 +226,9 @@ pub fn LyricsFinderStandaloneWindow() -> Element {
                 let artist = t.artist.clone();
 
                 dioxus::prelude::spawn(async move {
+                    let q_for_task = query.clone();
                     let results = tokio::task::spawn_blocking(move || {
-                        fetch_binilyrics_candidates(&query, &title, &artist)
+                        fetch_binilyrics_candidates(&q_for_task, &title, &artist)
                     })
                     .await
                     .unwrap_or_default();
@@ -190,9 +236,12 @@ pub fn LyricsFinderStandaloneWindow() -> Element {
                     let count = results.len();
                     candidates.set(results);
                     is_loading.set(false);
-                    status_message.set(Some(format!("BiniLyrics search finished: found {} match(es)", count)));
                     if count > 0 {
+                        status_message.set(Some(format!("BiniLyrics search finished: found {} match(es)", count)));
                         selected_idx.set(Some(0));
+                    } else {
+                        status_message.set(Some(format!("No matching lyrics found on BiniLyrics for '{}'.", query)));
+                        selected_idx.set(None);
                     }
                 });
             }
@@ -653,19 +702,25 @@ pub fn scan_local_lyric_files(track: &TrackEntry) -> Vec<LyricCandidate> {
 pub fn fetch_lrclib_candidates(query: &str, track_title: &str, artist: &str, dur_ms: u64) -> Vec<LyricCandidate> {
     let mut results = Vec::new();
 
-    // 1. Try search endpoint
-    let encoded_q = urlencoding(query);
+    let search_term = if query.trim().is_empty() {
+        format!("{} {}", track_title, artist).trim().to_string()
+    } else {
+        query.trim().to_string()
+    };
+
+    // 1. Try search endpoint with free-text query
+    let encoded_q = urlencoding(&search_term);
     let url = format!("https://lrclib.net/api/search?q={}", encoded_q);
 
     let resp = ureq::get(&url)
         .set("User-Agent", "Attune/0.1.0 (https://github.com/Mizumo-prjkt/attune)")
-        .timeout(std::time::Duration::from_secs(5))
+        .timeout(std::time::Duration::from_secs(8))
         .call();
 
     if let Ok(r) = resp {
         if let Ok(json) = r.into_json::<serde_json::Value>() {
             if let Some(arr) = json.as_array() {
-                for item in arr.iter().take(15) {
+                for item in arr.iter().take(20) {
                     let id = item.get("id").and_then(|v| v.as_i64()).map(|n| n.to_string()).unwrap_or_default();
                     let title = item.get("trackName").or_else(|| item.get("name")).and_then(|v| v.as_str()).unwrap_or(track_title).to_string();
                     let art = item.get("artistName").and_then(|v| v.as_str()).unwrap_or(artist).to_string();
@@ -694,6 +749,54 @@ pub fn fetch_lrclib_candidates(query: &str, track_title: &str, artist: &str, dur
                             file_path: None,
                             validation,
                         });
+                    }
+                }
+            }
+        }
+    }
+
+    // 2. Fallback: If free-text search found nothing, try targeted track_name + artist_name search
+    if results.is_empty() && (!track_title.is_empty() || !artist.is_empty()) {
+        let enc_t = urlencoding(track_title);
+        let enc_a = urlencoding(artist);
+        let fallback_url = format!("https://lrclib.net/api/search?track_name={}&artist_name={}", enc_t, enc_a);
+        if let Ok(r) = ureq::get(&fallback_url)
+            .set("User-Agent", "Attune/0.1.0 (https://github.com/Mizumo-prjkt/attune)")
+            .timeout(std::time::Duration::from_secs(8))
+            .call()
+        {
+            if let Ok(json) = r.into_json::<serde_json::Value>() {
+                if let Some(arr) = json.as_array() {
+                    for item in arr.iter().take(20) {
+                        let id = item.get("id").and_then(|v| v.as_i64()).map(|n| n.to_string()).unwrap_or_default();
+                        let title = item.get("trackName").or_else(|| item.get("name")).and_then(|v| v.as_str()).unwrap_or(track_title).to_string();
+                        let art = item.get("artistName").and_then(|v| v.as_str()).unwrap_or(artist).to_string();
+                        let alb = item.get("albumName").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                        let duration_sec = item.get("duration").and_then(|v| v.as_f64());
+
+                        let content = if let Some(synced) = item.get("syncedLyrics").and_then(|v| v.as_str()) {
+                            synced.to_string()
+                        } else if let Some(plain) = item.get("plainLyrics").and_then(|v| v.as_str()) {
+                            plain.to_string()
+                        } else {
+                            continue;
+                        };
+
+                        let validation = lyrics_validator::validate_and_classify_lyrics(&content, Some("lrclib.net"));
+                        if validation.is_safe {
+                            results.push(LyricCandidate {
+                                id: format!("lrclib-{}", id),
+                                title,
+                                artist: art,
+                                album: alb,
+                                duration_sec,
+                                provider: "LRCLIB".into(),
+                                sync_type: validation.sync_type,
+                                content,
+                                file_path: None,
+                                validation,
+                            });
+                        }
                     }
                 }
             }
