@@ -470,17 +470,25 @@ pub fn Albums(
 
                                                                 div { class: "track-menu-divider" }
 
-                                                                button {
-                                                                    class: "track-menu-item",
-                                                                    onclick: {
-                                                                        let artist = crate::artist_profile::clean_primary_artist(&t.artist);
-                                                                        move |_| {
-                                                                            active_menu_track.set(None);
-                                                                            on_select_artist.call(artist.clone());
+                                                                for a in crate::artist_profile::extract_all_artists_from_track(&t) {
+                                                                    {
+                                                                        let a_name = a.clone();
+                                                                        rsx! {
+                                                                            button {
+                                                                                key: "{a_name}",
+                                                                                class: "track-menu-item",
+                                                                                onclick: {
+                                                                                    let a_click = a_name.clone();
+                                                                                    move |_| {
+                                                                                        active_menu_track.set(None);
+                                                                                        on_select_artist.call(a_click.clone());
+                                                                                    }
+                                                                                },
+                                                                                span { class: "material-icons md-16", "person" }
+                                                                                span { "Go to {a_name}" }
+                                                                            }
                                                                         }
-                                                                    },
-                                                                    span { class: "material-icons md-16", "person" }
-                                                                    span { "Go to Artist" }
+                                                                    }
                                                                 }
 
                                                                 button {

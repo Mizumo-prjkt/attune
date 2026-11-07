@@ -1135,6 +1135,7 @@ pub fn App() -> Element {
                                 is_playing: *is_playing.read(),
                                 favorites: favorites.read().clone(),
                                 on_select_album: move |name: String| navigate_to(StageView::AlbumDetail(name)),
+                                on_select_artist: move |a: String| navigate_to(StageView::ArtistDetail(a)),
                                 on_play_track: move |t| play_track(t),
                                 on_play_tracks: move |list| play_track_list(list),
                                 on_queue_track: move |t| queue.write().push(t),

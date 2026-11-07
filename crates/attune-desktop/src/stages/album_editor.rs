@@ -37,13 +37,11 @@ pub fn AlbumEditor(
         let first_track_path = group.tracks.first().map(|t| t.path.clone());
         let artist_val = group.artist.clone();
         move || {
-            if artist_val.contains(',') {
-                let parts: Vec<&str> = artist_val.split(',').map(|s| s.trim()).filter(|s| !s.is_empty()).collect();
-                if !parts.is_empty() {
-                    primary_artist.set(parts[0].to_string());
-                    let extras = parts[1..].join(", ");
-                    additional_artists_str.set(extras);
-                }
+            let parts = crate::artist_profile::split_artist_string(&artist_val);
+            if parts.len() > 1 {
+                primary_artist.set(parts[0].clone());
+                let extras = parts[1..].join(", ");
+                additional_artists_str.set(extras);
             }
 
             if let Some(path) = first_track_path {
@@ -283,7 +281,7 @@ pub fn AlbumEditor(
                         }
                     }
 
-                    // Contributing / Additional Artists with comma-split
+                    // Contributing / Additional Artists with multi-delimiter split (& / , / feat.)
                     div {
                         div { style: "display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;",
                             label { style: "font-size: 11.5px; font-weight: 700; color: var(--text-muted); text-transform: uppercase;", "Contributing / Additional Artists" }
@@ -292,17 +290,15 @@ pub fn AlbumEditor(
                                 style: "font-size: 11px; padding: 2px 8px; display: inline-flex; align-items: center; gap: 4px;",
                                 onclick: move |_| {
                                     let curr = primary_artist.read().clone();
-                                    if curr.contains(',') {
-                                        let parts: Vec<&str> = curr.split(',').map(|s| s.trim()).filter(|s| !s.is_empty()).collect();
-                                        if !parts.is_empty() {
-                                            primary_artist.set(parts[0].to_string());
-                                            let extras = parts[1..].join(", ");
-                                            additional_artists_str.set(extras);
-                                        }
+                                    let parts = crate::artist_profile::split_artist_string(&curr);
+                                    if parts.len() > 1 {
+                                        primary_artist.set(parts[0].clone());
+                                        let extras = parts[1..].join(", ");
+                                        additional_artists_str.set(extras);
                                     }
                                 },
                                 span { class: "material-icons md-14", "call_split" }
-                                "Split Artists (,)"
+                                "Split Artists (& / , / feat.)"
                             }
                         }
                         input {

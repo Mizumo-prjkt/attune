@@ -1,5 +1,8 @@
 use dioxus::prelude::*;
-use crate::artist_profile::{clean_primary_artist, extract_all_unique_artists, fetch_wikipedia_artist_profile, OnlineArtistInfo};
+use crate::artist_profile::{
+    clean_primary_artist, extract_all_artists_from_track, extract_all_unique_artists,
+    fetch_wikipedia_artist_profile, track_has_artist, OnlineArtistInfo,
+};
 use crate::library::{fmt_ms, TrackEntry};
 use crate::stages::albums::AlbumGroup;
 use std::collections::{HashMap, HashSet};
@@ -96,6 +99,8 @@ pub fn ArtistDetail(
     #[props(default)]
     favorites: HashSet<PathBuf>,
     on_select_album: EventHandler<String>,
+    #[props(default)]
+    on_select_artist: EventHandler<String>,
     on_play_track: EventHandler<TrackEntry>,
     on_play_tracks: EventHandler<Vec<TrackEntry>>,
     on_queue_track: EventHandler<TrackEntry>,
@@ -106,17 +111,10 @@ pub fn ArtistDetail(
     #[props(default)]
     on_toggle_play: EventHandler<()>,
 ) -> Element {
-    let clean_artist = clean_primary_artist(&artist_name);
-    let artist_lower = clean_artist.to_lowercase();
-
-    // 1. Gather all tracks by this artist (matching primary or comma-split)
+    // 1. Gather all tracks featuring or by this artist using multi-artist pinpointing
     let artist_tracks: Vec<TrackEntry> = tracks
         .iter()
-        .filter(|t| {
-            t.artist.split(',').any(|part| {
-                clean_primary_artist(part).to_lowercase() == artist_lower
-            })
-        })
+        .filter(|t| track_has_artist(t, &artist_name))
         .cloned()
         .collect();
 
@@ -544,6 +542,29 @@ pub fn ArtistDetail(
                                                     }
 
                                                     div { class: "track-menu-divider" }
+
+                                                    for other in extract_all_artists_from_track(&t) {
+                                                        if other.to_lowercase() != artist_name.to_lowercase() {
+                                                            {
+                                                                let other_name = other.clone();
+                                                                rsx! {
+                                                                    button {
+                                                                        key: "{other_name}",
+                                                                        class: "track-menu-item",
+                                                                        onclick: {
+                                                                            let a_click = other_name.clone();
+                                                                            move |_| {
+                                                                                active_menu_track.set(None);
+                                                                                on_select_artist.call(a_click.clone());
+                                                                            }
+                                                                        },
+                                                                        span { class: "material-icons md-16", "person" }
+                                                                        span { "Go to {other_name}" }
+                                                                    }
+                                                                }
+                                                            }
+                                                        }
+                                                    }
 
                                                     button {
                                                         class: "track-menu-item",

@@ -3218,6 +3218,36 @@ This file records all major architectural decisions for **Attune**, including co
   3. Form inputs in `AlbumEditor` render with consistent Liquid Material Glass styling across WebKitGTK.
   4. All 97 workspace tests pass and the release binary builds cleanly.
 
+---
+
+## ADR-090: Multi-Delimiter Artist Pinpointing (&, feat., ft., featuring, x, vs.) & Title Feature Clause Ingestion
+- **Date**: 2026-11-07
+- **Status**: `LOCKED`
+- **Context**:
+  - In ADR-089, artist splitting primarily targeted comma-separated strings (`,`).
+  - When encountering collaboration tags like `"HALLO CEL & Kasane Teto"` or `"Teto the 31st (feat. KASANE TETO & Ui)"` (as shown in user screenshot `media_1794031097498_fcfcc35a.jpg`), the previous logic treated `"HALLO CEL & Kasane Teto"` as a single composite artist entity, preventing individual discovery and failing Wikipedia API lookups.
+  - The user explicitly requested: `"we probably also consider the & and the feat. /ft. tags to pinpoint artists"`.
+- **Decision**:
+  1. **Comprehensive Multi-Delimiter Splitting (`split_artist_string`)**:
+     - Added robust multi-delimiter parsing in `crates/attune-desktop/src/artist_profile.rs` across ` & `, ` &amp; `, `&`, ` feat. `, ` feat `, ` ft. `, ` ft `, ` featuring `, ` with `, ` x `, ` vs. `, ` vs `, `,`, `;`, `/`.
+     - Automatically parses and strips bracketed/parenthetical feature clauses (e.g. `(feat. ...)`, `[ft. ...]`).
+  2. **Track Title Featured Artist Ingestion (`extract_featured_artists_from_title`)**:
+     - Inspects track titles for parenthetical, bracketed, or inline clauses like `(feat. KASANE TETO & Ui)`, `[ft. Artist]`, extracting and splitting all featured collaborators into distinct artists.
+  3. **Case-Insensitive Deduplication & Title-Case Preference (`extract_all_artists_from_track`, `should_prefer_casing`)**:
+     - Combines artists extracted from `track.artist`, `track.title`, and `track.vocalist`.
+     - Automatically deduplicates case-insensitively, intelligently prioritizing mixed/title case (e.g. `"Kasane Teto"`) over ALL-CAPS (`"KASANE TETO"`) or all-lowercase (`"kasane teto"`).
+  4. **Universal Track Pinpointing (`track_has_artist`)**:
+     - Upgraded `ArtistDetail` track filter to query `track_has_artist(track, artist_name)`, ensuring tracks like `"Teto the 31st (feat. KASANE TETO & Ui)"` by `"HALLO CEL & Kasane Teto"` appear when browsing either `"HALLO CEL"`, `"Kasane Teto"`, or `"Ui"`.
+  5. **Context Menu Dynamic Direct Artist Navigation**:
+     - In both Album and Artist view track menus, dynamically renders `"Go to {artist}"` for every collaborator pinpointed on the track, enabling instant 1-click jumps between collaborating artists.
+  6. **Album Editor Split Button Overhaul**:
+     - Upgraded AlbumEditor `use_hook` and `"Split Artists (& / , / feat.)"` action to use `split_artist_string`, instantly splitting ampersands and features into primary and contributing fields.
+- **Consequences**:
+  - Composite names like `"HALLO CEL & Kasane Teto"` are completely resolved into individual catalog artists with individual Wikipedia portraits and bios.
+  - Featured artists in titles (such as Kasane Teto & Ui) are seamlessly indexed into the library's artist catalog.
+  - All 50 desktop tests and 101 workspace tests pass cleanly, and release binary compiles without error.
+
+
 
 
 
