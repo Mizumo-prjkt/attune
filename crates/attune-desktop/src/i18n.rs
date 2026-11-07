@@ -105,6 +105,7 @@ pub struct Strings {
 
     // Settings Navigation & Categories
     pub settings_and_preferences: &'static str,
+    pub help_guide: &'static str,
     pub general: &'static str,
     pub audio: &'static str,
     pub language: &'static str,
@@ -247,6 +248,7 @@ pub fn get_strings(lang: Language) -> Strings {
             releases: "releases",
 
             settings_and_preferences: "Settings & Preferences",
+            help_guide: "Help Guide",
             general: "General",
             audio: "Audio",
             language: "Language",
@@ -385,6 +387,7 @@ pub fn get_strings(lang: Language) -> Strings {
             releases: "mga release",
 
             settings_and_preferences: "Mga Setting at Kagustuhan",
+            help_guide: "Gabay sa Tulong",
             general: "Pangkalahatan",
             audio: "Tunog at Audio",
             language: "Wika",
@@ -535,6 +538,7 @@ pub fn export_language_template_json() -> String {
     map.insert("releases", s.releases);
 
     map.insert("settings_and_preferences", s.settings_and_preferences);
+    map.insert("help_guide", s.help_guide);
     map.insert("general", s.general);
     map.insert("audio", s.audio);
     map.insert("language", s.language);

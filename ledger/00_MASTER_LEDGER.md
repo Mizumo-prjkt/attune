@@ -2,7 +2,7 @@
 
 - **Project Name**: Attune
 - **Current Phase**: `Phase 6 IN PROGRESS -> Multi-Platform Packaging, Installer Scripting & Distribution Orchestration`
-- **Active Coding Status**: Completed ADR-112: Graceful Error Screen & Candidate Gating for Unselected or Empty Song in Standalone Lyrics Finder Window. Gated Lyrics Finder against unselected or placeholder track candidates (`is_track_valid`). When no track is active, the window renders a dedicated Liquid Glass error view with "Select tracks to find their lyrics" and a "Close Window" button, avoiding dummy "Ready Attune" states and preventing false searches to local disk and online APIs. All 81 desktop tests and workspace checks pass cleanly.
+- **Active Coding Status**: Completed ADR-113: Dedicated Contextual Settings Help Guide Pane and Elimination of Redundant Inspector Cards in Attune Desktop. Purged Card 1 ("Live Engine & Hardware") and Card 3 ("Dynamic C-ABI Modules") along with the 1.5s background polling loop from the settings inspector pane. Elevated the remaining card into a dedicated, focused "Help Guide" (`help_outline` icon, localized title via `strings.help_guide` / `Gabay sa Tulong`, and localized active tab badge) that contextually adapts to each preferences tab with accelerators, audio math, i18n instructions, lyrics format guides, and quick action launchers. All 81 desktop tests and workspace checks pass cleanly.
 
 
 ---

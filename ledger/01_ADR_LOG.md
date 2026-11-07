@@ -3919,7 +3919,40 @@ This file records all major architectural decisions for **Attune**, including co
 
 ---
 
-## ADR-112: Graceful Error Screen & Candidate Gating for Unselected or Empty Song in Standalone Lyrics Finder Window
+---
+
+## ADR-113: Dedicated Contextual Settings Help Guide Pane & Elimination of Redundant Inspector Cards in Attune Desktop
+- **Date**: 2026-11-08
+- **Status**: `LOCKED`
+- **Context**:
+  1. The right-hand column (`.settings-inspector-pane`) in `crates/attune-desktop/src/stages/settings.rs` previously rendered three cards:
+     - Card 1: "Live Engine & Hardware" (displaying audio driver backend, sample rate, RSS memory, CPU usage, watchguard instability score, buffer underruns, total tracks, total runtime).
+     - Card 2: "Tab Architecture Guide" (explaining tab features, shortcuts, and architecture).
+     - Card 3: "Dynamic C-ABI Modules" (listing `.so` shared libraries, versions, app version, and config path).
+  2. Live hardware metrics and telemetry are already comprehensively available in the dedicated, fully-featured Process Manager modal (`on_open_process_manager`). Displaying live hardware metrics and polling every 1.5s in the settings stage created visual clutter and consumed unnecessary background CPU cycles while viewing settings.
+  3. The dynamic library inspection card was also redundant with the Process Manager and Developer Options views.
+  4. The user specifically requested to remove Card 1 and Card 3, and convert the remaining Card 2 into a clean, dedicated "Help Guide" ("is ok but needs renaming as a guide").
+- **Decision**:
+  1. **Purged Redundant Cards & 1.5s Polling Loop**:
+     - Removed Card 1 ("Live Engine & Hardware") and Card 3 ("Dynamic C-ABI Modules") from `crates/attune-desktop/src/stages/settings.rs`.
+     - Removed redundant background `use_future` polling loop every 1.5s and unused signal states (`metrics_res`, `watchguard_res`, `current_metrics`, `current_wg`, `loaded_dynamic_components`), eliminating unnecessary CPU overhead while navigating preferences.
+  2. **Elevated to Dedicated Contextual "Help Guide" Card**:
+     - Renamed Card 2's title to localized `{strings.help_guide}` ("Help Guide" in English, "Gabay sa Tulong" in Wikang Filipino).
+     - Updated header icon to `help_outline`.
+     - Localized the contextual badge to match the active tab's localized label (`strings.general`, `strings.audio`, `strings.language`, `strings.lyrics`, `strings.api_providers`, `strings.directory_and_indexes`, `strings.backup_and_restore`, `strings.developer_options`).
+     - Preserved all rich contextual guidance: keyboard shortcuts table for General, 32-bit float DSP math and EQ launcher for Audio, i18n protocol and template exporter for Language, syllable parsing trees and MPL-2.0 notice for Lyrics, rate limiting and endpoints for API Providers, library profiler and wizard launcher for Directory & Indexes, tarball backup architecture for Backup & Restore, and kernel telemetry details with Process Manager launcher for Developer Options.
+  3. **Mandate 4 Compliance (i18n & Zero Hardcoded Strings)**:
+     - Added `help_guide` to `AppStrings` in `crates/attune-desktop/src/i18n.rs`.
+     - Added English `"Help Guide"` and Filipino `"Gabay sa Tulong"`.
+     - Added `"help_guide"` key to `export_language_template_json()`.
+  4. **Verification**:
+     - Verified with `cargo check -p attune-desktop`.
+     - Verified with `cargo test -p attune-desktop` (all 81 tests pass).
+     - Verified workspace with `cargo test --workspace` (all tests pass).
+- **Consequences**:
+  - The right column of the Settings interface acts cleanly as a dedicated, focused Help Guide that dynamically adapts to each preferences tab.
+  - No background polling runs while browsing settings, keeping the UI whisper-quiet and power-efficient.
+  - Telemetry remains accessible on demand via the dedicated Process Manager modal.
 - **Date**: 2026-11-08
 - **Status**: `LOCKED`
 - **Context**:

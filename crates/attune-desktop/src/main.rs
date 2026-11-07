@@ -75,8 +75,9 @@ fn main() {
         .with_window(window)
         .with_menu(None)
         .with_custom_head(format!(
-            "<link rel=\"stylesheet\" href=\"https://fonts.googleapis.com/icon?family=Material+Icons\">\n<style>\n{icons_css}\n{css}\n</style>\n{}",
-            crate::theme::MARQUEE_SCRIPT
+            "<link rel=\"stylesheet\" href=\"https://fonts.googleapis.com/icon?family=Material+Icons\">\n<style>\n{icons_css}\n{css}\n</style>\n{}\n{}",
+            crate::theme::MARQUEE_SCRIPT,
+            crate::theme::LYRICS_SYNC_SCRIPT
         ));
 
     dioxus::LaunchBuilder::desktop()

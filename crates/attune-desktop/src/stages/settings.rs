@@ -14,12 +14,12 @@ use crate::config::{
     self, export_backup_tar, import_backup_tar, load_config, probe_gpu_capabilities,
     save_config, AppConfig,
 };
-use crate::dynamic_components::watchguard;
 use crate::i18n::export_language_template_json;
 use crate::library::{clear_thumbnail_cache, TrackEntry};
-use crate::process_manager::{sample_metrics, trim_memory};
+use crate::process_manager::trim_memory;
 use crate::smart_shuffle::ShuffleMode;
 
+#[allow(dead_code)]
 fn format_bytes(bytes: u64) -> String {
     if bytes >= 1024 * 1024 * 1024 {
         format!("{:.2} GB", bytes as f64 / (1024.0 * 1024.0 * 1024.0))
@@ -32,6 +32,7 @@ fn format_bytes(bytes: u64) -> String {
     }
 }
 
+#[allow(dead_code)]
 fn format_duration_human(total_ms: u64) -> String {
     let total_secs = total_ms / 1000;
     let hours = total_secs / 3600;
@@ -402,26 +403,6 @@ pub fn SettingsContent(
     let mut benchmark_feedback = use_signal(|| None::<String>);
     let mut trim_feedback = use_signal(|| None::<(bool, String)>);
     let mut show_am_lyrics_modal = use_signal(|| false);
-
-    let mut metrics_res = use_signal(sample_metrics);
-    let mut watchguard_res = use_signal(watchguard::get_status);
-
-    // Auto-refresh telemetry every 1.5s
-    use_future(move || async move {
-        loop {
-            tokio::time::sleep(tokio::time::Duration::from_millis(1500)).await;
-            metrics_res.set(sample_metrics());
-            watchguard_res.set(watchguard::get_status());
-        }
-    });
-
-    let current_metrics = metrics_res.read().clone();
-    let current_wg = watchguard_res.read().clone();
-    let loaded_dynamic_components = crate::dynamic_components::get_loaded_components_summary();
-
-    let total_library_duration_ms: u64 = tracks.iter().map(|t| t.duration_ms).sum();
-    let library_duration_str = format_duration_human(total_library_duration_ms);
-    let total_tracks_count = tracks.len();
 
     let gpu_info = probe_gpu_capabilities();
     let current_tab = *active_tab.read();
@@ -1798,13 +1779,13 @@ pub fn SettingsContent(
             }
 
             // =========================================================================
-            // RIGHT COLUMN: Settings Inspector & Contextual Live Diagnostics Pane (~350px)
+            // RIGHT COLUMN: Contextual Help & Settings Guide Pane (~350px)
             // =========================================================================
             div {
                 class: "settings-inspector-pane",
 
                 // -------------------------------------------------------------
-                // CARD 1: LIVE ENGINE & HARDWARE HEALTH
+                // CONTEXTUAL HELP GUIDE CARD
                 // -------------------------------------------------------------
                 div {
                     class: "inspector-card",
@@ -1812,120 +1793,19 @@ pub fn SettingsContent(
                         class: "inspector-card-header",
                         div {
                             class: "inspector-card-title-group",
-                            span { class: "material-icons md-18", style: "color: var(--accent-mint);", "monitor_heart" }
-                            h4 { class: "inspector-card-title", "Live Engine & Hardware" }
-                        }
-                        if let Ok(ref wg) = current_wg {
-                            if wg.is_overloaded {
-                                span { class: "inspector-card-badge rose", "Overload" }
-                            } else {
-                                span { class: "inspector-card-badge mint", "Stable" }
-                            }
-                        } else {
-                            span { class: "inspector-card-badge neutral", "Offline" }
-                        }
-                    }
-
-                    div {
-                        class: "inspector-stat-grid",
-                        div {
-                            class: "inspector-stat-item",
-                            span { class: "inspector-stat-label", "Audio Driver" }
-                            span {
-                                class: "inspector-stat-value",
-                                style: if has_hardware_output { "color: var(--accent-mint);" } else { "color: #f43f5e;" },
-                                if has_hardware_output { "cpal (Active)" } else { "Driver Inactive" }
-                            }
-                        }
-                        div {
-                            class: "inspector-stat-item",
-                            span { class: "inspector-stat-label", "Sample Rate" }
-                            span { class: "inspector-stat-value", "{mixer_sample_rate} Hz" }
-                        }
-                        div {
-                            class: "inspector-stat-item",
-                            span { class: "inspector-stat-label", "Memory (RSS)" }
-                            span {
-                                class: "inspector-stat-value",
-                                if let Ok(ref m) = current_metrics {
-                                    "{format_bytes(m.rss_bytes)}"
-                                } else {
-                                    "—"
-                                }
-                            }
-                        }
-                        div {
-                            class: "inspector-stat-item",
-                            span { class: "inspector-stat-label", "CPU Usage" }
-                            span {
-                                class: "inspector-stat-value",
-                                if let Ok(ref m) = current_metrics {
-                                    "{m.cpu_usage_pct:.1}%"
-                                } else {
-                                    "—"
-                                }
-                            }
-                        }
-                        div {
-                            class: "inspector-stat-item",
-                            span { class: "inspector-stat-label", "Watchguard Score" }
-                            span {
-                                class: "inspector-stat-value",
-                                if let Ok(ref wg) = current_wg {
-                                    "{wg.instability_score:.2}"
-                                } else {
-                                    "—"
-                                }
-                            }
-                        }
-                        div {
-                            class: "inspector-stat-item",
-                            span { class: "inspector-stat-label", "Buffer Underruns" }
-                            span {
-                                class: "inspector-stat-value",
-                                style: if let Ok(ref wg) = current_wg { if wg.underrun_count > 0 { "color: #f43f5e;" } else { "color: #ffffff;" } } else { "color: #ffffff;" },
-                                if let Ok(ref wg) = current_wg {
-                                    "{wg.underrun_count}"
-                                } else {
-                                    "—"
-                                }
-                            }
-                        }
-                        div {
-                            class: "inspector-stat-item",
-                            span { class: "inspector-stat-label", "Library Tracks" }
-                            span { class: "inspector-stat-value", "{total_tracks_count}" }
-                        }
-                        div {
-                            class: "inspector-stat-item",
-                            span { class: "inspector-stat-label", "Total Runtime" }
-                            span { class: "inspector-stat-value", "{library_duration_str}" }
-                        }
-                    }
-                }
-
-                // -------------------------------------------------------------
-                // CARD 2: CONTEXTUAL TAB GUIDE & ARCHITECTURE INSIGHTS
-                // -------------------------------------------------------------
-                div {
-                    class: "inspector-card",
-                    div {
-                        class: "inspector-card-header",
-                        div {
-                            class: "inspector-card-title-group",
-                            span { class: "material-icons md-18", style: "color: var(--accent-mint);", "lightbulb" }
-                            h4 { class: "inspector-card-title", "Tab Architecture Guide" }
+                            span { class: "material-icons md-18", style: "color: var(--accent-mint);", "help_outline" }
+                            h4 { class: "inspector-card-title", "{strings.help_guide}" }
                         }
                         span { class: "inspector-card-badge neutral",
                             match current_tab {
-                                SettingsTab::General => "General",
-                                SettingsTab::Audio => "Audio DSP",
-                                SettingsTab::Language => "i18n Protocol",
-                                SettingsTab::Lyrics => "Lyrics Engine",
-                                SettingsTab::ApiProviders => "API Federation",
-                                SettingsTab::DirectoryAndIndexes => "Indexer",
-                                SettingsTab::BackupAndRestore => "Portability",
-                                SettingsTab::DeveloperOptions => "Kernel / C-ABI",
+                                SettingsTab::General => strings.general,
+                                SettingsTab::Audio => strings.audio,
+                                SettingsTab::Language => strings.language,
+                                SettingsTab::Lyrics => strings.lyrics,
+                                SettingsTab::ApiProviders => strings.api_providers,
+                                SettingsTab::DirectoryAndIndexes => strings.directory_and_indexes,
+                                SettingsTab::BackupAndRestore => strings.backup_and_restore,
+                                SettingsTab::DeveloperOptions => strings.developer_options,
                             }
                         }
                     }
@@ -2105,63 +1985,6 @@ pub fn SettingsContent(
                                 }
                             }
                         },
-                    }
-                }
-
-                // -------------------------------------------------------------
-                // CARD 3: DYNAMIC C-ABI SHARED LIBRARIES & BUILD METADATA
-                // -------------------------------------------------------------
-                div {
-                    class: "inspector-card",
-                    div {
-                        class: "inspector-card-header",
-                        div {
-                            class: "inspector-card-title-group",
-                            span { class: "material-icons md-18", style: "color: var(--accent-mint);", "extension" }
-                            h4 { class: "inspector-card-title", "Dynamic C-ABI Modules" }
-                        }
-                        span { class: "inspector-card-badge mint", "{loaded_dynamic_components.len()} Loaded" }
-                    }
-
-                    div { style: "display: flex; flex-direction: column; gap: 4px;",
-                        for comp in loaded_dynamic_components.iter() {
-                            div { class: "inspector-module-row",
-                                div { style: "display: flex; flex-direction: column; gap: 2px;",
-                                    span { style: "font-family: monospace; font-size: 11.5px; color: #ffffff; font-weight: 600;",
-                                        "{comp.filename}"
-                                    }
-                                    span { style: "font-size: 10.5px; color: var(--text-muted);",
-                                        "v{comp.version}"
-                                    }
-                                }
-                                span { style: "color: var(--accent-mint); font-size: 11px; font-weight: 600; display: flex; align-items: center; gap: 4px;",
-                                    span { style: "width: 6px; height: 6px; border-radius: 50%; background: var(--accent-mint); display: inline-block;" }
-                                    "Active"
-                                }
-                            }
-                        }
-                    }
-
-                    div { style: "border-top: 1px solid rgba(255, 255, 255, 0.06); padding-top: 10px; display: flex; flex-direction: column; gap: 4px; font-size: 11px; color: var(--text-muted);",
-                        div {
-                            "Attune Desktop v"
-                            span { style: "color: #fff; font-weight: 600;", "{crate::config::app_version()}" }
-                            " (Native Dioxus)"
-                        }
-                        div {
-                            "Config: "
-                            span { style: "font-family: monospace; color: var(--text-secondary); word-break: break-all;",
-                                if let Some(p) = crate::config::config_file_path() {
-                                    "{p.display()}"
-                                } else {
-                                    "Standard OS path"
-                                }
-                            }
-                        }
-                        div { style: "margin-top: 2px;",
-                            "Open Source • MIT License • "
-                            span { style: "color: var(--accent-mint);", "Mizumo-prjkt" }
-                        }
                     }
                 }
             }

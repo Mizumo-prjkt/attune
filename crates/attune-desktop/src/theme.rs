@@ -64,6 +64,80 @@ pub const MARQUEE_SCRIPT: &str = r#"
 </script>
 "#;
 
+/// Injected WebKit runtime script for smooth auto-centering synchronized lyrics in follow mode.
+pub const LYRICS_SYNC_SCRIPT: &str = r#"
+<script>
+(function() {
+  function centerElement(container, active) {
+    if (!container || !active) return;
+    var cTop = container.scrollTop;
+    var cRect = container.getBoundingClientRect();
+    var aRect = active.getBoundingClientRect();
+    var target = cTop + (aRect.top - cRect.top) - (cRect.height / 2) + (aRect.height / 2);
+    container.scrollTo({ top: target, behavior: 'smooth' });
+  }
+
+  window.attuneSyncLyrics = function(force) {
+    function doSync() {
+      var fsContainer = document.querySelector('.fullscreen-lyrics-scroll');
+      if (fsContainer && (force || fsContainer.getAttribute('data-locked') !== 'false')) {
+        var active = fsContainer.querySelector('.fullscreen-lyric-active');
+        if (active) {
+          centerElement(fsContainer, active);
+        }
+      }
+      var dockContainer = document.querySelector('.dock-scroll');
+      if (dockContainer && (force || dockContainer.getAttribute('data-locked') !== 'false')) {
+        var activeDock = dockContainer.querySelector('.lyric-line.active');
+        if (activeDock) {
+          centerElement(dockContainer, activeDock);
+        }
+      }
+    }
+    doSync();
+    requestAnimationFrame(doSync);
+  };
+
+  var lyricsObserver = new MutationObserver(function(mutations) {
+    var shouldSync = false;
+    for (var i = 0; i < mutations.length; i++) {
+      var m = mutations[i];
+      if (m.type === 'attributes' && m.attributeName === 'class') {
+        var t = m.target;
+        if (t && (t.classList.contains('fullscreen-lyric-active') || (t.classList.contains('lyric-line') && t.classList.contains('active')))) {
+          shouldSync = true;
+          break;
+        }
+      } else if (m.type === 'childList') {
+        for (var j = 0; j < m.addedNodes.length; j++) {
+          var node = m.addedNodes[j];
+          if (node.nodeType === 1 && (node.classList.contains('fullscreen-lyric-active') || (node.classList.contains('lyric-line') && node.classList.contains('active')) || node.querySelector('.fullscreen-lyric-active') || node.querySelector('.lyric-line.active'))) {
+            shouldSync = true;
+            break;
+          }
+        }
+      }
+    }
+    if (shouldSync) {
+      window.attuneSyncLyrics(false);
+    }
+  });
+
+  function initLyricsObserver() {
+    if (document.body) {
+      lyricsObserver.observe(document.body, { attributes: true, subtree: true, attributeFilter: ['class'], childList: true });
+    }
+  }
+
+  if (document.readyState === 'loading') {
+    window.addEventListener('DOMContentLoaded', initLyricsObserver);
+  } else {
+    initLyricsObserver();
+  }
+})();
+</script>
+"#;
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct DynamicPalette {
     pub primary: String,

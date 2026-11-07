@@ -446,6 +446,7 @@ pub fn App() -> Element {
             let sheet = resolve_companion_lyrics(&track.path).unwrap_or_else(LyricsSheet::empty);
             lyrics_sheet.set(sheet);
             active_lyric_index.set(None);
+            auto_scroll_lyrics.set(true);
 
             // Prepare transition to next track in queue/library if Smart Shuffle is active
             if *shuffle_mode.read() == ShuffleMode::Smart {
@@ -997,6 +998,7 @@ pub fn App() -> Element {
                         let sheet = resolve_companion_lyrics(&new_track.path).unwrap_or_else(LyricsSheet::empty);
                         lyrics_sheet.set(sheet);
                         active_lyric_index.set(None);
+                        auto_scroll_lyrics.set(true);
                         transitioning_to_track.set(None);
                         has_handled_track_end.set(false);
 
@@ -1056,6 +1058,7 @@ pub fn App() -> Element {
                     if let Some(updated_sheet) = crate::components::lyrics_parser::poll_lyrics_update(&curr_t.path) {
                         lyrics_sheet.set(updated_sheet);
                         active_lyric_index.set(None);
+                        auto_scroll_lyrics.set(true);
                     }
                 }
 
@@ -1724,6 +1727,9 @@ pub fn App() -> Element {
                                         onclick: move |_| {
                                             let curr = *auto_scroll_lyrics.read();
                                             auto_scroll_lyrics.set(!curr);
+                                            if !curr {
+                                                let _ = document::eval("if (window.attuneSyncLyrics) window.attuneSyncLyrics(true);");
+                                            }
                                         },
                                         if *auto_scroll_lyrics.read() {
                                             span { class: "material-icons md-14", "lock" }
@@ -1742,7 +1748,19 @@ pub fn App() -> Element {
                                 }
                             }
 
-                            div { class: "dock-scroll",
+                            div {
+                                class: "dock-scroll",
+                                "data-locked": if *auto_scroll_lyrics.read() { "true" } else { "false" },
+                                onwheel: move |_| {
+                                    if *auto_scroll_lyrics.read() {
+                                        auto_scroll_lyrics.set(false);
+                                    }
+                                },
+                                onpointerdown: move |_| {
+                                    if *auto_scroll_lyrics.read() {
+                                        auto_scroll_lyrics.set(false);
+                                    }
+                                },
                                 if lyrics_sheet.read().lines.is_empty() {
                                     div { style: "display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; text-align: center; color: var(--text-muted); gap: 12px; padding: 40px 20px;",
                                         span { class: "material-icons md-48", style: "opacity: 0.6;", "description" }
@@ -1784,13 +1802,30 @@ pub fn App() -> Element {
                                                         } else {
                                                             "lyric-line"
                                                         },
-                                                        onclick: move |_| player.read().seek_ms(ts),
+                                                        onclick: move |_| {
+                                                            player.read().seek_ms(ts);
+                                                            auto_scroll_lyrics.set(true);
+                                                            let _ = document::eval("if (window.attuneSyncLyrics) window.attuneSyncLyrics(true);");
+                                                        },
                                                         "{text}"
                                                     }
                                                 }
                                             }
                                         }
                                     }
+                                }
+                            }
+
+                            // Floating Liquid Glass Sync-to-Current-Line button when user is in free-scroll mode (Flutter parity)
+                            if lyrics_sheet.read().is_timed && !*auto_scroll_lyrics.read() && !lyrics_sheet.read().lines.is_empty() {
+                                button {
+                                    class: "dock-sync-button",
+                                    onclick: move |_| {
+                                        auto_scroll_lyrics.set(true);
+                                        let _ = document::eval("if (window.attuneSyncLyrics) window.attuneSyncLyrics(true);");
+                                    },
+                                    span { class: "material-icons md-14", "vertical_align_center" }
+                                    span { "Sync to Line" }
                                 }
                             }
                         },

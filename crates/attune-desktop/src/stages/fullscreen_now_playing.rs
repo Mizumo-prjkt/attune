@@ -34,10 +34,26 @@ pub fn FullscreenNowPlaying(
 ) -> Element {
     let strings = crate::i18n::current_strings();
 
+    // Default to locked follow mode (Flutter equivalent: _isLockedToActive = true)
+    let mut is_locked_to_active = use_signal(|| true);
+
+    // Reset to follow mode whenever track changes
+    let current_track_id = current_track.as_ref().map(|t| t.path.clone());
+    use_effect(use_reactive(&current_track_id, move |_| {
+        is_locked_to_active.set(true);
+    }));
+
     // Ensure the OS window enters pure borderless fullscreen
     use_effect(move || {
         dioxus::desktop::window().set_fullscreen(true);
     });
+
+    // Automatically trigger smooth centering when active line updates in Follow Mode
+    use_effect(use_reactive(&active_lyric_index, move |idx| {
+        if *is_locked_to_active.read() && idx.is_some() {
+            let _ = document::eval("if (window.attuneSyncLyrics) window.attuneSyncLyrics(false);");
+        }
+    }));
 
     let track = current_track.clone().unwrap_or_else(|| TrackEntry {
         title: strings.select_track_to_play.to_string(),
@@ -140,15 +156,64 @@ pub fn FullscreenNowPlaying(
                 div { class: "fullscreen-vignette-scrim" }
             }
 
-            // Minimalist Floating Exit Button (No Persistent Header Toolbars)
-            button {
-                class: "fullscreen-floating-close",
-                title: "Exit Fullscreen (Esc)",
-                onclick: move |_| {
-                    dioxus::desktop::window().set_fullscreen(false);
-                    on_exit.call(());
-                },
-                span { class: "material-icons md-22", "close" }
+            // Minimalist Floating Top Action Bar (Lyrics Sources, Follow/Free-Scroll Mode Toggle, Exit Fullscreen)
+            div {
+                class: "fullscreen-top-actions",
+
+                // Quick access to Lyrics Finder / Sources
+                if current_track.is_some() {
+                    button {
+                        class: "btn-pill",
+                        style: "background: rgba(255, 255, 255, 0.08); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); border: 1px solid rgba(255, 255, 255, 0.16); border-radius: 20px; padding: 7px 16px; display: inline-flex; align-items: center; gap: 6px; color: #e6edf3; cursor: pointer; font-size: 13px; font-weight: 500; white-space: nowrap; transition: all 0.2s ease;",
+                        title: "Find or Change Lyrics (Local Files, LRCLIB, BiniLyrics)",
+                        onclick: {
+                            let track_clone = current_track.clone();
+                            move |_| {
+                                crate::stages::lyrics_finder::open_lyrics_finder_window(track_clone.clone());
+                            }
+                        },
+                        span { class: "material-icons md-18", style: "color: var(--accent-mint);", "manage_search" }
+                        span { "Lyrics Sources" }
+                    }
+                }
+
+                // Follow / Free-Scroll Mode Toggle Pill
+                if lyrics_sheet.is_timed && !lyrics_sheet.lines.is_empty() {
+                    button {
+                        class: if *is_locked_to_active.read() { "btn-pill active" } else { "btn-pill" },
+                        style: "backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); border-radius: 20px; padding: 7px 14px; display: inline-flex; align-items: center; gap: 6px; cursor: pointer; font-size: 13px; font-weight: 500; white-space: nowrap; transition: all 0.2s ease;",
+                        title: if *is_locked_to_active.read() {
+                            "Follow Mode Active (Auto-centering singing line). Click to switch to Free-Scroll."
+                        } else {
+                            "Free-Scroll Mode Active. Click to lock and follow singing line."
+                        },
+                        onclick: move |_| {
+                            let next = !*is_locked_to_active.read();
+                            is_locked_to_active.set(next);
+                            if next {
+                                let _ = document::eval("if (window.attuneSyncLyrics) window.attuneSyncLyrics(true);");
+                            }
+                        },
+                        if *is_locked_to_active.read() {
+                            span { class: "material-icons md-18", style: "color: var(--accent-mint);", "lock" }
+                            span { "Follow Lyrics" }
+                        } else {
+                            span { class: "material-icons md-18", style: "color: var(--text-muted);", "lock_open" }
+                            span { "Free-Scroll" }
+                        }
+                    }
+                }
+
+                // Minimalist Floating Exit Button (Esc shortcut)
+                button {
+                    class: "fullscreen-floating-close-inline",
+                    title: "Exit Fullscreen (Esc)",
+                    onclick: move |_| {
+                        dioxus::desktop::window().set_fullscreen(false);
+                        on_exit.call(());
+                    },
+                    span { class: "material-icons md-20", "close" }
+                }
             }
 
             // Main Content: Pure Edge-to-Edge 2-Column Split
@@ -279,29 +344,20 @@ pub fn FullscreenNowPlaying(
                     class: "fullscreen-right-col",
                     style: "flex: 1; height: 100%; display: flex; flex-direction: column; justify-content: center; overflow: hidden; position: relative;",
 
-                    // Top floating action: Quick access to Lyrics Finder / Sources
-                    div {
-                        style: "position: absolute; top: 24px; right: 28px; z-index: 10; display: flex; align-items: center; gap: 10px;",
-                        if current_track.is_some() {
-                            button {
-                                class: "btn-icon",
-                                style: "background: rgba(255, 255, 255, 0.08); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); border: 1px solid rgba(255, 255, 255, 0.15); border-radius: 20px; padding: 6px 14px; display: inline-flex; align-items: center; gap: 6px; color: #e6edf3; cursor: pointer; font-size: 13px; font-weight: 500; transition: all 0.2s ease;",
-                                title: "Find or Change Lyrics (Local Files, LRCLIB, etc.)",
-                                onclick: {
-                                    let track_clone = current_track.clone();
-                                    move |_| {
-                                        crate::stages::lyrics_finder::open_lyrics_finder_window(track_clone.clone());
-                                    }
-                                },
-                                span { class: "material-icons md-18", style: "color: var(--accent-mint);", "manage_search" }
-                                span { "Lyrics Sources" }
-                            }
-                        }
-                    }
-
                     div {
                         class: "fullscreen-lyrics-scroll",
+                        "data-locked": if *is_locked_to_active.read() { "true" } else { "false" },
                         style: "overflow-y: auto; max-height: 85vh; padding: 140px 32px; display: flex; flex-direction: column; gap: 28px; scroll-behavior: smooth; mask-image: linear-gradient(to bottom, transparent 0%, black 15%, black 85%, transparent 100%); -webkit-mask-image: linear-gradient(to bottom, transparent 0%, black 15%, black 85%, transparent 100%);",
+                        onwheel: move |_| {
+                            if *is_locked_to_active.read() {
+                                is_locked_to_active.set(false);
+                            }
+                        },
+                        onpointerdown: move |_| {
+                            if *is_locked_to_active.read() {
+                                is_locked_to_active.set(false);
+                            }
+                        },
 
                         if lyrics_sheet.lines.is_empty() {
                             div {
@@ -341,12 +397,29 @@ pub fn FullscreenNowPlaying(
                                             } else {
                                                 "font-size: 22px; font-weight: 500; color: rgba(255, 255, 255, 0.40); line-height: 1.4; cursor: pointer; transition: all 0.3s ease;".to_string()
                                             },
-                                            onclick: move |_| on_seek.call(line_ts),
+                                            onclick: move |_| {
+                                                on_seek.call(line_ts);
+                                                is_locked_to_active.set(true);
+                                                let _ = document::eval("if (window.attuneSyncLyrics) window.attuneSyncLyrics(true);");
+                                            },
                                             "{text}"
                                         }
                                     }
                                 }
                             }
+                        }
+                    }
+
+                    // Floating Liquid Glass Sync-to-Current-Line button when user is in free-scroll mode (Flutter parity)
+                    if lyrics_sheet.is_timed && !*is_locked_to_active.read() && !lyrics_sheet.lines.is_empty() {
+                        button {
+                            class: "fullscreen-sync-button",
+                            onclick: move |_| {
+                                is_locked_to_active.set(true);
+                                let _ = document::eval("if (window.attuneSyncLyrics) window.attuneSyncLyrics(true);");
+                            },
+                            span { class: "material-icons md-18", "vertical_align_center" }
+                            span { "Sync to Current Line" }
                         }
                     }
                 }
