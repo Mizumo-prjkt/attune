@@ -3056,6 +3056,42 @@ This file records all major architectural decisions for **Attune**, including co
   - History back navigation operates with predictable single-press responsiveness without loops.
   - All 41 unit tests in `attune-desktop` and 100% of workspace tests pass cleanly. Release binary compiled successfully.
 
+---
+
+## ADR-086: Mandate 4 Strict Enforcement — Zero Static Fallback Telemetry, End-to-End Watchguard & Metadata Changer C-ABI Wiring, and Live Kernel Substream Discovery
+- **Date**: 2026-11-07
+- **Status**: `LOCKED`
+- **Context**:
+  1. **Duplicate Static Fallback Telemetry (`process_manager.rs` & `attune-procmgr`)**:
+     - Binary string forensics on `target/release/attune-desktop` revealed that `crates/attune-desktop/src/process_manager.rs` contained a duplicate `impl Default for ProcessMetrics` with hardcoded placeholder strings (`"Hardware Graphics Adapter"`, `"Native Display Driver"`, `"WebKitGTK / WebView2 Accelerated Compositing"`, `"System Audio Hardware"`, `"Active Hardware Stream"`, `"Direct DAC Output Link"`), and `sample_metrics()` / `clean_process_memory()` caught `Err(e)` from the dynamic library and silently returned dummy `ProcessMetrics::default()` or `(0, 0)`.
+     - Furthermore, inside `crates/attune-procmgr/src/lib.rs`, `parse_proc_stat_cpu` updated the shared `state.last_sample_time = now` before `parse_audio_irqs` computed `dt = now.duration_since(state.last_sample_time)`, forcing `dt == 0.0` in `parse_audio_irqs` so `audio_irq_rate_per_sec` was permanently `0.0 /s`. And `parse_alsa_status` checked only 3 hardcoded paths and broke out on the first non-empty `status` file (`card0/pcm0p/sub0/status` containing `"closed"`), missing active playback streams on other substreams (such as `card0/pcm3p/sub0/status` in `state: RUNNING`).
+  2. **Unused C-ABI Exports in `libattune_watchguard` and `libattune_music_metadata_changer`**:
+     - `attune_watchguard` was loaded and initialized at startup purely as a preflight check, while its runtime C-ABI exports (`watchguard_record_audio_event`, `watchguard_record_ui_frame`, `watchguard_get_status_json`, `watchguard_reset_metrics`) were never invoked by the audio engine poller or surfaced in the UI.
+     - `AlbumEditor` only called `write_track_metadata` (ignoring write errors) and never called `read_track_metadata` on load or before saving, nor `update_track_tag`.
+  3. **Candidate Diagnostic Masking in `dynamic_components.rs` & Dead egui Bloat**:
+     - `dynamic_components.rs` overwrote `last_error` on every candidate path iteration, causing the final bare filename fallback (`libattune_*.so`) to mask genuine `dlopen` / `dlsym` failures on existing files in `./lib/`.
+     - Orphaned files from the deprecated egui port (`fonts.rs`, `master_fx_ui.rs`, `components/freeshape.rs`, `components/glass.rs`) remained in `crates/attune-desktop/src/`.
+- **Decision**:
+  1. **Zero Hardcoded Fallbacks in `process_manager.rs` & Transparent UI Error Reporting**:
+     - Removed `impl Default for ProcessMetrics` from `crates/attune-desktop/src/process_manager.rs`.
+     - Changed `process_manager::sample_metrics() -> Result<ProcessMetrics, String>` and `clean_process_memory() -> Result<(u64, u64), String>` to propagate dynamic component errors directly without masking.
+     - Updated `stages/process_manager.rs` and `stages/settings.rs` to render explicit diagnostic error cards/messages if `sample_metrics()` or `clean_process_memory()` returns `Err`.
+  2. **Live Kernel Substream Discovery & Independent IRQ/CPU Timers in `attune-procmgr`**:
+     - Separated `last_cpu_time` and `last_irq_time` in `SamplerState` inside `crates/attune-procmgr/src/lib.rs`, preserving last measured rates across sub-50ms polls and restoring accurate `audio_irq_rate_per_sec` telemetry.
+     - Rewrote `parse_alsa_status` to dynamically enumerate all `/proc/asound/card*/pcm*p/sub*` directories, prioritizing substreams where `status` is active (`RUNNING`/`PREPARED`) and reading `/proc/asound/cards` when idle.
+     - Rewrote `parse_gpu_sysfs` to dynamically scan `/sys/class/drm/card*` and probe `gt_cur_freq_mhz`, `gt_act_freq_mhz`, and `gt/gt0/rps_*_freq_mhz`.
+  3. **End-to-End Wiring of `libattune_watchguard` and `libattune_music_metadata_changer`**:
+     - Wired `watchguard::record_ui_frame` and `watchguard::record_audio_event` into the 50ms playback snapshot poller in `app.rs` and added a live Watchguard Stability & Cadence Monitor card (with counter reset) to `stages/process_manager.rs`.
+     - Wired `read_track_metadata` and `update_track_tag` into `stages/album_editor.rs` so existing file tags populate on load, per-track metadata is preserved on save, and write errors are reported transparently.
+  4. **Transparent Per-Candidate `dlopen`/`dlsym` Diagnostics & Debloating**:
+     - Updated `dynamic_components.rs` to use `RTLD_NOW | RTLD_LOCAL`, honor `ATTUNE_LIB_DIR`, close handles on symbol failure, and preserve specific `dlopen`/`dlsym` errors from existing candidate files rather than overwriting them with the bare fallback error.
+     - Removed dead egui files (`fonts.rs`, `master_fx_ui.rs`, `components/freeshape.rs`, `components/glass.rs`) and wired real hardware output/sample-rate/source diagnostics into `stages/settings.rs` and `stages/about.rs`.
+     - Updated `tools/builder.py` to compile and bundle `libattune_procmgr`, `libattune_watchguard`, and `libattune_music_metadata_changer` alongside `attune-desktop`.
+- **Consequences**:
+  - Binary string and symbol inspection confirms 0 leaked fallback strings and 0 static dylib symbols in `target/release/attune-desktop`.
+  - All 3 external `.so`/`.dll` libraries are genuinely exercised at runtime with transparent error propagation under Mandate 4.
+
+
 
 
 

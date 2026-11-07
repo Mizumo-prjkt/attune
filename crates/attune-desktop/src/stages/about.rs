@@ -2,8 +2,8 @@ use dioxus::prelude::*;
 
 #[component]
 pub fn About() -> Element {
-    let pkg_version = env!("CARGO_PKG_VERSION");
-    let target_os = if cfg!(target_os = "windows") { "Windows" } else { "Linux (WebKitGTK)" };
+    let pkg_version = crate::config::app_version();
+    let target_os = if cfg!(target_os = "windows") { "Windows (WebView2)" } else { "Linux (WebKitGTK)" };
 
     rsx! {
         div { class: "about-stage",
@@ -30,7 +30,7 @@ pub fn About() -> Element {
             // Architecture Stack
             div { style: "background: var(--bg-card); padding: 24px; border-radius: 16px; border: 1px solid var(--border-glass); margin-bottom: 20px;",
                 h2 { style: "font-size: 18px; font-weight: 700; margin-bottom: 14px;", "Architecture & Technology" }
-                
+
                 div { style: "display: grid; grid-template-columns: 1fr 1fr; gap: 14px; font-size: 13px;",
                     div { style: "background: rgba(255,255,255,0.04); padding: 12px; border-radius: 8px; border: 1px solid var(--border-glass);",
                         span { style: "color: var(--accent-mint); font-weight: 600;", "Headless Audio Engine" }
@@ -45,8 +45,8 @@ pub fn About() -> Element {
                         p { style: "color: var(--text-secondary); margin-top: 4px;", "Dynamic 5-band audio profiling, Camelot wheel key progression, and 6 DJ transition archetypes." }
                     }
                     div { style: "background: rgba(255,255,255,0.04); padding: 12px; border-radius: 8px; border: 1px solid var(--border-glass);",
-                        span { style: "color: #eab308; font-weight: 600;", "Synchronized Lyrics" }
-                        p { style: "color: var(--text-secondary); margin-top: 4px;", "Real-time timestamped .lrc parsing with active glowing text shadow and sub-second seeking." }
+                        span { style: "color: #eab308; font-weight: 600;", "Modular C-ABI Shared Libraries" }
+                        p { style: "color: var(--text-secondary); margin-top: 4px;", "Runtime-certified libattune_procmgr, libattune_watchguard, and libattune_music_metadata_changer." }
                     }
                 }
             }

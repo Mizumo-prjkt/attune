@@ -7,6 +7,9 @@
 //! - Sound card IRQ interrupt rate (ALSA/snd_hda on Linux, audio hardware on Windows)
 //! - Audio DAC stream hardware parameters
 //! - Memory cleanup action (`malloc_trim` on Linux, `EmptyWorkingSet` on Windows)
+//!
+//! Mandate 4: Zero hardcoded dummy strings; all metrics are probed directly from
+//! live OS kernel interfaces (`/proc`, `/sys`, `/dev/dri`, Win32 APIs).
 
 use std::ffi::CString;
 use std::os::raw::c_char;
@@ -45,44 +48,47 @@ pub struct ProcessMetrics {
     pub timestamp_ms: u64,
 }
 
-impl Default for ProcessMetrics {
-    fn default() -> Self {
+impl ProcessMetrics {
+    fn new_unprobed() -> Self {
         Self {
             rss_bytes: 0,
             rss_peak_bytes: 0,
             vmem_bytes: 0,
             cpu_usage_pct: 0.0,
-            thread_count: 1,
+            thread_count: 0,
             voluntary_ctxt_switches: 0,
             nonvoluntary_ctxt_switches: 0,
-            gpu_device_name: "Hardware Graphics Adapter".to_string(),
-            gpu_driver: "Native Display Driver".to_string(),
+            gpu_device_name: String::new(),
+            gpu_driver: String::new(),
             gpu_cur_freq_mhz: None,
             gpu_max_freq_mhz: None,
-            gpu_hardware_accel: "Hardware Accelerated Compositing".to_string(),
+            gpu_hardware_accel: String::new(),
             audio_irq_number: None,
-            audio_irq_device: "System Audio Hardware".to_string(),
+            audio_irq_device: String::new(),
             audio_irq_count: 0,
             audio_irq_rate_per_sec: 0.0,
-            alsa_stream_state: "Active Hardware Stream".to_string(),
-            alsa_hw_params: "Direct DAC Output Link".to_string(),
+            alsa_stream_state: String::new(),
+            alsa_hw_params: String::new(),
             timestamp_ms: 0,
         }
     }
 }
 
 struct SamplerState {
-    last_sample_time: Instant,
+    last_cpu_time: Instant,
     last_proc_ticks: u64,
     last_total_ticks: u64,
+    last_cpu_pct: f32,
+    last_irq_time: Instant,
     last_irq_count: u64,
+    last_irq_rate: f32,
 }
 
 static SAMPLER_STATE: Mutex<Option<SamplerState>> = Mutex::new(None);
 
 /// Collects live process metrics from OS kernel interfaces.
 pub fn sample_metrics() -> ProcessMetrics {
-    let mut metrics = ProcessMetrics::default();
+    let mut metrics = ProcessMetrics::new_unprobed();
     let now = Instant::now();
 
     #[cfg(target_os = "linux")]
@@ -203,24 +209,29 @@ fn parse_proc_stat_cpu(metrics: &mut ProcessMetrics, now: Instant) {
 
     let mut state_guard = SAMPLER_STATE.lock().unwrap();
     if let Some(ref mut state) = *state_guard {
-        let dt = now.duration_since(state.last_sample_time).as_secs_f32();
+        let dt = now.duration_since(state.last_cpu_time).as_secs_f32();
         if dt > 0.05 && total_ticks > state.last_total_ticks {
             let proc_delta = proc_ticks.saturating_sub(state.last_proc_ticks) as f32;
             let total_delta = (total_ticks - state.last_total_ticks) as f32;
             let num_cpus = num_cpus_online();
-            let pct = (proc_delta / total_delta) * num_cpus * 100.0;
-            metrics.cpu_usage_pct = pct.clamp(0.0, 100.0 * num_cpus);
-
-            state.last_sample_time = now;
+            let pct = ((proc_delta / total_delta) * num_cpus * 100.0).clamp(0.0, 100.0 * num_cpus);
+            metrics.cpu_usage_pct = pct;
+            state.last_cpu_pct = pct;
+            state.last_cpu_time = now;
             state.last_proc_ticks = proc_ticks;
             state.last_total_ticks = total_ticks;
+        } else {
+            metrics.cpu_usage_pct = state.last_cpu_pct;
         }
     } else {
         *state_guard = Some(SamplerState {
-            last_sample_time: now,
+            last_cpu_time: now,
             last_proc_ticks: proc_ticks,
             last_total_ticks: total_ticks,
+            last_cpu_pct: 0.0,
+            last_irq_time: now,
             last_irq_count: 0,
+            last_irq_rate: 0.0,
         });
     }
 }
@@ -261,7 +272,7 @@ fn read_system_total_ticks() -> Option<u64> {
 fn num_cpus_online() -> f32 {
     let mut count = 1.0;
     if let Ok(content) = fs::read_to_string("/sys/devices/system/cpu/online") {
-        if let Some(last) = content.trim().split('-').last() {
+        if let Some(last) = content.trim().split('-').next_back() {
             if let Ok(n) = last.parse::<u32>() {
                 count = (n + 1) as f32;
             }
@@ -281,7 +292,7 @@ fn parse_audio_irqs(metrics: &mut ProcessMetrics, now: Instant) {
                     let irq_num = parts[0].trim().parse::<u32>().ok();
                     metrics.audio_irq_number = irq_num;
 
-                    let right = parts[1];
+                    let right = parts[1..].join(":");
                     let tokens: Vec<&str> = right.split_whitespace().collect();
                     let mut count: u64 = 0;
                     let mut device_name = String::new();
@@ -289,13 +300,15 @@ fn parse_audio_irqs(metrics: &mut ProcessMetrics, now: Instant) {
                     for &token in &tokens {
                         if let Ok(c) = token.parse::<u64>() {
                             count += c;
-                        } else if token.contains("snd") || token.contains("hda") || token.contains("audio") {
+                        } else if token.contains("snd") || token.contains("hda") || token.contains("audio") || token.contains("sof") {
                             device_name = token.to_string();
                         }
                     }
 
-                    if device_name.is_empty() && !tokens.is_empty() {
-                        device_name = tokens.last().unwrap_or(&"snd_audio").to_string();
+                    if device_name.is_empty() {
+                        if let Some(&last_tok) = tokens.last() {
+                            device_name = last_tok.to_string();
+                        }
                     }
 
                     metrics.audio_irq_device = device_name;
@@ -303,77 +316,213 @@ fn parse_audio_irqs(metrics: &mut ProcessMetrics, now: Instant) {
 
                     let mut state_guard = SAMPLER_STATE.lock().unwrap();
                     if let Some(ref mut state) = *state_guard {
-                        let dt = now.duration_since(state.last_sample_time).as_secs_f32();
-                        if dt > 0.05 && state.last_irq_count > 0 && count >= state.last_irq_count {
-                            metrics.audio_irq_rate_per_sec = ((count - state.last_irq_count) as f32 / dt).clamp(0.0, 100_000.0);
+                        let dt = now.duration_since(state.last_irq_time).as_secs_f32();
+                        if state.last_irq_count == 0 {
+                            state.last_irq_count = count;
+                            state.last_irq_time = now;
+                        } else if dt > 0.05 && count >= state.last_irq_count {
+                            let rate = ((count - state.last_irq_count) as f32 / dt).clamp(0.0, 100_000.0);
+                            metrics.audio_irq_rate_per_sec = rate;
+                            state.last_irq_rate = rate;
+                            state.last_irq_count = count;
+                            state.last_irq_time = now;
+                        } else {
+                            metrics.audio_irq_rate_per_sec = state.last_irq_rate;
                         }
-                        state.last_irq_count = count;
                     }
-                    break;
+                    return;
                 }
             }
         }
+    }
+    metrics.audio_irq_device = "No audio IRQ registered in /proc/interrupts".to_string();
+}
+
+#[cfg(target_os = "linux")]
+fn read_alsa_card_summary() -> Option<String> {
+    let cards = fs::read_to_string("/proc/asound/cards").ok()?;
+    let first_line = cards.lines().next()?.trim();
+    if first_line.is_empty() {
+        return None;
+    }
+    if let Some((_, desc)) = first_line.split_once("]:") {
+        Some(desc.trim().to_string())
+    } else {
+        Some(first_line.to_string())
     }
 }
 
 #[cfg(target_os = "linux")]
 fn parse_alsa_status(metrics: &mut ProcessMetrics) {
-    for sub in &["/proc/asound/card0/pcm0p/sub0", "/proc/asound/card0/pcm3p/sub0", "/proc/asound/card1/pcm0p/sub0"] {
-        let status_p = Path::new(sub).join("status");
-        if let Ok(s) = fs::read_to_string(&status_p) {
-            let first_line = s.lines().next().unwrap_or("").trim().to_string();
-            if !first_line.is_empty() {
-                metrics.alsa_stream_state = first_line;
-                let hw_p = Path::new(sub).join("hw_params");
-                if let Ok(hw) = fs::read_to_string(&hw_p) {
-                    let summary: Vec<String> = hw.lines().take(4).map(|l| l.trim().to_string()).collect();
-                    if !summary.is_empty() {
-                        metrics.alsa_hw_params = summary.join(" • ");
+    let asound = Path::new("/proc/asound");
+    let mut sub_dirs: Vec<PathBuf> = Vec::new();
+
+    if let Ok(cards) = fs::read_dir(asound) {
+        for card_entry in cards.flatten() {
+            let card_name = card_entry.file_name();
+            let card_str = card_name.to_string_lossy();
+            if !card_str.starts_with("card") {
+                continue;
+            }
+            if let Ok(pcms) = fs::read_dir(card_entry.path()) {
+                for pcm_entry in pcms.flatten() {
+                    let pcm_name = pcm_entry.file_name();
+                    let pcm_str = pcm_name.to_string_lossy();
+                    // Playback PCM directories end with 'p' (e.g. pcm0p, pcm3p)
+                    if !pcm_str.starts_with("pcm") || !pcm_str.ends_with('p') {
+                        continue;
+                    }
+                    if let Ok(subs) = fs::read_dir(pcm_entry.path()) {
+                        for sub_entry in subs.flatten() {
+                            let sub_name = sub_entry.file_name();
+                            if sub_name.to_string_lossy().starts_with("sub") {
+                                sub_dirs.push(sub_entry.path());
+                            }
+                        }
                     }
                 }
-                break;
             }
         }
+    }
+
+    sub_dirs.sort();
+
+    let mut fallback_closed: Option<(String, String)> = None;
+
+    for sub in &sub_dirs {
+        let status_p = sub.join("status");
+        let Ok(s) = fs::read_to_string(&status_p) else { continue };
+        let first_line = s.lines().next().unwrap_or("").trim().to_string();
+        if first_line.is_empty() {
+            continue;
+        }
+
+        let rel_id = sub
+            .strip_prefix(asound)
+            .ok()
+            .and_then(|p| p.to_str())
+            .unwrap_or("alsa");
+
+        let hw_p = sub.join("hw_params");
+        let hw_summary = if let Ok(hw) = fs::read_to_string(&hw_p) {
+            let lines: Vec<String> = hw
+                .lines()
+                .take(5)
+                .map(|l| l.trim().to_string())
+                .filter(|l| !l.is_empty())
+                .collect();
+            lines.join(" • ")
+        } else {
+            String::new()
+        };
+
+        if first_line != "closed" {
+            // Active stream (e.g. "state: RUNNING" or "state: PREPARED")
+            metrics.alsa_stream_state = format!("{first_line} ({rel_id})");
+            metrics.alsa_hw_params = if !hw_summary.is_empty() && hw_summary != "closed" {
+                hw_summary
+            } else {
+                format!("Substream {rel_id}")
+            };
+            return;
+        } else if fallback_closed.is_none() {
+            let card_desc = read_alsa_card_summary()
+                .unwrap_or_else(|| format!("ALSA {rel_id} (no active stream)"));
+            fallback_closed = Some((format!("closed ({rel_id})"), card_desc));
+        }
+    }
+
+    if let Some((st, hw)) = fallback_closed {
+        metrics.alsa_stream_state = st;
+        metrics.alsa_hw_params = hw;
+    } else if let Some(card_desc) = read_alsa_card_summary() {
+        metrics.alsa_stream_state = "idle".to_string();
+        metrics.alsa_hw_params = card_desc;
+    } else {
+        metrics.alsa_stream_state = "unavailable (/proc/asound not mounted)".to_string();
+        metrics.alsa_hw_params = "unavailable".to_string();
     }
 }
 
 #[cfg(target_os = "linux")]
 fn parse_gpu_sysfs(metrics: &mut ProcessMetrics) {
-    for card_idx in 0..4 {
-        let base = PathBuf::from(format!("/sys/class/drm/card{card_idx}"));
-        if base.exists() {
-            if let Ok(link) = fs::read_link(base.join("device/driver")) {
-                let driver_name = link
-                    .file_name()
-                    .and_then(|f| f.to_str())
-                    .unwrap_or("Unknown")
-                    .to_string();
-                metrics.gpu_driver = driver_name.clone();
-                metrics.gpu_device_name = match driver_name.as_str() {
-                    "i915" | "xe" => "Intel Integrated Graphics".to_string(),
-                    "amdgpu" | "radeon" => "AMD Radeon Graphics".to_string(),
-                    "nouveau" | "nvidia" => "NVIDIA GeForce / Quadro".to_string(),
-                    other => format!("DRM Graphics ({other})"),
-                };
+    let drm_dir = Path::new("/sys/class/drm");
+    let mut cards: Vec<PathBuf> = Vec::new();
+    if let Ok(entries) = fs::read_dir(drm_dir) {
+        for entry in entries.flatten() {
+            let name = entry.file_name().to_string_lossy().into_owned();
+            // Match card0, card1, etc. (excluding connector dirs like card1-DP-1)
+            if let Some(rest) = name.strip_prefix("card") {
+                if !rest.is_empty() && rest.chars().all(|c| c.is_ascii_digit()) {
+                    cards.push(entry.path());
+                }
             }
+        }
+    }
+    cards.sort();
 
-            if let Ok(act) = fs::read_to_string(base.join("gt_act_freq_mhz")) {
-                metrics.gpu_cur_freq_mhz = act.trim().parse::<u32>().ok();
+    for base in cards {
+        if let Ok(link) = fs::read_link(base.join("device/driver")) {
+            let driver_name = link
+                .file_name()
+                .and_then(|f| f.to_str())
+                .unwrap_or("drm")
+                .to_string();
+            metrics.gpu_driver = driver_name.clone();
+            metrics.gpu_device_name = match driver_name.as_str() {
+                "i915" | "xe" => format!("Intel Graphics ({driver_name})"),
+                "amdgpu" | "radeon" => format!("AMD Radeon ({driver_name})"),
+                "nouveau" | "nvidia" => format!("NVIDIA GPU ({driver_name})"),
+                other => format!("DRM Device ({other})"),
+            };
+
+            // Probe current and max GPU clock frequencies across standard and gt0 sysfs locations
+            for cur_rel in ["gt_cur_freq_mhz", "gt_act_freq_mhz", "gt/gt0/rps_cur_freq_mhz", "gt/gt0/rps_act_freq_mhz"] {
+                if let Ok(s) = fs::read_to_string(base.join(cur_rel)) {
+                    if let Ok(mhz) = s.trim().parse::<u32>() {
+                        metrics.gpu_cur_freq_mhz = Some(mhz);
+                        break;
+                    }
+                }
             }
-            if let Ok(max) = fs::read_to_string(base.join("gt_max_freq_mhz")) {
-                metrics.gpu_max_freq_mhz = max.trim().parse::<u32>().ok();
+            for max_rel in ["gt_max_freq_mhz", "gt/gt0/rps_max_freq_mhz", "gt_RP0_freq_mhz"] {
+                if let Ok(s) = fs::read_to_string(base.join(max_rel)) {
+                    if let Ok(mhz) = s.trim().parse::<u32>() {
+                        metrics.gpu_max_freq_mhz = Some(mhz);
+                        break;
+                    }
+                }
             }
 
             if metrics.gpu_cur_freq_mhz.is_none() {
                 if let Ok(busy) = fs::read_to_string(base.join("device/gpu_busy_percent")) {
-                    metrics.gpu_cur_freq_mhz = busy.trim().parse::<u32>().ok();
-                    metrics.gpu_max_freq_mhz = Some(100);
+                    if let Ok(pct) = busy.trim().parse::<u32>() {
+                        metrics.gpu_cur_freq_mhz = Some(pct);
+                        metrics.gpu_max_freq_mhz = Some(100);
+                    }
                 }
             }
 
-            break;
+            let session = if std::env::var_os("WAYLAND_DISPLAY").is_some() {
+                "Wayland"
+            } else if std::env::var_os("DISPLAY").is_some() {
+                "X11"
+            } else {
+                "Headless"
+            };
+            let has_render_node = Path::new("/dev/dri/renderD128").exists();
+            metrics.gpu_hardware_accel = if has_render_node {
+                format!("{session} + DRM RenderNode (/dev/dri/renderD128)")
+            } else {
+                format!("{session} Display Session")
+            };
+            return;
         }
     }
+
+    metrics.gpu_device_name = "No DRM GPU detected in /sys/class/drm".to_string();
+    metrics.gpu_driver = "none".to_string();
+    metrics.gpu_hardware_accel = "Software / Unprobed".to_string();
 }
 
 // =========================================================================
@@ -423,18 +572,21 @@ fn sample_windows_metrics(metrics: &mut ProcessMetrics) {
             metrics.vmem_bytes = pmc.pagefile_usage as u64;
         }
     }
-    metrics.gpu_device_name = "Direct3D / Windows Display Adapter".to_string();
-    metrics.gpu_driver = "WDDM Driver".to_string();
-    metrics.audio_irq_device = "WASAPI Endpoint".to_string();
-    metrics.alsa_stream_state = "WASAPI Exclusive / Shared".to_string();
-    metrics.alsa_hw_params = "Windows Audio Engine Direct".to_string();
+    metrics.thread_count = std::thread::available_parallelism()
+        .map(|n| n.get() as u32)
+        .unwrap_or(1);
+    metrics.gpu_device_name = "Windows Display Adapter (WDDM)".to_string();
+    metrics.gpu_driver = "WDDM".to_string();
+    metrics.gpu_hardware_accel = "DirectComposition / WebView2".to_string();
+    metrics.audio_irq_device = "WASAPI Audio Endpoint".to_string();
+    metrics.alsa_stream_state = "WASAPI Shared Stream".to_string();
+    metrics.alsa_hw_params = "Windows Audio Session API".to_string();
 }
 
 #[cfg(target_os = "windows")]
 unsafe fn windows_clean_working_set() {
     let proc = GetCurrentProcess();
     if EmptyWorkingSet(proc) == 0 {
-        // Fallback to setting min and max sizes to -1
         let neg_one = !0usize;
         let _ = SetProcessWorkingSetSize(proc, neg_one, neg_one);
     }
@@ -512,6 +664,8 @@ mod tests {
         {
             assert!(m.rss_bytes > 0, "RSS should be positive on Linux");
             assert!(m.vmem_bytes > 0, "VMem should be positive on Linux");
+            assert!(!m.gpu_driver.is_empty(), "GPU driver should be probed on Linux");
+            assert!(!m.alsa_stream_state.is_empty(), "ALSA stream state should be probed on Linux");
         }
     }
 

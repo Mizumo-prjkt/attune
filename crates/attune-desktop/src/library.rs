@@ -366,6 +366,13 @@ pub fn spawn_deep_indexing(root: PathBuf, reindex_all: bool) -> Receiver<Indexin
     thread::Builder::new()
         .name("attune-deep-indexer".into())
         .spawn(move || {
+            if !root.is_dir() {
+                let _ = tx.send(IndexingProgressEvent::Error(format!(
+                    "Music directory does not exist or is not accessible: {}",
+                    root.display()
+                )));
+                return;
+            }
             let files = LibraryScanner::discover_audio_files(&root);
             let total = files.len();
             log::info!(

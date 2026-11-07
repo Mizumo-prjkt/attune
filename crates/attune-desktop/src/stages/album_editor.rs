@@ -1,6 +1,8 @@
 use dioxus::prelude::*;
 use crate::stages::albums::AlbumGroup;
-use crate::dynamic_components::music_metadata_changer::{write_track_metadata, TrackMetadata};
+use crate::dynamic_components::music_metadata_changer::{
+    read_track_metadata, update_track_tag, write_track_metadata, TrackMetadata,
+};
 use std::path::PathBuf;
 
 #[component]
@@ -11,7 +13,7 @@ pub fn AlbumEditor(
 ) -> Element {
     let mut album_name = use_signal(|| group.name.clone());
     let mut primary_artist = use_signal(|| group.artist.clone());
-    let mut additional_artists_str = use_signal(|| String::new());
+    let mut additional_artists_str = use_signal(String::new);
     let mut year_str = use_signal(String::new);
     let mut genre_str = use_signal(|| {
         group.tracks.first()
@@ -27,18 +29,59 @@ pub fn AlbumEditor(
     let mut album_type = use_signal(|| "Album".to_string());
     let mut musicbrainz_id = use_signal(String::new);
 
-    let mut status_msg = use_signal(|| None::<String>);
+    let mut status_msg = use_signal(|| None::<(bool, String)>);
     let mut is_saving = use_signal(|| false);
 
-    // Initial load: if primary_artist contains commas, pre-populate additional_artists
-    use_hook(move || {
+    // Initial load: read existing metadata from the first track via libattune_music_metadata_changer
+    use_hook({
+        let first_track_path = group.tracks.first().map(|t| t.path.clone());
         let artist_val = group.artist.clone();
-        if artist_val.contains(',') {
-            let parts: Vec<&str> = artist_val.split(',').map(|s| s.trim()).filter(|s| !s.is_empty()).collect();
-            if !parts.is_empty() {
-                primary_artist.set(parts[0].to_string());
-                let extras = parts[1..].join(", ");
-                additional_artists_str.set(extras);
+        move || {
+            if artist_val.contains(',') {
+                let parts: Vec<&str> = artist_val.split(',').map(|s| s.trim()).filter(|s| !s.is_empty()).collect();
+                if !parts.is_empty() {
+                    primary_artist.set(parts[0].to_string());
+                    let extras = parts[1..].join(", ");
+                    additional_artists_str.set(extras);
+                }
+            }
+
+            if let Some(path) = first_track_path {
+                match read_track_metadata(&path) {
+                    Ok(meta) => {
+                        if let Some(a) = meta.album.filter(|s| !s.trim().is_empty()) {
+                            album_name.set(a);
+                        }
+                        if let Some(art) = meta.artist.filter(|s| !s.trim().is_empty()) {
+                            primary_artist.set(art);
+                        }
+                        if !meta.additional_artists.is_empty() {
+                            additional_artists_str.set(meta.additional_artists.join(", "));
+                        }
+                        if let Some(y) = meta.year {
+                            year_str.set(y.to_string());
+                        }
+                        if let Some(g) = meta.genre.filter(|s| !s.trim().is_empty()) {
+                            genre_str.set(g);
+                        }
+                        if let Some(lbl) = meta.record_label.filter(|s| !s.trim().is_empty()) {
+                            record_label.set(lbl);
+                        }
+                        if let Some(cat) = meta.catalog_number.filter(|s| !s.trim().is_empty()) {
+                            catalog_number.set(cat);
+                        }
+                        if let Some(at) = meta.album_type.filter(|s| !s.trim().is_empty()) {
+                            album_type.set(at);
+                        }
+                        if let Some(mb) = meta.musicbrainz_id.filter(|s| !s.trim().is_empty()) {
+                            musicbrainz_id.set(mb);
+                        }
+                    }
+                    Err(err) => {
+                        log::warn!("AlbumEditor: Failed to read initial track metadata for {}: {}", path.display(), err);
+                        status_msg.set(Some((false, format!("Metadata read diagnostic: {err}"))));
+                    }
+                }
             }
         }
     });
@@ -58,13 +101,16 @@ pub fn AlbumEditor(
                     }
                     h1 { style: "font-size: 26px; font-weight: 700;", "Edit Album Information" }
                     p { style: "color: var(--text-secondary); font-size: 13px; margin-top: 4px;",
-                        "Updates metadata tags across all {group.tracks.len()} tracks in this album"
+                        "Updates metadata tags across all {group.tracks.len()} tracks in this album via libattune_music_metadata_changer"
                     }
                 }
 
                 div { style: "display: flex; gap: 10px; align-items: center;",
-                    if let Some(msg) = status_msg.read().as_ref() {
-                        span { style: "font-size: 12.5px; color: var(--accent-mint); font-weight: 600;", "{msg}" }
+                    if let Some((ok, msg)) = status_msg.read().as_ref() {
+                        span {
+                            style: if *ok { "font-size: 12.5px; color: var(--accent-mint); font-weight: 600;" } else { "font-size: 12.5px; color: #fb7185; font-weight: 600;" },
+                            "{msg}"
+                        }
                     }
                     button {
                         class: "btn-pill active",
@@ -85,7 +131,7 @@ pub fn AlbumEditor(
 
                             move |_| {
                                 is_saving.set(true);
-                                status_msg.set(Some("Saving changes to audio tags...".to_string()));
+                                status_msg.set(Some((true, "Saving changes to audio tags...".to_string())));
 
                                 let parsed_extras: Vec<String> = extras
                                     .split(',')
@@ -93,20 +139,27 @@ pub fn AlbumEditor(
                                     .filter(|s| !s.is_empty())
                                     .collect();
 
-                                // If new splash art was picked, copy it to the album directory as cover.jpg
+                                // If new splash art was picked, copy it to the album directory as cover.<ext>
                                 if let Some(splash_src) = new_splash.as_ref() {
                                     if let Some(first_track) = tracks.first() {
                                         if let Some(parent) = first_track.path.parent() {
                                             let ext = splash_src.extension().and_then(|e| e.to_str()).unwrap_or("jpg");
                                             let dest = parent.join(format!("cover.{}", ext));
-                                            let _ = std::fs::copy(splash_src, dest);
+                                            if let Err(e) = std::fs::copy(splash_src, &dest) {
+                                                log::error!("AlbumEditor: Failed to copy cover art to {}: {}", dest.display(), e);
+                                            }
                                         }
                                     }
                                 }
 
-                                let mut saved_count = 0;
+                                let mut saved_count = 0usize;
+                                let mut errors = Vec::new();
                                 for track in &tracks {
-                                    let mut meta = TrackMetadata::new();
+                                    let mut meta = read_track_metadata(&track.path).unwrap_or_else(|_| {
+                                        let mut m = TrackMetadata::new();
+                                        m.title = Some(track.title.clone());
+                                        m
+                                    });
                                     meta.album = Some(target_album.clone());
                                     meta.artist = Some(target_artist.clone());
                                     meta.additional_artists = parsed_extras.clone();
@@ -127,14 +180,30 @@ pub fn AlbumEditor(
                                         meta.musicbrainz_id = Some(target_mb.clone());
                                     }
 
-                                    if write_track_metadata(&track.path, &meta).is_ok() {
-                                        saved_count += 1;
+                                    match write_track_metadata(&track.path, &meta) {
+                                        Ok(()) => {
+                                            if !target_genre.is_empty() {
+                                                let _ = update_track_tag(&track.path, "GENRE", &target_genre);
+                                            }
+                                            saved_count += 1;
+                                        }
+                                        Err(err) => {
+                                            log::error!("AlbumEditor: Failed to write metadata for {}: {}", track.path.display(), err);
+                                            errors.push(format!("{}: {}", track.title, err));
+                                        }
                                     }
                                 }
 
                                 is_saving.set(false);
-                                status_msg.set(Some(format!("✓ Successfully updated {} tracks!", saved_count)));
-                                on_saved.call(());
+                                if errors.is_empty() {
+                                    status_msg.set(Some((true, format!("✓ Successfully updated {} tracks!", saved_count))));
+                                    on_saved.call(());
+                                } else {
+                                    status_msg.set(Some((
+                                        false,
+                                        format!("✗ Updated {}/{} tracks ({} failed: {})", saved_count, tracks.len(), errors.len(), errors[0]),
+                                    )));
+                                }
                             }
                         },
                         if *is_saving.read() {

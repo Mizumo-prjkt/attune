@@ -586,7 +586,14 @@ def compile_rust(mode="release", target_os=None, log_callback=None):
         return produced[0]
 
     # Host desktop build (linux, windows, macos)
-    cmd = ["cargo", "build", "-p", "attune-ffi", "-p", "attune-watchguard", "-p", "attune-procmgr", "-p", "attune-desktop"]
+    cmd = [
+        "cargo", "build",
+        "-p", "attune-ffi",
+        "-p", "attune-watchguard",
+        "-p", "attune-procmgr",
+        "-p", "attune-music-metadata-changer",
+        "-p", "attune-desktop",
+    ]
     if mode.lower() == "release":
         cmd.append("--release")
 
@@ -616,18 +623,22 @@ def compile_rust(mode="release", target_os=None, log_callback=None):
         lib_name = "libattune_engine.so"
         wg_name = "libattune_watchguard.so"
         pm_name = "libattune_procmgr.so"
+        mc_name = "libattune_music_metadata_changer.so"
     elif effective_target_os == "windows" or system == "Windows":
         lib_name = "attune_engine.dll"
         wg_name = "attune_watchguard.dll"
         pm_name = "attune_procmgr.dll"
+        mc_name = "attune_music_metadata_changer.dll"
     elif system == "Darwin":
         lib_name = "libattune_engine.dylib"
         wg_name = "libattune_watchguard.dylib"
         pm_name = "libattune_procmgr.dylib"
+        mc_name = "libattune_music_metadata_changer.dylib"
     else:
         lib_name = "libattune_engine.so"
         wg_name = "libattune_watchguard.so"
         pm_name = "libattune_procmgr.so"
+        mc_name = "libattune_music_metadata_changer.so"
 
     lib_path = target_dir / lib_name
     if not lib_path.exists():
@@ -651,6 +662,12 @@ def compile_rust(mode="release", target_os=None, log_callback=None):
         dest_pm = dest_lib_dir / pm_name
         shutil.copy2(pm_path, dest_pm)
         log(f"[Rust] Copied procmgr library to: {dest_pm}")
+
+    mc_path = target_dir / mc_name
+    if mc_path.exists():
+        dest_mc = dest_lib_dir / mc_name
+        shutil.copy2(mc_path, dest_mc)
+        log(f"[Rust] Copied music_metadata_changer library to: {dest_mc}")
     return lib_path
 
 
@@ -841,23 +858,37 @@ def package_bundle(target_os="linux", mode="release", localversion="", bundle_ty
                 if expected_appimage.exists():
                     artifacts.append(expected_appimage)
 
-        # 3. Standalone Native Rust egui Desktop Executable (ADR-064)
+        # 3. Standalone Native Rust Desktop Executable + Required Shared Libraries (.so)
         native_desktop_bin = REPO_ROOT / "target" / mode.lower() / "attune-desktop"
         if native_desktop_bin.exists():
             dest_native = dist_dir / f"Attune-Desktop-{full_ver}-Linux-x86_64"
             shutil.copy2(native_desktop_bin, dest_native)
             os.chmod(dest_native, 0o755)
-            log(f"[Package] Packaged standalone native egui desktop binary: {dest_native}")
+            dist_lib_dir = dist_dir / "lib"
+            dist_lib_dir.mkdir(parents=True, exist_ok=True)
+            for so_name in ("libattune_procmgr.so", "libattune_watchguard.so", "libattune_music_metadata_changer.so"):
+                so_src = REPO_ROOT / "target" / mode.lower() / so_name
+                if so_src.exists():
+                    shutil.copy2(so_src, dist_lib_dir / so_name)
+                    log(f"[Package] Bundled dynamic component {so_name} -> {dist_lib_dir / so_name}")
+            log(f"[Package] Packaged standalone native desktop binary: {dest_native}")
             if dest_native not in artifacts:
                 artifacts.append(dest_native)
 
     elif target_os.lower() == "windows":
-        # 0. Standalone Native Rust egui Desktop Executable (ADR-064)
+        # 0. Standalone Native Rust Desktop Executable + Required Shared Libraries (.dll)
         native_desktop_exe = REPO_ROOT / "target" / mode.lower() / "attune-desktop.exe"
         if native_desktop_exe.exists():
             dest_native_exe = dist_dir / f"Attune-Desktop-{full_ver}-Windows-x64.exe"
             shutil.copy2(native_desktop_exe, dest_native_exe)
-            log(f"[Package] Packaged standalone native egui desktop executable: {dest_native_exe}")
+            dist_lib_dir = dist_dir / "lib"
+            dist_lib_dir.mkdir(parents=True, exist_ok=True)
+            for dll_name in ("attune_procmgr.dll", "attune_watchguard.dll", "attune_music_metadata_changer.dll"):
+                dll_src = REPO_ROOT / "target" / mode.lower() / dll_name
+                if dll_src.exists():
+                    shutil.copy2(dll_src, dist_lib_dir / dll_name)
+                    log(f"[Package] Bundled dynamic component {dll_name} -> {dist_lib_dir / dll_name}")
+            log(f"[Package] Packaged standalone native desktop executable: {dest_native_exe}")
             if dest_native_exe not in artifacts:
                 artifacts.append(dest_native_exe)
 

@@ -4,7 +4,6 @@
 //! - Primary Accent: `#2DD4BF` (Prismatic Mint / Teal)
 //! - Secondary Accent: `#A855F7` (Electric Violet)
 //! - Tertiary Accent: `#FB7185` (Coral Rose)
-//! - Deep Canvas Base: `#090A10`
 //! - Dynamic album cover art color extraction
 
 use std::path::Path;
@@ -12,12 +11,13 @@ use std::path::Path;
 pub const PRIMARY_HEX: &str = "#2DD4BF";
 pub const SECONDARY_HEX: &str = "#A855F7";
 pub const TERTIARY_HEX: &str = "#FB7185";
-pub const CANVAS_BASE_HEX: &str = "#090A10";
 
 #[derive(Debug, Clone)]
 pub struct DynamicPalette {
     pub primary: String,
+    #[allow(dead_code)]
     pub secondary: String,
+    #[allow(dead_code)]
     pub tertiary: String,
 }
 

@@ -2,6 +2,10 @@
 //!
 //! Relies strictly on the external `libattune_procmgr.so` / `attune_procmgr.dll`
 //! dynamic shared library component loaded via `crate::dynamic_components`.
+//!
+//! Mandate 4: Zero hardcoded fallback values or silent static fallbacks. Any
+//! failure in the underlying dynamic component is propagated as `Err(String)`
+//! so the UI can report it transparently.
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct ProcessMetrics {
@@ -35,62 +39,19 @@ pub struct ProcessMetrics {
     pub timestamp_ms: u64,
 }
 
-impl Default for ProcessMetrics {
-    fn default() -> Self {
-        let ts = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_millis() as u64)
-            .unwrap_or(0);
-
-        Self {
-            rss_bytes: 0,
-            rss_peak_bytes: 0,
-            vmem_bytes: 0,
-            cpu_usage_pct: 0.0,
-            thread_count: 1,
-            voluntary_ctxt_switches: 0,
-            nonvoluntary_ctxt_switches: 0,
-            gpu_device_name: "Hardware Graphics Adapter".to_string(),
-            gpu_driver: "Native Display Driver".to_string(),
-            gpu_cur_freq_mhz: None,
-            gpu_max_freq_mhz: None,
-            gpu_hardware_accel: "WebKitGTK / WebView2 Accelerated Compositing".to_string(),
-            audio_irq_number: None,
-            audio_irq_device: "System Audio Hardware".to_string(),
-            audio_irq_count: 0,
-            audio_irq_rate_per_sec: 0.0,
-            alsa_stream_state: "Active Hardware Stream".to_string(),
-            alsa_hw_params: "Direct DAC Output Link".to_string(),
-            timestamp_ms: ts,
-        }
-    }
-}
-
 /// Collects live process telemetry strictly from the external dynamic shared library component.
-pub fn sample_metrics() -> ProcessMetrics {
-    match crate::dynamic_components::procmgr::sample_metrics() {
-        Ok(m) => m,
-        Err(e) => {
-            log::error!("ProcessManager: Failed to sample metrics from dynamic component: {e}");
-            ProcessMetrics::default()
-        }
-    }
+pub fn sample_metrics() -> Result<ProcessMetrics, String> {
+    crate::dynamic_components::procmgr::sample_metrics()
 }
 
 /// Cleans process memory strictly via the external dynamic shared library component.
-/// Returns (before_bytes, after_bytes).
-pub fn clean_process_memory() -> (u64, u64) {
-    match crate::dynamic_components::procmgr::clean_process_memory() {
-        Ok(res) => res,
-        Err(e) => {
-            log::error!("ProcessManager: Failed to clean process memory via dynamic component: {e}");
-            (0, 0)
-        }
-    }
+/// Returns `Ok((before_bytes, after_bytes))` or `Err(diagnostic)`.
+pub fn clean_process_memory() -> Result<(u64, u64), String> {
+    crate::dynamic_components::procmgr::clean_process_memory()
 }
 
-/// Backward compatibility alias for existing tests and call sites.
-pub fn trim_memory() -> (u64, u64) {
+/// Alias for memory cleanup across stages.
+pub fn trim_memory() -> Result<(u64, u64), String> {
     clean_process_memory()
 }
 
@@ -99,9 +60,10 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_default_process_metrics_valid() {
-        let m = ProcessMetrics::default();
+    fn test_live_procmgr_metrics_via_dynamic_component() {
+        let _ = crate::dynamic_components::preflight_check_and_load();
+        let m = sample_metrics().expect("sample_metrics must succeed via loaded dylib");
         assert!(m.timestamp_ms > 0);
-        assert_eq!(m.thread_count, 1);
+        assert!(m.thread_count >= 1);
     }
 }

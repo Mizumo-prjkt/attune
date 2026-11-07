@@ -1,11 +1,14 @@
 //! Dynamic Shared Library (.so / .dll) Component Resolver & Preflight Verifier.
 //!
-//! Attune Desktop strictly decouples heavy platform components (Process Manager,
-//! Stability Watchguard, and Track Metadata / Tweaks) into modular shared libraries.
+//! Attune Desktop strictly decouples platform telemetry, stability monitoring,
+//! and track metadata manipulation into modular shared libraries:
+//! - `libattune_procmgr.so` / `attune_procmgr.dll`
+//! - `libattune_watchguard.so` / `attune_watchguard.dll`
+//! - `libattune_music_metadata_changer.so` / `attune_music_metadata_changer.dll`
 //!
-//! If any required external shared library is missing or cannot be loaded, the application
-//! displays a transparent native error dialog and exits immediately rather than silently
-//! falling back to dummy static implementations.
+//! Mandate 4: Zero hardcoded fallback values or silent static fallbacks. If any
+//! required shared library or C-ABI symbol is missing or fails at runtime, the
+//! error is surfaced transparently.
 
 use std::ffi::{CStr, CString};
 use std::os::raw::c_char;
@@ -32,7 +35,7 @@ type FnProcmgrCleanProcessMemory = unsafe extern "C" fn(*mut u64, *mut u64) -> i
 type FnProcmgrFreeString = unsafe extern "C" fn(*mut c_char);
 
 struct ProcmgrModule {
-    handle: *mut std::ffi::c_void,
+    _handle: *mut std::ffi::c_void,
     resolved_path: PathBuf,
     fn_version: FnProcmgrVersion,
     fn_sample_metrics_json: FnProcmgrSampleMetricsJson,
@@ -52,14 +55,13 @@ type FnWatchguardResetMetrics = unsafe extern "C" fn() -> i32;
 type FnWatchguardFreeString = unsafe extern "C" fn(*mut c_char);
 
 struct WatchguardModule {
-    handle: *mut std::ffi::c_void,
+    _handle: *mut std::ffi::c_void,
     resolved_path: PathBuf,
     fn_init: FnWatchguardInit,
     fn_version: FnWatchguardVersion,
     fn_record_audio_event: FnWatchguardRecordAudioEvent,
     fn_record_ui_frame: FnWatchguardRecordUiFrame,
     fn_get_status_json: FnWatchguardGetStatusJson,
-    #[allow(dead_code)]
     fn_reset_metrics: FnWatchguardResetMetrics,
     fn_free_string: FnWatchguardFreeString,
 }
@@ -74,13 +76,12 @@ type FnMetadataWriteMetadata = unsafe extern "C" fn(*const c_char, *const c_char
 type FnMetadataUpdateTag = unsafe extern "C" fn(*const c_char, *const c_char, *const c_char) -> i32;
 
 struct MetadataModule {
-    handle: *mut std::ffi::c_void,
+    _handle: *mut std::ffi::c_void,
     resolved_path: PathBuf,
     fn_version: FnMetadataVersion,
     fn_free_string: FnMetadataFreeString,
     fn_read_metadata: FnMetadataReadMetadata,
     fn_write_metadata: FnMetadataWriteMetadata,
-    #[allow(dead_code)]
     fn_update_tag: FnMetadataUpdateTag,
 }
 unsafe impl Send for MetadataModule {}
@@ -106,11 +107,16 @@ pub fn component_filename(base_name: &str) -> String {
 }
 
 /// Compute resolution search candidates for a component library.
-/// Checks local directories, current dir, subdirectories (./lib), target folders,
-/// and standard installation paths for AppImage, win32, and tarball solvency.
+/// Respects `ATTUNE_LIB_DIR` environment override first, followed by executable-relative,
+/// working-directory-relative, Cargo target directories, system paths, and OS loader path.
 pub fn resolve_candidate_paths(base_name: &str) -> Vec<PathBuf> {
     let filename = component_filename(base_name);
     let mut candidates = Vec::new();
+
+    // 0. Environment variable override (Mandate 4: environment-driven resolution)
+    if let Some(env_dir) = std::env::var_os("ATTUNE_LIB_DIR") {
+        candidates.push(PathBuf::from(env_dir).join(&filename));
+    }
 
     // 1. Executable parent and <exe>/lib
     if let Ok(exe_path) = std::env::current_exe() {
@@ -161,7 +167,7 @@ pub fn resolve_candidate_paths(base_name: &str) -> Vec<PathBuf> {
 #[cfg(unix)]
 unsafe fn os_dlopen(path_str: &str) -> Result<*mut std::ffi::c_void, String> {
     let c_path = CString::new(path_str).map_err(|e| e.to_string())?;
-    let handle = libc::dlopen(c_path.as_ptr(), libc::RTLD_LAZY | libc::RTLD_LOCAL);
+    let handle = libc::dlopen(c_path.as_ptr(), libc::RTLD_NOW | libc::RTLD_LOCAL);
     if handle.is_null() {
         let err_ptr = libc::dlerror();
         let err_msg = if !err_ptr.is_null() {
@@ -189,6 +195,13 @@ unsafe fn os_dlsym(handle: *mut std::ffi::c_void, symbol: &str) -> Result<*mut s
         Err(err_msg)
     } else {
         Ok(sym)
+    }
+}
+
+#[cfg(unix)]
+unsafe fn os_dlclose(handle: *mut std::ffi::c_void) {
+    if !handle.is_null() {
+        libc::dlclose(handle);
     }
 }
 
@@ -224,6 +237,16 @@ unsafe fn os_dlsym(handle: *mut std::ffi::c_void, symbol: &str) -> Result<*mut s
     }
 }
 
+#[cfg(windows)]
+unsafe fn os_dlclose(handle: *mut std::ffi::c_void) {
+    extern "system" {
+        fn FreeLibrary(hLibModule: *mut std::ffi::c_void) -> i32;
+    }
+    if !handle.is_null() {
+        FreeLibrary(handle);
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Preflight Verification & Loader
 // ---------------------------------------------------------------------------
@@ -238,17 +261,14 @@ unsafe fn os_dlsym(handle: *mut std::ffi::c_void, symbol: &str) -> Result<*mut s
 pub fn preflight_check_and_load() -> Result<(), Vec<MissingComponentError>> {
     let mut errors = Vec::new();
 
-    // 1. Load attune_procmgr
     if let Err(err) = load_procmgr() {
         errors.push(err);
     }
 
-    // 2. Load attune_watchguard
     if let Err(err) = load_watchguard() {
         errors.push(err);
     }
 
-    // 3. Load attune_music_metadata_changer
     if let Err(err) = load_metadata_changer() {
         errors.push(err);
     }
@@ -261,20 +281,27 @@ pub fn preflight_check_and_load() -> Result<(), Vec<MissingComponentError>> {
     }
 }
 
+fn format_candidate_errors(specific_errors: &[String], fallback_error: Option<String>) -> String {
+    if !specific_errors.is_empty() {
+        specific_errors.join(" | ")
+    } else {
+        fallback_error.unwrap_or_else(|| "File not found in any candidate search path".to_string())
+    }
+}
+
 fn load_procmgr() -> Result<(), MissingComponentError> {
     let base = "attune_procmgr";
     let filename = component_filename(base);
     let candidates = resolve_candidate_paths(base);
-    let mut last_error = "File not found in any candidate search path".to_string();
+    let mut specific_errors = Vec::new();
+    let mut fallback_error = None;
 
     for path in &candidates {
-        if path.is_absolute() && !path.exists() {
+        let is_bare = path.parent().map(|p| p.as_os_str().is_empty()).unwrap_or(true);
+        if !is_bare && !path.exists() {
             continue;
         }
-        let path_str = match path.to_str() {
-            Some(s) => s,
-            None => continue,
-        };
+        let Some(path_str) = path.to_str() else { continue };
 
         unsafe {
             match os_dlopen(path_str) {
@@ -284,36 +311,53 @@ fn load_procmgr() -> Result<(), MissingComponentError> {
                     let c_sym = os_dlsym(handle, "procmgr_clean_process_memory");
                     let f_sym = os_dlsym(handle, "procmgr_free_string");
 
-                    if let (Ok(v), Ok(m), Ok(c), Ok(f)) = (v_sym, m_sym, c_sym, f_sym) {
-                        let module = ProcmgrModule {
-                            handle,
-                            resolved_path: path.clone(),
-                            fn_version: std::mem::transmute(v),
-                            fn_sample_metrics_json: std::mem::transmute(m),
-                            fn_clean_process_memory: std::mem::transmute(c),
-                            fn_free_string: std::mem::transmute(f),
-                        };
-                        let ver_ptr = (module.fn_version)();
-                        let ver_str = if !ver_ptr.is_null() {
-                            CStr::from_ptr(ver_ptr).to_string_lossy().into_owned()
-                        } else {
-                            "unknown".to_string()
-                        };
-                        log::info!(
-                            "Dynamic Component Loaded: {} (v{}) from {}",
-                            filename,
-                            ver_str,
-                            path.display()
-                        );
-                        let mut guard = PROCMGR.lock().unwrap();
-                        *guard = Some(module);
-                        return Ok(());
-                    } else {
-                        last_error = format!("Missing required C-ABI symbol(s) in {}", path.display());
+                    match (v_sym, m_sym, c_sym, f_sym) {
+                        (Ok(v), Ok(m), Ok(c), Ok(f)) => {
+                            let module = ProcmgrModule {
+                                _handle: handle,
+                                resolved_path: path.clone(),
+                                fn_version: std::mem::transmute(v),
+                                fn_sample_metrics_json: std::mem::transmute(m),
+                                fn_clean_process_memory: std::mem::transmute(c),
+                                fn_free_string: std::mem::transmute(f),
+                            };
+                            let ver_ptr = (module.fn_version)();
+                            let ver_str = if !ver_ptr.is_null() {
+                                CStr::from_ptr(ver_ptr).to_string_lossy().into_owned()
+                            } else {
+                                "unknown".to_string()
+                            };
+                            log::info!(
+                                "Dynamic Component Loaded: {} (v{}) from {}",
+                                filename,
+                                ver_str,
+                                path.display()
+                            );
+                            let mut guard = PROCMGR.lock().unwrap();
+                            *guard = Some(module);
+                            return Ok(());
+                        }
+                        (v, m, c, f) => {
+                            let mut missing = Vec::new();
+                            if let Err(e) = v { missing.push(e); }
+                            if let Err(e) = m { missing.push(e); }
+                            if let Err(e) = c { missing.push(e); }
+                            if let Err(e) = f { missing.push(e); }
+                            os_dlclose(handle);
+                            specific_errors.push(format!(
+                                "{}: symbol resolution failed ({})",
+                                path.display(),
+                                missing.join(", ")
+                            ));
+                        }
                     }
                 }
                 Err(e) => {
-                    last_error = format!("dlopen failed: {e}");
+                    if !is_bare {
+                        specific_errors.push(format!("{}: dlopen failed ({e})", path.display()));
+                    } else {
+                        fallback_error = Some(format!("dlopen failed: {e}"));
+                    }
                 }
             }
         }
@@ -323,7 +367,7 @@ fn load_procmgr() -> Result<(), MissingComponentError> {
         component_name: "Attune Hardware & Process Manager Telemetry".to_string(),
         library_filename: filename,
         searched_paths: candidates,
-        error_details: last_error,
+        error_details: format_candidate_errors(&specific_errors, fallback_error),
     })
 }
 
@@ -331,16 +375,15 @@ fn load_watchguard() -> Result<(), MissingComponentError> {
     let base = "attune_watchguard";
     let filename = component_filename(base);
     let candidates = resolve_candidate_paths(base);
-    let mut last_error = "File not found in any candidate search path".to_string();
+    let mut specific_errors = Vec::new();
+    let mut fallback_error = None;
 
     for path in &candidates {
-        if path.is_absolute() && !path.exists() {
+        let is_bare = path.parent().map(|p| p.as_os_str().is_empty()).unwrap_or(true);
+        if !is_bare && !path.exists() {
             continue;
         }
-        let path_str = match path.to_str() {
-            Some(s) => s,
-            None => continue,
-        };
+        let Some(path_str) = path.to_str() else { continue };
 
         unsafe {
             match os_dlopen(path_str) {
@@ -353,43 +396,68 @@ fn load_watchguard() -> Result<(), MissingComponentError> {
                     let reset_sym = os_dlsym(handle, "watchguard_reset_metrics");
                     let free_sym = os_dlsym(handle, "watchguard_free_string");
 
-                    if let (Ok(i), Ok(v), Ok(a), Ok(u), Ok(s), Ok(r), Ok(f)) =
-                        (init_sym, ver_sym, audio_sym, ui_sym, status_sym, reset_sym, free_sym)
-                    {
-                        let module = WatchguardModule {
-                            handle,
-                            resolved_path: path.clone(),
-                            fn_init: std::mem::transmute(i),
-                            fn_version: std::mem::transmute(v),
-                            fn_record_audio_event: std::mem::transmute(a),
-                            fn_record_ui_frame: std::mem::transmute(u),
-                            fn_get_status_json: std::mem::transmute(s),
-                            fn_reset_metrics: std::mem::transmute(r),
-                            fn_free_string: std::mem::transmute(f),
-                        };
-                        // Initialize subsystem
-                        (module.fn_init)();
-                        let ver_ptr = (module.fn_version)();
-                        let ver_str = if !ver_ptr.is_null() {
-                            CStr::from_ptr(ver_ptr).to_string_lossy().into_owned()
-                        } else {
-                            "unknown".to_string()
-                        };
-                        log::info!(
-                            "Dynamic Component Loaded: {} (v{}) from {}",
-                            filename,
-                            ver_str,
-                            path.display()
-                        );
-                        let mut guard = WATCHGUARD.lock().unwrap();
-                        *guard = Some(module);
-                        return Ok(());
-                    } else {
-                        last_error = format!("Missing required C-ABI symbol(s) in {}", path.display());
+                    match (init_sym, ver_sym, audio_sym, ui_sym, status_sym, reset_sym, free_sym) {
+                        (Ok(i), Ok(v), Ok(a), Ok(u), Ok(s), Ok(r), Ok(f)) => {
+                            let module = WatchguardModule {
+                                _handle: handle,
+                                resolved_path: path.clone(),
+                                fn_init: std::mem::transmute(i),
+                                fn_version: std::mem::transmute(v),
+                                fn_record_audio_event: std::mem::transmute(a),
+                                fn_record_ui_frame: std::mem::transmute(u),
+                                fn_get_status_json: std::mem::transmute(s),
+                                fn_reset_metrics: std::mem::transmute(r),
+                                fn_free_string: std::mem::transmute(f),
+                            };
+                            let init_rc = (module.fn_init)();
+                            if init_rc != 0 {
+                                os_dlclose(handle);
+                                specific_errors.push(format!(
+                                    "{}: watchguard_init returned non-zero status ({init_rc})",
+                                    path.display()
+                                ));
+                                continue;
+                            }
+                            let ver_ptr = (module.fn_version)();
+                            let ver_str = if !ver_ptr.is_null() {
+                                CStr::from_ptr(ver_ptr).to_string_lossy().into_owned()
+                            } else {
+                                "unknown".to_string()
+                            };
+                            log::info!(
+                                "Dynamic Component Loaded: {} (v{}) from {}",
+                                filename,
+                                ver_str,
+                                path.display()
+                            );
+                            let mut guard = WATCHGUARD.lock().unwrap();
+                            *guard = Some(module);
+                            return Ok(());
+                        }
+                        (i, v, a, u, s, r, f) => {
+                            let mut missing = Vec::new();
+                            if let Err(e) = i { missing.push(e); }
+                            if let Err(e) = v { missing.push(e); }
+                            if let Err(e) = a { missing.push(e); }
+                            if let Err(e) = u { missing.push(e); }
+                            if let Err(e) = s { missing.push(e); }
+                            if let Err(e) = r { missing.push(e); }
+                            if let Err(e) = f { missing.push(e); }
+                            os_dlclose(handle);
+                            specific_errors.push(format!(
+                                "{}: symbol resolution failed ({})",
+                                path.display(),
+                                missing.join(", ")
+                            ));
+                        }
                     }
                 }
                 Err(e) => {
-                    last_error = format!("dlopen failed: {e}");
+                    if !is_bare {
+                        specific_errors.push(format!("{}: dlopen failed ({e})", path.display()));
+                    } else {
+                        fallback_error = Some(format!("dlopen failed: {e}"));
+                    }
                 }
             }
         }
@@ -399,7 +467,7 @@ fn load_watchguard() -> Result<(), MissingComponentError> {
         component_name: "Attune Stability & Device Overhead Watchguard".to_string(),
         library_filename: filename,
         searched_paths: candidates,
-        error_details: last_error,
+        error_details: format_candidate_errors(&specific_errors, fallback_error),
     })
 }
 
@@ -407,16 +475,15 @@ fn load_metadata_changer() -> Result<(), MissingComponentError> {
     let base = "attune_music_metadata_changer";
     let filename = component_filename(base);
     let candidates = resolve_candidate_paths(base);
-    let mut last_error = "File not found in any candidate search path".to_string();
+    let mut specific_errors = Vec::new();
+    let mut fallback_error = None;
 
     for path in &candidates {
-        if path.is_absolute() && !path.exists() {
+        let is_bare = path.parent().map(|p| p.as_os_str().is_empty()).unwrap_or(true);
+        if !is_bare && !path.exists() {
             continue;
         }
-        let path_str = match path.to_str() {
-            Some(s) => s,
-            None => continue,
-        };
+        let Some(path_str) = path.to_str() else { continue };
 
         unsafe {
             match os_dlopen(path_str) {
@@ -427,37 +494,55 @@ fn load_metadata_changer() -> Result<(), MissingComponentError> {
                     let w_sym = os_dlsym(handle, "attune_track_tweaks_write_metadata");
                     let u_sym = os_dlsym(handle, "attune_track_tweaks_update_tag");
 
-                    if let (Ok(v), Ok(f), Ok(r), Ok(w), Ok(u)) = (v_sym, f_sym, r_sym, w_sym, u_sym) {
-                        let module = MetadataModule {
-                            handle,
-                            resolved_path: path.clone(),
-                            fn_version: std::mem::transmute(v),
-                            fn_free_string: std::mem::transmute(f),
-                            fn_read_metadata: std::mem::transmute(r),
-                            fn_write_metadata: std::mem::transmute(w),
-                            fn_update_tag: std::mem::transmute(u),
-                        };
-                        let ver_ptr = (module.fn_version)();
-                        let ver_str = if !ver_ptr.is_null() {
-                            CStr::from_ptr(ver_ptr).to_string_lossy().into_owned()
-                        } else {
-                            "unknown".to_string()
-                        };
-                        log::info!(
-                            "Dynamic Component Loaded: {} (v{}) from {}",
-                            filename,
-                            ver_str,
-                            path.display()
-                        );
-                        let mut guard = METADATA.lock().unwrap();
-                        *guard = Some(module);
-                        return Ok(());
-                    } else {
-                        last_error = format!("Missing required C-ABI symbol(s) in {}", path.display());
+                    match (v_sym, f_sym, r_sym, w_sym, u_sym) {
+                        (Ok(v), Ok(f), Ok(r), Ok(w), Ok(u)) => {
+                            let module = MetadataModule {
+                                _handle: handle,
+                                resolved_path: path.clone(),
+                                fn_version: std::mem::transmute(v),
+                                fn_free_string: std::mem::transmute(f),
+                                fn_read_metadata: std::mem::transmute(r),
+                                fn_write_metadata: std::mem::transmute(w),
+                                fn_update_tag: std::mem::transmute(u),
+                            };
+                            let ver_ptr = (module.fn_version)();
+                            let ver_str = if !ver_ptr.is_null() {
+                                CStr::from_ptr(ver_ptr).to_string_lossy().into_owned()
+                            } else {
+                                "unknown".to_string()
+                            };
+                            log::info!(
+                                "Dynamic Component Loaded: {} (v{}) from {}",
+                                filename,
+                                ver_str,
+                                path.display()
+                            );
+                            let mut guard = METADATA.lock().unwrap();
+                            *guard = Some(module);
+                            return Ok(());
+                        }
+                        (v, f, r, w, u) => {
+                            let mut missing = Vec::new();
+                            if let Err(e) = v { missing.push(e); }
+                            if let Err(e) = f { missing.push(e); }
+                            if let Err(e) = r { missing.push(e); }
+                            if let Err(e) = w { missing.push(e); }
+                            if let Err(e) = u { missing.push(e); }
+                            os_dlclose(handle);
+                            specific_errors.push(format!(
+                                "{}: symbol resolution failed ({})",
+                                path.display(),
+                                missing.join(", ")
+                            ));
+                        }
                     }
                 }
                 Err(e) => {
-                    last_error = format!("dlopen failed: {e}");
+                    if !is_bare {
+                        specific_errors.push(format!("{}: dlopen failed ({e})", path.display()));
+                    } else {
+                        fallback_error = Some(format!("dlopen failed: {e}"));
+                    }
                 }
             }
         }
@@ -467,7 +552,7 @@ fn load_metadata_changer() -> Result<(), MissingComponentError> {
         component_name: "Attune Track Metadata & Audio Tweaks Engine".to_string(),
         library_filename: filename,
         searched_paths: candidates,
-        error_details: last_error,
+        error_details: format_candidate_errors(&specific_errors, fallback_error),
     })
 }
 
@@ -482,62 +567,47 @@ pub struct LoadedComponentSummary {
     pub version: String,
 }
 
+unsafe fn read_c_version(fn_ver: unsafe extern "C" fn() -> *const c_char) -> String {
+    let p = fn_ver();
+    if !p.is_null() {
+        CStr::from_ptr(p).to_string_lossy().into_owned()
+    } else {
+        "null-version-ptr".to_string()
+    }
+}
+
 pub fn get_loaded_components_summary() -> Vec<LoadedComponentSummary> {
     let mut summaries = Vec::new();
 
     if let Ok(guard) = PROCMGR.lock() {
         if let Some(m) = guard.as_ref() {
-            let ver = unsafe {
-                let p = (m.fn_version)();
-                if !p.is_null() {
-                    CStr::from_ptr(p).to_string_lossy().into_owned()
-                } else {
-                    "0.1.0".to_string()
-                }
-            };
             summaries.push(LoadedComponentSummary {
                 name: "Attune Process & Hardware Resource Manager".to_string(),
                 filename: component_filename("attune_procmgr"),
                 path: m.resolved_path.clone(),
-                version: ver,
+                version: unsafe { read_c_version(m.fn_version) },
             });
         }
     }
 
     if let Ok(guard) = WATCHGUARD.lock() {
         if let Some(m) = guard.as_ref() {
-            let ver = unsafe {
-                let p = (m.fn_version)();
-                if !p.is_null() {
-                    CStr::from_ptr(p).to_string_lossy().into_owned()
-                } else {
-                    "0.1.0".to_string()
-                }
-            };
             summaries.push(LoadedComponentSummary {
                 name: "Attune Stability & Device Overhead Watchguard".to_string(),
                 filename: component_filename("attune_watchguard"),
                 path: m.resolved_path.clone(),
-                version: ver,
+                version: unsafe { read_c_version(m.fn_version) },
             });
         }
     }
 
     if let Ok(guard) = METADATA.lock() {
         if let Some(m) = guard.as_ref() {
-            let ver = unsafe {
-                let p = (m.fn_version)();
-                if !p.is_null() {
-                    CStr::from_ptr(p).to_string_lossy().into_owned()
-                } else {
-                    "0.1.0".to_string()
-                }
-            };
             summaries.push(LoadedComponentSummary {
                 name: "Attune Track Metadata & Audio Tweaks Engine".to_string(),
                 filename: component_filename("attune_music_metadata_changer"),
                 path: m.resolved_path.clone(),
-                version: ver,
+                version: unsafe { read_c_version(m.fn_version) },
             });
         }
     }
@@ -554,7 +624,9 @@ pub mod procmgr {
     use crate::process_manager::ProcessMetrics;
 
     pub fn sample_metrics() -> Result<ProcessMetrics, String> {
-        let guard = PROCMGR.lock().unwrap();
+        let guard = PROCMGR
+            .lock()
+            .map_err(|e| format!("procmgr mutex poisoned: {e}"))?;
         let module = guard
             .as_ref()
             .ok_or_else(|| "libattune_procmgr is not loaded".to_string())?;
@@ -569,12 +641,14 @@ pub mod procmgr {
             (module.fn_free_string)(ptr as *mut c_char);
 
             serde_json::from_str::<ProcessMetrics>(&json_str)
-                .map_err(|e| format!("Failed to parse metrics JSON: {e}"))
+                .map_err(|e| format!("Failed to parse metrics JSON from libattune_procmgr: {e}"))
         }
     }
 
     pub fn clean_process_memory() -> Result<(u64, u64), String> {
-        let guard = PROCMGR.lock().unwrap();
+        let guard = PROCMGR
+            .lock()
+            .map_err(|e| format!("procmgr mutex poisoned: {e}"))?;
         let module = guard
             .as_ref()
             .ok_or_else(|| "libattune_procmgr is not loaded".to_string())?;
@@ -597,42 +671,85 @@ pub mod procmgr {
 pub mod watchguard {
     use super::*;
 
-    pub fn record_audio_event(peak_amplitude: f32, is_underrun: bool, is_clipping: bool) {
-        if let Ok(guard) = WATCHGUARD.lock() {
-            if let Some(module) = guard.as_ref() {
-                unsafe {
-                    (module.fn_record_audio_event)(
-                        peak_amplitude,
-                        if is_underrun { 1 } else { 0 },
-                        if is_clipping { 1 } else { 0 },
-                    );
-                }
-            }
-        }
+    /// Real-time health and stability status snapshot deserialized from `libattune_watchguard`.
+    #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+    pub struct StabilityStatus {
+        pub is_overloaded: bool,
+        pub instability_score: f32,
+        pub clipping_count: u32,
+        pub underrun_count: u32,
+        pub recent_clipping_events: u32,
+        pub recent_underrun_events: u32,
+        pub average_fps: f32,
+        pub dropped_frame_ratio: f32,
+        pub peak_frame_duration_ms: f32,
+        pub warning_message: Option<String>,
+        pub recommend_system_codec: bool,
+        pub timestamp_ms: u64,
     }
 
-    pub fn record_ui_frame(frame_time_ms: f32) {
-        if let Ok(guard) = WATCHGUARD.lock() {
-            if let Some(module) = guard.as_ref() {
-                unsafe {
-                    (module.fn_record_ui_frame)(frame_time_ms);
-                }
-            }
+    pub fn record_audio_event(peak_amplitude: f32, is_underrun: bool, is_clipping: bool) -> Result<(), String> {
+        let guard = WATCHGUARD
+            .lock()
+            .map_err(|e| format!("watchguard mutex poisoned: {e}"))?;
+        let module = guard
+            .as_ref()
+            .ok_or_else(|| "libattune_watchguard is not loaded".to_string())?;
+        unsafe {
+            (module.fn_record_audio_event)(
+                peak_amplitude,
+                if is_underrun { 1 } else { 0 },
+                if is_clipping { 1 } else { 0 },
+            );
         }
+        Ok(())
     }
 
-    pub fn get_status_json() -> Option<String> {
-        let guard = WATCHGUARD.lock().ok()?;
-        let module = guard.as_ref()?;
+    pub fn record_ui_frame(frame_time_ms: f32) -> Result<(), String> {
+        let guard = WATCHGUARD
+            .lock()
+            .map_err(|e| format!("watchguard mutex poisoned: {e}"))?;
+        let module = guard
+            .as_ref()
+            .ok_or_else(|| "libattune_watchguard is not loaded".to_string())?;
+        unsafe {
+            (module.fn_record_ui_frame)(frame_time_ms);
+        }
+        Ok(())
+    }
+
+    pub fn get_status() -> Result<StabilityStatus, String> {
+        let guard = WATCHGUARD
+            .lock()
+            .map_err(|e| format!("watchguard mutex poisoned: {e}"))?;
+        let module = guard
+            .as_ref()
+            .ok_or_else(|| "libattune_watchguard is not loaded".to_string())?;
         unsafe {
             let ptr = (module.fn_get_status_json)();
             if ptr.is_null() {
-                return None;
+                return Err("watchguard_get_status_json returned null pointer".to_string());
             }
             let c_str = CStr::from_ptr(ptr);
             let json_str = c_str.to_string_lossy().into_owned();
             (module.fn_free_string)(ptr as *mut c_char);
-            Some(json_str)
+            serde_json::from_str::<StabilityStatus>(&json_str)
+                .map_err(|e| format!("Failed to parse StabilityStatus JSON from libattune_watchguard: {e}"))
+        }
+    }
+
+    pub fn reset_metrics() -> Result<(), String> {
+        let guard = WATCHGUARD
+            .lock()
+            .map_err(|e| format!("watchguard mutex poisoned: {e}"))?;
+        let module = guard
+            .as_ref()
+            .ok_or_else(|| "libattune_watchguard is not loaded".to_string())?;
+        let rc = unsafe { (module.fn_reset_metrics)() };
+        if rc == 0 {
+            Ok(())
+        } else {
+            Err(format!("watchguard_reset_metrics failed with code: {rc}"))
         }
     }
 }
@@ -681,7 +798,9 @@ pub mod music_metadata_changer {
     }
 
     pub fn write_track_metadata(path: &Path, meta: &TrackMetadata) -> Result<(), String> {
-        let guard = METADATA.lock().unwrap();
+        let guard = METADATA
+            .lock()
+            .map_err(|e| format!("metadata_changer mutex poisoned: {e}"))?;
         let module = guard
             .as_ref()
             .ok_or_else(|| "libattune_music_metadata_changer is not loaded".to_string())?;
@@ -702,7 +821,9 @@ pub mod music_metadata_changer {
     }
 
     pub fn read_track_metadata(path: &Path) -> Result<TrackMetadata, String> {
-        let guard = METADATA.lock().unwrap();
+        let guard = METADATA
+            .lock()
+            .map_err(|e| format!("metadata_changer mutex poisoned: {e}"))?;
         let module = guard
             .as_ref()
             .ok_or_else(|| "libattune_music_metadata_changer is not loaded".to_string())?;
@@ -721,6 +842,27 @@ pub mod music_metadata_changer {
 
             serde_json::from_str::<TrackMetadata>(&json_str)
                 .map_err(|e| format!("Failed to parse metadata JSON: {e}"))
+        }
+    }
+
+    pub fn update_track_tag(path: &Path, tag_name: &str, tag_value: &str) -> Result<(), String> {
+        let guard = METADATA
+            .lock()
+            .map_err(|e| format!("metadata_changer mutex poisoned: {e}"))?;
+        let module = guard
+            .as_ref()
+            .ok_or_else(|| "libattune_music_metadata_changer is not loaded".to_string())?;
+
+        let path_str = path.to_str().ok_or_else(|| "Path contains non-UTF8 characters".to_string())?;
+        let c_path = CString::new(path_str).map_err(|e| e.to_string())?;
+        let c_tag = CString::new(tag_name).map_err(|e| e.to_string())?;
+        let c_val = CString::new(tag_value).map_err(|e| e.to_string())?;
+
+        let code = unsafe { (module.fn_update_tag)(c_path.as_ptr(), c_tag.as_ptr(), c_val.as_ptr()) };
+        if code == 0 {
+            Ok(())
+        } else {
+            Err(format!("attune_track_tweaks_update_tag failed with error code: {code}"))
         }
     }
 }
@@ -766,5 +908,15 @@ mod tests {
         assert!(summary.iter().any(|s| s.filename == component_filename("attune_procmgr")));
         assert!(summary.iter().any(|s| s.filename == component_filename("attune_watchguard")));
         assert!(summary.iter().any(|s| s.filename == component_filename("attune_music_metadata_changer")));
+
+        // Verify live calls through all 3 dynamic modules
+        let metrics = procmgr::sample_metrics().expect("procmgr::sample_metrics must succeed");
+        assert!(metrics.timestamp_ms > 0);
+
+        watchguard::record_ui_frame(16.0).expect("watchguard::record_ui_frame must succeed");
+        watchguard::record_audio_event(0.5, false, false).expect("watchguard::record_audio_event must succeed");
+        let status = watchguard::get_status().expect("watchguard::get_status must succeed");
+        assert!(!status.is_overloaded);
+        watchguard::reset_metrics().expect("watchguard::reset_metrics must succeed");
     }
 }

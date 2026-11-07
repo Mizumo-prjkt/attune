@@ -466,22 +466,15 @@ pub fn App() -> Element {
                 let all = tracks.cloned();
                 let incoming = q.iter().find(|t| t.path == triggered.incoming_path).cloned()
                     .or_else(|| all.iter().find(|t| t.path == triggered.incoming_path).cloned())
-                    .unwrap_or_else(|| TrackEntry {
-                        path: triggered.incoming_path.clone(),
-                        title: triggered.incoming_title.clone(),
-                        artist: triggered.incoming_artist.clone(),
-                        album: "Mix".into(),
-                        genre: None,
-                        duration_ms: (triggered.duration_sec * 1000.0) as u64,
-                        bpm: Some(triggered.incoming_bpm),
-                        key: Some(triggered.incoming_key.clone()),
-                        format: "FLAC".into(),
-                        sample_rate: 44100,
-                        bit_depth: 16,
-                        artwork_path: None,
-                        artwork_data_url: None,
-                        aggression: None,
-                        vibe_family: None,
+                    .unwrap_or_else(|| {
+                        let mut probed = TrackEntry::from_probe(&triggered.incoming_path);
+                        if probed.bpm.is_none() && triggered.incoming_bpm > 10.0 {
+                            probed.bpm = Some(triggered.incoming_bpm);
+                        }
+                        if probed.key.is_none() && !triggered.incoming_key.is_empty() {
+                            probed.key = Some(triggered.incoming_key.clone());
+                        }
+                        probed
                     });
                 transitioning_to_track.set(Some(incoming));
             } else {
@@ -490,15 +483,23 @@ pub fn App() -> Element {
         }
     };
 
-    // Background Async Poller (50ms Interval): Updates playback, auto-transitions, scan events, and lyrics
+    // Background Async Poller (50ms Interval): Updates playback, auto-transitions, scan events, lyrics, and Watchguard telemetry
     let play_next_track_poller = play_next_track.clone();
     use_future(move || {
         let player = player.clone();
         let scan_rx = scan_rx.clone();
         let mut play_next_track = play_next_track_poller.clone();
         async move {
+            let mut last_poll_instant = std::time::Instant::now();
+            let mut last_clipping_count = 0u32;
+            let mut last_underrun_count = 0u32;
+
             loop {
                 tokio::time::sleep(Duration::from_millis(50)).await;
+                let now = std::time::Instant::now();
+                let frame_ms = now.duration_since(last_poll_instant).as_secs_f32() * 1000.0;
+                last_poll_instant = now;
+                let _ = crate::dynamic_components::watchguard::record_ui_frame(frame_ms);
 
                 // 1. Process Library Scan Events
                 let rx_arc = scan_rx.read().clone();
@@ -534,6 +535,19 @@ pub fn App() -> Element {
                 let p = player.read();
                 if let Some(snap) = p.snapshot() {
                     is_playing.set(snap.is_playing);
+
+                    // Feed real audio signal & underrun/clipping events into Watchguard dylib
+                    let new_clipping = snap.clipping_count > last_clipping_count;
+                    let new_underrun = snap.underrun_count > last_underrun_count;
+                    last_clipping_count = snap.clipping_count;
+                    last_underrun_count = snap.underrun_count;
+                    if snap.is_playing || new_clipping || new_underrun {
+                        let _ = crate::dynamic_components::watchguard::record_audio_event(
+                            snap.peak_amplitude,
+                            new_underrun,
+                            new_clipping,
+                        );
+                    }
 
                     // Determine active deck position and duration
                     let (pos, dur) = if snap.active_deck_str == "Deck B" {
@@ -593,22 +607,15 @@ pub fn App() -> Element {
                             let all = tracks.cloned();
                             let incoming = q.iter().find(|t| t.path == triggered.incoming_path).cloned()
                                 .or_else(|| all.iter().find(|t| t.path == triggered.incoming_path).cloned())
-                                .unwrap_or_else(|| TrackEntry {
-                                    path: triggered.incoming_path.clone(),
-                                    title: triggered.incoming_title.clone(),
-                                    artist: triggered.incoming_artist.clone(),
-                                    album: "Mix".into(),
-                                    genre: None,
-                                    duration_ms: (triggered.duration_sec * 1000.0) as u64,
-                                    bpm: Some(triggered.incoming_bpm),
-                                    key: Some(triggered.incoming_key.clone()),
-                                    format: "FLAC".into(),
-                                    sample_rate: 44100,
-                                    bit_depth: 16,
-                                    artwork_path: None,
-                                    artwork_data_url: None,
-                                    aggression: None,
-                                    vibe_family: None,
+                                .unwrap_or_else(|| {
+                                    let mut probed = TrackEntry::from_probe(&triggered.incoming_path);
+                                    if probed.bpm.is_none() && triggered.incoming_bpm > 10.0 {
+                                        probed.bpm = Some(triggered.incoming_bpm);
+                                    }
+                                    if probed.key.is_none() && !triggered.incoming_key.is_empty() {
+                                        probed.key = Some(triggered.incoming_key.clone());
+                                    }
+                                    probed
                                 });
                             transitioning_to_track.set(Some(incoming));
                         }
@@ -632,26 +639,16 @@ pub fn App() -> Element {
                             (insert_idx, t.clone())
                         } else {
                             let insert_idx = (curr_pos + 1).min(q.len());
-                            let fallback = TrackEntry {
-                                path: completed.incoming_path.clone(),
-                                title: completed.incoming_title.clone(),
-                                artist: completed.incoming_artist.clone(),
-                                album: "Mix".into(),
-                                genre: None,
-                                duration_ms: (completed.duration_sec * 1000.0) as u64,
-                                bpm: Some(completed.incoming_bpm),
-                                key: Some(completed.incoming_key.clone()),
-                                format: "FLAC".into(),
-                                sample_rate: 44100,
-                                bit_depth: 16,
-                                artwork_path: None,
-                                artwork_data_url: None,
-                                aggression: None,
-                                vibe_family: None,
-                            };
-                            q.insert(insert_idx, fallback.clone());
+                            let mut probed = TrackEntry::from_probe(&completed.incoming_path);
+                            if probed.bpm.is_none() && completed.incoming_bpm > 10.0 {
+                                probed.bpm = Some(completed.incoming_bpm);
+                            }
+                            if probed.key.is_none() && !completed.incoming_key.is_empty() {
+                                probed.key = Some(completed.incoming_key.clone());
+                            }
+                            q.insert(insert_idx, probed.clone());
                             queue.set(q.clone());
-                            (insert_idx, fallback)
+                            (insert_idx, probed)
                         };
 
                         queue_pos.set(next_idx);
@@ -1170,29 +1167,49 @@ pub fn App() -> Element {
                                 }
                             }
                         },
-                        StageView::Settings => rsx! {
-                            Settings {
-                                music_dir: music_dir.read().clone(),
-                                on_choose_folder: move |_| {
-                                    if let Some(path) = rfd::FileDialog::new().pick_folder() {
-                                        music_dir.set(Some(path.clone()));
-                                        tracks.set(Vec::new());
-                                        let rx = library::spawn_scan(path);
-                                        *scan_rx.write() = Arc::new(Mutex::new(Some(rx)));
-                                        is_scanning.set(true);
-                                    }
-                                },
-                                on_rescan_library: move |_| {
-                                    if let Some(dir) = music_dir.read().clone() {
-                                        tracks.set(Vec::new());
-                                        let rx = library::spawn_scan(dir);
-                                        *scan_rx.write() = Arc::new(Mutex::new(Some(rx)));
-                                        is_scanning.set(true);
-                                    }
-                                },
-                                on_open_equalizer: move |_| navigate_to(StageView::Equalizer),
-                                on_open_process_manager: move |_| navigate_to(StageView::ProcessManager),
-                                on_open_setup: move |_| navigate_to(StageView::Setup),
+                        StageView::Settings => {
+                            let (_, dir_src) = config::resolve_music_dir(music_dir.read().clone());
+                            let p = player.read();
+                            let has_hw = p.has_hardware_output();
+                            let drv_err = p.driver_error().map(str::to_string);
+                            let sr = p.snapshot().map(|s| s.sample_rate).unwrap_or(0);
+                            drop(p);
+
+                            rsx! {
+                                Settings {
+                                    music_dir: music_dir.read().clone(),
+                                    music_dir_source: dir_src.label().to_string(),
+                                    has_hardware_output: has_hw,
+                                    driver_error: drv_err,
+                                    mixer_sample_rate: sr,
+                                    shuffle_mode: *shuffle_mode.read(),
+                                    on_change_shuffle_mode: move |new_mode: ShuffleMode| {
+                                        shuffle_mode.set(new_mode);
+                                        if new_mode != ShuffleMode::Smart {
+                                            player.read().clear_pending_transition();
+                                        }
+                                    },
+                                    on_choose_folder: move |_| {
+                                        if let Some(path) = rfd::FileDialog::new().pick_folder() {
+                                            music_dir.set(Some(path.clone()));
+                                            tracks.set(Vec::new());
+                                            let rx = library::spawn_scan(path);
+                                            *scan_rx.write() = Arc::new(Mutex::new(Some(rx)));
+                                            is_scanning.set(true);
+                                        }
+                                    },
+                                    on_rescan_library: move |_| {
+                                        if let Some(dir) = music_dir.read().clone() {
+                                            tracks.set(Vec::new());
+                                            let rx = library::spawn_scan(dir);
+                                            *scan_rx.write() = Arc::new(Mutex::new(Some(rx)));
+                                            is_scanning.set(true);
+                                        }
+                                    },
+                                    on_open_equalizer: move |_| navigate_to(StageView::Equalizer),
+                                    on_open_process_manager: move |_| navigate_to(StageView::ProcessManager),
+                                    on_open_setup: move |_| navigate_to(StageView::Setup),
+                                }
                             }
                         },
                         StageView::ProcessManager => rsx! {
