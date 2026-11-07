@@ -182,7 +182,17 @@ pub fn Artists(
                                     }
 
                                     div { class: "artist-card-info",
-                                        span { class: "artist-card-name", title: "{name}", "{name}" }
+                                        div { style: "display: flex; align-items: center; justify-content: space-between; gap: 4px; overflow: hidden;",
+                                            span { class: "artist-card-name", title: "{name}", "{name}" }
+                                            if photo_art.is_some() {
+                                                span {
+                                                    class: "material-icons md-14",
+                                                    style: "color: var(--accent-mint); flex-shrink: 0;",
+                                                    title: "{strings.verified_artist}",
+                                                    "verified"
+                                                }
+                                            }
+                                        }
                                         span { class: "artist-card-meta", "{track_count} songs • {album_count} albums" }
                                     }
                                 }
@@ -378,31 +388,25 @@ pub fn ArtistDetail(
                     span { class: "album-meta-type", "{strings.artist}" }
                     h1 { class: "album-meta-title", "{artist_name}" }
                     div { class: "album-meta-subline",
-                        div { class: "album-artist-avatar",
-                            span { class: "material-icons md-14", style: "color: var(--accent-mint);", "verified" }
-                            if let Some(ref fallback) = fallback_art {
-                                img {
-                                    src: "{fallback}",
-                                    alt: "",
-                                    style: "position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; z-index: 1;",
+                        if profile.is_verified() {
+                            div {
+                                style: "display: inline-flex; align-items: center; gap: 5px;",
+                                span {
+                                    class: "material-icons md-18",
+                                    style: "color: var(--accent-mint); vertical-align: middle;",
+                                    "verified"
+                                }
+                                span {
+                                    style: "font-weight: 700; color: #ffffff;",
+                                    "{strings.verified_artist}"
                                 }
                             }
-                            if let Some(ref photo) = online_photo {
-                                if Some(photo) != fallback_art.as_ref() {
-                                    img {
-                                        src: "{photo}",
-                                        alt: "",
-                                        style: "position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; z-index: 2;",
-                                    }
-                                }
+                            if let Some(ref subs) = profile.subscribers {
+                                span { class: "album-dot-sep", "•" }
+                                span { class: "album-meta-dur", "{subs} subscribers" }
                             }
-                        }
-                        span { class: "album-artist-name", "{strings.verified_artist}" }
-                        if let Some(ref subs) = profile.subscribers {
                             span { class: "album-dot-sep", "•" }
-                            span { class: "album-meta-dur", "{subs} subscribers" }
                         }
-                        span { class: "album-dot-sep", "•" }
                         span { class: "album-meta-songs", "{total_tracks} songs," }
                         span { class: "album-meta-dur", "{total_dur_str}" }
                         span { class: "album-dot-sep", "•" }

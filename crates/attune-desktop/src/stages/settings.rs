@@ -14,10 +14,34 @@ use crate::config::{
     self, export_backup_tar, import_backup_tar, load_config, probe_gpu_capabilities,
     save_config, AppConfig,
 };
+use crate::dynamic_components::watchguard;
 use crate::i18n::export_language_template_json;
 use crate::library::{clear_thumbnail_cache, TrackEntry};
-use crate::process_manager::trim_memory;
+use crate::process_manager::{sample_metrics, trim_memory};
 use crate::smart_shuffle::ShuffleMode;
+
+fn format_bytes(bytes: u64) -> String {
+    if bytes >= 1024 * 1024 * 1024 {
+        format!("{:.2} GB", bytes as f64 / (1024.0 * 1024.0 * 1024.0))
+    } else if bytes >= 1024 * 1024 {
+        format!("{:.1} MB", bytes as f64 / (1024.0 * 1024.0))
+    } else if bytes >= 1024 {
+        format!("{:.1} KB", bytes as f64 / 1024.0)
+    } else {
+        format!("{} B", bytes)
+    }
+}
+
+fn format_duration_human(total_ms: u64) -> String {
+    let total_secs = total_ms / 1000;
+    let hours = total_secs / 3600;
+    let mins = (total_secs % 3600) / 60;
+    if hours > 0 {
+        format!("{} hr {} min", hours, mins)
+    } else {
+        format!("{} min", mins)
+    }
+}
 
 static SETTINGS_WINDOW_OPEN: AtomicBool = AtomicBool::new(false);
 
@@ -132,8 +156,8 @@ pub fn open_settings_window() {
         let dom = VirtualDom::new(SettingsStandaloneWindow);
         let mut window = dioxus::desktop::WindowBuilder::new()
             .with_title("Attune — Settings & Preferences")
-            .with_inner_size(dioxus::desktop::tao::dpi::LogicalSize::new(980.0, 720.0))
-            .with_min_inner_size(dioxus::desktop::tao::dpi::LogicalSize::new(720.0, 520.0));
+            .with_inner_size(dioxus::desktop::tao::dpi::LogicalSize::new(1180.0, 760.0))
+            .with_min_inner_size(dioxus::desktop::tao::dpi::LogicalSize::new(820.0, 560.0));
 
         if let Some(icon) = crate::app_icon::load_app_icon() {
             window = window.with_window_icon(Some(icon));
@@ -374,6 +398,26 @@ pub fn SettingsContent(
     let mut trim_feedback = use_signal(|| None::<(bool, String)>);
     let mut show_am_lyrics_modal = use_signal(|| false);
 
+    let mut metrics_res = use_signal(sample_metrics);
+    let mut watchguard_res = use_signal(watchguard::get_status);
+
+    // Auto-refresh telemetry every 1.5s
+    use_future(move || async move {
+        loop {
+            tokio::time::sleep(tokio::time::Duration::from_millis(1500)).await;
+            metrics_res.set(sample_metrics());
+            watchguard_res.set(watchguard::get_status());
+        }
+    });
+
+    let current_metrics = metrics_res.read().clone();
+    let current_wg = watchguard_res.read().clone();
+    let loaded_dynamic_components = crate::dynamic_components::get_loaded_components_summary();
+
+    let total_library_duration_ms: u64 = tracks.iter().map(|t| t.duration_ms).sum();
+    let library_duration_str = format_duration_human(total_library_duration_ms);
+    let total_tracks_count = tracks.len();
+
     let gpu_info = probe_gpu_capabilities();
     let current_tab = *active_tab.read();
     let curr_cfg = config_sig.read().clone();
@@ -472,11 +516,11 @@ pub fn SettingsContent(
             }
 
             // =========================================================================
-            // RIGHT COLUMN: Setting Cards Content Pane
+            // CENTER COLUMN: Setting Cards Content Pane
             // =========================================================================
             div {
                 class: "settings-content-pane",
-                style: "flex: 1; height: 100%; overflow-y: auto; padding: 32px 40px; box-sizing: border-box; display: flex; flex-direction: column; gap: 24px; max-width: 900px;",
+                style: "flex: 1; height: 100%; overflow-y: auto; padding: 32px 36px; box-sizing: border-box; display: flex; flex-direction: column; gap: 24px; min-width: 440px;",
 
                 match current_tab {
                     // -----------------------------------------------------------------
@@ -919,7 +963,7 @@ pub fn SettingsContent(
 
                         // Card: Fullscreen Now Playing Options
                         div { class: "settings-card",
-                            h3 { class: "settings-card-title", "Fullscreen Now Playing Stage (Lucky Guy Mode)" }
+                            h3 { class: "settings-card-title", "Fullscreen Now Playing Stage" }
                             p { class: "settings-card-desc", "Configure visual effects for the edge-to-edge immersive full-window mode." }
 
                             div { style: "display: flex; justify-content: space-between; align-items: center; margin-top: 12px; padding: 6px 0;",
@@ -1726,6 +1770,375 @@ pub fn SettingsContent(
             }
 
             // =========================================================================
+            // RIGHT COLUMN: Settings Inspector & Contextual Live Diagnostics Pane (~350px)
+            // =========================================================================
+            div {
+                class: "settings-inspector-pane",
+
+                // -------------------------------------------------------------
+                // CARD 1: LIVE ENGINE & HARDWARE HEALTH
+                // -------------------------------------------------------------
+                div {
+                    class: "inspector-card",
+                    div {
+                        class: "inspector-card-header",
+                        div {
+                            class: "inspector-card-title-group",
+                            span { class: "material-icons md-18", style: "color: var(--accent-mint);", "monitor_heart" }
+                            h4 { class: "inspector-card-title", "Live Engine & Hardware" }
+                        }
+                        if let Ok(ref wg) = current_wg {
+                            if wg.is_overloaded {
+                                span { class: "inspector-card-badge rose", "Overload" }
+                            } else {
+                                span { class: "inspector-card-badge mint", "Stable" }
+                            }
+                        } else {
+                            span { class: "inspector-card-badge neutral", "Offline" }
+                        }
+                    }
+
+                    div {
+                        class: "inspector-stat-grid",
+                        div {
+                            class: "inspector-stat-item",
+                            span { class: "inspector-stat-label", "Audio Driver" }
+                            span {
+                                class: "inspector-stat-value",
+                                style: if has_hardware_output { "color: var(--accent-mint);" } else { "color: #f43f5e;" },
+                                if has_hardware_output { "cpal (Active)" } else { "Driver Inactive" }
+                            }
+                        }
+                        div {
+                            class: "inspector-stat-item",
+                            span { class: "inspector-stat-label", "Sample Rate" }
+                            span { class: "inspector-stat-value", "{mixer_sample_rate} Hz" }
+                        }
+                        div {
+                            class: "inspector-stat-item",
+                            span { class: "inspector-stat-label", "Memory (RSS)" }
+                            span {
+                                class: "inspector-stat-value",
+                                if let Ok(ref m) = current_metrics {
+                                    "{format_bytes(m.rss_bytes)}"
+                                } else {
+                                    "—"
+                                }
+                            }
+                        }
+                        div {
+                            class: "inspector-stat-item",
+                            span { class: "inspector-stat-label", "CPU Usage" }
+                            span {
+                                class: "inspector-stat-value",
+                                if let Ok(ref m) = current_metrics {
+                                    "{m.cpu_usage_pct:.1}%"
+                                } else {
+                                    "—"
+                                }
+                            }
+                        }
+                        div {
+                            class: "inspector-stat-item",
+                            span { class: "inspector-stat-label", "Watchguard Score" }
+                            span {
+                                class: "inspector-stat-value",
+                                if let Ok(ref wg) = current_wg {
+                                    "{wg.instability_score:.2}"
+                                } else {
+                                    "—"
+                                }
+                            }
+                        }
+                        div {
+                            class: "inspector-stat-item",
+                            span { class: "inspector-stat-label", "Buffer Underruns" }
+                            span {
+                                class: "inspector-stat-value",
+                                style: if let Ok(ref wg) = current_wg { if wg.underrun_count > 0 { "color: #f43f5e;" } else { "color: #ffffff;" } } else { "color: #ffffff;" },
+                                if let Ok(ref wg) = current_wg {
+                                    "{wg.underrun_count}"
+                                } else {
+                                    "—"
+                                }
+                            }
+                        }
+                        div {
+                            class: "inspector-stat-item",
+                            span { class: "inspector-stat-label", "Library Tracks" }
+                            span { class: "inspector-stat-value", "{total_tracks_count}" }
+                        }
+                        div {
+                            class: "inspector-stat-item",
+                            span { class: "inspector-stat-label", "Total Runtime" }
+                            span { class: "inspector-stat-value", "{library_duration_str}" }
+                        }
+                    }
+                }
+
+                // -------------------------------------------------------------
+                // CARD 2: CONTEXTUAL TAB GUIDE & ARCHITECTURE INSIGHTS
+                // -------------------------------------------------------------
+                div {
+                    class: "inspector-card",
+                    div {
+                        class: "inspector-card-header",
+                        div {
+                            class: "inspector-card-title-group",
+                            span { class: "material-icons md-18", style: "color: var(--accent-mint);", "lightbulb" }
+                            h4 { class: "inspector-card-title", "Tab Architecture Guide" }
+                        }
+                        span { class: "inspector-card-badge neutral",
+                            match current_tab {
+                                SettingsTab::General => "General",
+                                SettingsTab::Audio => "Audio DSP",
+                                SettingsTab::Language => "i18n Protocol",
+                                SettingsTab::Lyrics => "Lyrics Engine",
+                                SettingsTab::ApiProviders => "API Federation",
+                                SettingsTab::DirectoryAndIndexes => "Indexer",
+                                SettingsTab::BackupAndRestore => "Portability",
+                                SettingsTab::DeveloperOptions => "Kernel / C-ABI",
+                            }
+                        }
+                    }
+
+                    match current_tab {
+                        SettingsTab::General => rsx! {
+                            div { class: "inspector-guide-content",
+                                p { style: "margin: 0; color: var(--text-primary); font-weight: 600;",
+                                    "Desktop Accelerators & Navigation"
+                                }
+                                p { style: "margin: 0;",
+                                    "Hardware keyboard accelerators provide instant, uninterrupted playback control across all desktop views:"
+                                }
+                                div { style: "display: flex; flex-direction: column; gap: 4px; margin-top: 4px;",
+                                    div { class: "inspector-shortcut-row",
+                                        span { "Play / Pause" }
+                                        span { class: "inspector-kbd", "Space" }
+                                    }
+                                    div { class: "inspector-shortcut-row",
+                                        span { "Seek ±5 Seconds" }
+                                        span { class: "inspector-kbd", "← / →" }
+                                    }
+                                    div { class: "inspector-shortcut-row",
+                                        span { "Previous / Next Track" }
+                                        span { class: "inspector-kbd", "Ctrl + ← / →" }
+                                    }
+                                    div { class: "inspector-shortcut-row",
+                                        span { "Mute / Unmute" }
+                                        span { class: "inspector-kbd", "M" }
+                                    }
+                                    div { class: "inspector-shortcut-row",
+                                        span { "Fullscreen Mode" }
+                                        span { class: "inspector-kbd", "F" }
+                                    }
+                                }
+                                p { style: "font-size: 11px; color: var(--text-muted); margin-top: 6px;",
+                                    "Native OS media controls (Linux MPRIS D-Bus & Windows SMTC) run automatically alongside accelerators."
+                                }
+                            }
+                        },
+                        SettingsTab::Audio => rsx! {
+                            div { class: "inspector-guide-content",
+                                p { style: "margin: 0; color: var(--text-primary); font-weight: 600;",
+                                    "32-Bit Float DSP & Resampling"
+                                }
+                                p { style: "margin: 0;",
+                                    "Audio streams are processed unclipped using 32-bit floating point precision with DirectForm2 transposed IIR biquad filters."
+                                }
+                                div { style: "display: flex; flex-direction: column; gap: 6px; margin-top: 4px; font-size: 12px;",
+                                    div { "• " span { style: "color: #fff; font-weight: 600;", "DirectForm2 EQ: " } "10-band studio equalization with sub-harmonic synthesis." }
+                                    div { "• " span { style: "color: #fff; font-weight: 600;", "Hermite Cubic: " } "Resamples streams to DAC native rate ({mixer_sample_rate} Hz) with zero phase drift." }
+                                    div { "• " span { style: "color: #fff; font-weight: 600;", "Silence Trimmer: " } "Detects leading/trailing silence below -60 dBFS." }
+                                }
+                                button {
+                                    class: "btn-pill active",
+                                    style: "width: 100%; justify-content: center; margin-top: 10px;",
+                                    onclick: move |_| on_open_equalizer.call(()),
+                                    span { class: "material-icons md-16", "tune" }
+                                    "Open Studio 10-Band EQ"
+                                }
+                            }
+                        },
+                        SettingsTab::Language => rsx! {
+                            div { class: "inspector-guide-content",
+                                p { style: "margin: 0; color: var(--text-primary); font-weight: 600;",
+                                    "Zero-Hardcoding i18n Protocol"
+                                }
+                                p { style: "margin: 0;",
+                                    "All user-facing interface text is decoupled through the strict attune::i18n protocol (Mandate 4)."
+                                }
+                                div { style: "display: flex; flex-direction: column; gap: 6px; margin-top: 4px; font-size: 12px;",
+                                    div { "• " span { style: "color: #fff; font-weight: 600;", "Hot-Swapping: " } "Instant locale switching between English (US) and Wikang Filipino without restarting." }
+                                    div { "• " span { style: "color: #fff; font-weight: 600;", "Community Dict: " } "Export a clean dictionary template JSON to contribute new translations." }
+                                }
+                                button {
+                                    class: "btn-pill",
+                                    style: "width: 100%; justify-content: center; margin-top: 10px;",
+                                    onclick: move |_| {
+                                        if let Some(path) = rfd::FileDialog::new()
+                                            .set_file_name("attune_translation_template.json")
+                                            .save_file()
+                                        {
+                                            let json = export_language_template_json();
+                                            let _ = std::fs::write(path, json);
+                                        }
+                                    },
+                                    span { class: "material-icons md-16", "download" }
+                                    "Export Translation Template"
+                                }
+                            }
+                        },
+                        SettingsTab::Lyrics => rsx! {
+                            div { class: "inspector-guide-content",
+                                p { style: "margin: 0; color: var(--text-primary); font-weight: 600;",
+                                    "Multi-Format Waterfall & Ultra-Sync"
+                                }
+                                p { style: "margin: 0;",
+                                    "The lyrics engine parses standard LRC, enhanced ELRC/YRC, and Apple Music TTML syllable trees."
+                                }
+                                div { style: "display: flex; flex-direction: column; gap: 6px; margin-top: 4px; font-size: 12px;",
+                                    div { "• " span { style: "color: #fff; font-weight: 600;", "40ms Lookahead: " } "Offsets hardware DAC latency for instantaneous word-by-word highlights." }
+                                    div { "• " span { style: "color: #fff; font-weight: 600;", "MPL-2.0 License: " } "BiniLyrics utilizes <am-lyrics> under Mozilla Public License v2.0." }
+                                    div { "• " span { style: "color: #fff; font-weight: 600;", "Providers: " } "LRCLIB, BiniLyrics, and embedded Vorbis/ID3 tag streams." }
+                                }
+                            }
+                        },
+                        SettingsTab::ApiProviders => rsx! {
+                            div { class: "inspector-guide-content",
+                                p { style: "margin: 0; color: var(--text-primary); font-weight: 600;",
+                                    "Federated Metadata & Rate Limiting"
+                                }
+                                p { style: "margin: 0;",
+                                    "Connects to federated cloud endpoints for missing album artwork and acoustic vectors."
+                                }
+                                div { style: "display: flex; flex-direction: column; gap: 6px; margin-top: 4px; font-size: 12px;",
+                                    div { "• " span { style: "color: #fff; font-weight: 600;", "MusicBrainz: " } "Complies with 1 req/sec rate limit with custom Attune User-Agent." }
+                                    div { "• " span { style: "color: #fff; font-weight: 600;", "ReccoBeats: " } "Cloud-assisted acoustic vectors for smart Camelot pairing." }
+                                    div { "• " span { style: "color: #fff; font-weight: 600;", "YouTube Music: " } "512x512 high-resolution artwork fallback cache." }
+                                }
+                            }
+                        },
+                        SettingsTab::DirectoryAndIndexes => rsx! {
+                            div { class: "inspector-guide-content",
+                                p { style: "margin: 0; color: var(--text-primary); font-weight: 600;",
+                                    "Multi-Threaded Library Profiler"
+                                }
+                                p { style: "margin: 0;",
+                                    "The library profiler scans local folders and computes acoustic profiles (.tap) for DJ smart transitions."
+                                }
+                                div { style: "display: flex; flex-direction: column; gap: 6px; margin-top: 4px; font-size: 12px;",
+                                    div { "• " span { style: "color: #fff; font-weight: 600;", "Codecs: " } "FLAC, MP3, WAV, OGG, M4A, AAC." }
+                                    div { "• " span { style: "color: #fff; font-weight: 600;", "Profiles (.tap): " } "Stores Camelot keys, tempo grids, and cue zone boundaries." }
+                                    div { "• " span { style: "color: #fff; font-weight: 600;", "Song Exclusions: " } "Excluded tracks are preserved on disk and can be inspected anytime." }
+                                }
+                                button {
+                                    class: "btn-pill active",
+                                    style: "width: 100%; justify-content: center; margin-top: 10px;",
+                                    onclick: move |_| on_open_setup.call(()),
+                                    span { class: "material-icons md-16", "auto_fix_high" }
+                                    "Run Setup & Profiling Wizard"
+                                }
+                            }
+                        },
+                        SettingsTab::BackupAndRestore => rsx! {
+                            div { class: "inspector-guide-content",
+                                p { style: "margin: 0; color: var(--text-primary); font-weight: 600;",
+                                    "Portable Snapshot Archives"
+                                }
+                                p { style: "margin: 0;",
+                                    "Export and import your entire Attune profile seamlessly across machines and operating systems."
+                                }
+                                div { style: "display: flex; flex-direction: column; gap: 6px; margin-top: 4px; font-size: 12px;",
+                                    div { "• " span { style: "color: #fff; font-weight: 600;", "Format: " } "Standard POSIX tarball (attune_backup_<timestamp>.tar.gz)." }
+                                    div { "• " span { style: "color: #fff; font-weight: 600;", "Payload: " } "Config JSON, custom EQ presets, and song exclusions." }
+                                    div { "• " span { style: "color: #fff; font-weight: 600;", "Portability: " } "Fully cross-platform between Linux, Windows, and macOS." }
+                                }
+                            }
+                        },
+                        SettingsTab::DeveloperOptions => rsx! {
+                            div { class: "inspector-guide-content",
+                                p { style: "margin: 0; color: var(--text-primary); font-weight: 600;",
+                                    "Kernel Telemetry & Dynamic C-ABI"
+                                }
+                                p { style: "margin: 0;",
+                                    "Desktop edition reads direct /proc counters and dynamically links modular shared libraries."
+                                }
+                                div { style: "display: flex; flex-direction: column; gap: 6px; margin-top: 4px; font-size: 12px;",
+                                    div { "• " span { style: "color: #fff; font-weight: 600;", "Hardware Metrics: " } "Real-time RSS, thread count, and ALSA / audio IRQs." }
+                                    div { "• " span { style: "color: #fff; font-weight: 600;", "Watchguard Mode: " } "Evaluates DAC underruns without mobile FPS throttling." }
+                                }
+                                button {
+                                    class: "btn-pill active",
+                                    style: "width: 100%; justify-content: center; margin-top: 10px;",
+                                    onclick: move |_| on_open_process_manager.call(()),
+                                    span { class: "material-icons md-16", "analytics" }
+                                    "Open Process Manager"
+                                }
+                            }
+                        },
+                    }
+                }
+
+                // -------------------------------------------------------------
+                // CARD 3: DYNAMIC C-ABI SHARED LIBRARIES & BUILD METADATA
+                // -------------------------------------------------------------
+                div {
+                    class: "inspector-card",
+                    div {
+                        class: "inspector-card-header",
+                        div {
+                            class: "inspector-card-title-group",
+                            span { class: "material-icons md-18", style: "color: var(--accent-mint);", "extension" }
+                            h4 { class: "inspector-card-title", "Dynamic C-ABI Modules" }
+                        }
+                        span { class: "inspector-card-badge mint", "{loaded_dynamic_components.len()} Loaded" }
+                    }
+
+                    div { style: "display: flex; flex-direction: column; gap: 4px;",
+                        for comp in loaded_dynamic_components.iter() {
+                            div { class: "inspector-module-row",
+                                div { style: "display: flex; flex-direction: column; gap: 2px;",
+                                    span { style: "font-family: monospace; font-size: 11.5px; color: #ffffff; font-weight: 600;",
+                                        "{comp.filename}"
+                                    }
+                                    span { style: "font-size: 10.5px; color: var(--text-muted);",
+                                        "v{comp.version}"
+                                    }
+                                }
+                                span { style: "color: var(--accent-mint); font-size: 11px; font-weight: 600; display: flex; align-items: center; gap: 4px;",
+                                    span { style: "width: 6px; height: 6px; border-radius: 50%; background: var(--accent-mint); display: inline-block;" }
+                                    "Active"
+                                }
+                            }
+                        }
+                    }
+
+                    div { style: "border-top: 1px solid rgba(255, 255, 255, 0.06); padding-top: 10px; display: flex; flex-direction: column; gap: 4px; font-size: 11px; color: var(--text-muted);",
+                        div {
+                            "Attune Desktop v"
+                            span { style: "color: #fff; font-weight: 600;", "{crate::config::app_version()}" }
+                            " (Native Dioxus)"
+                        }
+                        div {
+                            "Config: "
+                            span { style: "font-family: monospace; color: var(--text-secondary); word-break: break-all;",
+                                if let Some(p) = crate::config::config_file_path() {
+                                    "{p.display()}"
+                                } else {
+                                    "Standard OS path"
+                                }
+                            }
+                        }
+                        div { style: "margin-top: 2px;",
+                            "Open Source • MIT License • "
+                            span { style: "color: var(--accent-mint);", "Mizumo-prjkt" }
+                        }
+                    }
+                }
+            }
+
+            // =========================================================================
             // MPL-2.0 LICENSE MODAL FOR AM-LYRICS
             // =========================================================================
             if *show_am_lyrics_modal.read() {
@@ -1806,5 +2219,18 @@ mod tests {
         assert_eq!(tree[0].subdirs[1].track_count, 2);
 
         let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn test_format_bytes_and_duration() {
+        assert_eq!(format_bytes(512), "512 B");
+        assert_eq!(format_bytes(2048), "2.0 KB");
+        assert_eq!(format_bytes(50 * 1024 * 1024), "50.0 MB");
+        assert_eq!(format_bytes(2 * 1024 * 1024 * 1024), "2.00 GB");
+
+        assert_eq!(format_duration_human(45 * 1000), "0 min");
+        assert_eq!(format_duration_human(150 * 1000), "2 min");
+        assert_eq!(format_duration_human(3700 * 1000), "1 hr 1 min");
+        assert_eq!(format_duration_human(9 * 3600 * 1000 + 33 * 60 * 1000), "9 hr 33 min");
     }
 }

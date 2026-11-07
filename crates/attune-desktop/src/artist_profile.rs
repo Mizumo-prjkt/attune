@@ -19,6 +19,21 @@ pub struct OnlineArtistInfo {
     pub browse_id: Option<String>,
 }
 
+impl OnlineArtistInfo {
+    /// Returns true if this artist has a verified online profile resolved
+    /// from YouTube Music Innertube or Wikipedia (e.g. browse ID, subscriber metrics,
+    /// widescreen banner, curated bio/description, or verified online portrait).
+    pub fn is_verified(&self) -> bool {
+        self.browse_id.is_some()
+            || self.subscribers.is_some()
+            || self.views.is_some()
+            || self.banner_url.is_some()
+            || self.bio.is_some()
+            || self.description.is_some()
+            || self.image_url.is_some()
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct ArtistSummary {
     pub name: String,
@@ -1503,6 +1518,39 @@ mod tests {
         let plain = "https://lh3.googleusercontent.com/xyz";
         let resized_plain = resize_google_avatar_url(plain, 512);
         assert_eq!(resized_plain, "https://lh3.googleusercontent.com/xyz=w512-h512-p-l90-rj");
+    }
+
+    #[test]
+    fn test_online_artist_info_is_verified() {
+        let empty = OnlineArtistInfo::default();
+        assert!(!empty.is_verified());
+
+        let local_only = OnlineArtistInfo {
+            name: Some("Local Band".to_string()),
+            ..Default::default()
+        };
+        assert!(!local_only.is_verified());
+
+        let with_browse_id = OnlineArtistInfo {
+            name: Some("DECO*27".to_string()),
+            browse_id: Some("UC123".to_string()),
+            ..Default::default()
+        };
+        assert!(with_browse_id.is_verified());
+
+        let with_subs = OnlineArtistInfo {
+            name: Some("Artist".to_string()),
+            subscribers: Some("1M".to_string()),
+            ..Default::default()
+        };
+        assert!(with_subs.is_verified());
+
+        let with_bio = OnlineArtistInfo {
+            name: Some("Artist".to_string()),
+            bio: Some("Wikipedia bio".to_string()),
+            ..Default::default()
+        };
+        assert!(with_bio.is_verified());
     }
 
     #[test]

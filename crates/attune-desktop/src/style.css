@@ -2368,7 +2368,192 @@ body, html {
 }
 
 /* ========================================================================= */
-/* Fullscreen Now Playing Stage (Lucky Guy Mode)                            */
+/* Settings Inspector & Live Diagnostics Pane                               */
+/* ========================================================================= */
+
+.settings-inspector-pane {
+  width: 350px;
+  min-width: 320px;
+  height: 100%;
+  overflow-y: auto;
+  border-left: 1px solid var(--border-glass);
+  background: rgba(14, 18, 30, 0.70);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  padding: 28px 20px;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  flex-shrink: 0;
+}
+
+@media (max-width: 960px) {
+  .settings-inspector-pane {
+    display: none !important;
+  }
+}
+
+.settings-inspector-pane::-webkit-scrollbar {
+  width: 6px;
+}
+
+.settings-inspector-pane::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.settings-inspector-pane::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.12);
+  border-radius: 3px;
+}
+
+.settings-inspector-pane::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.22);
+}
+
+.inspector-card {
+  background: rgba(22, 28, 45, 0.65);
+  border: 1px solid var(--border-glass);
+  border-radius: 14px;
+  padding: 16px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.25);
+}
+
+.inspector-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+  padding-bottom: 10px;
+}
+
+.inspector-card-title-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.inspector-card-title {
+  font-size: 13.5px;
+  font-weight: 700;
+  color: #ffffff;
+  margin: 0;
+  letter-spacing: 0.2px;
+}
+
+.inspector-card-badge {
+  font-size: 10.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  padding: 2px 7px;
+  border-radius: 6px;
+  letter-spacing: 0.5px;
+}
+
+.inspector-card-badge.mint {
+  background: rgba(45, 212, 191, 0.15);
+  color: var(--accent-mint);
+  border: 1px solid rgba(45, 212, 191, 0.3);
+}
+
+.inspector-card-badge.rose {
+  background: rgba(244, 63, 94, 0.15);
+  color: #f43f5e;
+  border: 1px solid rgba(244, 63, 94, 0.3);
+}
+
+.inspector-card-badge.neutral {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text-secondary);
+  border: 1px solid var(--border-glass);
+}
+
+.inspector-stat-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.inspector-stat-item {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  border-radius: 8px;
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.inspector-stat-label {
+  font-size: 10.5px;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+}
+
+.inspector-stat-value {
+  font-size: 13px;
+  font-weight: 700;
+  color: #ffffff;
+  font-family: var(--font-mono, monospace);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.inspector-guide-content {
+  font-size: 12.5px;
+  color: var(--text-secondary);
+  line-height: 1.5;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.inspector-shortcut-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 0;
+  font-size: 12px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+}
+
+.inspector-shortcut-row:last-child {
+  border-bottom: none;
+}
+
+.inspector-kbd {
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 4px;
+  padding: 2px 6px;
+  font-family: monospace;
+  font-size: 11px;
+  color: #ffffff;
+  font-weight: 600;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.3);
+}
+
+.inspector-module-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+  font-size: 11.5px;
+}
+
+.inspector-module-row:last-child {
+  border-bottom: none;
+}
+
+/* ========================================================================= */
+/* Pure Fullscreen Now Playing Stage                                         */
 /* ========================================================================= */
 
 .fullscreen-stage {
