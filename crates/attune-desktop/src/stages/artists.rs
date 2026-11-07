@@ -147,6 +147,7 @@ pub fn Artists(
                             let album_count = artist.album_count;
                             let fallback_art = artist.fallback_artwork_url.clone();
                             let photo_art = artist.photo_url.clone();
+                            let is_verified = artist.is_verified;
 
                             rsx! {
                                 div {
@@ -154,44 +155,47 @@ pub fn Artists(
                                     class: "artist-grid-card",
                                     onclick: move |_| on_select_artist.call(name_click.clone()),
 
-                                    div { class: "artist-avatar-container",
-                                        // Base layer: Silhouette person icon
-                                        div { class: "artist-avatar-fallback",
-                                            span { class: "material-icons md-48", "person" }
-                                        }
-                                        // Mid layer: Local album artwork if available
-                                        if let Some(ref fallback) = fallback_art {
-                                            img {
-                                                src: "{fallback}",
-                                                alt: "",
-                                                class: "artist-avatar-img",
-                                                style: "position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; z-index: 1;",
+                                    div { class: "artist-avatar-wrapper",
+                                        div { class: "artist-avatar-container",
+                                            // Base layer: Silhouette person icon
+                                            div { class: "artist-avatar-fallback",
+                                                span { class: "material-icons md-48", "person" }
                                             }
-                                        }
-                                        // Top layer: Online portrait if available and distinct
-                                        if let Some(ref photo) = photo_art {
-                                            if Some(photo) != fallback_art.as_ref() {
+                                            // Mid layer: Local album artwork if available
+                                            if let Some(ref fallback) = fallback_art {
                                                 img {
-                                                    src: "{photo}",
+                                                    src: "{fallback}",
                                                     alt: "",
                                                     class: "artist-avatar-img",
-                                                    style: "position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; z-index: 2;",
+                                                    style: "position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; z-index: 1;",
                                                 }
+                                            }
+                                            // Top layer: Online portrait if available and distinct
+                                            if let Some(ref photo) = photo_art {
+                                                if Some(photo) != fallback_art.as_ref() {
+                                                    img {
+                                                        src: "{photo}",
+                                                        alt: "",
+                                                        class: "artist-avatar-img",
+                                                        style: "position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; z-index: 2;",
+                                                    }
+                                                }
+                                            }
+                                        }
+
+                                        // Verified checkmark badge overlay at bottom-right of profile avatar
+                                        if is_verified {
+                                            div {
+                                                class: "artist-avatar-verified-badge",
+                                                title: "{strings.verified_artist}",
+                                                span { class: "material-icons md-14", "verified" }
                                             }
                                         }
                                     }
 
                                     div { class: "artist-card-info",
-                                        div { style: "display: flex; align-items: center; justify-content: space-between; gap: 4px; overflow: hidden;",
-                                            span { class: "artist-card-name", title: "{name}", "{name}" }
-                                            if photo_art.is_some() {
-                                                span {
-                                                    class: "material-icons md-14",
-                                                    style: "color: var(--accent-mint); flex-shrink: 0;",
-                                                    title: "{strings.verified_artist}",
-                                                    "verified"
-                                                }
-                                            }
+                                        div { class: "marquee-container",
+                                            span { class: "artist-card-name marquee-text", title: "{name}", "{name}" }
                                         }
                                         span { class: "artist-card-meta", "{track_count} songs • {album_count} albums" }
                                     }

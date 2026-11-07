@@ -527,9 +527,12 @@ pub fn Albums(
 
                                                     // Column 2: Title and Artist
                                                     div { class: "album-row-title-col",
-                                                        span {
-                                                            class: if is_current { "album-row-title-text active" } else { "album-row-title-text" },
-                                                            "{t.title}"
+                                                        div { class: "marquee-container",
+                                                            span {
+                                                                class: if is_current { "album-row-title-text active marquee-text" } else { "album-row-title-text marquee-text" },
+                                                                title: "{t.title}",
+                                                                "{t.title}"
+                                                            }
                                                         }
                                                         div { class: "album-row-artist-text",
                                                             {
@@ -816,8 +819,12 @@ pub fn Albums(
                                                             }
 
                                                             div { class: "discography-meta-col",
-                                                                span { class: "discography-card-title", title: "{a_name}", "{a_name}" }
-                                                                span { class: "discography-card-sub", "{subtitle}" }
+                                                                div { class: "marquee-container",
+                                                                    span { class: "discography-card-title marquee-text", title: "{a_name}", "{a_name}" }
+                                                                }
+                                                                div { class: "marquee-container",
+                                                                    span { class: "discography-card-sub marquee-text", title: "{subtitle}", "{subtitle}" }
+                                                                }
                                                             }
                                                         }
                                                     }
@@ -990,9 +997,23 @@ pub fn Albums(
                                                     span { class: "material-icons md-48", "album" }
                                                 }
                                             }
-                                            div { style: "display: flex; flex-direction: column; overflow: hidden;",
-                                                span { style: "font-weight: 600; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: #ffffff;", "{album.name}" }
-                                                span { style: "color: var(--text-secondary); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 3px;", "{album.artist}" }
+                                            div { style: "display: flex; flex-direction: column; overflow: hidden; width: 100%;",
+                                                div { class: "marquee-container",
+                                                    span {
+                                                        class: "marquee-text",
+                                                        style: "font-weight: 600; font-size: 14px; color: #ffffff;",
+                                                        title: "{album.name}",
+                                                        "{album.name}"
+                                                    }
+                                                }
+                                                div { class: "marquee-container",
+                                                    span {
+                                                        class: "marquee-text",
+                                                        style: "color: var(--text-secondary); font-size: 12px; margin-top: 3px;",
+                                                        title: "{album.artist}",
+                                                        "{album.artist}"
+                                                    }
+                                                }
                                                 span { style: "color: var(--text-muted); font-size: 11px; margin-top: 4px;", "{track_count} songs" }
                                             }
                                         }

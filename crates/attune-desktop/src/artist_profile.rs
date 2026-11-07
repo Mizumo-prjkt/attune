@@ -42,6 +42,7 @@ pub struct ArtistSummary {
     pub sample_track: TrackEntry,
     pub fallback_artwork_url: Option<String>,
     pub photo_url: Option<String>,
+    pub is_verified: bool,
 }
 
 /// Validates an artist profile image URL, preventing empty strings, placeholders,
@@ -607,7 +608,9 @@ pub fn extract_all_unique_artists(tracks: &[TrackEntry]) -> Vec<ArtistSummary> {
         .map(|(key, (artist_tracks, albums))| {
             let name = canonical_names.get(&key).cloned().unwrap_or(key);
             let fallback_artwork_url = artist_tracks.iter().find_map(|t| t.artwork_data_url.clone());
-            let photo_url = load_cached_artist_profile(&name).and_then(|p| p.image_url);
+            let cached_profile = load_cached_artist_profile(&name);
+            let is_verified = cached_profile.as_ref().map_or(false, |p| p.is_verified());
+            let photo_url = cached_profile.and_then(|p| p.image_url);
             let sample_track = artist_tracks[0].clone();
             ArtistSummary {
                 name,
@@ -616,6 +619,7 @@ pub fn extract_all_unique_artists(tracks: &[TrackEntry]) -> Vec<ArtistSummary> {
                 sample_track,
                 fallback_artwork_url,
                 photo_url,
+                is_verified,
             }
         })
         .collect();

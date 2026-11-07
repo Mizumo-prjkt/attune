@@ -5,6 +5,9 @@ use std::sync::{mpsc, Arc, Mutex};
 use std::time::Duration;
 
 use attune_core::MasterFxParams;
+use attune_player_syscore_playertoast_broadcast::{
+    MediaControlCommand, SystemMediaService, SystemPlaybackState, SystemRepeatMode, SystemTrackMetadata,
+};
 use crate::app_icon::app_icon_data_url;
 use crate::components::lyrics_parser::{resolve_companion_lyrics, LyricsSheet};
 use crate::config;
@@ -407,7 +410,7 @@ pub fn App() -> Element {
                     album: track.album.clone(),
                     duration_ms: track.duration_ms,
                     is_playing: true,
-                    artwork_path: None,
+                    artwork_path: track.artwork_path.clone(),
                 };
                 let _ = attune_player_syscore_playertoast_broadcast::broadcast_player_toast(&payload);
             }
@@ -611,27 +614,120 @@ pub fn App() -> Element {
         }
     };
 
-    // Background Async Poller (50ms Interval): Updates playback, auto-transitions, scan events, lyrics, and Watchguard telemetry
+    // Background Async Poller (50ms Interval): Updates playback, auto-transitions, scan events, lyrics, Watchguard telemetry, and OS media controls (MPRIS / SMTC)
     let play_next_track_poller = play_next_track.clone();
+    let play_prev_track_poller = play_prev_track.clone();
     let app_config_poller = app_config;
     let music_dir_poller = music_dir;
     let extra_music_dirs_poller = extra_music_dirs;
     let song_exclusions_poller = song_exclusions;
+    let hwnd: Option<u64> = {
+        #[cfg(target_os = "windows")]
+        {
+            use dioxus::desktop::tao::platform::windows::WindowExtWindows;
+            Some(dioxus::desktop::window().window.hwnd() as usize as u64)
+        }
+        #[cfg(not(target_os = "windows"))]
+        {
+            None
+        }
+    };
     use_future(move || {
         let player = player.clone();
         let scan_rx = scan_rx.clone();
         let mut play_next_track = play_next_track_poller.clone();
+        let mut play_prev_track = play_prev_track_poller.clone();
         let mut app_config = app_config_poller;
         let mut music_dir = music_dir_poller;
         let mut extra_music_dirs = extra_music_dirs_poller;
         let mut song_exclusions = song_exclusions_poller;
         async move {
+            let mut media_service = SystemMediaService::new(hwnd);
+            let mut last_media_sync_instant = std::time::Instant::now();
+            let mut last_synced_track_path: Option<PathBuf> = None;
+            let mut last_synced_playing = false;
             let mut last_hw_sample_instant = std::time::Instant::now();
             let mut last_clipping_count = 0u32;
             let mut last_underrun_count = 0u32;
 
             loop {
                 tokio::time::sleep(Duration::from_millis(50)).await;
+
+                // 0. Process Inbound OS-level Media Player Commands (MPRIS / SMTC / Hardware Media Keys)
+                while let Some(cmd) = media_service.poll_command() {
+                    match cmd {
+                        MediaControlCommand::Play => {
+                            player.read().play();
+                            is_playing.set(true);
+                        }
+                        MediaControlCommand::Pause => {
+                            player.read().pause();
+                            is_playing.set(false);
+                        }
+                        MediaControlCommand::TogglePlayPause => {
+                            let p = player.read();
+                            if *is_playing.read() {
+                                p.pause();
+                                is_playing.set(false);
+                            } else {
+                                p.play();
+                                is_playing.set(true);
+                            }
+                        }
+                        MediaControlCommand::Next => {
+                            play_next_track();
+                        }
+                        MediaControlCommand::Previous => {
+                            play_prev_track();
+                        }
+                        MediaControlCommand::Stop => {
+                            player.read().stop();
+                            is_playing.set(false);
+                        }
+                        MediaControlCommand::SeekToMs(pos) => {
+                            player.read().seek_ms(pos);
+                            playback_pos_ms.set(pos);
+                        }
+                        MediaControlCommand::SeekBySec(offset) => {
+                            let cur = *playback_pos_ms.read() as f64 / 1000.0;
+                            let target = (cur + offset).max(0.0);
+                            let ms = (target * 1000.0) as u64;
+                            player.read().seek_ms(ms);
+                            playback_pos_ms.set(ms);
+                        }
+                        MediaControlCommand::SetVolume(vol) => {
+                            let db = if vol <= 0.001 { -60.0 } else { 20.0 * (vol as f32).log10() };
+                            player.read().set_gain_db(db.clamp(-60.0, 6.0));
+                        }
+                        MediaControlCommand::SetShuffle(enable) => {
+                            let next_mode = if enable {
+                                if *shuffle_mode.read() == ShuffleMode::Off {
+                                    ShuffleMode::Smart
+                                } else {
+                                    *shuffle_mode.read()
+                                }
+                            } else {
+                                ShuffleMode::Off
+                            };
+                            shuffle_mode.set(next_mode);
+                        }
+                        MediaControlCommand::SetRepeat(rep) => {
+                            let next_mode = match rep {
+                                SystemRepeatMode::Off => RepeatMode::Off,
+                                SystemRepeatMode::One => RepeatMode::One,
+                                SystemRepeatMode::All => RepeatMode::All,
+                            };
+                            repeat_mode.set(next_mode);
+                        }
+                        MediaControlCommand::Raise => {
+                            #[cfg(target_os = "linux")]
+                            dioxus::desktop::window().window.set_focus();
+                        }
+                        MediaControlCommand::Quit => {
+                            std::process::exit(0);
+                        }
+                    }
+                }
 
                 // Record real hardware resource telemetry and sync config every 1000ms on desktop
                 if last_hw_sample_instant.elapsed() >= Duration::from_millis(1000) {
@@ -723,6 +819,49 @@ pub fn App() -> Element {
                     };
                     playback_pos_ms.set(pos);
                     playback_dur_ms.set(dur);
+
+                    // Synchronize Playback State to OS (MPRIS / SMTC) every 250ms or immediately on track/play change
+                    let curr_opt = current_track.read().clone();
+                    let curr_path = curr_opt.as_ref().map(|t| t.path.clone());
+                    let track_or_play_changed = curr_path != last_synced_track_path || snap.is_playing != last_synced_playing;
+                    if track_or_play_changed || last_media_sync_instant.elapsed() >= Duration::from_millis(250) {
+                        last_media_sync_instant = std::time::Instant::now();
+                        last_synced_track_path = curr_path;
+                        last_synced_playing = snap.is_playing;
+
+                        let track_meta = curr_opt.map(|t| {
+                            SystemTrackMetadata {
+                                id: t.path.to_string_lossy().to_string(),
+                                title: t.title.clone(),
+                                artists: vec![t.artist.clone()],
+                                album: t.album.clone(),
+                                artwork_path: t.artwork_path.clone(),
+                                artwork_data_url: t.artwork_data_url.clone(),
+                                url: format!("file://{}", t.path.display()),
+                            }
+                        });
+
+                        let sys_repeat = match *repeat_mode.read() {
+                            RepeatMode::Off => SystemRepeatMode::Off,
+                            RepeatMode::One => SystemRepeatMode::One,
+                            RepeatMode::All => SystemRepeatMode::All,
+                        };
+
+                        let q_len = queue.read().len();
+                        let sys_state = SystemPlaybackState {
+                            track: track_meta,
+                            is_playing: snap.is_playing,
+                            position_ms: pos,
+                            duration_ms: dur,
+                            volume: 1.0,
+                            shuffle: *shuffle_mode.read() != ShuffleMode::Off,
+                            repeat: sys_repeat,
+                            can_go_next: q_len > 0,
+                            can_go_previous: q_len > 0 || pos > 3000,
+                            can_seek: dur > 0,
+                        };
+                        media_service.update_state(&sys_state);
+                    }
 
                     if snap.is_playing && pos + 1500 < dur {
                         has_handled_track_end.set(false);
@@ -833,7 +972,7 @@ pub fn App() -> Element {
                                 album: new_track.album.clone(),
                                 duration_ms: new_track.duration_ms,
                                 is_playing: true,
-                                artwork_path: None,
+                                artwork_path: new_track.artwork_path.clone(),
                             };
                             let _ = attune_player_syscore_playertoast_broadcast::broadcast_player_toast(&payload);
                         }
@@ -882,6 +1021,10 @@ pub fn App() -> Element {
                             }
                         }
                     }
+                } else if last_synced_playing || last_synced_track_path.is_some() {
+                    last_synced_playing = false;
+                    last_synced_track_path = None;
+                    media_service.update_state(&SystemPlaybackState::default());
                 }
 
                 // 5. Update Pending Transition Info
@@ -949,7 +1092,11 @@ pub fn App() -> Element {
 
     rsx! {
         div {
-            class: "app-container",
+            class: if app_config.read().auto_scroll_long_text {
+                "app-container text-moving-enabled"
+            } else {
+                "app-container text-moving-disabled"
+            },
             tabindex: "0",
             onkeydown: move |e| {
                 let cfg = app_config.read();
@@ -1735,8 +1882,12 @@ pub fn App() -> Element {
                                 }
                             }
                             div { class: "mini-meta",
-                                span { class: "mini-title", "{title}" }
-                                span { class: "mini-artist", "{artist_album}" }
+                                div { class: "marquee-container",
+                                    span { class: "mini-title marquee-text", title: "{title}", "{title}" }
+                                }
+                                div { class: "marquee-container",
+                                    span { class: "mini-artist marquee-text", title: "{artist_album}", "{artist_album}" }
+                                }
                             }
                         }
                     } else {

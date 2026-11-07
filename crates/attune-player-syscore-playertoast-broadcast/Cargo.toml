@@ -10,6 +10,7 @@ description = "System-level player toast notification and media toolbar broadcas
 serde = { workspace = true }
 serde_json = { workspace = true }
 log = { workspace = true }
+playwire = "2.1.0"
 
 [dev-dependencies]
 tempfile = "3"

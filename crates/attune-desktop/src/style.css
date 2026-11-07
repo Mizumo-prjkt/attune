@@ -2182,16 +2182,43 @@ body, html {
   transform: translateY(-4px);
 }
 
-.artist-avatar-container {
+.artist-avatar-wrapper {
+  position: relative;
   width: 130px;
   height: 130px;
+  margin-bottom: 14px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.artist-avatar-container {
+  width: 100%;
+  height: 100%;
   border-radius: 50%;
   overflow: hidden;
-  margin-bottom: 14px;
   background: var(--bg-card);
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
-  flex-shrink: 0;
   position: relative;
+}
+
+.artist-avatar-verified-badge {
+  position: absolute;
+  bottom: 2px;
+  right: 4px;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: #141a29;
+  border: 2.5px solid #0a0e17;
+  color: var(--accent-mint);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.6);
+  z-index: 10;
+  pointer-events: none;
 }
 
 .artist-avatar-img {
@@ -2711,5 +2738,56 @@ body, html {
 /* Sidebar Lyrics Glow Option */
 .sidebar-text-glow {
   text-shadow: 0 0 16px rgba(255, 253, 208, 0.75), 0 0 32px rgba(100, 255, 218, 0.35);
+}
+
+/* ========================================================================= */
+/* Marquee & Text Movement Infrastructure                                    */
+/* ========================================================================= */
+
+.marquee-container {
+  overflow: hidden;
+  white-space: nowrap;
+  position: relative;
+  width: 100%;
+  display: block;
+}
+
+.marquee-text {
+  display: inline-block;
+  white-space: nowrap;
+  max-width: 100%;
+  transition: transform 0.25s ease;
+}
+
+/* When text movement is enabled: */
+.text-moving-enabled .marquee-text.is-overflowing {
+  max-width: none;
+  animation: attune-pingpong-scroll var(--scroll-dur, 6s) cubic-bezier(0.45, 0.05, 0.55, 0.95) infinite alternate;
+  will-change: transform;
+}
+
+/* Pause marquee on hover so user can read comfortably */
+.text-moving-enabled .marquee-text.is-overflowing:hover {
+  animation-play-state: paused;
+}
+
+/* When text movement is disabled: */
+.text-moving-disabled .marquee-text,
+.marquee-text:not(.is-overflowing) {
+  text-overflow: ellipsis;
+  overflow: hidden;
+  white-space: nowrap;
+  max-width: 100%;
+  animation: none !important;
+  transform: none !important;
+}
+
+@keyframes attune-pingpong-scroll {
+  0%, 25% {
+    transform: translateX(0);
+  }
+  75%, 100% {
+    transform: translateX(calc(-1 * var(--scroll-dist, 40px)));
+  }
 }
 

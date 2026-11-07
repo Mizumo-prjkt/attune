@@ -116,21 +116,18 @@ pub fn Favorites(
                                     }
 
                                     // Title
-                                    span {
-                                        style: "font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding-right: 12px;",
-                                        "{t.title}"
+                                    div { class: "marquee-container", style: "padding-right: 12px;",
+                                        span { class: "marquee-text", style: "font-weight: 500;", title: "{t.title}", "{t.title}" }
                                     }
 
                                     // Artist
-                                    span {
-                                        style: "color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding-right: 12px;",
-                                        "{t.artist}"
+                                    div { class: "marquee-container", style: "padding-right: 12px;",
+                                        span { class: "marquee-text", style: "color: var(--text-secondary);", title: "{t.artist}", "{t.artist}" }
                                     }
 
                                     // Album
-                                    span {
-                                        style: "color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding-right: 12px;",
-                                        "{t.album}"
+                                    div { class: "marquee-container", style: "padding-right: 12px;",
+                                        span { class: "marquee-text", style: "color: var(--text-muted);", title: "{t.album}", "{t.album}" }
                                     }
 
                                     // BPM

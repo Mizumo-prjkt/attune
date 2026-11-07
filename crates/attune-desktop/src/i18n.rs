@@ -127,6 +127,8 @@ pub struct Strings {
     pub close: &'static str,
     pub enabled: &'static str,
     pub disabled: &'static str,
+    pub auto_scroll_long_text: &'static str,
+    pub auto_scroll_long_text_desc: &'static str,
 
     // Context Menus & Track Actions
     pub play_now: &'static str,
@@ -266,6 +268,8 @@ pub fn get_strings(lang: Language) -> Strings {
             close: "Close Window",
             enabled: "Enabled",
             disabled: "Disabled",
+            auto_scroll_long_text: "Auto-Scroll Long Titles & Names",
+            auto_scroll_long_text_desc: "Allow long song titles, album names, and artist tags to smoothly move back and forth so you can view the complete name. When disabled, overflow text is truncated with '...'.",
 
             // Context Menus & Track Actions
             play_now: "Play Now",
@@ -402,6 +406,8 @@ pub fn get_strings(lang: Language) -> Strings {
             close: "Isara ang Window",
             enabled: "Pinagana",
             disabled: "Hindi Pinagana",
+            auto_scroll_long_text: "Kusang Pag-scroll ng Mahahabang Titulo",
+            auto_scroll_long_text_desc: "Pahintulutan ang mahahabang titulo ng kanta at album na gumalaw nang pabalik-balik upang makita ang buong pangalan. Kung naka-disable, puputulin ito ng '...'.",
 
             // Context Menus & Track Actions
             play_now: "Patugtugin Ngayon",
@@ -550,6 +556,8 @@ pub fn export_language_template_json() -> String {
     map.insert("close", s.close);
     map.insert("enabled", s.enabled);
     map.insert("disabled", s.disabled);
+    map.insert("auto_scroll_long_text", s.auto_scroll_long_text);
+    map.insert("auto_scroll_long_text_desc", s.auto_scroll_long_text_desc);
 
     map.insert("play_now", s.play_now);
     map.insert("play_next", s.play_next);
@@ -620,5 +628,6 @@ mod tests {
         assert!(json.contains("\"playback_queue\""));
         assert!(json.contains("\"discography\""));
         assert!(json.contains("\"backup_and_restore\""));
+        assert!(json.contains("\"auto_scroll_long_text\""));
     }
 }

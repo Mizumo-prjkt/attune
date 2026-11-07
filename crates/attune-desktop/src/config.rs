@@ -64,6 +64,8 @@ pub struct AppConfig {
     pub enable_shortcuts: bool,
     #[serde(default = "default_true")]
     pub system_media_toast: bool,
+    #[serde(default = "default_true")]
+    pub auto_scroll_long_text: bool,
 
     // Audio
     #[serde(default)]
@@ -131,6 +133,7 @@ impl Default for AppConfig {
             alt_shortcut_prefix: false,
             enable_shortcuts: true,
             system_media_toast: true,
+            auto_scroll_long_text: true,
             force_32bit_float: false,
             skip_silence: false,
             engine_choice: default_engine(),

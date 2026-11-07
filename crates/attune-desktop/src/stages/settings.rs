@@ -235,7 +235,11 @@ pub fn SettingsStandaloneWindow() -> Element {
 
     rsx! {
         div {
-            class: "settings-standalone-window",
+            class: if config_sig.read().auto_scroll_long_text {
+                "settings-standalone-window text-moving-enabled"
+            } else {
+                "settings-standalone-window text-moving-disabled"
+            },
             style: "width: 100vw; height: 100vh; display: flex; flex-direction: column; background: #0a0e17; color: #ffffff; overflow: hidden;",
 
             SettingsContent {
@@ -598,16 +602,16 @@ pub fn SettingsContent(
                             }
                         }
 
-                        // Card: System Player Interaction
+                        // Card: System Media Player Integration & Notifications
                         div { class: "settings-card",
-                            h3 { class: "settings-card-title", "System Media Interaction & Player Toast" }
+                            h3 { class: "settings-card-title", "System Media Controls & Player Broadcaster" }
                             p { class: "settings-card-desc",
-                                "Communicate track changes to OS desktop notifications (KDE Media Toolbar, GNOME MPRIS, Windows Toast via attune-player-syscore-playertoast-broadcast)."
+                                "Integrates Attune natively as a system-level media player (Linux MPRIS v2 for KDE Plasma / GNOME widgets, media keys, and playerctl; Windows SMTC for Quick Settings flyout and volume controls) alongside optional desktop toast notifications."
                             }
 
                             div { style: "display: flex; justify-content: space-between; align-items: center; margin-top: 12px; padding: 8px 0;",
                                 div {
-                                    div { style: "font-weight: 500; font-size: 13.5px;", "System Player Toast Notifications" }
+                                    div { style: "font-weight: 500; font-size: 13.5px;", "Desktop Toast Notifications" }
                                     div { style: "font-size: 12px; color: var(--text-muted);", "Show native desktop notifications whenever a new song plays." }
                                 }
                                 SwitchToggle {
@@ -639,6 +643,23 @@ pub fn SettingsContent(
                                 }
                                 if let Some(ref fb) = *toast_feedback.read() {
                                     span { style: "font-size: 12px; color: var(--accent-mint); font-family: monospace;", "{fb}" }
+                                }
+                            }
+                        }
+
+                        // Card: Auto-Scroll Long Titles & Names
+                        div { class: "settings-card",
+                            h3 { class: "settings-card-title", "{strings.auto_scroll_long_text}" }
+                            p { class: "settings-card-desc", "{strings.auto_scroll_long_text_desc}" }
+
+                            div { style: "display: flex; justify-content: space-between; align-items: center; margin-top: 12px; padding: 8px 0;",
+                                div {
+                                    div { style: "font-weight: 500; font-size: 13.5px;", "{strings.auto_scroll_long_text}" }
+                                    div { style: "font-size: 12px; color: var(--text-muted);", "Animate overflowing text back and forth across album cards, artist grids, track rows, and player bar." }
+                                }
+                                SwitchToggle {
+                                    active: curr_cfg.auto_scroll_long_text,
+                                    on_toggle: move |_| update_cfg(Box::new(|c| c.auto_scroll_long_text = !c.auto_scroll_long_text)),
                                 }
                             }
                         }

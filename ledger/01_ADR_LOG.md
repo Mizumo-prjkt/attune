@@ -3686,3 +3686,42 @@ This file records all major architectural decisions for **Attune**, including co
 
 
 
+
+---
+
+## ADR-106: Bidirectional System Media Player Integration — Linux MPRIS v2 over D-Bus & Windows System Media Transport Controls (SMTC) via WinRT, Dynamic Metadata & Artwork Streaming, Timeline Scrubber Synchronization, and Remote OS Transport Controls
+- **Date**: 2026-11-08
+- **Status**: `LOCKED`
+- **Context**:
+  1. The player was only broadcasting one-way desktop notification toasts (via `notify-send` on Linux and PowerShell toast on Windows) without registering as an actual system-level media player.
+  2. Operating systems (Linux KDE Plasma / GNOME and Windows 10/11) did not identify Attune as an active media player. The system-level media widgets—KDE Media Player widget (`org.mpris.MediaPlayer2`), Windows 11 Quick Settings media flyout (Win+A), and Windows 10 volume flyout—did not appear or recognize Attune.
+  3. Multimedia hardware keys (Play/Pause, Next, Previous) and remote shell commands (such as `playerctl`) could not control the player.
+  4. The user explicitly required full system-level media integration so that the operating system knows Attune is a music player and is currently playing music, enabling full bidirectional control (Play, Pause, Next, Previous, Seek, Volume, Shuffle, Repeat).
+  5. Strict Mandate 4 compliance: zero hardcoded fallback values, graceful degradation in headless or non-GUI environments, dynamic HWND resolution, and transparent error handling.
+- **Decision**:
+  1. **Full Bidirectional OS Media Controls Crate Upgrade (`crates/attune-player-syscore-playertoast-broadcast`)**:
+     - Integrated `playwire` (pure Rust `zbus` 5 for Linux MPRIS v2 and WinRT `ISystemMediaTransportControlsInterop` for Windows SMTC).
+     - Defined `SystemTrackMetadata`, `SystemPlaybackState`, `SystemRepeatMode`, and `MediaControlCommand`.
+     - Engineered `SystemMediaService`:
+       - Linux: Registers `org.mpris.MediaPlayer2.attune` on D-Bus session bus with desktop entry `"attune"` and track prefix `"/org/mizproject/attune/track"`.
+       - Windows: Binds to window `HWND` and WinRT `SystemMediaTransportControls` with AppMediaId `"org.mizproject.attune"`.
+       - Emits real-time playback state updates (Playing, Position, Duration, Volume, Repeat, Shuffle, and Capabilities).
+       - Exposes non-blocking `poll_command()` receiving OS media events across a thread-safe channel.
+       - Translates local cover artwork paths and base64 data URLs to RFC compliant `file://` URIs for host media controls.
+     - Preserved backward-compatible `PlayerToastPayload` and `broadcast_player_toast` with genuine artwork paths for optional desktop toasts.
+  2. **Desktop Poller Loop & Bidirectional Event Integration (`crates/attune-desktop/src/app.rs`)**:
+     - In the 50ms async poller, drains incoming `MediaControlCommand`s from `SystemMediaService`:
+       - `Play` / `Pause` / `TogglePlayPause`: controls `player` and updates reactive state.
+       - `Next`: triggers `play_next_track()` (respecting Smart Shuffle, Linear, or repeat queues).
+       - `Previous`: triggers `play_prev_track()`.
+       - `SeekToMs(pos)` / `SeekBySec(offset)`: seeks audio playback playhead and updates timeline.
+       - `SetVolume(vol)`: converts 0.0–1.0 linear volume to dB gain.
+       - `SetShuffle(enable)` & `SetRepeat(mode)`: updates reactive shuffle and repeat modes.
+       - `Raise`: brings application window to focus.
+     - Synchronizes playback state (`SystemPlaybackState`) to the host OS on every 250ms tick and immediately upon track transition or play/pause state change.
+  3. **Settings Modernization (`crates/attune-desktop/src/stages/settings.rs`)**:
+     - Updated card copy to "System Media Controls & Player Broadcaster", clearly detailing Linux MPRIS v2 and Windows SMTC capabilities alongside optional desktop toast notifications.
+- **Consequences**:
+  - KDE Plasma Media Player widget, GNOME media notification center, and Windows 10/11 Quick Settings flyout now recognize Attune as a native music player, display album art, title, artist, and timeline scrubber, and control playback seamlessly.
+  - Hardware multimedia keys and `playerctl` work out of the box across desktop sessions.
+  - All 6 unit tests in `attune-player-syscore-playertoast-broadcast`, all 70 unit tests in `attune-desktop`, and 100% of workspace tests pass cleanly.
