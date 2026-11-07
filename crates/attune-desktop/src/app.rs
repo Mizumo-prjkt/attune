@@ -1051,7 +1051,14 @@ pub fn App() -> Element {
                 // 5. Update Pending Transition Info
                 pending_trans_info.set(p.pending_transition());
 
-                // 6. Update Synchronized Lyrics Active Line
+                // 6. Check for live lyrics updates (e.g. from Lyrics Finder window) & update active line
+                if let Some(curr_t) = current_track.read().as_ref() {
+                    if let Some(updated_sheet) = crate::components::lyrics_parser::poll_lyrics_update(&curr_t.path) {
+                        lyrics_sheet.set(updated_sheet);
+                        active_lyric_index.set(None);
+                    }
+                }
+
                 let pos = *playback_pos_ms.read();
                 let active_idx = lyrics_sheet.read().active_line_index(pos);
                 if active_idx != *active_lyric_index.read() {
@@ -1695,6 +1702,19 @@ pub fn App() -> Element {
                                 span { style: "font-weight: 700; font-size: 15px;", "{strings.synchronized_lyrics}" }
                                 div { style: "display: flex; gap: 8px; align-items: center;",
                                     button {
+                                        class: "btn-pill",
+                                        style: "font-size: 11px; padding: 2px 8px; display: inline-flex; align-items: center; gap: 4px; border: 1px solid rgba(100,255,218,0.25); color: var(--accent-mint); cursor: pointer;",
+                                        title: "Find Lyrics (Local, LRCLIB, BiniLyrics)",
+                                        onclick: {
+                                            let current_track = current_track.clone();
+                                            move |_| {
+                                                crate::stages::lyrics_finder::open_lyrics_finder_window(current_track.read().clone());
+                                            }
+                                        },
+                                        span { class: "material-icons md-14", "manage_search" }
+                                        span { "Find" }
+                                    }
+                                    button {
                                         class: if *auto_scroll_lyrics.read() { "btn-pill active" } else { "btn-pill" },
                                         style: "font-size: 11px; padding: 2px 8px; display: inline-flex; align-items: center; gap: 4px;",
                                         onclick: move |_| {
@@ -1724,6 +1744,20 @@ pub fn App() -> Element {
                                         span { class: "material-icons md-48", style: "opacity: 0.6;", "description" }
                                         p { style: "font-size: 15px; font-weight: 600;", "{strings.no_lyrics_available}" }
                                         p { style: "font-size: 12px; line-height: 1.4;", "{strings.no_lyrics_guide}" }
+                                        if current_track.read().is_some() {
+                                            button {
+                                                class: "btn-secondary",
+                                                style: "margin-top: 8px; font-size: 12px; padding: 6px 14px; display: inline-flex; align-items: center; gap: 6px; border-radius: 9999px; background: rgba(100, 255, 218, 0.12); border: 1px solid rgba(100, 255, 218, 0.35); color: var(--accent-mint); cursor: pointer;",
+                                                onclick: {
+                                                    let current_track = current_track.clone();
+                                                    move |_| {
+                                                        crate::stages::lyrics_finder::open_lyrics_finder_window(current_track.read().clone());
+                                                    }
+                                                },
+                                                span { class: "material-icons md-16", "manage_search" }
+                                                span { "Find & Match Lyrics" }
+                                            }
+                                        }
                                     }
                                 } else {
                                     div { class: "lyrics-container",

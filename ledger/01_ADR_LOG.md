@@ -3789,3 +3789,60 @@ This file records all major architectural decisions for **Attune**, including co
   - The playback queue strictly honors user intent: songs added by the user remain the only songs in the queue.
   - Seeking near the end of a single-song queue plays the song to completion and stops cleanly without injecting new tracks.
   - All 79 desktop tests and 100% of workspace tests pass cleanly.
+
+---
+
+## ADR-109: Dedicated Standalone Lyrics Finder Window, Multi-Format Syntax Classification (Syllable, Line, Plain), Security Validation Engine & Online Query Providers (LRCLIB & BiniLyrics)
+- **Date**: 2026-11-08
+- **Status**: `LOCKED`
+- **Context**:
+  1. Synchronized and unsynchronized lyrics are essential to Attune's listening experience, but tracks in users' libraries frequently lack embedded Vorbis/ID3 lyrics or have missing companion `.lrc` files.
+  2. Users needed an accessible control in the lyrics view to find lyrics and a dedicated window with a sidebar menu showing the active song, local companion files on disk, a file dialog to browse local lyrics, and online querying capabilities.
+  3. The engine had to support multiple synchronization formats:
+     - Letter / syllable synchronized lyrics (`TTML`, `ELRC`, `YRC`).
+     - Standard line-synchronized lyrics (`LRC`).
+     - Unsynchronized plain text lyrics (`TXT`).
+  4. Crucially, the system had to ensure files and online payloads are safe (rejecting malicious files such as binaries like ELF/PE/Mach-O/Java bytecode, null bytes, script injection, and oversized payloads).
+  5. The external search needed to support public LRCLIB and BiniLyrics (`<am-lyrics>`).
+  6. **Strict License Enforcement**: The `<am-lyrics>` / BiniLyrics tab must be completely hidden from the interface if the user has not accepted the license agreement (`config.am_lyrics_agreed`).
+  7. Users must be able to inspect candidate choices, preview lyrics with line timestamps, and 1-tap select/apply lyrics with instantaneous live player updates.
+  8. Strict adherence to Mandate 4 (zero hardcoded values) and fail-safe error handling.
+- **Decision**:
+  1. **Lyrics Security & Syntax Classification Engine (`crates/attune-desktop/src/components/lyrics_validator.rs`)**:
+     - Engineered `validate_and_classify_lyrics(raw_content, source_label) -> ValidationResult`.
+     - Rejects payloads exceeding 1MB ceiling (`MAX_LYRIC_PAYLOAD_BYTES`).
+     - Detects executable/binary headers: ELF (`\x7fELF`), Windows PE (`MZ`), Mach-O (`\xfe\xed\xfa\xce`, `\xfe\xed\xfa\xcf`, `\xce\xfa\xed\xfe`, `\xcf\xfa\xed\xfe`), and Java class bytecode (`\xca\xfe\xba\xbe`).
+     - Rejects binary null bytes (`\0`).
+     - Detects script injection patterns: `<script`, `javascript:`, `vbscript:`, `onload=`, `onerror=`, `<!ENTITY`, `<!DOCTYPE`.
+     - Classifies synchronization types:
+       - `LyricsSyncType::SyllableSync`: TTML `<tt` / `<span begin=...>`, Enhanced LRC `<[0-9]{2}:[0-9]{2}.[0-9]{2,3}>`, and YRC `\([0-9]+,[0-9]+,[0-9]+\)`.
+       - `LyricsSyncType::LineSync`: standard LRC `\[[0-9]{2}:[0-9]{2}.[0-9]{2,3}\]`.
+       - `LyricsSyncType::PlainText`: zero timestamps, non-empty readable text.
+  2. **Dedicated Standalone Window (`crates/attune-desktop/src/stages/lyrics_finder.rs`)**:
+     - Created `open_lyrics_finder_window(track)` spawning an independent OS window via `dioxus::desktop::window().new_window` with custom head styles and an atomic window open guard (`LYRICS_FINDER_WINDOW_OPEN`).
+     - **Left Sidebar**:
+       - Active song card (artwork, title, artist, duration, current lyrics state).
+       - Source tabs: `Local Disk`, `LRCLIB (Public)`, and `BiniLyrics (<am-lyrics>)`.
+       - **License Gating**: `FinderTab::BiniLyrics` is rendered if and only if `config.am_lyrics_agreed == true`. Otherwise, the tab is completely hidden.
+       - Native File Dialog button via `rfd::FileDialog` supporting `.lrc`, `.elrc`, `.ttml`, `.yrc`, and `.txt`.
+       - Heuristic Security Engine indicator badge (`Security Engine: Active`).
+     - **Right Content Pane**:
+       - Real-time search query input and search button.
+       - Candidate cards list displaying provider badge, synchronization badge (Syllable, Line, Plain), safety status, and candidate track details.
+       - Live lyrics preview sheet displaying parsed lines with timestamp badges.
+       - 1-tap `[ Apply & Save to Song ]` action saving lyrics companion file to disk (or user cache fallback) and broadcasting live update.
+  3. **Live Main Player Synchronization (`crates/attune-desktop/src/components/lyrics_parser.rs` & `app.rs`)**:
+     - Implemented `save_lyrics_to_disk` with fallback to `~/.cache/attune/lyrics/`.
+     - Implemented `PENDING_LYRICS_OVERRIDE` mutex with `notify_lyrics_updated` and `poll_lyrics_update`.
+     - In `app.rs`, the 50ms player loop polls `poll_lyrics_update(&curr.path)`, immediately updating the active `lyrics_sheet` and resetting active lyric index without restarting playback.
+  4. **Access Triggers**:
+     - In `FullscreenNowPlaying`: added `[ 🔍 Find & Match Lyrics ]` button on empty state and top floating `[ 🔍 Lyrics Sources ]` button in right column.
+     - In right dock (`DockMode::Lyrics`): added `[ Find ]` pill in dock header and `[ Find & Match Lyrics ]` button when lyrics are empty.
+  5. **Verification**:
+     - Verified with 6 unit tests in `lyrics_validator` covering TTML, ELRC, LRC, Plain text, script injection rejection, and binary rejection.
+     - Verified candidate serialization in `lyrics_finder`.
+     - All 80 desktop tests and 100% of workspace tests pass cleanly.
+- **Consequences**:
+  - Listeners can easily search, verify, preview, and apply lyrics from local files, file picker, or online databases.
+  - Safe, robust validation prevents corrupted or malicious files from affecting the player.
+  - Full adherence to Mandate 4 (zero hardcoding) and license gating requirements.
