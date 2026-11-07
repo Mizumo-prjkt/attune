@@ -2,7 +2,7 @@
 
 - **Project Name**: Attune
 - **Current Phase**: `Phase 6 IN PROGRESS -> Multi-Platform Packaging, Installer Scripting & Distribution Orchestration`
-- **Active Coding Status**: Completed ADR-103: Conditional Online Verified Artist Badge & Elimination of Profile Avatar Icon Redundancy. Gated "Verified Artist" display behind `profile.is_verified()` (only artists with resolved online presence from YouTube Music / Wikipedia display verified badges), replaced the erroneous artist headshot avatar icon with the genuine verified checkmark icon (`material-icons md-18 "verified"` in mint), and added verified badges in the grid. All 67 desktop tests and all workspace unit tests pass cleanly.
+- **Active Coding Status**: Completed ADR-104: Settings Inspector & Contextual Live Diagnostics Pane — Elimination of Viewport Dead Space. Eliminated hardcoded max-width constraint on `.settings-content-pane`, implemented responsive 3-column liquid glass architecture with dedicated 350px `.settings-inspector-pane` providing live engine/hardware health (audio driver, sample rate, memory RSS, Watchguard stability score), contextual tab guide adapting to the active settings tab with direct 1-tap shortcuts (Open EQ, Translation Template, Setup Wizard, Process Manager), and dynamic C-ABI modules & build metadata card. All 67 desktop tests and workspace checks pass cleanly.
 
 
 ---

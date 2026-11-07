@@ -152,20 +152,20 @@ mod tests {
     #[test]
     fn test_payload_serialization_roundtrip() {
         let payload = PlayerToastPayload {
-            title: "Lucky Guy".to_string(),
+            title: "Atlantis Is Calling".to_string(),
             artist: "Modern Talking".to_string(),
-            album: "The 1st Album".to_string(),
-            duration_ms: 215000,
+            album: "Ready for Romance".to_string(),
+            duration_ms: 228000,
             is_playing: true,
             artwork_path: Some(PathBuf::from("/path/to/art.jpg")),
         };
 
         let json = serde_json::to_string(&payload).unwrap();
         let decoded: PlayerToastPayload = serde_json::from_str(&json).unwrap();
-        assert_eq!(decoded.title, "Lucky Guy");
+        assert_eq!(decoded.title, "Atlantis Is Calling");
         assert_eq!(decoded.artist, "Modern Talking");
-        assert_eq!(decoded.album, "The 1st Album");
-        assert_eq!(decoded.duration_ms, 215000);
+        assert_eq!(decoded.album, "Ready for Romance");
+        assert_eq!(decoded.duration_ms, 228000);
         assert!(decoded.is_playing);
         assert_eq!(decoded.artwork_path, Some(PathBuf::from("/path/to/art.jpg")));
     }

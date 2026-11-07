@@ -1,4 +1,4 @@
-//! Fullscreen Now Playing Stage (Lucky Guy Immersive Mode).
+//! Pure Fullscreen Now Playing Stage.
 //!
 //! Provides an edge-to-edge full-window playback and synchronized lyrics
 //! experience with dynamic artwork gradient backgrounds, glowing lyrics typography,

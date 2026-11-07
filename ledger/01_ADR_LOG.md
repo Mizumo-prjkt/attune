@@ -3438,7 +3438,7 @@ This file records all major architectural decisions for **Attune**, including co
   3. **Strict Mandate 4 Compliance & Dynamic Hardware Probing (`config.rs`)**:
      - Implemented `probe_gpu_capabilities()` inspecting `/sys/class/drm`, Vulkan (`vulkaninfo`), and OpenCL (`/etc/OpenCL/vendors`, `clinfo`). Gracefully disables GPU offload with transparent diagnostics if criteria (Vulkan >= 1.1 / OpenCL) are not met (e.g. legacy HD 5xxx series).
   4. **Fullscreen Now Playing Stage (`stages/fullscreen_now_playing.rs`)**:
-     - Built Lucky Guy mode (`StageView::FullscreenNowPlaying`): left column with 320px album artwork, title, artist, audio profile badge, range scrubber, transport controls; right column with flowing synchronized lyrics.
+     - Built pure fullscreen stage (`StageView::FullscreenNowPlaying`): left column with 320px album artwork, title, artist, audio profile badge, range scrubber, transport controls; right column with flowing synchronized lyrics.
      - Dynamic album gradient background (`fullscreen_gradient_bg`), breathing visualizer orbs (`fullscreen_visualizer_effects`), and cream white `#FFFDD0` text glow (`fullscreen_text_glow`).
      - Transport bar fullscreen button rewired to toggle immersive stage; Escape key returns to previous stage.
 - **Consequences**:
