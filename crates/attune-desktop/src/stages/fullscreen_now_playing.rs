@@ -39,7 +39,7 @@ pub fn FullscreenNowPlaying(
         dioxus::desktop::window().set_fullscreen(true);
     });
 
-    let track = current_track.unwrap_or_else(|| TrackEntry {
+    let track = current_track.clone().unwrap_or_else(|| TrackEntry {
         title: strings.select_track_to_play.to_string(),
         artist: strings.app_name.to_string(),
         album: "Ready".to_string(),
@@ -279,6 +279,26 @@ pub fn FullscreenNowPlaying(
                     class: "fullscreen-right-col",
                     style: "flex: 1; height: 100%; display: flex; flex-direction: column; justify-content: center; overflow: hidden; position: relative;",
 
+                    // Top floating action: Quick access to Lyrics Finder / Sources
+                    div {
+                        style: "position: absolute; top: 24px; right: 28px; z-index: 10; display: flex; align-items: center; gap: 10px;",
+                        if current_track.is_some() {
+                            button {
+                                class: "btn-icon",
+                                style: "background: rgba(255, 255, 255, 0.08); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); border: 1px solid rgba(255, 255, 255, 0.15); border-radius: 20px; padding: 6px 14px; display: inline-flex; align-items: center; gap: 6px; color: #e6edf3; cursor: pointer; font-size: 13px; font-weight: 500; transition: all 0.2s ease;",
+                                title: "Find or Change Lyrics (Local Files, LRCLIB, etc.)",
+                                onclick: {
+                                    let track_clone = current_track.clone();
+                                    move |_| {
+                                        crate::stages::lyrics_finder::open_lyrics_finder_window(track_clone.clone());
+                                    }
+                                },
+                                span { class: "material-icons md-18", style: "color: var(--accent-mint);", "manage_search" }
+                                span { "Lyrics Sources" }
+                            }
+                        }
+                    }
+
                     div {
                         class: "fullscreen-lyrics-scroll",
                         style: "overflow-y: auto; max-height: 85vh; padding: 140px 32px; display: flex; flex-direction: column; gap: 28px; scroll-behavior: smooth; mask-image: linear-gradient(to bottom, transparent 0%, black 15%, black 85%, transparent 100%); -webkit-mask-image: linear-gradient(to bottom, transparent 0%, black 15%, black 85%, transparent 100%);",
@@ -289,6 +309,19 @@ pub fn FullscreenNowPlaying(
                                 span { class: "material-icons md-48", style: "opacity: 0.5;", "queue_music" }
                                 p { style: "font-size: 20px; font-weight: 700; color: #ffffff;", "{strings.instrumental_or_lyrics_pending}" }
                                 p { style: "font-size: 13px; max-width: 380px; line-height: 1.5;", "{strings.fullscreen_lyrics_guide}" }
+                                if current_track.is_some() {
+                                    button {
+                                        style: "margin-top: 12px; display: inline-flex; align-items: center; gap: 8px; padding: 10px 20px; border-radius: 9999px; background: rgba(100, 255, 218, 0.14); border: 1px solid rgba(100, 255, 218, 0.40); color: var(--accent-mint); font-weight: 600; font-size: 14px; cursor: pointer; transition: all 0.2s ease;",
+                                        onclick: {
+                                            let track_clone = current_track.clone();
+                                            move |_| {
+                                                crate::stages::lyrics_finder::open_lyrics_finder_window(track_clone.clone());
+                                            }
+                                        },
+                                        span { class: "material-icons md-18", "manage_search" }
+                                        span { "Find & Match Lyrics" }
+                                    }
+                                }
                             }
                         } else {
                             for (idx, line) in lyrics_sheet.lines.iter().enumerate() {
