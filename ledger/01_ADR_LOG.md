@@ -4019,4 +4019,37 @@ This file records all major architectural decisions for **Attune**, including co
   - Desktop synchronized lyrics now provide 100% feature parity with Flutter: defaults to locked follow, switches gracefully to free-scroll upon touch/wheel, provides clear status indicators, and enables 1-tap re-sync.
   - The Fullscreen Now Playing stage header controls are cleanly unified without collisions or awkward text wrapping.
 
+---
+
+## ADR-115: Universal Escape Key Fullscreen Exit & Silky-Smooth GPU Lyrics Animation with Ease-Out-Cubic Scrolling
+- **Date**: 2026-11-08
+- **Status**: `LOCKED`
+- **Context**:
+  1. Pressing the `Escape` key failed to exit Fullscreen Now Playing when shortcuts were disabled or when `alt_shortcut_prefix` was active, because the keydown event handler returned early before checking `Key::Escape`. Additionally, if focus was inside child DOM elements or inputs, the component didn't catch the escape event.
+  2. The lyrics scroll animation and active line transition suffered from noticeable stutter and jittering (as observed in user video comparison `0:08 - 0:25`). Root cause analysis revealed:
+     - The inline styles animated `font-size` (`22px` to `32px`) and `line-height` (`1.4` to `1.3`) across `0.3s ease`, forcing the browser layout engine to recompute line breaking, glyph layout, and sibling positions on every animation frame (forced synchronous layout reflow).
+     - Browser-native `container.scrollTo({ behavior: 'smooth' })` collided with the CSS `scroll-behavior: smooth` and repeatedly re-triggered when active line updates occurred, interrupting in-flight scroll interpolations.
+- **Decision**:
+  1. **Three-Tier Universal Escape Key Architecture**:
+     - *Layer 1 (WebKit Global Capture)*: Attached `window.addEventListener('keydown', ..., true)` in `LYRICS_SYNC_SCRIPT` with `useCapture: true`. Intercepts `Escape` (`keyCode === 27`) universally across any focused child element or iframe, calling `preventDefault()` and triggering the close button.
+     - *Layer 2 (Stage-Level Listener)*: Bound `tabindex="0"`, `autofocus=true`, and `onkeydown` to `.fullscreen-stage`, ensuring direct component keydown detection.
+     - *Layer 3 (App-Level Shortcut Filter Bypass)*: Evaluated `Key::Escape` at the very top of `desktop-app`'s `onkeydown` in `app.rs`, strictly prior to `cfg.enable_shortcuts` or `cfg.alt_shortcut_prefix` filters.
+  2. **Reflow-Free GPU Composited Lyrics Typography**:
+     - Standardized `font-size: 28px` and `line-height: 1.45` across both active and inactive states. Line height and element bounds remain completely static, eliminating 100% of layout reflows and text shift.
+     - Switched all dynamic transitions to GPU-accelerated compositing: `transform: scale(0.96) translateZ(0)` $\rightarrow$ `transform: scale(1.06) translateZ(0)`, `opacity: 0.42` $\rightarrow$ `1.0`, and smooth `filter: blur(...)` and glow transition with `transition: transform 0.5s cubic-bezier(0.2, 0, 0, 1), opacity 0.5s cubic-bezier(0.2, 0, 0, 1)`.
+  3. **Custom `requestAnimationFrame` Smooth Scroll Engine with Cubic Ease-Out**:
+     - Replaced native `container.scrollTo({ behavior: 'smooth' })` with custom programmatic animator:
+       $$\text{progress} = \min\left(\frac{t - t_0}{\text{dur}}, 1\right), \quad \text{ease} = 1 - (1 - \text{progress})^3$$
+       $$\text{scrollTop} = \text{startY} + (\text{targetY} - \text{startY}) \times \text{ease}$$
+     - Duration calibrated to 550ms for a gentle, luxurious ease-out glide matching reference player aesthetics.
+     - Tracks `lastSyncedFsLine`, preventing duplicate animations on the same active line.
+     - Set container padding to `38vh 32px`, enabling both the first and last lines of any song to center effortlessly.
+  4. **Verification**:
+     - Added unit test `test_ease_out_cubic_curve_mathematical_properties` testing mathematical properties of the deceleration curve.
+     - Updated `test_lyrics_sync_script_structure_and_selectors` to verify `Escape` listener and `easeOutCubic`.
+     - 85 desktop tests and all workspace tests pass cleanly.
+- **Consequences**:
+  - Escape key reliably exits Fullscreen Now Playing from any focus state.
+  - Synchronized lyrics glide down effortlessly with zero stutter, zero jitter, and zero reflow thrashing.
+
 

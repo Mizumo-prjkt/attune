@@ -1130,6 +1130,17 @@ pub fn App() -> Element {
             },
             tabindex: "0",
             onkeydown: move |e| {
+                if e.key() == Key::Escape {
+                    if *nav_state.read().current() == StageView::FullscreenNowPlaying {
+                        dioxus::desktop::window().set_fullscreen(false);
+                        nav_state.write().back();
+                        return;
+                    }
+                    if *show_verdict_modal.read() {
+                        show_verdict_modal.set(false);
+                        return;
+                    }
+                }
                 let cfg = app_config.read();
                 if !cfg.enable_shortcuts {
                     return;
@@ -1150,12 +1161,6 @@ pub fn App() -> Element {
                         let curr = *playback_pos_ms.read();
                         let dur = *playback_dur_ms.read();
                         player.read().seek_ms((curr + 5000).min(dur));
-                    }
-                    Key::Escape => {
-                        if *nav_state.read().current() == StageView::FullscreenNowPlaying {
-                            dioxus::desktop::window().set_fullscreen(false);
-                            nav_state.write().back();
-                        }
                     }
                     _ => {}
                 }

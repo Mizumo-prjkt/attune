@@ -68,34 +68,83 @@ pub const MARQUEE_SCRIPT: &str = r#"
 pub const LYRICS_SYNC_SCRIPT: &str = r#"
 <script>
 (function() {
-  function centerElement(container, active) {
+  var currentScrollAnim = null;
+
+  function easeOutCubic(t) {
+    return 1 - Math.pow(1 - t, 3);
+  }
+
+  function smoothScrollTo(container, targetY, duration) {
+    if (!container) return;
+    if (currentScrollAnim) {
+      cancelAnimationFrame(currentScrollAnim);
+      currentScrollAnim = null;
+    }
+
+    var startY = container.scrollTop;
+    var maxScroll = container.scrollHeight - container.clientHeight;
+    var clampedTarget = Math.max(0, Math.min(targetY, maxScroll));
+    var distance = clampedTarget - startY;
+
+    if (Math.abs(distance) < 1.5) {
+      container.scrollTop = clampedTarget;
+      return;
+    }
+
+    var startTime = performance.now();
+    var dur = duration || 550;
+
+    function step(now) {
+      var elapsed = now - startTime;
+      var progress = Math.min(elapsed / dur, 1.0);
+      var ease = easeOutCubic(progress);
+
+      container.scrollTop = startY + (distance * ease);
+
+      if (progress < 1.0) {
+        currentScrollAnim = requestAnimationFrame(step);
+      } else {
+        container.scrollTop = clampedTarget;
+        currentScrollAnim = null;
+      }
+    }
+
+    currentScrollAnim = requestAnimationFrame(step);
+  }
+
+  function centerElement(container, active, duration) {
     if (!container || !active) return;
     var cTop = container.scrollTop;
     var cRect = container.getBoundingClientRect();
     var aRect = active.getBoundingClientRect();
     var target = cTop + (aRect.top - cRect.top) - (cRect.height / 2) + (aRect.height / 2);
-    container.scrollTo({ top: target, behavior: 'smooth' });
+    smoothScrollTo(container, target, duration || 550);
   }
 
+  var lastSyncedFsLine = null;
+  var lastSyncedDockLine = null;
+
   window.attuneSyncLyrics = function(force) {
-    function doSync() {
-      var fsContainer = document.querySelector('.fullscreen-lyrics-scroll');
-      if (fsContainer && (force || fsContainer.getAttribute('data-locked') !== 'false')) {
-        var active = fsContainer.querySelector('.fullscreen-lyric-active');
-        if (active) {
-          centerElement(fsContainer, active);
-        }
-      }
-      var dockContainer = document.querySelector('.dock-scroll');
-      if (dockContainer && (force || dockContainer.getAttribute('data-locked') !== 'false')) {
-        var activeDock = dockContainer.querySelector('.lyric-line.active');
-        if (activeDock) {
-          centerElement(dockContainer, activeDock);
+    var fsContainer = document.querySelector('.fullscreen-lyrics-scroll');
+    if (fsContainer && (force || fsContainer.getAttribute('data-locked') !== 'false')) {
+      var active = fsContainer.querySelector('.fullscreen-lyric-active');
+      if (active) {
+        if (force || active !== lastSyncedFsLine) {
+          lastSyncedFsLine = active;
+          centerElement(fsContainer, active, 550);
         }
       }
     }
-    doSync();
-    requestAnimationFrame(doSync);
+    var dockContainer = document.querySelector('.dock-scroll');
+    if (dockContainer && (force || dockContainer.getAttribute('data-locked') !== 'false')) {
+      var activeDock = dockContainer.querySelector('.lyric-line.active');
+      if (activeDock) {
+        if (force || activeDock !== lastSyncedDockLine) {
+          lastSyncedDockLine = activeDock;
+          centerElement(dockContainer, activeDock, 450);
+        }
+      }
+    }
   };
 
   var lyricsObserver = new MutationObserver(function(mutations) {
@@ -128,6 +177,18 @@ pub const LYRICS_SYNC_SCRIPT: &str = r#"
       lyricsObserver.observe(document.body, { attributes: true, subtree: true, attributeFilter: ['class'], childList: true });
     }
   }
+
+  // Universal Escape key listener: triggers exit fullscreen immediately from any focused element
+  window.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape' || e.code === 'Escape' || e.keyCode === 27) {
+      var closeBtn = document.querySelector('.fullscreen-floating-close-inline') || document.querySelector('.fullscreen-floating-close');
+      if (closeBtn) {
+        e.preventDefault();
+        e.stopPropagation();
+        closeBtn.click();
+      }
+    }
+  }, true);
 
   if (document.readyState === 'loading') {
     window.addEventListener('DOMContentLoaded', initLyricsObserver);

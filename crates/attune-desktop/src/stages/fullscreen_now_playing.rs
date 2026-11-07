@@ -133,16 +133,18 @@ pub fn FullscreenNowPlaying(
         r1, g1, b1
     );
 
-    let text_glow_style = if config.fullscreen_text_glow {
-        "text-shadow: 0 0 24px rgba(255, 253, 208, 0.85), 0 0 48px rgba(100, 255, 218, 0.40);"
-    } else {
-        ""
-    };
-
     rsx! {
         div {
             class: "fullscreen-stage",
             style: "{bg_style}",
+            tabindex: "0",
+            autofocus: true,
+            onkeydown: move |e| {
+                if e.key() == Key::Escape {
+                    dioxus::desktop::window().set_fullscreen(false);
+                    on_exit.call(());
+                }
+            },
 
             // Dynamic Living Fluid Gradient Visualizer Mesh
             if config.fullscreen_visualizer_effects {
@@ -347,7 +349,7 @@ pub fn FullscreenNowPlaying(
                     div {
                         class: "fullscreen-lyrics-scroll",
                         "data-locked": if *is_locked_to_active.read() { "true" } else { "false" },
-                        style: "overflow-y: auto; max-height: 85vh; padding: 140px 32px; display: flex; flex-direction: column; gap: 28px; scroll-behavior: smooth; mask-image: linear-gradient(to bottom, transparent 0%, black 15%, black 85%, transparent 100%); -webkit-mask-image: linear-gradient(to bottom, transparent 0%, black 15%, black 85%, transparent 100%);",
+                        style: "overflow-y: auto; max-height: 85vh; padding: 38vh 32px; display: flex; flex-direction: column; gap: 28px; mask-image: linear-gradient(to bottom, transparent 0%, black 15%, black 85%, transparent 100%); -webkit-mask-image: linear-gradient(to bottom, transparent 0%, black 15%, black 85%, transparent 100%);",
                         onwheel: move |_| {
                             if *is_locked_to_active.read() {
                                 is_locked_to_active.set(false);
@@ -385,18 +387,20 @@ pub fn FullscreenNowPlaying(
                                     let is_active = active_lyric_index == Some(idx);
                                     let line_ts = line.timestamp_ms;
                                     let text = line.text.clone();
+                                    let line_class = if is_active {
+                                        if config.fullscreen_text_glow {
+                                            "fullscreen-lyric-line fullscreen-lyric-active text-glow"
+                                        } else {
+                                            "fullscreen-lyric-line fullscreen-lyric-active"
+                                        }
+                                    } else {
+                                        "fullscreen-lyric-line fullscreen-lyric-inactive"
+                                    };
 
                                     rsx! {
                                         div {
                                             key: "{idx}",
-                                            class: if is_active { "fullscreen-lyric-active" } else { "fullscreen-lyric-inactive" },
-                                            style: if is_active {
-                                                format!(
-                                                    "font-size: 32px; font-weight: 800; color: #FFFDD0; line-height: 1.3; cursor: pointer; transition: all 0.3s ease; transform: scale(1.02); transform-origin: left center; {text_glow_style}"
-                                                )
-                                            } else {
-                                                "font-size: 22px; font-weight: 500; color: rgba(255, 255, 255, 0.40); line-height: 1.4; cursor: pointer; transition: all 0.3s ease;".to_string()
-                                            },
+                                            class: "{line_class}",
                                             onclick: move |_| {
                                                 on_seek.call(line_ts);
                                                 is_locked_to_active.set(true);
@@ -473,5 +477,18 @@ pub mod tests {
         assert!(script.contains(".dock-scroll"));
         assert!(script.contains("data-locked"));
         assert!(script.contains("MutationObserver"));
+        assert!(script.contains("easeOutCubic"));
+        assert!(script.contains("Escape"));
+    }
+
+    #[test]
+    fn test_ease_out_cubic_curve_mathematical_properties() {
+        let ease_out = |t: f64| 1.0 - (1.0 - t).powi(3);
+        assert!((ease_out(0.0) - 0.0).abs() < 1e-6);
+        assert!((ease_out(1.0) - 1.0).abs() < 1e-6);
+        // Halfway through time, the ease curve is already 87.5% through distance (smooth deceleration)
+        assert!((ease_out(0.5) - 0.875).abs() < 1e-6);
+        // Monotonically increasing
+        assert!(ease_out(0.75) > ease_out(0.5));
     }
 }
