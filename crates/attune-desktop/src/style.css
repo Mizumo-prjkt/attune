@@ -1883,6 +1883,7 @@ body, html {
   -webkit-appearance: none;
   transition: border-color 0.15s ease, background-color 0.15s ease;
   font-family: inherit;
+  color-scheme: dark;
 }
 
 .form-input::placeholder {
@@ -1896,6 +1897,7 @@ body, html {
 }
 
 .form-select {
+  color-scheme: dark;
   background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%232dd4bf'%3e%3cpath d='M7 10l5 5 5-5z'/%3e%3c/svg%3e") !important;
   background-repeat: no-repeat !important;
   background-position: right 12px center !important;

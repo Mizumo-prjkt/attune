@@ -708,8 +708,8 @@ pub fn SettingsContent(
                             p { class: "settings-card-desc", "Supported languages: English (US) and Wikang Filipino (Tagalog)." }
 
                             select {
-                                class: "search-bar",
-                                style: "width: 100%; max-width: 360px; margin-top: 12px; padding: 8px 12px; border-radius: 8px; background: rgba(22, 28, 45, 0.95); border: 1px solid var(--border-glass); color: #fff; font-size: 13px; cursor: pointer;",
+                                class: "form-select",
+                                style: "max-width: 360px; margin-top: 12px;",
                                 value: "{curr_cfg.language}",
                                 onchange: move |e| {
                                     let val = e.value();
@@ -767,8 +767,8 @@ pub fn SettingsContent(
                             p { class: "settings-card-desc", "Select the preferred source queried first when matching synchronized and static singing lines." }
 
                             select {
-                                class: "search-bar",
-                                style: "width: 100%; max-width: 440px; margin-top: 12px; padding: 8px 12px; border-radius: 8px; background: rgba(22, 28, 45, 0.95); border: 1px solid var(--border-glass); color: #fff; font-size: 13px; cursor: pointer;",
+                                class: "form-select",
+                                style: "max-width: 440px; margin-top: 12px;",
                                 value: "{curr_cfg.lyric_priority.first().map(|s| s.as_str()).unwrap_or(\"embedded\")}",
                                 onchange: move |e| {
                                     let choice = e.value();

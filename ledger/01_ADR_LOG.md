@@ -3513,6 +3513,27 @@ This file records all major architectural decisions for **Attune**, including co
   - Zero hardcoding under Mandate 4, complete usability parity, and immediate configuration feedback.
   - All 63 desktop tests and all 118 workspace tests pass cleanly. Release binary compiles in 48.23s.
 
+---
+
+## ADR-099: Liquid Glass Select Dropdown Styling Unification (`.form-select`) & WebKitGTK Native Widget Override Elimination
+- **Date**: 2026-11-07
+- **Status**: `LOCKED`
+- **Context**:
+  1. The user noted that dropdowns in the Settings stage (such as Default Lyrics Priority in image `media_1794051623960_c5b33e39.png`) were rendering with an opaque white GTK entry box and misaligned native black chevron.
+  2. Investigation revealed that the newly introduced `<select>` elements were assigned `class: "search-bar"`, which lacked `-webkit-appearance: none; appearance: none;` and the dedicated dark theme dropdown styling defined in `.form-select`.
+  3. Under Linux WebKitGTK, any `<select>` lacking appearance override triggers native GTK combobox widget rendering, ignoring container backgrounds and enforcing light system theme widgets.
+- **Decision**:
+  1. **Unified Settings `<select>` with `class: "form-select"` (`stages/settings.rs`)**:
+     - Updated Application Language and Default Lyrics Priority `<select>` elements to use `class: "form-select"`.
+  2. **Enhanced `.form-select` and `.form-input` Dark Scheme Rules (`style.css`)**:
+     - Added `color-scheme: dark;` to `.form-input, .form-select` and `.form-select` rules.
+     - Enforced `background-color: rgba(22, 28, 45, 0.90) !important`, `color: #ffffff !important`, and custom `#2dd4bf` mint SVG vector chevron indicator (`background-image: url(...) !important`).
+     - Maintained dark dropdown option popups (`#121722 !important`) with clean padding.
+- **Consequences**:
+  - Completely eradicated native white GTK combobox rendering glitches on Linux WebKitGTK and WebView2.
+  - 100% visual styling uniformity across all dropdowns (Album Editor type selector, Settings language selector, and Settings lyrics priority selector).
+  - All 63 desktop tests and all 118 workspace tests pass cleanly. Release binary compiles in 35.34s.
+
 
 
 
