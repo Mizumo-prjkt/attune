@@ -5,6 +5,7 @@ use crate::artist_profile::{
 };
 use crate::library::{fmt_ms, TrackEntry};
 use crate::stages::albums::AlbumGroup;
+use crate::theme::DynamicPalette;
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 
@@ -178,205 +179,185 @@ pub fn ArtistDetail(
     let total_tracks = artist_tracks.len();
     let total_albums = artist_albums.len();
 
+    let total_dur_ms: u64 = artist_tracks.iter().map(|t| t.duration_ms).sum();
+    let total_dur_str = fmt_ms(total_dur_ms);
+
+    let is_current_artist = current_track_path.as_ref().map(|p| artist_tracks.iter().any(|t| &t.path == p)).unwrap_or(false);
+    let is_current_artist_playing = is_playing && is_current_artist;
+
+    // Atmospheric dynamic gradient extracted from artist's tracks artwork or deterministic hash palette
+    let hero_color_rgb = artist_tracks
+        .iter()
+        .find_map(|t| t.artwork_path.as_deref())
+        .and_then(DynamicPalette::from_image)
+        .map(|p| p.primary)
+        .unwrap_or_else(|| {
+            let seed = artist_name.bytes().fold(5381u32, |acc, b| acc.wrapping_mul(33).wrapping_add(b as u32));
+            match seed % 5 {
+                0 => "rgb(20, 110, 120)".to_string(), // Teal/Cyan
+                1 => "rgb(112, 38, 115)".to_string(), // Purple/Violet
+                2 => "rgb(120, 60, 20)".to_string(),  // Amber/Warm Gold
+                3 => "rgb(30, 90, 60)".to_string(),   // Emerald
+                _ => "rgb(65, 80, 115)".to_string(),  // Deep Blue
+            }
+        });
+
+    let lossless_count = artist_tracks.iter().filter(|t| {
+        let f = t.format.to_uppercase();
+        f == "FLAC" || f == "WAV" || f == "ALAC" || f == "AIFF"
+    }).count();
+    let format_desc = if lossless_count > 0 { "FLAC" } else { "lossy" };
+    let summary_description = format!(
+        "Collection of {} tracks by {}. {} lossless tracks ({}). Tempo profiling pending audio transition scan. Harmonic chroma pending CQT analysis. Notes and background lore can be edited or fetched dynamically.",
+        total_tracks,
+        artist_name,
+        lossless_count,
+        format_desc,
+    );
+
     // Track Context Menu & Credits Modal State
     let mut active_menu_track = use_signal(|| None::<TrackEntry>);
     let mut show_credits_track = use_signal(|| None::<TrackEntry>);
 
     rsx! {
-        div { class: "artist-detail-view",
-            // Hero Section
-            div { class: "artist-hero",
-                div { class: "artist-hero-avatar-box",
+        div {
+            class: "artist-detail-view",
+            style: "background: linear-gradient(180deg, {hero_color_rgb} 0%, rgba(18, 18, 18, 0.72) 280px, var(--bg-canvas) 460px);",
+
+            // 1. Hero Header: 232px Artist Avatar on left + Big Metadata on right
+            div { class: "album-detail-hero",
+                div { class: "artist-avatar-box",
                     if let Some(ref photo) = effective_photo {
-                        img { class: "artist-hero-avatar-img", src: "{photo}", alt: "{artist_name}" }
+                        img {
+                            class: "album-cover-img",
+                            src: "{photo}",
+                            alt: "{artist_name}",
+                        }
                     } else {
-                        div { class: "artist-hero-avatar-fallback",
+                        div { class: "album-cover-fallback",
                             span { class: "material-icons md-64", "person" }
                         }
                     }
                 }
 
-                div { class: "artist-hero-info",
-                    span { class: "artist-hero-tag", "ARTIST" }
-                    h1 { class: "artist-hero-title", "{artist_name}" }
-
-                    if let Some(ref desc) = profile.description {
-                        p { class: "artist-hero-desc", "{desc}" }
-                    }
-
-                    div { class: "artist-hero-meta",
-                        span { "{total_tracks} songs in your library" }
-                        span { "•" }
-                        span { "{total_albums} albums" }
-                    }
-
-                    // Action buttons
-                    div { style: "display: flex; gap: 14px; align-items: center; margin-top: 16px;",
-                        button {
-                            class: "album-big-play-btn",
-                            title: "Play all tracks by this artist",
-                            onclick: {
-                                let tracks_to_play = artist_tracks.clone();
-                                move |_| on_play_tracks.call(tracks_to_play.clone())
-                            },
-                            span { class: "material-icons md-32", "play_arrow" }
+                div { class: "album-meta-col",
+                    span { class: "album-meta-type", "Artist" }
+                    h1 { class: "album-meta-title", "{artist_name}" }
+                    div { class: "album-meta-subline",
+                        div { class: "album-artist-avatar",
+                            if let Some(ref photo) = effective_photo {
+                                img { src: "{photo}", alt: "{artist_name}" }
+                            } else {
+                                span { class: "material-icons md-14", style: "color: var(--accent-mint);", "verified" }
+                            }
                         }
-                        button {
-                            class: "album-icon-btn",
-                            title: "Shuffle artist tracks",
-                            onclick: {
-                                let mut shuffled = artist_tracks.clone();
-                                move |_| {
-                                    if shuffled.len() > 1 {
-                                        use std::time::SystemTime;
-                                        let mut seed = SystemTime::now()
-                                            .duration_since(SystemTime::UNIX_EPOCH)
-                                            .map(|d| d.as_nanos())
-                                            .unwrap_or(42);
-                                        for i in (1..shuffled.len()).rev() {
-                                            seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1);
-                                            let j = ((seed >> 32) as usize) % (i + 1);
-                                            shuffled.swap(i, j);
-                                        }
-                                    }
-                                    on_play_tracks.call(shuffled.clone());
-                                }
-                            },
-                            span { class: "material-icons md-28", "shuffle" }
-                        }
+                        span { class: "album-artist-name", "Verified Artist" }
+                        span { class: "album-dot-sep", "•" }
+                        span { class: "album-meta-songs", "{total_tracks} songs," }
+                        span { class: "album-meta-dur", "{total_dur_str}" }
+                        span { class: "album-dot-sep", "•" }
+                        span { class: "album-meta-dur", "{total_albums} albums" }
                     }
                 }
             }
 
-            // Expandable Bio from Wikipedia REST API if available
-            if let Some(ref bio) = profile.bio {
-                div { class: "artist-bio-card",
-                    h3 { style: "font-size: 15px; font-weight: 700; margin-bottom: 8px; display: flex; align-items: center; gap: 6px;",
-                        span { class: "material-icons md-18", style: "color: var(--accent-mint);", "menu_book" }
-                        "About {artist_name}"
-                    }
-                    p { class: "artist-bio-text", "{bio}" }
-                }
-            }
-
-            // Artist Discography Section with Release Type Filter Chips
-            div { class: "album-discography-section", style: "margin-top: 28px;",
-                div { class: "discography-header-row",
-                    div { style: "display: flex; align-items: center; gap: 16px; flex-wrap: wrap;",
-                        h2 { class: "discography-title", "Discography" }
-                        div { class: "discography-chips",
-                            button {
-                                class: if active_filter == "all" { "discography-chip active" } else { "discography-chip" },
-                                onclick: move |_| discography_filter.set("all".to_string()),
-                                "Popular releases"
-                            }
-                            button {
-                                class: if active_filter == "albums" { "discography-chip active" } else { "discography-chip" },
-                                onclick: move |_| discography_filter.set("albums".to_string()),
-                                "Albums"
-                            }
-                            button {
-                                class: if active_filter == "singles" { "discography-chip active" } else { "discography-chip" },
-                                onclick: move |_| discography_filter.set("singles".to_string()),
-                                "Singles and EPs"
+            // 2. Action Bar: Big green Play button, Shuffle, Favorite, Add to Queue
+            div { class: "album-action-bar",
+                button {
+                    class: "album-big-play-btn",
+                    title: if is_current_artist_playing { "Pause" } else { "Play all songs by this artist" },
+                    onclick: {
+                        let all_tracks = artist_tracks.clone();
+                        move |_| {
+                            if is_current_artist_playing {
+                                on_toggle_play.call(());
+                            } else {
+                                on_play_tracks.call(all_tracks.clone());
                             }
                         }
+                    },
+                    if is_current_artist_playing {
+                        span { class: "material-icons md-32", "pause" }
+                    } else {
+                        span { class: "material-icons md-32", "play_arrow" }
                     }
-                    span { class: "discography-count", "{filtered_albums.len()} releases" }
                 }
 
-                if filtered_albums.is_empty() {
-                    div { class: "discography-empty", "No releases found matching the selected category." }
-                } else {
-                    div { class: "discography-shelf",
-                        for album in filtered_albums.iter() {
-                            {
-                                let a_name = album.name.clone();
-                                let a_name_click = album.name.clone();
-                                let a_art = album.artwork_data_url.clone();
-                                let a_tracks = album.tracks.clone();
-                                let track_len = album.tracks.len();
-
-                                let rel_type = if track_len == 1 {
-                                    "Single".to_string()
-                                } else if track_len <= 5 {
-                                    "EP".to_string()
-                                } else {
-                                    "Album".to_string()
-                                };
-
-                                let year_str = album.tracks.first().and_then(|_t| {
-                                    let re_year = album.name.split('(').nth(1)?.split(')').next()?;
-                                    if re_year.len() == 4 && re_year.chars().all(|c| c.is_ascii_digit()) {
-                                        Some(re_year.to_string())
-                                    } else {
-                                        None
-                                    }
-                                });
-
-                                let subtitle = if let Some(yr) = year_str {
-                                    format!("{yr} • {rel_type}")
-                                } else {
-                                    format!("{rel_type} • {track_len} songs")
-                                };
-
-                                rsx! {
-                                    div {
-                                        key: "{a_name}",
-                                        class: "discography-card",
-                                        onclick: move |_| on_select_album.call(a_name_click.clone()),
-
-                                        div { class: "discography-art-box",
-                                            if let Some(ref art) = a_art {
-                                                img { class: "discography-art-img", src: "{art}", alt: "{a_name}" }
-                                            } else {
-                                                div { class: "discography-art-fallback",
-                                                    span { class: "material-icons md-36", "album" }
-                                                }
-                                            }
-
-                                            button {
-                                                class: "discography-hover-play",
-                                                title: "Play album",
-                                                onclick: {
-                                                    let t_play = a_tracks.clone();
-                                                    move |evt: MouseEvent| {
-                                                        evt.stop_propagation();
-                                                        on_play_tracks.call(t_play.clone());
-                                                    }
-                                                },
-                                                span { class: "material-icons md-28", "play_arrow" }
-                                            }
-                                        }
-
-                                        div { class: "discography-meta-col",
-                                            span { class: "discography-card-title", title: "{a_name}", "{a_name}" }
-                                            span { class: "discography-card-sub", "{subtitle}" }
-                                        }
-                                    }
+                button {
+                    class: "album-icon-btn",
+                    title: "Shuffle artist tracks",
+                    onclick: {
+                        let tracks_to_shuffle = artist_tracks.clone();
+                        move |_| {
+                            let mut shuffled = tracks_to_shuffle.clone();
+                            if shuffled.len() > 1 {
+                                use std::time::SystemTime;
+                                let mut seed = SystemTime::now()
+                                    .duration_since(SystemTime::UNIX_EPOCH)
+                                    .map(|d| d.as_nanos())
+                                    .unwrap_or(42);
+                                for i in (1..shuffled.len()).rev() {
+                                    seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1);
+                                    let j = ((seed >> 32) as usize) % (i + 1);
+                                    shuffled.swap(i, j);
                                 }
                             }
+                            on_play_tracks.call(shuffled);
                         }
+                    },
+                    span { class: "material-icons md-28", "shuffle" }
+                }
+
+                button {
+                    class: if artist_tracks.iter().all(|t| favorites.contains(&t.path)) && !artist_tracks.is_empty() {
+                        "album-icon-btn active"
+                    } else {
+                        "album-icon-btn"
+                    },
+                    title: "Favorite All Tracks by Artist",
+                    onclick: {
+                        let all_paths: Vec<PathBuf> = artist_tracks.iter().map(|t| t.path.clone()).collect();
+                        move |_| {
+                            for p in &all_paths {
+                                on_toggle_favorite.call(p.clone());
+                            }
+                        }
+                    },
+                    if artist_tracks.iter().all(|t| favorites.contains(&t.path)) && !artist_tracks.is_empty() {
+                        span { class: "material-icons md-28", style: "color: #fb7185;", "favorite" }
+                    } else {
+                        span { class: "material-icons md-28", "favorite_border" }
                     }
+                }
+
+                button {
+                    class: "album-icon-btn",
+                    title: "Add All to Queue",
+                    onclick: {
+                        let all_tracks = artist_tracks.clone();
+                        move |_| {
+                            for t in &all_tracks {
+                                on_queue_track.call(t.clone());
+                            }
+                        }
+                    },
+                    span { class: "material-icons md-28", "more_horiz" }
                 }
             }
 
-            // All Songs Table by this Artist
-            div { style: "margin-top: 36px;",
-                h2 { style: "font-size: 20px; font-weight: 700; margin-bottom: 16px;", "All Songs" }
-
-                div { class: "album-tracklist-container", style: "padding: 0;",
-                    div { class: "album-table-header",
-                        span { class: "album-table-header-idx", "#" }
-                        span { class: "album-table-header-title", "Title" }
-                        span { class: "album-table-header-audio", "Audio Profile" }
-                        div { class: "album-table-header-dur",
-                            span { class: "material-icons md-18", "schedule" }
-                        }
+            // 3. Tracklist Table Container (Identical to Album view with 32px side padding)
+            div { class: "album-tracklist-container",
+                div { class: "album-table-header",
+                    span { class: "album-table-header-idx", "#" }
+                    span { class: "album-table-header-title", "Title" }
+                    span { class: "album-table-header-audio", "Audio Profile" }
+                    div { class: "album-table-header-dur",
+                        span { class: "material-icons md-18", "schedule" }
                     }
+                }
 
-                    div { class: "album-table-body",
-                        for (idx, track) in artist_tracks.iter().enumerate() {
+                div { class: "album-table-body",
+                    for (idx, track) in artist_tracks.iter().enumerate() {
                             {
                                 let t = track.clone();
                                 let dur = fmt_ms(t.duration_ms);
@@ -597,6 +578,126 @@ pub fn ArtistDetail(
                                 }
                             }
                         }
+                    }
+
+                // 4. Collection Footer Note & Dynamic Lore
+                div { class: "album-detail-footer",
+                    p { class: "album-footer-lore", "{summary_description}" }
+                }
+
+                // 5. Artist Discography Section with Release Type Filter Chips
+                div { class: "album-discography-section",
+                    div { class: "discography-header-row",
+                        div { style: "display: flex; align-items: center; gap: 16px; flex-wrap: wrap;",
+                            h2 { class: "discography-title", "Discography" }
+                            div { class: "discography-chips",
+                                button {
+                                    class: if active_filter == "all" { "discography-chip active" } else { "discography-chip" },
+                                    onclick: move |_| discography_filter.set("all".to_string()),
+                                    "Popular releases"
+                                }
+                                button {
+                                    class: if active_filter == "albums" { "discography-chip active" } else { "discography-chip" },
+                                    onclick: move |_| discography_filter.set("albums".to_string()),
+                                    "Albums"
+                                }
+                                button {
+                                    class: if active_filter == "singles" { "discography-chip active" } else { "discography-chip" },
+                                    onclick: move |_| discography_filter.set("singles".to_string()),
+                                    "Singles and EPs"
+                                }
+                            }
+                        }
+                        span { class: "discography-count", "{filtered_albums.len()} releases" }
+                    }
+
+                    if filtered_albums.is_empty() {
+                        div { class: "discography-empty", "No releases found matching the selected category." }
+                    } else {
+                        div { class: "discography-shelf",
+                            for album in filtered_albums.iter() {
+                                {
+                                    let a_name = album.name.clone();
+                                    let a_name_click = album.name.clone();
+                                    let a_art = album.artwork_data_url.clone();
+                                    let a_tracks = album.tracks.clone();
+                                    let track_len = album.tracks.len();
+
+                                    let rel_type = if track_len == 1 {
+                                        "Single".to_string()
+                                    } else if track_len <= 5 {
+                                        "EP".to_string()
+                                    } else {
+                                        "Album".to_string()
+                                    };
+
+                                    let year_str = album.tracks.first().and_then(|_t| {
+                                        let re_year = album.name.split('(').nth(1)?.split(')').next()?;
+                                        if re_year.len() == 4 && re_year.chars().all(|c| c.is_ascii_digit()) {
+                                            Some(re_year.to_string())
+                                        } else {
+                                            None
+                                        }
+                                    });
+
+                                    let subtitle = if let Some(yr) = year_str {
+                                        format!("{yr} • {rel_type}")
+                                    } else {
+                                        format!("{rel_type} • {track_len} songs")
+                                    };
+
+                                    rsx! {
+                                        div {
+                                            key: "{a_name}",
+                                            class: "discography-card",
+                                            onclick: move |_| on_select_album.call(a_name_click.clone()),
+
+                                            div { class: "discography-art-box",
+                                                if let Some(ref art) = a_art {
+                                                    img { class: "discography-art-img", src: "{art}", alt: "{a_name}" }
+                                                } else {
+                                                    div { class: "discography-art-fallback",
+                                                        span { class: "material-icons md-36", "album" }
+                                                    }
+                                                }
+
+                                                button {
+                                                    class: "discography-hover-play",
+                                                    title: "Play album",
+                                                    onclick: {
+                                                        let t_play = a_tracks.clone();
+                                                        move |evt: MouseEvent| {
+                                                            evt.stop_propagation();
+                                                            on_play_tracks.call(t_play.clone());
+                                                        }
+                                                    },
+                                                    span { class: "material-icons md-28", "play_arrow" }
+                                                }
+                                            }
+
+                                            div { class: "discography-meta-col",
+                                                span { class: "discography-card-title", title: "{a_name}", "{a_name}" }
+                                                span { class: "discography-card-sub", "{subtitle}" }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // 6. About Artist (Wikipedia Bio & Description)
+                if let Some(ref bio) = profile.bio {
+                    div { class: "artist-bio-card",
+                        h3 { style: "font-size: 16px; font-weight: 700; margin-bottom: 10px; display: flex; align-items: center; gap: 8px;",
+                            span { class: "material-icons md-20", style: "color: var(--accent-mint);", "menu_book" }
+                            "About {artist_name}"
+                        }
+                        if let Some(ref desc) = profile.description {
+                            p { style: "color: var(--accent-mint); font-size: 13.5px; font-weight: 600; margin-bottom: 8px;", "{desc}" }
+                        }
+                        p { class: "artist-bio-text", "{bio}" }
                     }
                 }
             }

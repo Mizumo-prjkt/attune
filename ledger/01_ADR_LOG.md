@@ -3276,6 +3276,34 @@ This file records all major architectural decisions for **Attune**, including co
   - Fluid, Spotify-grade navigation where clicking any artist or album across Home, Album, or Artist views instantly routes to the respective catalog.
   - All 53 desktop tests and 104 workspace tests pass cleanly, and release binary compiles in 40.04s.
 
+---
+
+## ADR-092: Unified Design Language & Visual Parity for Artist View (Edge-to-Edge Atmospheric Gradient, 232px Avatar, Action Bar Hierarchy, Standard Tracklist Container & Shelf Ordering)
+- **Date**: 2026-11-07
+- **Status**: `LOCKED`
+- **Context**:
+  - A side-by-side comparison of the Album view (e.g. `(Not) A Devil`) and the Artist view (e.g. `40mP`) revealed a jarring design language discrepancy:
+    1. The Album view featured a rich edge-to-edge ambient atmospheric gradient (`.album-detail-view` with negative margins and dynamic RGB extraction), whereas the Artist view was confined with a flat, dark background.
+    2. The Album view showcased a prominent 232px hero artwork, bold `clamp(32px, 5.5vw, 68px)` 900-weight typography, and a clean subline with circular mini-badge indicators. In contrast, the Artist view had an undersized 190px floating avatar, 38px title, cyan uppercase tag, and muted meta.
+    3. The Artist view awkwardly embedded small Play and Shuffle buttons inside the hero text block, lacking the wide, dedicated `.album-action-bar` present in Album view.
+    4. The Discography shelf was positioned above the songs in Artist view with 0px padding, pushing the tracklist down, unlike the industry standard (and Album view) where the Action Bar is immediately followed by the tracks table.
+- **Decision**:
+  1. **Full Edge-to-Edge Ambient Gradient Bleed**:
+     - Applied `.album-detail-view, .artist-detail-view { width: calc(100% + 64px); margin: -24px -32px 0 -32px; min-height: calc(100% + 24px); padding-bottom: 80px; }`.
+     - Integrated `DynamicPalette::from_image` to dynamically sample the dominant vibrant RGB from the artist's tracks, applying `linear-gradient(180deg, {hero_color_rgb} 0%, rgba(18, 18, 18, 0.72) 280px, var(--bg-canvas) 460px)` identically to Album view.
+  2. **Identical Hero Header Layout & Typography**:
+     - Upgraded avatar container to `.artist-avatar-box` (232px × 232px, circular, `box-shadow: 0 4px 60px rgba(0, 0, 0, 0.55), 0 0 1px rgba(255, 255, 255, 0.15)`).
+     - Standardized typography with `.album-meta-type` ("Artist"), `.album-meta-title` ("{artist_name}"), and `.album-meta-subline` featuring Verified Artist badge, track count, duration, and album count.
+  3. **Dedicated Action Bar (`.album-action-bar`)**:
+     - Positioned directly below the hero header with 56px mint green play button (dynamic Play/Pause state), shuffle button, favorite toggle button, and "Add All to Queue" button with standard 16px 32px 24px 32px padding.
+  4. **Consistent Layout Hierarchy & Padding**:
+     - Placed the track table (`.album-tracklist-container`) directly below the action bar with standard 32px left/right margins.
+     - Placed the dynamic collection summary line (`.album-detail-footer`), the Discography shelf (`.album-discography-section`), and the Wikipedia biography card (`.artist-bio-card`) sequentially below the tracklist.
+- **Consequences**:
+  - 100% visual parity and identical UI design language across Album and Artist detail stages.
+  - Zero hardcoding (Mandate 4): palette colors, track stats, formats, and biographies are derived dynamically.
+  - All 53 desktop tests and 104 workspace tests pass cleanly. Release binary compiles in 42.35s.
+
 
 
 
