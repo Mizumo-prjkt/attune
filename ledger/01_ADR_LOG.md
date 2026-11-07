@@ -3445,6 +3445,37 @@ This file records all major architectural decisions for **Attune**, including co
   - Full adherence to Mandate 4 with 0 hardcoded values and transparent system diagnostics.
   - All 63 desktop tests and all 118 workspace tests pass cleanly. Release binary compiles in 1m 03s.
 
+---
+
+## ADR-097: Strict Standalone Secondary Window Settings Architecture, Main Viewport Decoupling & RAII Window Lifecycle
+- **Date**: 2026-11-07
+- **Status**: `LOCKED`
+- **Context**:
+  1. The user noted that when clicking the Settings button in the main window's sidebar, the Settings page was simultaneously rendered inside the main window viewport as well as popping up in the dedicated secondary window (as shown in attachment `media_1794047330340_d64d94c1.jpg`).
+  2. The user explicitly directed: "just dont show the settings page inside the main window, just keep the settings out to a new window. the settings button at main window should only be a trigger to summon a new window".
+  3. The main window must remain focused on its existing active stage (e.g. Home, Library, Albums, Artists, For You) without navigating away or rendering a duplicate settings UI.
+  4. Closing the dedicated Settings window (via the OS titlebar close button `[X]` or the in-app `[ Close Window ]` button) must properly reset single-instance guards so subsequent clicks on the sidebar trigger reliably re-summon the settings window.
+  5. Configuration adjustments made inside the secondary window (folder paths, exclusions, hotkey modes, lyric providers, subtexts) must synchronize dynamically with the main window's runtime state.
+- **Decision**:
+  1. **Purged `StageView::Settings` from Main Window Routing (`crates/attune-desktop/src/app.rs`)**:
+     - Removed `Settings` variant from `StageView` enum.
+     - Removed the entire in-viewport `StageView::Settings` rendering block from the main application's scrollable container.
+     - Changed the sidebar Settings navigation item from an active stage link to a non-navigating action trigger calling `open_settings_window()`.
+  2. **RAII Window Lifecycle Management (`crates/attune-desktop/src/stages/settings.rs`)**:
+     - Introduced `WindowOpenGuard` implementing `Drop` which atomically stores `false` into `SETTINGS_WINDOW_OPEN`.
+     - Wrapped the guard in `use_hook(|| Arc::new(WindowOpenGuard))` inside `SettingsStandaloneWindow`, ensuring that whether the window is dismissed via the OS titlebar `[X]` or in-app button, the guard drops cleanly and resets the atomic latch.
+     - Removed obsolete "Open in Window" button from the settings sidebar and standardized the bottom action to `[ Close Window ]` which invokes `dioxus::desktop::window().close()`.
+  3. **Real Library Caching & Dynamic Event Wiring in Standalone Window**:
+     - Loaded genuine cached tracks into `SettingsStandaloneWindow` via `crate::library::load_library_cache`, enabling the directory tree and song counters to display live library metrics rather than empty states.
+     - Connected folder selection and exclusion callbacks directly to `config::add_music_dir`, `config::remove_music_dir`, `config::add_song_exclusion`, and `config::remove_song_exclusion` with responsive signal updates.
+  4. **Background Two-Way Config Synchronization**:
+     - Integrated `config::load_config()` polling in `app.rs` inside the 1-second background hardware sampling loop.
+     - Automatically updates `app_config`, `music_dir`, `extra_music_dirs`, and `song_exclusions` signals when differences are detected, allowing main window views and audio playback to immediately reflect settings adjustments saved in the secondary window.
+- **Consequences**:
+  - The main window never renders Settings in its viewport, keeping the user's current stage intact while settings are inspected or modified in the dedicated secondary window.
+  - Zero hardcoding under Mandate 4, complete RAII lifecycle safety, and clean multi-window synchronization.
+  - All 63 desktop tests and all 118 workspace tests pass cleanly. Release binary compiles in 57.52s.
+
 
 
 

@@ -8,9 +8,10 @@
 use dioxus::prelude::*;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 
 use crate::config::{
-    export_backup_tar, import_backup_tar, load_config, probe_gpu_capabilities,
+    self, export_backup_tar, import_backup_tar, load_config, probe_gpu_capabilities,
     save_config, AppConfig,
 };
 use crate::i18n::export_language_template_json;
@@ -19,6 +20,13 @@ use crate::process_manager::trim_memory;
 use crate::smart_shuffle::ShuffleMode;
 
 static SETTINGS_WINDOW_OPEN: AtomicBool = AtomicBool::new(false);
+
+struct WindowOpenGuard;
+impl Drop for WindowOpenGuard {
+    fn drop(&mut self) {
+        SETTINGS_WINDOW_OPEN.store(false, Ordering::SeqCst);
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SettingsTab {
@@ -123,8 +131,24 @@ pub fn open_settings_window() {
 /// Standalone Window Root Component for Settings
 #[component]
 pub fn SettingsStandaloneWindow() -> Element {
-    let config_sig = use_signal(load_config);
+    use_hook(|| Arc::new(WindowOpenGuard));
+    let mut config_sig = use_signal(load_config);
     let active_tab = use_signal(|| SettingsTab::General);
+    let tracks = use_signal(|| {
+        let cfg = config_sig.read();
+        let mut all_tracks = Vec::new();
+        if let Some(ref d) = cfg.music_dir {
+            if let Some(mut t) = crate::library::load_library_cache(d) {
+                all_tracks.append(&mut t);
+            }
+        }
+        for d in &cfg.extra_music_dirs {
+            if let Some(mut t) = crate::library::load_library_cache(d) {
+                all_tracks.append(&mut t);
+            }
+        }
+        all_tracks
+    });
 
     rsx! {
         div {
@@ -138,18 +162,49 @@ pub fn SettingsStandaloneWindow() -> Element {
                 music_dir: config_sig.read().music_dir.clone(),
                 extra_music_dirs: config_sig.read().extra_music_dirs.clone(),
                 song_exclusions: config_sig.read().song_exclusions.clone(),
-                tracks: Vec::new(),
+                tracks: tracks.read().clone(),
                 has_hardware_output: true,
                 driver_error: None,
                 mixer_sample_rate: 44100,
                 shuffle_mode: ShuffleMode::Smart,
                 on_change_shuffle_mode: EventHandler::new(|_| ()),
-                on_choose_folder: EventHandler::new(|_| ()),
-                on_add_folder: EventHandler::new(|_| ()),
-                on_remove_folder: EventHandler::new(|_| ()),
+                on_choose_folder: EventHandler::new(move |_| {
+                    if let Some(path) = rfd::FileDialog::new().pick_folder() {
+                        config::set_setup_completed(true, Some(path.clone()));
+                        let mut c = config_sig.write();
+                        c.music_dir = Some(path);
+                    }
+                }),
+                on_add_folder: EventHandler::new(move |_| {
+                    if let Some(path) = rfd::FileDialog::new().pick_folder() {
+                        config::add_music_dir(path.clone());
+                        let mut c = config_sig.write();
+                        if !c.extra_music_dirs.contains(&path) {
+                            c.extra_music_dirs.push(path);
+                        }
+                    }
+                }),
+                on_remove_folder: EventHandler::new(move |rem_path: PathBuf| {
+                    config::remove_music_dir(&rem_path);
+                    let mut c = config_sig.write();
+                    c.extra_music_dirs.retain(|p| p != &rem_path);
+                    if c.music_dir.as_ref() == Some(&rem_path) {
+                        c.music_dir = c.extra_music_dirs.first().cloned();
+                    }
+                }),
                 on_rescan_library: EventHandler::new(|_| ()),
-                on_add_exclusion: EventHandler::new(|_| ()),
-                on_remove_exclusion: EventHandler::new(|_| ()),
+                on_add_exclusion: EventHandler::new(move |pattern: String| {
+                    config::add_song_exclusion(pattern.clone());
+                    let mut c = config_sig.write();
+                    if !c.song_exclusions.contains(&pattern) {
+                        c.song_exclusions.push(pattern);
+                    }
+                }),
+                on_remove_exclusion: EventHandler::new(move |pattern: String| {
+                    config::remove_song_exclusion(&pattern);
+                    let mut c = config_sig.write();
+                    c.song_exclusions.retain(|x| x != &pattern);
+                }),
                 on_open_equalizer: EventHandler::new(|_| ()),
                 on_open_process_manager: EventHandler::new(|_| ()),
                 on_open_setup: EventHandler::new(|_| ()),
@@ -355,26 +410,16 @@ pub fn SettingsContent(
 
                 div { style: "flex: 1;" }
 
-                // Bottom Sidebar Action: Open in Window or Close Window
-                if !is_standalone {
-                    button {
-                        class: "btn-pill",
-                        style: "width: 100%; display: flex; align-items: center; justify-content: center; gap: 6px; font-size: 11.5px; padding: 8px 12px; margin-top: 12px;",
-                        onclick: move |_| open_settings_window(),
-                        span { class: "material-icons md-16", "open_in_new" }
-                        "Open in Window"
-                    }
-                } else {
-                    button {
-                        class: "btn-pill",
-                        style: "width: 100%; display: flex; align-items: center; justify-content: center; gap: 6px; font-size: 11.5px; padding: 8px 12px; margin-top: 12px; background: rgba(251,113,133,0.15); border-color: rgba(251,113,133,0.3); color: #fb7185;",
-                        onclick: move |_| {
-                            SETTINGS_WINDOW_OPEN.store(false, Ordering::SeqCst);
-                            dioxus::desktop::window().close();
-                        },
-                        span { class: "material-icons md-16", "close" }
-                        "Close Window"
-                    }
+                // Bottom Sidebar Action: Close Window
+                button {
+                    class: "btn-pill",
+                    style: "width: 100%; display: flex; align-items: center; justify-content: center; gap: 6px; font-size: 11.5px; padding: 8px 12px; margin-top: 12px; background: rgba(251,113,133,0.15); border-color: rgba(251,113,133,0.3); color: #fb7185;",
+                    onclick: move |_| {
+                        SETTINGS_WINDOW_OPEN.store(false, Ordering::SeqCst);
+                        dioxus::desktop::window().close();
+                    },
+                    span { class: "material-icons md-16", "close" }
+                    "Close Window"
                 }
             }
 

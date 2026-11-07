@@ -16,7 +16,7 @@ use crate::stages::{
     artists::{ArtistDetail, Artists}, equalizer::Equalizer,
     favorites::Favorites, for_you::ForYou, fullscreen_now_playing::FullscreenNowPlaying,
     home::Home, library::Library, process_manager::ProcessManager,
-    settings::Settings, setup::SetupStage,
+    settings::open_settings_window, setup::SetupStage,
 };
 
 #[derive(Debug, Clone, PartialEq)]
@@ -33,7 +33,6 @@ pub enum StageView {
     Favorites,
     Equalizer,
     AlbumEditor(AlbumGroup),
-    Settings,
     ProcessManager,
     About,
     FullscreenNowPlaying,
@@ -135,7 +134,7 @@ pub fn App() -> Element {
     let mut extra_music_dirs = use_signal(|| {
         config::load_config().extra_music_dirs
     });
-    let mut song_exclusions = use_signal(|| {
+    let song_exclusions = use_signal(|| {
         config::load_config().song_exclusions
     });
     let mut is_scanning = use_signal(|| false);
@@ -602,10 +601,18 @@ pub fn App() -> Element {
 
     // Background Async Poller (50ms Interval): Updates playback, auto-transitions, scan events, lyrics, and Watchguard telemetry
     let play_next_track_poller = play_next_track.clone();
+    let app_config_poller = app_config;
+    let music_dir_poller = music_dir;
+    let extra_music_dirs_poller = extra_music_dirs;
+    let song_exclusions_poller = song_exclusions;
     use_future(move || {
         let player = player.clone();
         let scan_rx = scan_rx.clone();
         let mut play_next_track = play_next_track_poller.clone();
+        let mut app_config = app_config_poller;
+        let mut music_dir = music_dir_poller;
+        let mut extra_music_dirs = extra_music_dirs_poller;
+        let mut song_exclusions = song_exclusions_poller;
         async move {
             let mut last_hw_sample_instant = std::time::Instant::now();
             let mut last_clipping_count = 0u32;
@@ -614,9 +621,25 @@ pub fn App() -> Element {
             loop {
                 tokio::time::sleep(Duration::from_millis(50)).await;
 
-                // Record real hardware resource telemetry every 1000ms on desktop
+                // Record real hardware resource telemetry and sync config every 1000ms on desktop
                 if last_hw_sample_instant.elapsed() >= Duration::from_millis(1000) {
                     last_hw_sample_instant = std::time::Instant::now();
+
+                    // Sync settings modified in standalone settings window
+                    let fresh_cfg = config::load_config();
+                    if *app_config.read() != fresh_cfg {
+                        if fresh_cfg.music_dir != *music_dir.read() {
+                            music_dir.set(fresh_cfg.music_dir.clone());
+                        }
+                        if fresh_cfg.extra_music_dirs != *extra_music_dirs.read() {
+                            extra_music_dirs.set(fresh_cfg.extra_music_dirs.clone());
+                        }
+                        if fresh_cfg.song_exclusions != *song_exclusions.read() {
+                            song_exclusions.set(fresh_cfg.song_exclusions.clone());
+                        }
+                        app_config.set(fresh_cfg);
+                    }
+
                     if let Ok(m) = crate::process_manager::sample_metrics() {
                         let gpu_usage = if let (Some(cur), Some(max)) = (m.gpu_cur_freq_mhz, m.gpu_max_freq_mhz) {
                             if max > 0 { (cur as f32 / max as f32) * 100.0 } else { 0.0 }
@@ -1079,8 +1102,9 @@ pub fn App() -> Element {
                         span { "Equalizer" }
                     }
                     div {
-                        class: if *nav_state.read().current() == StageView::Settings { "nav-item active" } else { "nav-item" },
-                        onclick: move |_| navigate_to(StageView::Settings),
+                        class: "nav-item",
+                        title: "Open Settings in New Window",
+                        onclick: move |_| open_settings_window(),
                         span { class: "material-icons md-20", "settings" }
                         span { "Settings" }
                     }
@@ -1393,105 +1417,6 @@ pub fn App() -> Element {
                                         queue.set(scanned_tracks);
                                     }
                                     navigate_to(StageView::Home);
-                                }
-                            }
-                        },
-                        StageView::Settings => {
-                            let (_, dir_src) = config::resolve_music_dir(music_dir.read().clone());
-                            let p = player.read();
-                            let has_hw = p.has_hardware_output();
-                            let drv_err = p.driver_error().map(str::to_string);
-                            let sr = p.snapshot().map(|s| s.sample_rate).unwrap_or(0);
-                            drop(p);
-
-                            rsx! {
-                                Settings {
-                                    music_dir: music_dir.read().clone(),
-                                    extra_music_dirs: extra_music_dirs.read().clone(),
-                                    song_exclusions: song_exclusions.read().clone(),
-                                    tracks: tracks.read().clone(),
-                                    music_dir_source: dir_src.label().to_string(),
-                                    has_hardware_output: has_hw,
-                                    driver_error: drv_err,
-                                    mixer_sample_rate: sr,
-                                    shuffle_mode: *shuffle_mode.read(),
-                                    on_change_shuffle_mode: move |new_mode: ShuffleMode| {
-                                        shuffle_mode.set(new_mode);
-                                        if new_mode != ShuffleMode::Smart {
-                                            player.read().clear_pending_transition();
-                                        }
-                                    },
-                                    on_choose_folder: {
-                                        let mut scan_all = scan_all_libraries.clone();
-                                        move |_| {
-                                            if let Some(path) = rfd::FileDialog::new().pick_folder() {
-                                                music_dir.set(Some(path.clone()));
-                                                config::set_setup_completed(true, Some(path));
-                                                scan_all();
-                                            }
-                                        }
-                                    },
-                                    on_add_folder: {
-                                        let mut scan_all = scan_all_libraries.clone();
-                                        move |_| {
-                                            if let Some(path) = rfd::FileDialog::new().pick_folder() {
-                                                config::add_music_dir(path.clone());
-                                                let mut extras = extra_music_dirs.read().clone();
-                                                if !extras.contains(&path) {
-                                                    extras.push(path);
-                                                    extra_music_dirs.set(extras);
-                                                }
-                                                scan_all();
-                                            }
-                                        }
-                                    },
-                                    on_remove_folder: {
-                                        let mut scan_all = scan_all_libraries.clone();
-                                        move |rem_path: PathBuf| {
-                                            config::remove_music_dir(&rem_path);
-                                            let mut extras = extra_music_dirs.read().clone();
-                                            extras.retain(|p| p != &rem_path);
-                                            extra_music_dirs.set(extras);
-                                            if music_dir.read().as_ref() == Some(&rem_path) {
-                                                music_dir.set(extra_music_dirs.read().first().cloned());
-                                            }
-                                            scan_all();
-                                        }
-                                    },
-                                    on_rescan_library: {
-                                        let mut scan_all = scan_all_libraries.clone();
-                                        move |_| scan_all()
-                                    },
-                                    on_add_exclusion: {
-                                        let mut scan_all = scan_all_libraries.clone();
-                                        move |pattern: String| {
-                                            config::add_song_exclusion(pattern.clone());
-                                            let mut excs = song_exclusions.read().clone();
-                                            if !excs.contains(&pattern) {
-                                                excs.push(pattern);
-                                                song_exclusions.set(excs);
-                                            }
-                                            let filtered: Vec<TrackEntry> = tracks.read().iter()
-                                                .filter(|t| !crate::config::AppConfig::is_path_or_title_excluded(&song_exclusions.read(), &t.path, Some(&t.title)))
-                                                .cloned()
-                                                .collect();
-                                            tracks.set(filtered);
-                                            scan_all();
-                                        }
-                                    },
-                                    on_remove_exclusion: {
-                                        let mut scan_all = scan_all_libraries.clone();
-                                        move |pattern: String| {
-                                            config::remove_song_exclusion(&pattern);
-                                            let mut excs = song_exclusions.read().clone();
-                                            excs.retain(|x| x != &pattern);
-                                            song_exclusions.set(excs);
-                                            scan_all();
-                                        }
-                                    },
-                                    on_open_equalizer: move |_| navigate_to(StageView::Equalizer),
-                                    on_open_process_manager: move |_| navigate_to(StageView::ProcessManager),
-                                    on_open_setup: move |_| navigate_to(StageView::Setup),
                                 }
                             }
                         },
