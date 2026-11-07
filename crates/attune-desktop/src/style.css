@@ -707,12 +707,28 @@ body, html {
   border: 1px solid rgba(255, 255, 255, 0.18);
   transition: all 0.22s cubic-bezier(0.4, 0, 0.2, 1);
   box-sizing: border-box;
+  cursor: pointer;
+  flex-shrink: 0;
+  outline: none;
+  user-select: none;
+  display: inline-block;
+}
+
+.switch-track:hover {
+  background: rgba(255, 255, 255, 0.18);
+  border-color: rgba(255, 255, 255, 0.32);
 }
 
 .switch-track.active {
   background: rgba(45, 212, 191, 0.35);
   border-color: var(--accent-mint);
   box-shadow: 0 0 10px rgba(45, 212, 191, 0.3);
+}
+
+.switch-track.active:hover {
+  background: rgba(45, 212, 191, 0.45);
+  border-color: #5eead4;
+  box-shadow: 0 0 14px rgba(45, 212, 191, 0.45);
 }
 
 .switch-thumb {
@@ -746,6 +762,52 @@ body, html {
 
 .switch-status.bypassed {
   color: var(--text-muted);
+}
+
+/* Language Cards & Selection Grid */
+.language-selector-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 12px;
+  margin-top: 14px;
+}
+
+.language-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--border-glass);
+  cursor: pointer;
+  transition: all 0.18s ease;
+  user-select: none;
+}
+
+.language-card:hover {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.24);
+}
+
+.language-card.active {
+  background: rgba(45, 212, 191, 0.16);
+  border-color: var(--accent-mint);
+  box-shadow: 0 0 14px rgba(45, 212, 191, 0.25);
+}
+
+/* Song Exclusion List & Row Styling */
+.settings-track-exclusion-list::-webkit-scrollbar {
+  width: 6px;
+}
+
+.settings-track-exclusion-list::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.15);
+  border-radius: 3px;
+}
+
+.settings-track-exclusion-row:hover {
+  background: rgba(255, 255, 255, 0.06) !important;
 }
 
 /* Equalizer Frequency Curve Visualizer */

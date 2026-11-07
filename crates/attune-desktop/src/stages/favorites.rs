@@ -18,6 +18,8 @@ pub fn Favorites(
         .filter(|t| favorites.contains(&t.path))
         .collect();
 
+    let strings = crate::i18n::current_strings();
+
     let total_count = fav_tracks.len();
     let total_ms: u64 = fav_tracks.iter().map(|t| t.duration_ms).sum();
     let dur_str = fmt_ms(total_ms);
@@ -36,9 +38,9 @@ pub fn Favorites(
             // Top Header
             div { style: "display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px;",
                 div {
-                    h1 { style: "font-size: 26px; font-weight: 700;", "Favorite Songs" }
+                    h1 { style: "font-size: 26px; font-weight: 700;", "{strings.favorite_songs}" }
                     p { style: "color: var(--text-secondary); font-size: 13px; margin-top: 4px;",
-                        "{total_count} favorites • {dur_str} total"
+                        "{total_count} {strings.favorited_tracks_in_collection} • {dur_str} {strings.total_listening_time}"
                     }
                 }
                 div { style: "display: flex; gap: 10px;",
@@ -48,7 +50,7 @@ pub fn Favorites(
                         disabled: fav_tracks.is_empty(),
                         onclick: move |_| on_play_tracks.call(all_favs_play.clone()),
                         span { class: "material-icons md-16", "play_arrow" }
-                        "Play Favorites"
+                        "{strings.play_all}"
                     }
                     button {
                         class: "btn-pill",
@@ -56,7 +58,7 @@ pub fn Favorites(
                         disabled: fav_tracks.is_empty(),
                         onclick: move |_| on_play_tracks.call(all_favs_shuffle.clone()),
                         span { class: "material-icons md-16", "shuffle" }
-                        "Shuffle"
+                        "{strings.shuffle_all}"
                     }
                 }
             }
@@ -64,20 +66,20 @@ pub fn Favorites(
             // Table Header
             div { style: "display: grid; grid-template-columns: 44px 2fr 1.5fr 1.5fr 70px 70px 70px 60px; padding: 8px 12px; border-bottom: 1px solid var(--border-glass); color: var(--text-muted); font-size: 11.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em;",
                 span { "#" }
-                span { "Title" }
-                span { "Artist" }
-                span { "Album" }
-                span { "BPM" }
-                span { "Key" }
-                span { style: "text-align: right;", "Time" }
-                span { style: "text-align: center;", "Actions" }
+                span { "{strings.title}" }
+                span { "{strings.artist}" }
+                span { "{strings.album}" }
+                span { "{strings.bpm}" }
+                span { "{strings.key}" }
+                span { style: "text-align: right;", "{strings.time}" }
+                span { style: "text-align: center;", "{strings.actions}" }
             }
 
             // Track Rows
             div { style: "overflow-y: auto; flex: 1;",
                 if fav_tracks.is_empty() {
                     div { style: "text-align: center; padding: 60px; color: var(--text-muted); font-size: 15px;",
-                        "No favorite tracks yet. Click the favorite icon on any track in your library to add it here."
+                        "{strings.no_favorites_yet}"
                     }
                 } else {
                     for (idx, track) in fav_tracks.iter().enumerate() {
@@ -153,7 +155,7 @@ pub fn Favorites(
                                     div { style: "display: flex; gap: 8px; justify-content: center; align-items: center;",
                                         button {
                                             style: "background: transparent; border: none; cursor: pointer; color: var(--text-muted); padding: 2px;",
-                                            title: "Add to Queue",
+                                            title: "{strings.add_to_queue}",
                                             onclick: {
                                                 let t_clone = t.clone();
                                                 move |_| on_queue_track.call(t_clone.clone())
@@ -162,7 +164,7 @@ pub fn Favorites(
                                         }
                                         button {
                                             style: "background: transparent; border: none; cursor: pointer; color: #fb7185; padding: 2px;",
-                                            title: "Remove from Favorites",
+                                            title: "{strings.remove_favorite}",
                                             onclick: move |_| on_toggle_favorite.call(path_clone.clone()),
                                             span { class: "material-icons md-16", "favorite" }
                                         }

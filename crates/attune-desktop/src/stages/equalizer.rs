@@ -139,6 +139,7 @@ pub fn Equalizer(
     params: MasterFxParams,
     on_change: EventHandler<MasterFxParams>,
 ) -> Element {
+    let strings = crate::i18n::current_strings();
     let mut local_params = use_signal(|| params.clone());
 
     // Synchronize if parent params change externally
@@ -156,7 +157,7 @@ pub fn Equalizer(
             // Stage Header with Human-Understandable Switch Toggle
             div { style: "display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border-glass); padding-bottom: 16px; flex-wrap: wrap; gap: 12px;",
                 div {
-                    h1 { style: "font-size: 26px; font-weight: 700;", "Equalizer & Master FX" }
+                    h1 { style: "font-size: 26px; font-weight: 700;", "{strings.equalizer_and_master_fx}" }
                     p { style: "color: var(--text-secondary); font-size: 13px; margin-top: 4px;",
                         "Studio-Grade 6-Stage Mastering Rack • Real-Time DSP Audio Processing"
                     }
@@ -170,7 +171,7 @@ pub fn Equalizer(
                             local_params.set(next.clone());
                             on_change.call(next);
                         },
-                        "↺ Reset to Flat"
+                        "↺ {strings.reset}"
                     }
 
                     // Human-Understandable Master FX Switch Toggle
@@ -185,13 +186,8 @@ pub fn Equalizer(
                             local_params.set(next.clone());
                             on_change.call(next);
                         },
-                        span { class: "switch-label", "Master FX" }
                         div { class: if p.enabled { "switch-track active" } else { "switch-track" },
                             div { class: "switch-thumb" }
-                        }
-                        span {
-                            class: if p.enabled { "switch-status active" } else { "switch-status bypassed" },
-                            if p.enabled { "ON" } else { "BYPASSED" }
                         }
                     }
                 }
@@ -221,7 +217,7 @@ pub fn Equalizer(
             div { style: "background: var(--bg-card); padding: 18px 22px; border-radius: 16px; border: 1px solid var(--border-glass);",
                 div { style: "display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;",
                     div {
-                        h3 { style: "font-size: 15px; font-weight: 600;", "Preamp Headroom Gain Pad" }
+                        h3 { style: "font-size: 15px; font-weight: 600;", "{strings.preamp_headroom}" }
                         p { style: "font-size: 12px; color: var(--text-muted); margin-top: 2px;", "Protects internal cascaded biquads against inter-sample filter clipping" }
                     }
                     span { style: "font-family: monospace; font-size: 13px; font-weight: 600; color: var(--accent-mint);",
@@ -250,7 +246,7 @@ pub fn Equalizer(
             div { style: "background: var(--bg-card); padding: 22px; border-radius: 16px; border: 1px solid var(--border-glass); box-sizing: border-box; overflow: hidden;",
                 div { style: "display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;",
                     div {
-                        h3 { style: "font-size: 16px; font-weight: 600;", "10-Band Graphic Equalizer" }
+                        h3 { style: "font-size: 16px; font-weight: 600;", "{strings.graphic_equalizer}" }
                         p { style: "font-size: 12px; color: var(--text-muted); margin-top: 2px;", "Studio peaking IIR filters (-12 dB to +12 dB range) • Real-Time Frequency Response" }
                     }
                     button {
@@ -432,7 +428,7 @@ pub fn Equalizer(
                 div { style: "background: var(--bg-card); padding: 20px; border-radius: 16px; border: 1px solid var(--border-glass); display: flex; flex-direction: column; gap: 14px;",
                     div { style: "display: flex; justify-content: space-between; align-items: center;",
                         div {
-                            h3 { style: "font-size: 15px; font-weight: 600;", "Pure Bass+ Synthesizer" }
+                            h3 { style: "font-size: 15px; font-weight: 600;", "{strings.pure_bass_synthesizer}" }
                             p { style: "font-size: 11.5px; color: var(--text-muted);", "Sub-harmonic acoustic low-end generator" }
                         }
                         div {
@@ -447,10 +443,6 @@ pub fn Equalizer(
                             },
                             div { class: if p.bass_enabled { "switch-track active" } else { "switch-track" },
                                 div { class: "switch-thumb" }
-                            }
-                            span {
-                                class: if p.bass_enabled { "switch-status active" } else { "switch-status bypassed" },
-                                if p.bass_enabled { "ON" } else { "OFF" }
                             }
                         }
                     }
@@ -508,7 +500,7 @@ pub fn Equalizer(
                 div { style: "background: var(--bg-card); padding: 20px; border-radius: 16px; border: 1px solid var(--border-glass); display: flex; flex-direction: column; gap: 14px;",
                     div { style: "display: flex; justify-content: space-between; align-items: center;",
                         div {
-                            h3 { style: "font-size: 15px; font-weight: 600;", "Attune Clarity & Vocal Air" }
+                            h3 { style: "font-size: 15px; font-weight: 600;", "{strings.clarity_vocal_air}" }
                             p { style: "font-size: 11.5px; color: var(--text-muted);", "Harmonic exciter for high-end sparkle" }
                         }
                         div {
@@ -523,10 +515,6 @@ pub fn Equalizer(
                             },
                             div { class: if p.clarity_enabled { "switch-track active" } else { "switch-track" },
                                 div { class: "switch-thumb" }
-                            }
-                            span {
-                                class: if p.clarity_enabled { "switch-status active" } else { "switch-status bypassed" },
-                                if p.clarity_enabled { "ON" } else { "OFF" }
                             }
                         }
                     }
@@ -560,7 +548,7 @@ pub fn Equalizer(
             // Card 5: Stereo Expander & Brickwall Limiter
             div { style: "background: var(--bg-card); padding: 20px 22px; border-radius: 16px; border: 1px solid var(--border-glass); display: flex; flex-direction: column; gap: 14px;",
                 div {
-                    h3 { style: "font-size: 15px; font-weight: 600;", "Stereo Soundstage & Brickwall Limiter" }
+                    h3 { style: "font-size: 15px; font-weight: 600;", "{strings.stereo_soundstage}" }
                     p { style: "font-size: 12px; color: var(--text-muted); margin-top: 2px;", "Mid-Side acoustic soundstage widening and true-peak protection" }
                 }
 

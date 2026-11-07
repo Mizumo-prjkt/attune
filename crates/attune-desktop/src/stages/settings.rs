@@ -40,30 +40,26 @@ pub enum SettingsTab {
     DeveloperOptions,
 }
 
-/// Tactile and accessible sliding switch toggle matching Equalizer and modern OS styling
+/// Tactile and accessible sliding switch toggle matching modern OS styling without text clutter
 #[component]
 pub fn SwitchToggle(
     active: bool,
     on_toggle: EventHandler<()>,
-    active_label: Option<String>,
-    inactive_label: Option<String>,
 ) -> Element {
-    let act_lbl = active_label.unwrap_or_else(|| "ON".to_string());
-    let inact_lbl = inactive_label.unwrap_or_else(|| "OFF".to_string());
     rsx! {
         div {
-            class: "switch-toggle-row",
+            class: if active { "switch-track active" } else { "switch-track" },
             role: "switch",
             aria_checked: "{active}",
+            tabindex: "0",
+            title: if active { "Enabled — Click to disable" } else { "Disabled — Click to enable" },
             onclick: move |_| on_toggle.call(()),
-            div {
-                class: if active { "switch-track active" } else { "switch-track" },
-                div { class: "switch-thumb" }
-            }
-            span {
-                class: if active { "switch-status active" } else { "switch-status bypassed" },
-                if active { "{act_lbl}" } else { "{inact_lbl}" }
-            }
+            onkeydown: move |e| {
+                if e.key() == dioxus::prelude::Key::Enter || e.key() == dioxus::prelude::Key::Character(" ".to_string()) {
+                    on_toggle.call(());
+                }
+            },
+            div { class: "switch-thumb" }
         }
     }
 }
@@ -165,14 +161,49 @@ pub fn SettingsStandaloneWindow() -> Element {
     let tracks = use_signal(|| {
         let cfg = config_sig.read();
         let mut all_tracks = Vec::new();
+        let mut seen = std::collections::HashSet::new();
+
         if let Some(ref d) = cfg.music_dir {
-            if let Some(mut t) = crate::library::load_library_cache(d) {
-                all_tracks.append(&mut t);
+            if let Some(t) = crate::library::load_library_cache(d) {
+                for track in t {
+                    if seen.insert(track.path.clone()) {
+                        all_tracks.push(track);
+                    }
+                }
             }
         }
         for d in &cfg.extra_music_dirs {
-            if let Some(mut t) = crate::library::load_library_cache(d) {
-                all_tracks.append(&mut t);
+            if let Some(t) = crate::library::load_library_cache(d) {
+                for track in t {
+                    if seen.insert(track.path.clone()) {
+                        all_tracks.push(track);
+                    }
+                }
+            }
+        }
+        // Include any explicitly excluded track file on disk so user can inspect and restore it
+        for exc in &cfg.song_exclusions {
+            let p = std::path::PathBuf::from(exc);
+            if p.is_file() && seen.insert(p.clone()) {
+                all_tracks.push(crate::library::TrackEntry::profile_and_index(&p));
+            }
+        }
+        // Fallback: discover files if cache is not yet written
+        if all_tracks.is_empty() {
+            let mut roots = Vec::new();
+            if let Some(ref d) = cfg.music_dir {
+                if d.is_dir() { roots.push(d.clone()); }
+            }
+            for d in &cfg.extra_music_dirs {
+                if d.is_dir() && !roots.contains(d) { roots.push(d.clone()); }
+            }
+            for r in &roots {
+                let files = attune_core::LibraryScanner::discover_audio_files(r);
+                for f in files {
+                    if seen.insert(f.clone()) {
+                        all_tracks.push(crate::library::TrackEntry::profile_and_index(&f));
+                    }
+                }
             }
         }
         all_tracks
@@ -333,6 +364,8 @@ pub fn SettingsContent(
     });
 
     let mut new_exclusion_input = use_signal(String::new);
+    let mut exclusion_search = use_signal(String::new);
+    let mut exclusion_filter_tab = use_signal(|| 0usize); // 0: All Songs, 1: Excluded, 2: Available
     let mut view_as_tree = use_signal(|| true);
     let mut toast_feedback = use_signal(|| None::<String>);
     let mut backup_feedback = use_signal(|| None::<(bool, String)>);
@@ -344,6 +377,7 @@ pub fn SettingsContent(
     let gpu_info = probe_gpu_capabilities();
     let current_tab = *active_tab.read();
     let curr_cfg = config_sig.read().clone();
+    let strings = crate::i18n::get_strings(crate::i18n::Language::from_code(&curr_cfg.language));
 
     // Helper closure to save updated config
     let mut update_cfg = move |mut modifier: Box<dyn FnMut(&mut AppConfig)>| {
@@ -382,7 +416,7 @@ pub fn SettingsContent(
                 div { style: "padding: 8px 12px 14px 12px; border-bottom: 1px solid var(--border-glass); margin-bottom: 6px;",
                     div { style: "display: flex; align-items: center; gap: 8px;",
                         span { class: "material-icons md-20", style: "color: var(--accent-mint);", "settings" }
-                        h2 { style: "font-size: 16px; font-weight: 700; color: #ffffff; margin: 0;", "Settings" }
+                        h2 { style: "font-size: 16px; font-weight: 700; color: #ffffff; margin: 0;", "{strings.settings}" }
                     }
                 }
 
@@ -391,49 +425,49 @@ pub fn SettingsContent(
                     class: if current_tab == SettingsTab::General { "settings-nav-item active" } else { "settings-nav-item" },
                     onclick: move |_| active_tab.set(SettingsTab::General),
                     span { class: "material-icons md-18", "tune" }
-                    span { "General" }
+                    span { "{strings.general}" }
                 }
                 button {
                     class: if current_tab == SettingsTab::Audio { "settings-nav-item active" } else { "settings-nav-item" },
                     onclick: move |_| active_tab.set(SettingsTab::Audio),
                     span { class: "material-icons md-18", "graphic_eq" }
-                    span { "Audio" }
+                    span { "{strings.audio}" }
                 }
                 button {
                     class: if current_tab == SettingsTab::Language { "settings-nav-item active" } else { "settings-nav-item" },
                     onclick: move |_| active_tab.set(SettingsTab::Language),
                     span { class: "material-icons md-18", "translate" }
-                    span { "Language" }
+                    span { "{strings.language}" }
                 }
                 button {
                     class: if current_tab == SettingsTab::Lyrics { "settings-nav-item active" } else { "settings-nav-item" },
                     onclick: move |_| active_tab.set(SettingsTab::Lyrics),
                     span { class: "material-icons md-18", "subtitles" }
-                    span { "Lyrics" }
+                    span { "{strings.lyrics}" }
                 }
                 button {
                     class: if current_tab == SettingsTab::ApiProviders { "settings-nav-item active" } else { "settings-nav-item" },
                     onclick: move |_| active_tab.set(SettingsTab::ApiProviders),
                     span { class: "material-icons md-18", "cloud_sync" }
-                    span { "API Providers" }
+                    span { "{strings.api_providers}" }
                 }
                 button {
                     class: if current_tab == SettingsTab::DirectoryAndIndexes { "settings-nav-item active" } else { "settings-nav-item" },
                     onclick: move |_| active_tab.set(SettingsTab::DirectoryAndIndexes),
                     span { class: "material-icons md-18", "account_tree" }
-                    span { "Directory & Indexes" }
+                    span { "{strings.directory_and_indexes}" }
                 }
                 button {
                     class: if current_tab == SettingsTab::BackupAndRestore { "settings-nav-item active" } else { "settings-nav-item" },
                     onclick: move |_| active_tab.set(SettingsTab::BackupAndRestore),
                     span { class: "material-icons md-18", "archive" }
-                    span { "Backup & Restore" }
+                    span { "{strings.backup_and_restore}" }
                 }
                 button {
                     class: if current_tab == SettingsTab::DeveloperOptions { "settings-nav-item active" } else { "settings-nav-item" },
                     onclick: move |_| active_tab.set(SettingsTab::DeveloperOptions),
                     span { class: "material-icons md-18", "developer_mode" }
-                    span { "Developer Options" }
+                    span { "{strings.developer_options}" }
                 }
             }
 
@@ -450,7 +484,7 @@ pub fn SettingsContent(
                     // -----------------------------------------------------------------
                     SettingsTab::General => rsx! {
                         div { class: "settings-section-header",
-                            h1 { style: "font-size: 24px; font-weight: 700; margin: 0 0 4px 0;", "General" }
+                            h1 { style: "font-size: 24px; font-weight: 700; margin: 0 0 4px 0;", "{strings.general}" }
                             p { style: "color: var(--text-secondary); font-size: 13px; margin: 0;",
                                 "Configure display profile, DJ transition announcements, keyboard shortcuts, and OS player notifications."
                             }
@@ -505,8 +539,6 @@ pub fn SettingsContent(
                                 SwitchToggle {
                                     active: curr_cfg.enable_shortcuts,
                                     on_toggle: move |_| update_cfg(Box::new(|c| c.enable_shortcuts = !c.enable_shortcuts)),
-                                    active_label: Some("Enabled".to_string()),
-                                    inactive_label: Some("Disabled".to_string()),
                                 }
                             }
 
@@ -518,8 +550,6 @@ pub fn SettingsContent(
                                 SwitchToggle {
                                     active: curr_cfg.alt_shortcut_prefix,
                                     on_toggle: move |_| update_cfg(Box::new(|c| c.alt_shortcut_prefix = !c.alt_shortcut_prefix)),
-                                    active_label: Some("Alt Required".to_string()),
-                                    inactive_label: Some("Direct".to_string()),
                                 }
                             }
                         }
@@ -539,8 +569,6 @@ pub fn SettingsContent(
                                 SwitchToggle {
                                     active: curr_cfg.system_media_toast,
                                     on_toggle: move |_| update_cfg(Box::new(|c| c.system_media_toast = !c.system_media_toast)),
-                                    active_label: Some("Enabled".to_string()),
-                                    inactive_label: Some("Disabled".to_string()),
                                 }
                             }
 
@@ -577,7 +605,7 @@ pub fn SettingsContent(
                     // -----------------------------------------------------------------
                     SettingsTab::Audio => rsx! {
                         div { class: "settings-section-header",
-                            h1 { style: "font-size: 24px; font-weight: 700; margin: 0 0 4px 0;", "Audio" }
+                            h1 { style: "font-size: 24px; font-weight: 700; margin: 0 0 4px 0;", "{strings.audio}" }
                             p { style: "color: var(--text-secondary); font-size: 13px; margin: 0;",
                                 "Engine selection, DSP resolution, silence skipping, and studio equalization."
                             }
@@ -598,8 +626,6 @@ pub fn SettingsContent(
                                 SwitchToggle {
                                     active: curr_cfg.force_32bit_float,
                                     on_toggle: move |_| update_cfg(Box::new(|c| c.force_32bit_float = !c.force_32bit_float)),
-                                    active_label: Some("Active".to_string()),
-                                    inactive_label: Some("Standard 16/24-bit".to_string()),
                                 }
                             }
                         }
@@ -616,8 +642,6 @@ pub fn SettingsContent(
                                 SwitchToggle {
                                     active: curr_cfg.skip_silence,
                                     on_toggle: move |_| update_cfg(Box::new(|c| c.skip_silence = !c.skip_silence)),
-                                    active_label: Some("Enabled".to_string()),
-                                    inactive_label: Some("Disabled".to_string()),
                                 }
                             }
                         }
@@ -696,27 +720,78 @@ pub fn SettingsContent(
                     // -----------------------------------------------------------------
                     SettingsTab::Language => rsx! {
                         div { class: "settings-section-header",
-                            h1 { style: "font-size: 24px; font-weight: 700; margin: 0 0 4px 0;", "Language & Localization" }
+                            h1 { style: "font-size: 24px; font-weight: 700; margin: 0 0 4px 0;", "{strings.language}" }
                             p { style: "color: var(--text-secondary); font-size: 13px; margin: 0;",
-                                "Select application language or export translation templates for community contribution."
+                                "Select application-wide language or export translation templates for community contribution."
                             }
                         }
 
                         // Card: Language Choice
                         div { class: "settings-card",
-                            h3 { class: "settings-card-title", "Application Language" }
-                            p { class: "settings-card-desc", "Supported languages: English (US) and Wikang Filipino (Tagalog)." }
+                            h3 { class: "settings-card-title", "{strings.language}" }
+                            p { class: "settings-card-desc", "Supported languages: English (US) and Wikang Filipino (Tagalog). Applies application-wide." }
 
-                            select {
-                                class: "form-select",
-                                style: "max-width: 360px; margin-top: 12px;",
-                                value: "{curr_cfg.language}",
-                                onchange: move |e| {
-                                    let val = e.value();
-                                    update_cfg(Box::new(move |c| c.language = val.clone()));
-                                },
-                                option { value: "en", selected: curr_cfg.language == "en", "English (US)" }
-                                option { value: "fil", selected: curr_cfg.language == "fil", "Wikang Filipino (Tagalog)" }
+                            // Tactile Selection Cards
+                            div { class: "language-selector-grid",
+                                div {
+                                    class: if curr_cfg.language == "en" { "language-card active" } else { "language-card" },
+                                    onclick: move |_| update_cfg(Box::new(|c| c.language = "en".to_string())),
+                                    div { style: "display: flex; align-items: center; gap: 10px;",
+                                        span { class: "material-icons md-20", style: if curr_cfg.language == "en" { "color: var(--accent-mint);" } else { "color: var(--text-muted);" }, "language" }
+                                        div {
+                                            div { style: "font-weight: 600; font-size: 13.5px;", "English (US)" }
+                                            div { style: "font-size: 11px; color: var(--text-muted);", "Default application language" }
+                                        }
+                                    }
+                                    if curr_cfg.language == "en" {
+                                        span { class: "material-icons md-18", style: "color: var(--accent-mint);", "check_circle" }
+                                    }
+                                }
+                                div {
+                                    class: if curr_cfg.language == "fil" { "language-card active" } else { "language-card" },
+                                    onclick: move |_| update_cfg(Box::new(|c| c.language = "fil".to_string())),
+                                    div { style: "display: flex; align-items: center; gap: 10px;",
+                                        span { class: "material-icons md-20", style: if curr_cfg.language == "fil" { "color: var(--accent-mint);" } else { "color: var(--text-muted);" }, "translate" }
+                                        div {
+                                            div { style: "font-weight: 600; font-size: 13.5px;", "Wikang Filipino" }
+                                            div { style: "font-size: 11px; color: var(--text-muted);", "Tagalog localization" }
+                                        }
+                                    }
+                                    if curr_cfg.language == "fil" {
+                                        span { class: "material-icons md-18", style: "color: var(--accent-mint);", "check_circle" }
+                                    }
+                                }
+                            }
+
+                            // Synchronized Dropdown
+                            div { style: "margin-top: 14px;",
+                                select {
+                                    class: "form-select",
+                                    style: "max-width: 360px;",
+                                    value: "{curr_cfg.language}",
+                                    onchange: move |e| {
+                                        let val = e.value();
+                                        update_cfg(Box::new(move |c| c.language = val.clone()));
+                                    },
+                                    oninput: move |e| {
+                                        let val = e.value();
+                                        update_cfg(Box::new(move |c| c.language = val.clone()));
+                                    },
+                                    option { value: "en", selected: curr_cfg.language == "en", "English (US)" }
+                                    option { value: "fil", selected: curr_cfg.language == "fil", "Wikang Filipino (Tagalog)" }
+                                }
+                            }
+
+                            // Active confirmation badge
+                            div { style: "margin-top: 14px; display: inline-flex; align-items: center; gap: 8px; padding: 6px 14px; border-radius: 20px; background: rgba(45, 212, 191, 0.1); border: 1px solid rgba(45, 212, 191, 0.25);",
+                                span { class: "material-icons md-16", style: "color: var(--accent-mint);", "verified" }
+                                span { style: "font-size: 12px; color: var(--accent-mint); font-weight: 600;",
+                                    if curr_cfg.language == "fil" {
+                                        "{strings.active_language}: Wikang Filipino (Tagalog)"
+                                    } else {
+                                        "{strings.active_language}: English (US)"
+                                    }
+                                }
                             }
                         }
 
@@ -755,7 +830,7 @@ pub fn SettingsContent(
                     // -----------------------------------------------------------------
                     SettingsTab::Lyrics => rsx! {
                         div { class: "settings-section-header",
-                            h1 { style: "font-size: 24px; font-weight: 700; margin: 0 0 4px 0;", "Lyrics" }
+                            h1 { style: "font-size: 24px; font-weight: 700; margin: 0 0 4px 0;", "{strings.lyrics}" }
                             p { style: "color: var(--text-secondary); font-size: 13px; margin: 0;",
                                 "Lyrics providers, license agreements, font typography, and full-screen visualization options."
                             }
@@ -885,8 +960,6 @@ pub fn SettingsContent(
                                 SwitchToggle {
                                     active: curr_cfg.sidebar_text_glow,
                                     on_toggle: move |_| update_cfg(Box::new(|c| c.sidebar_text_glow = !c.sidebar_text_glow)),
-                                    active_label: Some("Glowing".to_string()),
-                                    inactive_label: Some("Plain".to_string()),
                                 }
                             }
                         }
@@ -904,8 +977,6 @@ pub fn SettingsContent(
                                 SwitchToggle {
                                     active: curr_cfg.fullscreen_text_glow,
                                     on_toggle: move |_| update_cfg(Box::new(|c| c.fullscreen_text_glow = !c.fullscreen_text_glow)),
-                                    active_label: Some("Enabled".to_string()),
-                                    inactive_label: Some("Disabled".to_string()),
                                 }
                             }
 
@@ -917,8 +988,6 @@ pub fn SettingsContent(
                                 SwitchToggle {
                                     active: curr_cfg.fullscreen_gradient_bg,
                                     on_toggle: move |_| update_cfg(Box::new(|c| c.fullscreen_gradient_bg = !c.fullscreen_gradient_bg)),
-                                    active_label: Some("Enabled".to_string()),
-                                    inactive_label: Some("Disabled".to_string()),
                                 }
                             }
 
@@ -930,8 +999,6 @@ pub fn SettingsContent(
                                 SwitchToggle {
                                     active: curr_cfg.fullscreen_visualizer_effects,
                                     on_toggle: move |_| update_cfg(Box::new(|c| c.fullscreen_visualizer_effects = !c.fullscreen_visualizer_effects)),
-                                    active_label: Some("Enabled".to_string()),
-                                    inactive_label: Some("Disabled".to_string()),
                                 }
                             }
                         }
@@ -942,7 +1009,7 @@ pub fn SettingsContent(
                     // -----------------------------------------------------------------
                     SettingsTab::ApiProviders => rsx! {
                         div { class: "settings-section-header",
-                            h1 { style: "font-size: 24px; font-weight: 700; margin: 0 0 4px 0;", "API Providers" }
+                            h1 { style: "font-size: 24px; font-weight: 700; margin: 0 0 4px 0;", "{strings.api_providers}" }
                             p { style: "color: var(--text-secondary); font-size: 13px; margin: 0;",
                                 "External metadata, artist portraits, discography, and wiki lore providers."
                             }
@@ -960,8 +1027,6 @@ pub fn SettingsContent(
                                 SwitchToggle {
                                     active: curr_cfg.api_youtube_enabled,
                                     on_toggle: move |_| update_cfg(Box::new(|c| c.api_youtube_enabled = !c.api_youtube_enabled)),
-                                    active_label: Some("Active".to_string()),
-                                    inactive_label: Some("Disabled".to_string()),
                                 }
                             }
 
@@ -976,8 +1041,6 @@ pub fn SettingsContent(
                                         c.api_wikipedia_enabled = !c.api_wikipedia_enabled;
                                         c.api_musicbrainz_enabled = c.api_wikipedia_enabled;
                                     })),
-                                    active_label: Some("Active".to_string()),
-                                    inactive_label: Some("Disabled".to_string()),
                                 }
                             }
 
@@ -989,8 +1052,6 @@ pub fn SettingsContent(
                                 SwitchToggle {
                                     active: curr_cfg.api_musixmatch_enabled,
                                     on_toggle: move |_| update_cfg(Box::new(|c| c.api_musixmatch_enabled = !c.api_musixmatch_enabled)),
-                                    active_label: Some("Active".to_string()),
-                                    inactive_label: Some("Disabled".to_string()),
                                 }
                             }
 
@@ -1026,7 +1087,7 @@ pub fn SettingsContent(
                     // -----------------------------------------------------------------
                     SettingsTab::DirectoryAndIndexes => rsx! {
                         div { class: "settings-section-header",
-                            h1 { style: "font-size: 24px; font-weight: 700; margin: 0 0 4px 0;", "Directory & Indexes" }
+                            h1 { style: "font-size: 24px; font-weight: 700; margin: 0 0 4px 0;", "{strings.directory_and_indexes}" }
                             p { style: "color: var(--text-secondary); font-size: 13px; margin: 0;",
                                 "Music folder hierarchies, duration exclusions, and experimental GPU indexing offloading."
                             }
@@ -1144,46 +1205,303 @@ pub fn SettingsContent(
                             }
                         }
 
-                        // Card: Song Exclusion Index
-                        div { class: "settings-card",
-                            h3 { class: "settings-card-title", "Song Exclusion Index" }
-                            p { class: "settings-card-desc", "Exclude specific filenames, keywords, or directories from indexing and transitions." }
+                        // Card: Song Exclusion Manager (Interactive Library Selector)
+                        {
+                            let current_exclusions = &curr_cfg.song_exclusions;
+                            let total_tracks = tracks.len();
+                            let excluded_count = tracks.iter().filter(|t| {
+                                AppConfig::is_path_or_title_excluded(current_exclusions, &t.path, Some(&t.title))
+                            }).count();
+                            let available_count = total_tracks.saturating_sub(excluded_count);
 
-                            div { style: "display: flex; gap: 10px; margin-top: 10px; max-width: 500px;",
-                                input {
-                                    class: "search-bar",
-                                    style: "flex: 1; padding: 8px 12px; border-radius: 8px; background: rgba(255,255,255,0.06); border: 1px solid var(--border-glass); color: #fff; font-size: 13px;",
-                                    placeholder: "Enter filename, keyword, or path segment...",
-                                    value: "{new_exclusion_input}",
-                                    oninput: move |e| new_exclusion_input.set(e.value())
+                            let search_term = exclusion_search.read().trim().to_lowercase();
+                            let active_tab_filter = *exclusion_filter_tab.read();
+
+                            let filtered_tracks: Vec<&TrackEntry> = tracks.iter().filter(|t| {
+                                let is_exc = AppConfig::is_path_or_title_excluded(current_exclusions, &t.path, Some(&t.title));
+                                let matches_tab = match active_tab_filter {
+                                    1 => is_exc,
+                                    2 => !is_exc,
+                                    _ => true,
+                                };
+                                if !matches_tab {
+                                    return false;
                                 }
-                                button {
-                                    class: "btn-pill active",
-                                    onclick: move |_| {
-                                        let val = new_exclusion_input.read().trim().to_string();
-                                        if !val.is_empty() {
-                                            on_add_exclusion.call(val);
-                                            new_exclusion_input.set(String::new());
+                                if search_term.is_empty() {
+                                    return true;
+                                }
+                                t.title.to_lowercase().contains(&search_term)
+                                    || t.artist.to_lowercase().contains(&search_term)
+                                    || t.album.to_lowercase().contains(&search_term)
+                                    || t.path.to_string_lossy().to_lowercase().contains(&search_term)
+                            }).collect();
+
+                            let empty_title = if !search_term.is_empty() {
+                                format!("No tracks matching \"{}\"", search_term)
+                            } else if active_tab_filter == 1 {
+                                "No tracks currently excluded".to_string()
+                            } else {
+                                "No available tracks found".to_string()
+                            };
+
+                            let empty_desc = if !search_term.is_empty() {
+                                "Try refining your search keyword or clearing the query.".to_string()
+                            } else if active_tab_filter == 1 {
+                                "Tracks excluded from playback and DJ transitions will appear here.".to_string()
+                            } else {
+                                "Add music folders above to scan and index your audio files.".to_string()
+                            };
+
+                            rsx! {
+                                div { class: "settings-card",
+                                    div { style: "display: flex; justify-content: space-between; align-items: flex-start;",
+                                        div {
+                                            h3 { class: "settings-card-title", "Song Exclusion Manager" }
+                                            p { class: "settings-card-desc", "Select tracks directly from your library to exclude them from queues, smart shuffle, and DJ transitions." }
                                         }
-                                    },
-                                    "Add Exclusion"
-                                }
-                            }
+                                        div { class: "badge-pill", style: "font-weight: 600;",
+                                            "{excluded_count} {strings.excluded}"
+                                        }
+                                    }
 
-                            div { style: "display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px;",
-                                for exc in &song_exclusions {
-                                    {
-                                        let e_clone = exc.clone();
-                                        rsx! {
-                                            div {
-                                                key: "{exc}",
+                                    // Category Filter Tabs
+                                    div { style: "display: flex; gap: 8px; margin-top: 14px; margin-bottom: 12px; flex-wrap: wrap;",
+                                        button {
+                                            class: if active_tab_filter == 0 { "btn-pill active" } else { "btn-pill" },
+                                            style: "font-size: 12px; padding: 5px 12px; display: inline-flex; align-items: center; gap: 6px;",
+                                            onclick: move |_| exclusion_filter_tab.set(0),
+                                            span { "{strings.all_songs}" }
+                                            span { class: "badge-pill", style: "padding: 1px 7px; font-size: 11px;", "{total_tracks}" }
+                                        }
+                                        button {
+                                            class: if active_tab_filter == 1 { "btn-pill active" } else { "btn-pill" },
+                                            style: if active_tab_filter == 1 {
+                                                "font-size: 12px; padding: 5px 12px; display: inline-flex; align-items: center; gap: 6px; background: rgba(244, 63, 94, 0.22); border-color: #fb7185; color: #fb7185;"
+                                            } else {
+                                                "font-size: 12px; padding: 5px 12px; display: inline-flex; align-items: center; gap: 6px;"
+                                            },
+                                            onclick: move |_| exclusion_filter_tab.set(1),
+                                            span { "{strings.excluded}" }
+                                            span {
                                                 class: "badge-pill",
-                                                style: "display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px;",
-                                                span { "{exc}" }
-                                                button {
-                                                    style: "background: none; border: none; color: #fb7185; cursor: pointer; padding: 0; display: flex;",
-                                                    onclick: move |_| on_remove_exclusion.call(e_clone.clone()),
-                                                    span { class: "material-icons md-14", "close" }
+                                                style: if active_tab_filter == 1 {
+                                                    "padding: 1px 7px; font-size: 11px; background: rgba(244, 63, 94, 0.35); color: #fff; border-color: #fb7185;"
+                                                } else {
+                                                    "padding: 1px 7px; font-size: 11px;"
+                                                },
+                                                "{excluded_count}"
+                                            }
+                                        }
+                                        button {
+                                            class: if active_tab_filter == 2 { "btn-pill active" } else { "btn-pill" },
+                                            style: "font-size: 12px; padding: 5px 12px; display: inline-flex; align-items: center; gap: 6px;",
+                                            onclick: move |_| exclusion_filter_tab.set(2),
+                                            span { "{strings.available}" }
+                                            span { class: "badge-pill", style: "padding: 1px 7px; font-size: 11px;", "{available_count}" }
+                                        }
+                                    }
+
+                                    // Search Bar
+                                    div { style: "position: relative; margin-bottom: 12px;",
+                                        span {
+                                            class: "material-icons md-18",
+                                            style: "position: absolute; left: 12px; top: 50%; transform: translateY(-50%); color: var(--text-muted); pointer-events: none;",
+                                            "search"
+                                        }
+                                        input {
+                                            class: "search-bar",
+                                            style: "width: 100%; box-sizing: border-box; padding: 9px 36px; border-radius: 10px; background: rgba(255,255,255,0.05); border: 1px solid var(--border-glass); color: #fff; font-size: 13px;",
+                                            placeholder: "Search library songs to exclude by title, artist, or album...",
+                                            value: "{exclusion_search}",
+                                            oninput: move |e| exclusion_search.set(e.value())
+                                        }
+                                        if !exclusion_search.read().is_empty() {
+                                            button {
+                                                style: "position: absolute; right: 10px; top: 50%; transform: translateY(-50%); background: none; border: none; color: var(--text-muted); cursor: pointer; display: flex; padding: 2px;",
+                                                onclick: move |_| exclusion_search.set(String::new()),
+                                                span { class: "material-icons md-16", "clear" }
+                                            }
+                                        }
+                                    }
+
+                                    // Scrollable Track List
+                                    div {
+                                        class: "settings-track-exclusion-list",
+                                        style: "max-height: 290px; overflow-y: auto; padding-right: 4px; margin-bottom: 16px; border-radius: 10px;",
+                                        if filtered_tracks.is_empty() {
+                                            div {
+                                                style: "text-align: center; padding: 32px 16px; color: var(--text-muted); background: rgba(255,255,255,0.02); border-radius: 10px; border: 1px dashed var(--border-glass);",
+                                                span {
+                                                    class: "material-icons md-36",
+                                                    style: "color: rgba(255,255,255,0.25); display: block; margin-bottom: 8px;",
+                                                    if !search_term.is_empty() { "search_off" } else if active_tab_filter == 1 { "check_circle_outline" } else { "library_music" }
+                                                }
+                                                div { style: "font-size: 13.5px; font-weight: 600; color: #fff; margin-bottom: 4px;",
+                                                    "{empty_title}"
+                                                }
+                                                div { style: "font-size: 12px; color: var(--text-muted);",
+                                                    "{empty_desc}"
+                                                }
+                                                if !search_term.is_empty() {
+                                                    button {
+                                                        class: "btn-pill",
+                                                        style: "margin-top: 12px; font-size: 11.5px;",
+                                                        onclick: move |_| exclusion_search.set(String::new()),
+                                                        "{strings.clear_search}"
+                                                    }
+                                                }
+                                            }
+                                        } else {
+                                            for t in &filtered_tracks {
+                                                {
+                                                    let is_exc = AppConfig::is_path_or_title_excluded(current_exclusions, &t.path, Some(&t.title));
+                                                    let dur_secs = t.duration_ms / 1000;
+                                                    let dur_str = format!("{}:{:02}", dur_secs / 60, dur_secs % 60);
+                                                    let track_path = t.path.clone();
+                                                    let track_title = t.title.clone();
+                                                    let path_str = track_path.to_string_lossy().to_string();
+
+                                                    rsx! {
+                                                        div {
+                                                            key: "{path_str}",
+                                                            class: "settings-track-exclusion-row",
+                                                            style: format!(
+                                                                "display: flex; align-items: center; gap: 12px; padding: 10px 14px; border-radius: 10px; margin-bottom: 6px; background: {}; border: 1px solid {}; transition: all 0.15s ease;",
+                                                                if is_exc { "rgba(244, 63, 94, 0.08)" } else { "rgba(255, 255, 255, 0.03)" },
+                                                                if is_exc { "rgba(244, 63, 94, 0.25)" } else { "rgba(255, 255, 255, 0.06)" },
+                                                            ),
+                                                            // Artwork / Icon
+                                                            div {
+                                                                style: "width: 40px; height: 40px; border-radius: 8px; overflow: hidden; flex-shrink: 0; display: flex; align-items: center; justify-content: center; position: relative; background: rgba(0,0,0,0.3);",
+                                                                if let Some(ref art_url) = t.artwork_data_url {
+                                                                    img {
+                                                                        src: "{art_url}",
+                                                                        style: "width: 100%; height: 100%; object-fit: cover;",
+                                                                    }
+                                                                } else {
+                                                                    span {
+                                                                        class: "material-icons md-22",
+                                                                        style: if is_exc { "color: #fb7185;" } else { "color: rgba(255,255,255,0.4);" },
+                                                                        if is_exc { "music_off" } else { "music_note" }
+                                                                    }
+                                                                }
+                                                                if is_exc {
+                                                                    div {
+                                                                        style: "position: absolute; inset: 0; background: rgba(0,0,0,0.45); display: flex; align-items: center; justify-content: center;",
+                                                                        span { class: "material-icons md-18", style: "color: #fb7185;", "block" }
+                                                                    }
+                                                                }
+                                                            }
+
+                                                            // Title & Subtitle
+                                                            div { style: "flex: 1; min-width: 0;",
+                                                                div {
+                                                                    style: format!("font-size: 13.5px; font-weight: 600; text-overflow: ellipsis; overflow: hidden; white-space: nowrap; color: {};", if is_exc { "rgba(255,255,255,0.7)" } else { "#ffffff" }),
+                                                                    "{t.title}"
+                                                                }
+                                                                div {
+                                                                    style: "font-size: 12px; color: var(--text-muted); text-overflow: ellipsis; overflow: hidden; white-space: nowrap; margin-top: 2px;",
+                                                                    "{t.artist} • {t.album}"
+                                                                }
+                                                            }
+
+                                                            // Duration
+                                                            span {
+                                                                style: "font-size: 12px; color: var(--text-muted); font-family: monospace; flex-shrink: 0; margin-right: 6px;",
+                                                                "{dur_str}"
+                                                            }
+
+                                                            // Action Button
+                                                            if is_exc {
+                                                                button {
+                                                                    class: "btn-pill",
+                                                                    style: "background: rgba(45, 212, 191, 0.15); border-color: var(--accent-mint); color: var(--accent-mint); font-size: 12px; display: inline-flex; align-items: center; gap: 4px; padding: 6px 14px; flex-shrink: 0; cursor: pointer;",
+                                                                    onclick: {
+                                                                        let track_path_c = track_path.clone();
+                                                                        let track_title_c = track_title.clone();
+                                                                        let matching: Vec<String> = current_exclusions.iter().filter(|exc| {
+                                                                            AppConfig::is_path_or_title_excluded(&[(*exc).clone()], &track_path_c, Some(&track_title_c))
+                                                                        }).cloned().collect();
+                                                                        move |_| {
+                                                                            for exc in &matching {
+                                                                                on_remove_exclusion.call(exc.clone());
+                                                                            }
+                                                                        }
+                                                                    },
+                                                                    span { class: "material-icons md-14", "replay" }
+                                                                    "{strings.restore}"
+                                                                }
+                                                            } else {
+                                                                button {
+                                                                    class: "btn-pill",
+                                                                    style: "background: rgba(244, 63, 94, 0.12); border-color: #fb7185; color: #fb7185; font-size: 12px; display: inline-flex; align-items: center; gap: 4px; padding: 6px 14px; flex-shrink: 0; cursor: pointer;",
+                                                                    onclick: {
+                                                                        let p = path_str.clone();
+                                                                        move |_| on_add_exclusion.call(p.clone())
+                                                                    },
+                                                                    span { class: "material-icons md-14", "block" }
+                                                                    "{strings.exclude}"
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+
+                                    // Sub-Card: Custom Wildcard Patterns & Manual Rules
+                                    div {
+                                        style: "background: rgba(255,255,255,0.02); padding: 14px; border-radius: 10px; border: 1px solid var(--border-glass); margin-top: 10px;",
+                                        div { style: "display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;",
+                                            div {
+                                                div { style: "font-weight: 600; font-size: 13px;", "Active Exclusion Rules & Patterns ({current_exclusions.len()})" }
+                                                div { style: "font-size: 11.5px; color: var(--text-muted);", "Wildcard substrings, folder paths, or individual song file paths." }
+                                            }
+                                        }
+
+                                        div { style: "display: flex; gap: 10px; margin-top: 8px;",
+                                            input {
+                                                class: "search-bar",
+                                                style: "flex: 1; padding: 8px 12px; border-radius: 8px; background: rgba(255,255,255,0.06); border: 1px solid var(--border-glass); color: #fff; font-size: 12.5px;",
+                                                placeholder: "Add manual keyword or directory pattern (e.g. noise/, sample.wav, /interludes/)...",
+                                                value: "{new_exclusion_input}",
+                                                oninput: move |e| new_exclusion_input.set(e.value())
+                                            }
+                                            button {
+                                                class: "btn-pill active",
+                                                style: "font-size: 12px;",
+                                                onclick: move |_| {
+                                                    let val = new_exclusion_input.read().trim().to_string();
+                                                    if !val.is_empty() {
+                                                        on_add_exclusion.call(val);
+                                                        new_exclusion_input.set(String::new());
+                                                    }
+                                                },
+                                                "Add Pattern"
+                                            }
+                                        }
+
+                                        if !current_exclusions.is_empty() {
+                                            div { style: "display: flex; gap: 6px; flex-wrap: wrap; margin-top: 10px; max-height: 120px; overflow-y: auto;",
+                                                for exc in current_exclusions {
+                                                    {
+                                                        let e_clone = exc.clone();
+                                                        rsx! {
+                                                            div {
+                                                                key: "{exc}",
+                                                                class: "badge-pill",
+                                                                style: "display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; font-size: 11.5px; background: rgba(244, 63, 94, 0.12); border-color: rgba(244, 63, 94, 0.35); color: #fecdd3;",
+                                                                span { "{exc}" }
+                                                                button {
+                                                                    style: "background: none; border: none; color: #fb7185; cursor: pointer; padding: 0; display: flex;",
+                                                                    title: "Remove Rule",
+                                                                    onclick: move |_| on_remove_exclusion.call(e_clone.clone()),
+                                                                    span { class: "material-icons md-14", "close" }
+                                                                }
+                                                            }
+                                                        }
+                                                    }
                                                 }
                                             }
                                         }
@@ -1225,8 +1543,6 @@ pub fn SettingsContent(
                                             update_cfg(Box::new(|c| c.gpu_artist_index_offload = !c.gpu_artist_index_offload));
                                         }
                                     },
-                                    active_label: Some("Enabled".to_string()),
-                                    inactive_label: Some(if !gpu_info.is_supported { "Unsupported".to_string() } else { "Disabled".to_string() }),
                                 }
                             }
 
@@ -1242,8 +1558,6 @@ pub fn SettingsContent(
                                             update_cfg(Box::new(|c| c.gpu_bpm_index_offload = !c.gpu_bpm_index_offload));
                                         }
                                     },
-                                    active_label: Some("Enabled".to_string()),
-                                    inactive_label: Some(if !gpu_info.is_supported { "Unsupported".to_string() } else { "Disabled".to_string() }),
                                 }
                             }
                         }
@@ -1254,7 +1568,7 @@ pub fn SettingsContent(
                     // -----------------------------------------------------------------
                     SettingsTab::BackupAndRestore => rsx! {
                         div { class: "settings-section-header",
-                            h1 { style: "font-size: 24px; font-weight: 700; margin: 0 0 4px 0;", "Backup & Restore" }
+                            h1 { style: "font-size: 24px; font-weight: 700; margin: 0 0 4px 0;", "{strings.backup_and_restore}" }
                             p { style: "color: var(--text-secondary); font-size: 13px; margin: 0;",
                                 "Export and restore Attune configurations and library cache via non-encrypted POSIX TAR archives."
                             }
@@ -1328,7 +1642,7 @@ pub fn SettingsContent(
                     // -----------------------------------------------------------------
                     SettingsTab::DeveloperOptions => rsx! {
                         div { class: "settings-section-header",
-                            h1 { style: "font-size: 24px; font-weight: 700; margin: 0 0 4px 0;", "Developer Options" }
+                            h1 { style: "font-size: 24px; font-weight: 700; margin: 0 0 4px 0;", "{strings.developer_options}" }
                             p { style: "color: var(--text-secondary); font-size: 13px; margin: 0;",
                                 "Engine benchmarks, dynamic library certification, and process memory controls."
                             }

@@ -32,6 +32,7 @@ pub fn ProcessManager() -> Element {
 
     let current_metrics = metrics_res.read().clone();
     let current_wg = watchguard_res.read().clone();
+    let strings = crate::i18n::current_strings();
 
     rsx! {
         div { class: "process-manager-stage",
@@ -40,7 +41,7 @@ pub fn ProcessManager() -> Element {
             // Header
             div { style: "display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border-glass); padding-bottom: 16px;",
                 div {
-                    h1 { style: "font-size: 26px; font-weight: 700;", "Process & Hardware Resource Manager" }
+                    h1 { style: "font-size: 26px; font-weight: 700;", "{strings.process_and_hardware_manager}" }
                     p { style: "color: var(--text-secondary); font-size: 13px; margin-top: 4px;",
                         "Live kernel telemetry via libattune_procmgr & real-time cadence guardrails via libattune_watchguard"
                     }
@@ -164,7 +165,7 @@ pub fn ProcessManager() -> Element {
 
                         // Audio DAC Hardware Interface Details
                         div { style: "background: var(--bg-card); padding: 22px; border-radius: 18px; border: 1px solid var(--border-glass); display: flex; flex-direction: column; gap: 14px;",
-                            h3 { style: "font-size: 16px; font-weight: 600;", "ALSA Kernel Stream & Hardware DAC Status" }
+                            h3 { style: "font-size: 16px; font-weight: 600;", "{strings.kernel_dac_status}" }
 
                             div { style: "display: grid; grid-template-columns: 1fr 1fr; gap: 14px;",
                                 div { style: "background: rgba(255,255,255,0.03); padding: 12px 14px; border-radius: 10px; border: 1px solid var(--border-glass);",
@@ -198,7 +199,7 @@ pub fn ProcessManager() -> Element {
             div { style: "background: var(--bg-card); padding: 22px; border-radius: 18px; border: 1px solid var(--border-glass); display: flex; flex-direction: column; gap: 14px;",
                 div { style: "display: flex; justify-content: space-between; align-items: center;",
                     div {
-                        h3 { style: "font-size: 16px; font-weight: 600;", "Watchguard Real-Time Stability & Hardware Guardrails" }
+                        h3 { style: "font-size: 16px; font-weight: 600;", "{strings.watchguard_stability}" }
                         p { style: "font-size: 12px; color: var(--text-muted); margin-top: 2px;",
                             "Live DSP buffer underruns, signal clipping, and kernel hardware telemetry guardrails via libattune_watchguard (Desktop Hardware Mode)"
                         }
@@ -270,7 +271,7 @@ pub fn ProcessManager() -> Element {
             div { style: "background: var(--bg-card); padding: 22px; border-radius: 18px; border: 1px solid var(--border-glass); display: flex; flex-direction: column; gap: 14px;",
                 div { style: "display: flex; justify-content: space-between; align-items: center;",
                     div {
-                        h3 { style: "font-size: 16px; font-weight: 600;", "Certified External Shared Libraries (.so / .dll)" }
+                        h3 { style: "font-size: 16px; font-weight: 600;", "{strings.certified_shared_libraries}" }
                         p { style: "font-size: 12px; color: var(--text-muted); margin-top: 2px;", "Verified dynamic C-ABI components loaded at runtime without static code fallbacks" }
                     }
                     span { class: "quality-badge quality-very-good",

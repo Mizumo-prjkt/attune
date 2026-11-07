@@ -47,6 +47,8 @@ pub fn ForYou(
     #[props(default)]
     on_toggle_play: EventHandler<()>,
 ) -> Element {
+    let strings = crate::i18n::current_strings();
+
     let mut mixes = vec![
         AlgorithmicMix {
             id: "harmonic_flow",
@@ -237,7 +239,7 @@ pub fn ForYou(
                                 }
 
                                 div { class: "album-meta-col",
-                                    span { class: "album-meta-type", "Smart Algorithmic Mix" }
+                                    span { class: "album-meta-type", "{strings.smart_algorithmic_mixes}" }
                                     h1 { class: "album-meta-title", "{mix.title}" }
                                     div { class: "album-meta-subline",
                                         div { class: "album-artist-avatar",
@@ -327,9 +329,9 @@ pub fn ForYou(
                             if is_surprise {
                                 div { class: "mystery-surprise-card",
                                     span { class: "material-icons md-48", style: "color: #a855f7; margin-bottom: 12px;", "auto_awesome" }
-                                    h2 { style: "font-size: 21px; font-weight: 700; color: #ffffff; margin-bottom: 12px;", "Catalog Hidden — Surprise Mystery Mix" }
+                                    h2 { style: "font-size: 21px; font-weight: 700; color: #ffffff; margin-bottom: 12px;", "{strings.catalog_hidden_mystery}" }
                                     p { style: "font-size: 14.5px; color: #e2e8f0; max-width: 620px; line-height: 1.6; text-align: center; margin: 0 auto;",
-                                        "\"{SURPRISE_ME_COMMENT}\""
+                                        "{strings.mystery_mix_desc}"
                                     }
                                     button {
                                         class: "album-big-play-btn",
@@ -347,8 +349,8 @@ pub fn ForYou(
                                 div { class: "album-tracklist-container",
                                     div { class: "album-table-header",
                                         span { class: "album-table-header-idx", "#" }
-                                        span { class: "album-table-header-title", "Title" }
-                                        span { class: "album-table-header-audio", "Audio Profile" }
+                                        span { class: "album-table-header-title", "{strings.title}" }
+                                        span { class: "album-table-header-audio", "{strings.audio_profile}" }
                                         div { class: "album-table-header-dur",
                                             span { class: "material-icons md-18", "schedule" }
                                         }
@@ -474,9 +476,9 @@ pub fn ForYou(
             } else {
                 // Overview of all mixes
                 div { style: "margin-bottom: 24px;",
-                    h1 { style: "font-size: 26px; font-weight: 700;", "For You — Smart Algorithmic Mixes" }
+                    h1 { style: "font-size: 26px; font-weight: 700;", "{strings.for_you} — {strings.smart_algorithmic_mixes}" }
                     p { style: "color: var(--text-secondary); font-size: 13.5px; margin-top: 4px;",
-                        "Multi-dimensional DJ recipes generated directly from your local music collection."
+                        "{strings.smart_mix_subtitle}"
                     }
                 }
 

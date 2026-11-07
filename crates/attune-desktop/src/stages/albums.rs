@@ -39,6 +39,8 @@ pub fn Albums(
     on_toggle_play: EventHandler<()>,
     on_edit_album: EventHandler<AlbumGroup>,
 ) -> Element {
+    let strings = crate::i18n::current_strings();
+
     // Group tracks by album
     let mut album_map: HashMap<String, AlbumGroup> = HashMap::new();
     for track in tracks {
@@ -312,7 +314,7 @@ pub fn Albums(
                                                     }
                                                 },
                                                 span { class: "material-icons md-16", "play_arrow" }
-                                                span { "Play Now" }
+                                                span { "{strings.play_now}" }
                                             }
 
                                             // 2. Play Next
@@ -328,7 +330,7 @@ pub fn Albums(
                                                     }
                                                 },
                                                 span { class: "material-icons md-16", "skip_next" }
-                                                span { "Play Next" }
+                                                span { "{strings.play_next}" }
                                             }
 
                                             // 3. Add to Queue
@@ -344,7 +346,7 @@ pub fn Albums(
                                                     }
                                                 },
                                                 span { class: "material-icons md-16", "playlist_add" }
-                                                span { "Add to Queue" }
+                                                span { "{strings.add_to_queue}" }
                                             }
 
                                             div { class: "track-menu-divider" }
@@ -417,7 +419,7 @@ pub fn Albums(
                                                     }
                                                 },
                                                 span { class: "material-icons md-16", "content_copy" }
-                                                span { "Copy Album Title" }
+                                                span { "{strings.copy_album_title}" }
                                             }
 
                                             div { class: "track-menu-divider" }
@@ -435,7 +437,7 @@ pub fn Albums(
                                                     }
                                                 },
                                                 span { class: "material-icons md-16", style: "color: #fb7185;", "block" }
-                                                span { style: "color: #fb7185;", "Exclude Album from Library" }
+                                                span { style: "color: #fb7185;", "{strings.exclude_from_library}" }
                                             }
                                         }
                                     }
@@ -450,7 +452,7 @@ pub fn Albums(
                                             move |_| on_edit_album.call(g.clone())
                                         },
                                         span { class: "material-icons md-18", "playlist_add" }
-                                        span { "Add Songs" }
+                                        span { "{strings.add_songs}" }
                                     }
                                 }
                             }
@@ -459,8 +461,8 @@ pub fn Albums(
                             div { class: "album-tracklist-container",
                                 div { class: "album-table-header",
                                     span { class: "album-table-header-idx", "#" }
-                                    span { class: "album-table-header-title", "Title" }
-                                    span { class: "album-table-header-audio", "Audio Profile" }
+                                    span { class: "album-table-header-title", "{strings.title}" }
+                                    span { class: "album-table-header-audio", "{strings.audio_profile}" }
                                     div { class: "album-table-header-dur",
                                         span { class: "material-icons md-18", "schedule" }
                                     }
@@ -622,7 +624,7 @@ pub fn Albums(
                                                                         }
                                                                     },
                                                                     span { class: "material-icons md-16", "play_arrow" }
-                                                                    span { "Play Now" }
+                                                                    span { "{strings.play_now}" }
                                                                 }
 
                                                                 button {
@@ -635,7 +637,7 @@ pub fn Albums(
                                                                         }
                                                                     },
                                                                     span { class: "material-icons md-16", "skip_next" }
-                                                                    span { "Play Next" }
+                                                                    span { "{strings.play_next}" }
                                                                 }
 
                                                                 button {
@@ -648,7 +650,7 @@ pub fn Albums(
                                                                         }
                                                                     },
                                                                     span { class: "material-icons md-16", "playlist_add" }
-                                                                    span { "Add to Queue" }
+                                                                    span { "{strings.add_to_queue}" }
                                                                 }
 
                                                                 button {
@@ -665,7 +667,7 @@ pub fn Albums(
                                                                     } else {
                                                                         span { class: "material-icons md-16", "favorite_border" }
                                                                     }
-                                                                    span { if is_fav { "Remove Favorite" } else { "Add to Favorites" } }
+                                                                    span { if is_fav { "{strings.remove_favorite}" } else { "{strings.add_to_favorites}" } }
                                                                 }
 
                                                                 div { class: "track-menu-divider" }
@@ -701,7 +703,7 @@ pub fn Albums(
                                                                         }
                                                                     },
                                                                     span { class: "material-icons md-16", "info" }
-                                                                    span { "View Track Credits & Metadata" }
+                                                                    span { "{strings.view_track_credits}" }
                                                                 }
 
                                                                 button {
@@ -715,7 +717,7 @@ pub fn Albums(
                                                                         }
                                                                     },
                                                                     span { class: "material-icons md-16", style: "color: #fb7185;", "block" }
-                                                                    span { "Exclude from Library" }
+                                                                    span { "{strings.exclude_from_library}" }
                                                                 }
                                                             }
                                                         }
@@ -737,18 +739,18 @@ pub fn Albums(
                                         div { style: "display: flex; align-items: center; gap: 16px; flex-wrap: wrap;",
                                             h2 { class: "discography-title",
                                                 if has_artist_discography {
-                                                    "More by {group.artist}"
+                                                    "{strings.more_by_artist} {group.artist}"
                                                 } else {
-                                                    "More Albums in Your Library"
+                                                    "{strings.more_albums_in_library}"
                                                 }
                                             }
                                         }
-                                        span { class: "discography-count", "{catalog_pool.len()} releases" }
+                                        span { class: "discography-count", "{catalog_pool.len()} {strings.releases}" }
                                     }
 
                                     if catalog_pool.is_empty() {
                                         div { class: "discography-empty",
-                                            "No other albums found in your library."
+                                            "{strings.no_other_albums}"
                                         }
                                     } else {
                                         div { class: "discography-shelf",
@@ -949,14 +951,14 @@ pub fn Albums(
             } else {
                 // Grid view of all albums
                 div {
-                    h1 { style: "font-size: 26px; font-weight: 700; margin-bottom: 6px;", "Albums" }
+                    h1 { style: "font-size: 26px; font-weight: 700; margin-bottom: 6px;", "{strings.albums}" }
                     p { style: "color: var(--text-secondary); font-size: 13px; margin-bottom: 24px;",
-                        "{album_list.len()} albums in your library"
+                        "{album_list.len()} {strings.albums_in_library}"
                     }
 
                     if album_list.is_empty() {
                         div { style: "background: var(--bg-card); border: 1px solid var(--border-glass); border-radius: 12px; padding: 36px; text-align: center; color: var(--text-muted);",
-                            "No albums discovered yet. Scan your music library to organize by album."
+                            "{strings.no_albums_discovered}"
                         }
                     } else {
                         div { style: "display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 20px;",

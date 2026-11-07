@@ -49,6 +49,7 @@ pub fn Home(
         .clone()
         .or_else(|| fav_catalog.as_ref().and_then(|f| f.fallback_artwork_url.clone()));
     
+    let strings = crate::i18n::current_strings();
     let greeting = {
         use std::time::SystemTime;
         let secs = SystemTime::now()
@@ -57,11 +58,11 @@ pub fn Home(
             .unwrap_or(0);
         let hour = ((secs % 86400) / 3600 + 8) % 24; // Approximate local time
         if hour < 12 {
-            "Good morning"
+            strings.good_morning
         } else if hour < 18 {
-            "Good afternoon"
+            strings.good_afternoon
         } else {
-            "Good evening"
+            strings.good_evening
         }
     };
 
@@ -75,7 +76,7 @@ pub fn Home(
                         "{greeting}, {username}"
                     }
                     p { style: "color: var(--text-secondary); font-size: 13.5px; margin-top: 4px;",
-                        "{home_subtext.as_deref().unwrap_or(\"Attune Dynamic DJ Transition Engine is active\")}"
+                        "{home_subtext.as_deref().unwrap_or(strings.smart_shuffle_active)}"
                     }
                 }
             }
@@ -239,18 +240,18 @@ pub fn Home(
                                             title: "Play bundled catalog",
                                             onclick: move |_| on_play_tracks.call(tracks_for_play.clone()),
                                             span { class: "material-icons md-20", "play_arrow" }
-                                            span { "Play Catalog" }
+                                            span { "{strings.play_all}" }
                                         }
                                         button {
                                             class: "btn-fav-queue",
-                                            title: "Add all songs to Queue",
+                                            title: "{strings.add_to_queue}",
                                             onclick: move |_| {
                                                 for t in &tracks_for_queue {
                                                     on_queue_track.call(t.clone());
                                                 }
                                             },
                                             span { class: "material-icons md-18", "playlist_add" }
-                                            span { "Add to Queue" }
+                                            span { "{strings.add_to_queue}" }
                                         }
                                         {
                                             let a_btn = artist_name.clone();
@@ -327,7 +328,7 @@ pub fn Home(
             // Recently Discovered / Played Section
             div { style: "margin-bottom: 32px;",
                 div { style: "display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;",
-                    h3 { style: "font-size: 18px; font-weight: 700;", "Recently Played & Library Highlights" }
+                    h3 { style: "font-size: 18px; font-weight: 700;", "{strings.recent_tracks}" }
                     span { style: "font-size: 12px; color: var(--text-muted);", "{recent_tracks.len()} tracks" }
                 }
 

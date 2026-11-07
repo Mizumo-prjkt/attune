@@ -2,6 +2,7 @@ use dioxus::prelude::*;
 
 #[component]
 pub fn About() -> Element {
+    let strings = crate::i18n::current_strings();
     let pkg_version = crate::config::app_version();
     let target_os = if cfg!(target_os = "windows") { "Windows (WebView2)" } else { "Linux (WebKitGTK)" };
 
@@ -17,7 +18,7 @@ pub fn About() -> Element {
                     alt: "Attune Official Logo",
                 }
                 div {
-                    h1 { style: "font-size: 26px; font-weight: 700;", "Attune Desktop" }
+                    h1 { style: "font-size: 26px; font-weight: 700;", "{strings.about_attune}" }
                     p { style: "color: var(--accent-mint); font-weight: 600; font-size: 14px; margin-top: 2px;",
                         "Version {pkg_version} • {target_os}"
                     }
@@ -29,7 +30,7 @@ pub fn About() -> Element {
 
             // Architecture Stack
             div { style: "background: var(--bg-card); padding: 24px; border-radius: 16px; border: 1px solid var(--border-glass); margin-bottom: 20px;",
-                h2 { style: "font-size: 18px; font-weight: 700; margin-bottom: 14px;", "Architecture & Technology" }
+                h2 { style: "font-size: 18px; font-weight: 700; margin-bottom: 14px;", "{strings.architecture_and_technology}" }
 
                 div { style: "display: grid; grid-template-columns: 1fr 1fr; gap: 14px; font-size: 13px;",
                     div { style: "background: rgba(255,255,255,0.04); padding: 12px; border-radius: 8px; border: 1px solid var(--border-glass);",
@@ -53,7 +54,7 @@ pub fn About() -> Element {
 
             // Ecosystem & Updates
             div { style: "background: var(--bg-card); padding: 24px; border-radius: 16px; border: 1px solid var(--border-glass);",
-                h2 { style: "font-size: 18px; font-weight: 700; margin-bottom: 12px;", "Open Source & Distribution" }
+                h2 { style: "font-size: 18px; font-weight: 700; margin-bottom: 12px;", "{strings.open_source_distribution}" }
                 p { style: "color: var(--text-secondary); font-size: 13.5px; line-height: 1.5; margin-bottom: 16px;",
                     "Attune is completely open-source. Desktop builds run native Rust for Linux and Windows, while Android companion builds run Flutter with the attune-core FFI engine."
                 }

@@ -127,6 +127,7 @@ pub fn App() -> Element {
     let player = use_signal(|| Arc::new(Player::new()));
     let mut tracks = use_signal(Vec::<TrackEntry>::new);
     let app_config = use_signal(config::load_config);
+    let strings = crate::i18n::get_strings(crate::i18n::Language::from_code(&app_config.read().language));
     let mut music_dir = use_signal(|| {
         let (dir, _) = config::resolve_music_dir(None);
         dir
@@ -989,7 +990,7 @@ pub fn App() -> Element {
                 div { class: "search-bar",
                     span { class: "material-icons md-18", "search" }
                     input {
-                        placeholder: "Search library...",
+                        placeholder: "{strings.search_library_placeholder}",
                         value: "{search_query}",
                         oninput: move |evt| {
                             search_query.set(evt.value());
@@ -1002,48 +1003,48 @@ pub fn App() -> Element {
 
                 // Attune Main Navigation
                 div { class: "nav-section",
-                    span { class: "section-label", "ATTUNE" }
+                    span { class: "section-label", "{strings.app_name.to_uppercase()}" }
                     div {
                         class: if *nav_state.read().current() == StageView::Home { "nav-item active" } else { "nav-item" },
                         onclick: move |_| navigate_to(StageView::Home),
                         span { class: "material-icons md-20", "home" }
-                        span { "Home" }
+                        span { "{strings.home}" }
                     }
                     div {
                         class: if matches!(nav_state.read().current(), StageView::ForYou | StageView::ForYouDetail(_)) { "nav-item active" } else { "nav-item" },
                         onclick: move |_| navigate_to(StageView::ForYou),
                         span { class: "material-icons md-20", "auto_awesome" }
-                        span { "For You" }
+                        span { "{strings.for_you}" }
                     }
                     div {
                         class: if *nav_state.read().current() == StageView::Library { "nav-item active" } else { "nav-item" },
                         onclick: move |_| navigate_to(StageView::Library),
                         span { class: "material-icons md-20", "library_music" }
-                        span { "Library" }
+                        span { "{strings.library}" }
                     }
                     div {
                         class: if matches!(nav_state.read().current(), StageView::Albums | StageView::AlbumDetail(_)) { "nav-item active" } else { "nav-item" },
                         onclick: move |_| navigate_to(StageView::Albums),
                         span { class: "material-icons md-20", "album" }
-                        span { "Albums" }
+                        span { "{strings.albums}" }
                     }
                     div {
                         class: if matches!(nav_state.read().current(), StageView::Artists | StageView::ArtistDetail(_)) { "nav-item active" } else { "nav-item" },
                         onclick: move |_| navigate_to(StageView::Artists),
                         span { class: "material-icons md-20", "person" }
-                        span { "Artists" }
+                        span { "{strings.artists}" }
                     }
                     div {
                         class: if *nav_state.read().current() == StageView::Favorites { "nav-item active" } else { "nav-item" },
                         onclick: move |_| navigate_to(StageView::Favorites),
                         span { class: "material-icons md-20", "favorite" }
-                        span { "Favorite Songs" }
+                        span { "{strings.favorite_songs}" }
                     }
                 }
 
                 // Sources Section
                 div { class: "nav-section", style: "margin-top: 8px;",
-                    span { class: "section-label", "SOURCES" }
+                    span { class: "section-label", "{strings.sources}" }
                     div { style: "display: flex; align-items: center; gap: 6px; padding: 6px 8px; font-size: 11.5px; color: var(--text-muted); word-break: break-all; background: rgba(255,255,255,0.03); border-radius: 6px; border: 1px solid var(--border-glass); margin-bottom: 8px;",
                         span { class: "material-icons md-16", "folder" }
                         if let Some(dir) = music_dir.read().as_ref() {
@@ -1053,7 +1054,7 @@ pub fn App() -> Element {
                                 span { "{dir.display()}" }
                             }
                         } else {
-                            span { "No folder chosen" }
+                            span { "{strings.no_folder_chosen}" }
                         }
                     }
                     div { style: "display: flex; gap: 6px;",
@@ -1078,7 +1079,7 @@ pub fn App() -> Element {
                                     }
                                 }
                             },
-                            "Add Folder"
+                            "{strings.add_folder}"
                         }
                         button {
                             class: "btn-pill",
@@ -1088,7 +1089,7 @@ pub fn App() -> Element {
                                 let mut scan_all = scan_all_libraries.clone();
                                 move |_| scan_all()
                             },
-                            if *is_scanning.read() { "Scanning..." } else { "Rescan" }
+                            if *is_scanning.read() { "{strings.scanning}" } else { "{strings.rescan}" }
                         }
                     }
                 }
@@ -1099,26 +1100,26 @@ pub fn App() -> Element {
                         class: if *nav_state.read().current() == StageView::Equalizer { "nav-item active" } else { "nav-item" },
                         onclick: move |_| navigate_to(StageView::Equalizer),
                         span { class: "material-icons md-20", "tune" }
-                        span { "Equalizer" }
+                        span { "{strings.equalizer}" }
                     }
                     div {
                         class: "nav-item",
                         title: "Open Settings in New Window",
                         onclick: move |_| open_settings_window(),
                         span { class: "material-icons md-20", "settings" }
-                        span { "Settings" }
+                        span { "{strings.settings}" }
                     }
                     div {
                         class: if *nav_state.read().current() == StageView::ProcessManager { "nav-item active" } else { "nav-item" },
                         onclick: move |_| navigate_to(StageView::ProcessManager),
                         span { class: "material-icons md-20", "analytics" }
-                        span { "Process Manager" }
+                        span { "{strings.process_manager}" }
                     }
                     div {
                         class: if *nav_state.read().current() == StageView::About { "nav-item active" } else { "nav-item" },
                         onclick: move |_| navigate_to(StageView::About),
                         span { class: "material-icons md-20", "info" }
-                        span { "About Attune" }
+                        span { "{strings.about_attune}" }
                     }
                 }
             }
@@ -1172,7 +1173,7 @@ pub fn App() -> Element {
                                 }
                             },
                             span { class: "material-icons md-16", style: "margin-right: 4px;", "subtitles" }
-                            span { "Lyrics" }
+                            span { "{strings.lyrics}" }
                         }
                         button {
                             class: if *dock_mode.read() == DockMode::Queue { "btn-pill active" } else { "btn-pill" },
@@ -1184,7 +1185,7 @@ pub fn App() -> Element {
                                 }
                             },
                             span { class: "material-icons md-16", style: "margin-right: 4px;", "queue_music" }
-                            span { "Queue" }
+                            span { "{strings.queue}" }
                         }
                         button {
                             class: if *nav_state.read().current() == StageView::Equalizer { "btn-icon active" } else { "btn-icon" },
@@ -1500,7 +1501,7 @@ pub fn App() -> Element {
                     match *dock_mode.read() {
                         DockMode::Lyrics => rsx! {
                             div { class: "dock-header",
-                                span { style: "font-weight: 700; font-size: 15px;", "Synchronized Lyrics" }
+                                span { style: "font-weight: 700; font-size: 15px;", "{strings.synchronized_lyrics}" }
                                 div { style: "display: flex; gap: 8px; align-items: center;",
                                     button {
                                         class: if *auto_scroll_lyrics.read() { "btn-pill active" } else { "btn-pill" },
@@ -1511,7 +1512,7 @@ pub fn App() -> Element {
                                         },
                                         if *auto_scroll_lyrics.read() {
                                             span { class: "material-icons md-14", "lock" }
-                                            span { "Auto-Scroll" }
+                                            span { "{strings.auto_scroll}" }
                                         } else {
                                             span { class: "material-icons md-14", "lock_open" }
                                             span { "Free-Scroll" }
@@ -1530,8 +1531,8 @@ pub fn App() -> Element {
                                 if lyrics_sheet.read().lines.is_empty() {
                                     div { style: "display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; text-align: center; color: var(--text-muted); gap: 12px; padding: 40px 20px;",
                                         span { class: "material-icons md-48", style: "opacity: 0.6;", "description" }
-                                        p { style: "font-size: 15px; font-weight: 600;", "No Lyrics Available" }
-                                        p { style: "font-size: 12px; line-height: 1.4;", "Place a companion .lrc file alongside your song to display synchronized singing lines." }
+                                        p { style: "font-size: 15px; font-weight: 600;", "{strings.no_lyrics_available}" }
+                                        p { style: "font-size: 12px; line-height: 1.4;", "{strings.no_lyrics_guide}" }
                                     }
                                 } else {
                                     div { class: "lyrics-container",
@@ -1566,7 +1567,7 @@ pub fn App() -> Element {
                         },
                         DockMode::Queue => rsx! {
                             div { class: "dock-header",
-                                span { style: "font-weight: 700; font-size: 15px;", "Up Next Queue" }
+                                span { style: "font-weight: 700; font-size: 15px;", "{strings.playback_queue}" }
                                 div { style: "display: flex; gap: 6px; align-items: center;",
                                     button {
                                         class: if *shuffle_mode.read() == ShuffleMode::Smart { "btn-pill active" } else { "btn-pill" },
@@ -1612,7 +1613,7 @@ pub fn App() -> Element {
                                             last_verdict.set(None);
                                             is_transition_active.set(false);
                                         },
-                                        "Clear"
+                                        "{strings.clear_queue}"
                                     }
                                     button {
                                         class: "btn-icon",
@@ -1723,8 +1724,8 @@ pub fn App() -> Element {
                                 span { class: "material-icons md-20", "music_note" }
                             }
                             div { class: "mini-meta",
-                                span { class: "mini-title", style: "color: var(--text-muted);", "Attune Player" }
-                                span { class: "mini-artist", "Select a track to play" }
+                                span { class: "mini-title", style: "color: var(--text-muted);", "{strings.attune_player}" }
+                                span { class: "mini-artist", "{strings.select_track_to_play}" }
                             }
                         }
                     }

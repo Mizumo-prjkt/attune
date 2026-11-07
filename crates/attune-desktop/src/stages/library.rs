@@ -41,6 +41,7 @@ pub fn Library(
     let total_count = filtered_tracks.len();
     let total_ms: u64 = filtered_tracks.iter().map(|t| t.duration_ms).sum();
     let total_dur_str = fmt_ms(total_ms);
+    let strings = crate::i18n::current_strings();
 
     rsx! {
         div { class: "library-stage",
@@ -49,16 +50,16 @@ pub fn Library(
             // Library Top Header
             div { style: "display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;",
                 div {
-                    h1 { style: "font-size: 26px; font-weight: 700;", "Music Library" }
+                    h1 { style: "font-size: 26px; font-weight: 700;", "{strings.music_library}" }
                     p { style: "color: var(--text-secondary); font-size: 13px; margin-top: 4px;",
-                        "{total_count} songs • {total_dur_str} total listening time"
+                        "{total_count} {strings.songs.to_lowercase()} • {total_dur_str} {strings.total_listening_time}"
                     }
                 }
                 div { style: "display: flex; gap: 10px; align-items: center;",
                     div { class: "search-bar", style: "width: 260px;",
                         span { class: "material-icons md-18", "search" }
                         input {
-                            placeholder: "Search library...",
+                            placeholder: "{strings.search_library_placeholder}",
                             value: "{search_query}",
                             oninput: move |evt| on_search_change.call(evt.value()),
                         }
@@ -80,7 +81,7 @@ pub fn Library(
                             sort_asc.set(true);
                         }
                     },
-                    "Title" if *sort_by.read() == "title" { if *sort_asc.read() { " ▲" } else { " ▼" } }
+                    "{strings.title}" if *sort_by.read() == "title" { if *sort_asc.read() { " ▲" } else { " ▼" } }
                 }
                 span {
                     style: "cursor: pointer;",
@@ -93,7 +94,7 @@ pub fn Library(
                             sort_asc.set(true);
                         }
                     },
-                    "Artist" if *sort_by.read() == "artist" { if *sort_asc.read() { " ▲" } else { " ▼" } }
+                    "{strings.artist}" if *sort_by.read() == "artist" { if *sort_asc.read() { " ▲" } else { " ▼" } }
                 }
                 span {
                     style: "cursor: pointer;",
@@ -106,7 +107,7 @@ pub fn Library(
                             sort_asc.set(true);
                         }
                     },
-                    "Album" if *sort_by.read() == "album" { if *sort_asc.read() { " ▲" } else { " ▼" } }
+                    "{strings.album}" if *sort_by.read() == "album" { if *sort_asc.read() { " ▲" } else { " ▼" } }
                 }
                 span {
                     style: "cursor: pointer;",
@@ -223,7 +224,7 @@ pub fn Library(
                                     div { style: "display: flex; gap: 8px; justify-content: center; align-items: center;",
                                         button {
                                             style: "background: transparent; border: none; cursor: pointer; color: var(--text-muted); padding: 2px;",
-                                            title: "Add to Queue",
+                                            title: "{strings.add_to_queue}",
                                             onclick: {
                                                 let t_clone = t.clone();
                                                 move |_| on_queue_track.call(t_clone.clone())
@@ -232,7 +233,7 @@ pub fn Library(
                                         }
                                         button {
                                             style: "background: transparent; border: none; cursor: pointer; color: if is_fav { \"#fb7185\" } else { \"var(--text-muted)\" }; padding: 2px;",
-                                            title: "Toggle Favorite",
+                                            title: if is_fav { strings.remove_favorite } else { strings.add_to_favorites },
                                             onclick: move |_| on_toggle_favorite.call(path_clone.clone()),
                                             if is_fav {
                                                 span { class: "material-icons md-16", "favorite" }

@@ -3534,6 +3534,39 @@ This file records all major architectural decisions for **Attune**, including co
   - 100% visual styling uniformity across all dropdowns (Album Editor type selector, Settings language selector, and Settings lyrics priority selector).
   - All 63 desktop tests and all 118 workspace tests pass cleanly. Release binary compiles in 35.34s.
 
+---
+
+## ADR-100: App-Wide Internationalization (i18n) Engine, Textless Minimalist Switches & Flutter-Style Interactive Song Exclusion Management
+- **Date**: 2026-11-07
+- **Status**: `LOCKED`
+- **Context**:
+  1. The user noted difficulty changing the application language and explicitly requested that translations NOT be limited to settings alone, but applied application-wide across all views (Navigation, Player Bar, Lyrics/Queue Drawers, Home, Library, Albums, Artists, Favorites, For You, Equalizer, Process Manager, and About).
+  2. The switch toggles previously rendered verbose `"ACTIVE" / "ENABLED" / "ON" / "OFF"` text labels alongside the sliding tracks, consuming unnecessary horizontal space and diverging from standard OS minimalist toggles.
+  3. The Song Exclusion Index in Settings previously required manual path/keyword string entry; the user requested a direct interactive track selector mirroring the Flutter variant (`SongExclusionStage`), allowing instant 1-tap exclusion and restoration directly from library songs.
+  4. Mandate 4 strictly prohibits hardcoding and requires graceful error handling and transparent system changes.
+- **Decision**:
+  1. **Comprehensive App-Wide i18n Subsystem (`crates/attune-desktop/src/i18n.rs`)**:
+     - Expanded `Strings` struct with 70+ localized keys covering sidebar navigation, top search bar, transport controls, docked drawers (Synchronized Lyrics, Playback Queue), Home stage greetings, Library/Album/Artist tables, context menus, and all stage headers.
+     - Implemented complete, idiomatic dictionaries for English (US) and Wikang Filipino (Tagalog).
+     - Added `current_strings()` and `current_language()` helpers.
+     - Updated all 11 stages (`home.rs`, `library.rs`, `albums.rs`, `artists.rs`, `favorites.rs`, `for_you.rs`, `fullscreen_now_playing.rs`, `equalizer.rs`, `process_manager.rs`, `about.rs`, `settings.rs`) and main application shell (`app.rs`) to bind dynamically to `current_strings()`.
+     - In `app.rs`, the background async configuration poller reloads `config::load_config()` every 1000ms, ensuring that changing the language in the standalone Settings window immediately re-renders all text in the main window reactively.
+  2. **Textless Minimalist Switch Toggles (`stages/settings.rs`, `stages/equalizer.rs`, `style.css`)**:
+     - Stripped label parameters from `SwitchToggle` in `settings.rs`, rendering a clean 42x22px tactile sliding switch track and thumb without distracting text badges.
+     - Updated all switches in `equalizer.rs` (Master FX, Pure Bass+, Clarity Exciter) to remove inline `"ON" / "OFF" / "BYPASSED"` text.
+  3. **Flutter-Style Interactive Song Exclusion Management (`stages/settings.rs`)**:
+     - Replaced raw text input with a dedicated library track browser featuring:
+       - Real-time search query filtering over song titles, artists, and albums.
+       - Quick-filter category pills: `All Songs ({total})`, `Excluded ({excluded})`, `Available ({available})`.
+       - Scrollable track list with artwork thumbnails/fallbacks, track metadata, duration, and 1-tap action buttons (`[ ⊘ Exclude ]` in rose, `[ ↺ Restore ]` in mint).
+       - Retained secondary card for custom wildcard/folder patterns with 1-tap chip deletion.
+- **Consequences**:
+  - Full application-wide bilingual localization (English & Filipino) functioning dynamically across all screens.
+  - Zero hardcoding under Mandate 4; exportable template JSON for open community contributions.
+  - Sleek, compact switches and effortless 1-tap track exclusion.
+  - All 63 desktop tests, all workspace tests pass, and release build succeeds cleanly.
+
+
 
 
 

@@ -27,14 +27,15 @@ pub fn Artists(
         .into_iter()
         .filter(|a| query.is_empty() || a.name.to_lowercase().contains(&query))
         .collect();
+    let strings = crate::i18n::current_strings();
 
     rsx! {
         div { class: "artists-stage",
             div { class: "stage-header-row", style: "display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 24px;",
                 div {
-                    h1 { style: "font-size: 26px; font-weight: 700; margin-bottom: 6px;", "Artists" }
+                    h1 { style: "font-size: 26px; font-weight: 700; margin-bottom: 6px;", "{strings.artists}" }
                     p { style: "color: var(--text-secondary); font-size: 13px;",
-                        "{filtered_artists.len()} artists in your library"
+                        "{filtered_artists.len()} {strings.artists_in_library}"
                     }
                 }
                 div { style: "display: flex; gap: 12px; align-items: center;",
@@ -236,6 +237,7 @@ pub fn ArtistDetail(
 
     let total_tracks = artist_tracks.len();
     let total_albums = artist_albums.len();
+    let strings = crate::i18n::current_strings();
 
     let total_dur_ms: u64 = artist_tracks.iter().map(|t| t.duration_ms).sum();
     let total_dur_str = fmt_ms(total_dur_ms);
@@ -313,7 +315,7 @@ pub fn ArtistDetail(
                 }
 
                 div { class: "album-meta-col",
-                    span { class: "album-meta-type", "Artist" }
+                    span { class: "album-meta-type", "{strings.artist}" }
                     h1 { class: "album-meta-title", "{artist_name}" }
                     div { class: "album-meta-subline",
                         div { class: "album-artist-avatar",
@@ -323,7 +325,7 @@ pub fn ArtistDetail(
                                 span { class: "material-icons md-14", style: "color: var(--accent-mint);", "verified" }
                             }
                         }
-                        span { class: "album-artist-name", "Verified Artist" }
+                        span { class: "album-artist-name", "{strings.verified_artist}" }
                         if let Some(ref subs) = profile.subscribers {
                             span { class: "album-dot-sep", "•" }
                             span { class: "album-meta-dur", "{subs} subscribers" }
@@ -438,7 +440,7 @@ pub fn ArtistDetail(
                                     }
                                 },
                                 span { class: "material-icons md-16", "playlist_add" }
-                                span { "Add All to Queue" }
+                                span { "{strings.add_to_queue}" }
                             }
 
                             // 2. Play Next
@@ -454,7 +456,7 @@ pub fn ArtistDetail(
                                     }
                                 },
                                 span { class: "material-icons md-16", "skip_next" }
-                                span { "Play Next" }
+                                span { "{strings.play_next}" }
                             }
 
                             div { class: "track-menu-divider" }
@@ -557,8 +559,8 @@ pub fn ArtistDetail(
             div { class: "album-tracklist-container",
                 div { class: "album-table-header",
                     span { class: "album-table-header-idx", "#" }
-                    span { class: "album-table-header-title", "Title" }
-                    span { class: "album-table-header-audio", "Audio Profile" }
+                    span { class: "album-table-header-title", "{strings.title}" }
+                    span { class: "album-table-header-audio", "{strings.audio_profile}" }
                     div { class: "album-table-header-dur",
                         span { class: "material-icons md-18", "schedule" }
                     }
@@ -696,7 +698,7 @@ pub fn ArtistDetail(
                                                             }
                                                         },
                                                         span { class: "material-icons md-16", "play_arrow" }
-                                                        span { "Play Now" }
+                                                        span { "{strings.play_now}" }
                                                     }
 
                                                     button {
@@ -709,7 +711,7 @@ pub fn ArtistDetail(
                                                             }
                                                         },
                                                         span { class: "material-icons md-16", "skip_next" }
-                                                        span { "Play Next" }
+                                                        span { "{strings.play_next}" }
                                                     }
 
                                                     button {
@@ -722,7 +724,7 @@ pub fn ArtistDetail(
                                                             }
                                                         },
                                                         span { class: "material-icons md-16", "playlist_add" }
-                                                        span { "Add to Queue" }
+                                                        span { "{strings.add_to_queue}" }
                                                     }
 
                                                     button {
@@ -739,7 +741,7 @@ pub fn ArtistDetail(
                                                         } else {
                                                             span { class: "material-icons md-16", "favorite_border" }
                                                         }
-                                                        span { if is_fav { "Remove Favorite" } else { "Add to Favorites" } }
+                                                        span { if is_fav { "{strings.remove_favorite}" } else { "{strings.add_to_favorites}" } }
                                                     }
 
                                                     div { class: "track-menu-divider" }
@@ -777,7 +779,7 @@ pub fn ArtistDetail(
                                                             }
                                                         },
                                                         span { class: "material-icons md-16", "info" }
-                                                        span { "View Track Credits & Metadata" }
+                                                        span { "{strings.view_track_credits}" }
                                                     }
 
                                                     button {
@@ -791,7 +793,7 @@ pub fn ArtistDetail(
                                                             }
                                                         },
                                                         span { class: "material-icons md-16", style: "color: #fb7185;", "block" }
-                                                        span { "Exclude from Library" }
+                                                        span { "{strings.exclude_from_library}" }
                                                     }
                                                 }
                                             }
@@ -811,26 +813,26 @@ pub fn ArtistDetail(
                 div { class: "album-discography-section",
                     div { class: "discography-header-row",
                         div { style: "display: flex; align-items: center; gap: 16px; flex-wrap: wrap;",
-                            h2 { class: "discography-title", "Discography" }
+                            h2 { class: "discography-title", "{strings.discography}" }
                             div { class: "discography-chips",
                                 button {
                                     class: if active_filter == "all" { "discography-chip active" } else { "discography-chip" },
                                     onclick: move |_| discography_filter.set("all".to_string()),
-                                    "Popular releases"
+                                    "{strings.popular_releases}"
                                 }
                                 button {
                                     class: if active_filter == "albums" { "discography-chip active" } else { "discography-chip" },
                                     onclick: move |_| discography_filter.set("albums".to_string()),
-                                    "Albums"
+                                    "{strings.albums}"
                                 }
                                 button {
                                     class: if active_filter == "singles" { "discography-chip active" } else { "discography-chip" },
                                     onclick: move |_| discography_filter.set("singles".to_string()),
-                                    "Singles and EPs"
+                                    "{strings.singles_and_eps}"
                                 }
                             }
                         }
-                        span { class: "discography-count", "{filtered_albums.len()} releases" }
+                        span { class: "discography-count", "{filtered_albums.len()} {strings.releases}" }
                     }
 
                     if filtered_albums.is_empty() {

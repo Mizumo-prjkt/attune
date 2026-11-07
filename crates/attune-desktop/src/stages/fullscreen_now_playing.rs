@@ -27,9 +27,11 @@ pub fn FullscreenNowPlaying(
     on_cycle_shuffle: EventHandler<()>,
     on_exit: EventHandler<()>,
 ) -> Element {
+    let strings = crate::i18n::current_strings();
+
     let track = current_track.unwrap_or_else(|| TrackEntry {
-        title: "No Track Playing".to_string(),
-        artist: "Attune Engine".to_string(),
+        title: strings.select_track_to_play.to_string(),
+        artist: strings.app_name.to_string(),
         album: "Ready".to_string(),
         duration_ms: 0,
         ..Default::default()
@@ -227,8 +229,8 @@ pub fn FullscreenNowPlaying(
                             div {
                                 style: "display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; text-align: center; color: var(--text-muted); gap: 16px; padding: 60px 20px;",
                                 span { class: "material-icons md-48", style: "opacity: 0.5;", "queue_music" }
-                                p { style: "font-size: 20px; font-weight: 700; color: #ffffff;", "Instrumental or Lyrics Pending" }
-                                p { style: "font-size: 13px; max-width: 380px; line-height: 1.5;", "Synchronized singing lines will appear here automatically when a companion .lrc file is provided or fetched via API." }
+                                p { style: "font-size: 20px; font-weight: 700; color: #ffffff;", "{strings.instrumental_or_lyrics_pending}" }
+                                p { style: "font-size: 13px; max-width: 380px; line-height: 1.5;", "{strings.fullscreen_lyrics_guide}" }
                             }
                         } else {
                             for (idx, line) in lyrics_sheet.lines.iter().enumerate() {
