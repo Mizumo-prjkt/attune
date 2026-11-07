@@ -49,6 +49,9 @@ fn main() {
         std::process::exit(1);
     }
 
+    // Configure watchguard for desktop hardware telemetry evaluation mode
+    let _ = dynamic_components::watchguard::set_desktop_mode(true);
+
     match config::ensure_cache_dir_env() {
         Some(dir) => log::info!("Attune cache directory: {}", dir.display()),
         None => log::warn!("No per-user cache directory available; core falls back to temp dir"),

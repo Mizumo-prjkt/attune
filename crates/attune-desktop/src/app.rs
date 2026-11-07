@@ -490,16 +490,30 @@ pub fn App() -> Element {
         let scan_rx = scan_rx.clone();
         let mut play_next_track = play_next_track_poller.clone();
         async move {
-            let mut last_poll_instant = std::time::Instant::now();
+            let mut last_hw_sample_instant = std::time::Instant::now();
             let mut last_clipping_count = 0u32;
             let mut last_underrun_count = 0u32;
 
             loop {
                 tokio::time::sleep(Duration::from_millis(50)).await;
-                let now = std::time::Instant::now();
-                let frame_ms = now.duration_since(last_poll_instant).as_secs_f32() * 1000.0;
-                last_poll_instant = now;
-                let _ = crate::dynamic_components::watchguard::record_ui_frame(frame_ms);
+
+                // Record real hardware resource telemetry every 1000ms on desktop
+                if last_hw_sample_instant.elapsed() >= Duration::from_millis(1000) {
+                    last_hw_sample_instant = std::time::Instant::now();
+                    if let Ok(m) = crate::process_manager::sample_metrics() {
+                        let gpu_usage = if let (Some(cur), Some(max)) = (m.gpu_cur_freq_mhz, m.gpu_max_freq_mhz) {
+                            if max > 0 { (cur as f32 / max as f32) * 100.0 } else { 0.0 }
+                        } else {
+                            0.0
+                        };
+                        let _ = crate::dynamic_components::watchguard::record_hardware_resources(
+                            m.cpu_usage_pct,
+                            m.rss_bytes,
+                            gpu_usage,
+                            m.thread_count,
+                        );
+                    }
+                }
 
                 // 1. Process Library Scan Events
                 let rx_arc = scan_rx.read().clone();

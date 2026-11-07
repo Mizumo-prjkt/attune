@@ -194,13 +194,13 @@ pub fn ProcessManager() -> Element {
                 }
             }
 
-            // Watchguard Real-Time Stability & Cadence Monitor Card (libattune_watchguard)
+            // Watchguard Real-Time Stability & Hardware Guardrails (libattune_watchguard)
             div { style: "background: var(--bg-card); padding: 22px; border-radius: 18px; border: 1px solid var(--border-glass); display: flex; flex-direction: column; gap: 14px;",
                 div { style: "display: flex; justify-content: space-between; align-items: center;",
                     div {
-                        h3 { style: "font-size: 16px; font-weight: 600;", "Watchguard Real-Time Stability & Cadence Monitor" }
+                        h3 { style: "font-size: 16px; font-weight: 600;", "Watchguard Real-Time Stability & Hardware Guardrails" }
                         p { style: "font-size: 12px; color: var(--text-muted); margin-top: 2px;",
-                            "Live DSP audio buffer underrun, signal clipping, and UI frame pacing telemetry from libattune_watchguard"
+                            "Live DSP buffer underruns, signal clipping, and kernel hardware telemetry guardrails via libattune_watchguard (Desktop Hardware Mode)"
                         }
                     }
                     button {
@@ -237,9 +237,9 @@ pub fn ProcessManager() -> Element {
                                 }
                             }
                             div { style: "background: rgba(255,255,255,0.03); padding: 12px 14px; border-radius: 10px; border: 1px solid var(--border-glass);",
-                                span { style: "display: block; font-size: 10.5px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; margin-bottom: 4px;", "Poller / UI Cadence" }
+                                span { style: "display: block; font-size: 10.5px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; margin-bottom: 4px;", "Hardware Resource Guard" }
                                 span { style: "font-family: monospace; font-size: 16px; font-weight: 700; color: var(--text-primary);",
-                                    "{wg.average_fps:.1} Hz (Peak {wg.peak_frame_duration_ms:.1} ms)"
+                                    "{wg.cpu_usage_pct:.1}% CPU • {wg.logical_cpu_cores} Cores"
                                 }
                             }
                             div { style: "background: rgba(255,255,255,0.03); padding: 12px 14px; border-radius: 10px; border: 1px solid var(--border-glass);",

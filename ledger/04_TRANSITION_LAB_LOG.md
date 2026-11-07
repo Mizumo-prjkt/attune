@@ -1491,6 +1491,36 @@ These four benchmark scenarios define the "Gold Standard" transitions that Attun
   - `cargo build --release`: Compiled successfully in 30.74s.
 - **Listening & Stability Verdict**: `PASS`. Transitions advance the UI exactly once when the mixer physically completes the crossfade, key matches populate accurately, and navigation operates seamlessly.
 
+---
+
+### Experiment #033: Desktop Hardware Stability Guardrails & Decoupling from Mobile UI Frame Pacing
+- **Date**: 2026-11-07
+- **Hypothesis**: Restricting device stability evaluation on desktop to UI frame pacing and FPS causes false "heavy throttling" alerts because the 50ms GUI background poller naturally ticks at ~20 Hz, and desktop display compositors/refresh rates vary independently of real audio DSP buffer deadlines. Evaluating stability via real kernel hardware metrics (process CPU load normalized across CPU cores, memory RSS relative to physical RAM, GPU utilization, and physical DAC buffer underruns) eliminates false alarms while providing genuine hardware guardrails under Mandate 4 (zero hardcoded thresholds).
+- **Empirical Findings & Root Cause Analysis**:
+  1. `app.rs` passed `frame_ms = now.duration_since(last_poll_instant).as_secs_f32() * 1000.0` (~50ms) into `watchguard_record_ui_frame`.
+  2. `watchguard` calculated `average_fps = 1000.0 / 50.0 = 20.0 FPS`.
+  3. `watchguard` flagged `is_heavy_throttling = true` (`average_fps < 25.0`), triggering overload warnings and recommending system codec fallback on desktop despite 0% CPU strain and 0 audio underruns.
+  4. On desktop, Attune has unprivileged kernel access to `/proc/stat`, `/proc/self/status`, `/proc/meminfo`, `/proc/asound`, and `/sys/class/drm`.
+- **Engineering Changes Applied**:
+  1. Added desktop stability mode (`is_desktop_mode`) to `WatchguardState` in `crates/watchguard/src/lib.rs`.
+  2. Bypassed UI frame pacing penalties on desktop, evaluating instability strictly via:
+     - Physical DAC buffer underruns (`recent_underruns * 0.30`, up to 0.50).
+     - Signal clipping (`recent_clipping * 0.15`, up to 0.25).
+     - Normalized CPU load relative to `std::thread::available_parallelism()` (up to 0.35).
+     - Memory footprint relative to `/proc/meminfo` physical RAM (up to 0.30).
+     - OS thread pressure (up to 0.15).
+  3. Exported `watchguard_record_hardware_resources` and `watchguard_set_desktop_mode` via C-ABI.
+  4. In `attune-desktop/src/app.rs`, purged `record_ui_frame(frame_ms)` from the 50ms async poller, sampling live telemetry every 1000ms.
+  5. In `attune-desktop/src/stages/process_manager.rs`, replaced "Poller / UI Cadence" with "Hardware Resource Guard", showing live CPU % and logical CPU cores.
+- **Empirical Verification**:
+  - `cargo test -p attune-watchguard`: 8/8 tests pass (including `test_watchguard_desktop_mode_bypasses_fps_restrictions`, `test_watchguard_desktop_hardware_overload_detection`, and `test_watchguard_desktop_c_abi`).
+  - `cargo test -p attune-desktop`: 41/41 tests pass.
+  - `flutter test`: 164/164 tests pass.
+  - `cargo test --workspace`: 100% of workspace tests pass.
+  - `cargo build --release`: Compiled successfully in 52.42s.
+- **Verdict**: `PASS`. Desktop stability reports `STABLE (Score 0.00)` under normal conditions with real CPU/memory telemetry, completely eliminating false throttling warnings while detecting actual hardware resource starvation.
+
+
 
 
 

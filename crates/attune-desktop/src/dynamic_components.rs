@@ -53,6 +53,8 @@ type FnWatchguardRecordUiFrame = unsafe extern "C" fn(f32);
 type FnWatchguardGetStatusJson = unsafe extern "C" fn() -> *const c_char;
 type FnWatchguardResetMetrics = unsafe extern "C" fn() -> i32;
 type FnWatchguardFreeString = unsafe extern "C" fn(*mut c_char);
+type FnWatchguardRecordHardwareResources = unsafe extern "C" fn(f32, u64, f32, u32);
+type FnWatchguardSetDesktopMode = unsafe extern "C" fn(i32);
 
 struct WatchguardModule {
     _handle: *mut std::ffi::c_void,
@@ -60,10 +62,13 @@ struct WatchguardModule {
     fn_init: FnWatchguardInit,
     fn_version: FnWatchguardVersion,
     fn_record_audio_event: FnWatchguardRecordAudioEvent,
+    #[allow(dead_code)]
     fn_record_ui_frame: FnWatchguardRecordUiFrame,
     fn_get_status_json: FnWatchguardGetStatusJson,
     fn_reset_metrics: FnWatchguardResetMetrics,
     fn_free_string: FnWatchguardFreeString,
+    fn_record_hardware_resources: Option<FnWatchguardRecordHardwareResources>,
+    fn_set_desktop_mode: Option<FnWatchguardSetDesktopMode>,
 }
 unsafe impl Send for WatchguardModule {}
 unsafe impl Sync for WatchguardModule {}
@@ -395,6 +400,8 @@ fn load_watchguard() -> Result<(), MissingComponentError> {
                     let status_sym = os_dlsym(handle, "watchguard_get_status_json");
                     let reset_sym = os_dlsym(handle, "watchguard_reset_metrics");
                     let free_sym = os_dlsym(handle, "watchguard_free_string");
+                    let hw_sym = os_dlsym(handle, "watchguard_record_hardware_resources").ok();
+                    let mode_sym = os_dlsym(handle, "watchguard_set_desktop_mode").ok();
 
                     match (init_sym, ver_sym, audio_sym, ui_sym, status_sym, reset_sym, free_sym) {
                         (Ok(i), Ok(v), Ok(a), Ok(u), Ok(s), Ok(r), Ok(f)) => {
@@ -408,6 +415,8 @@ fn load_watchguard() -> Result<(), MissingComponentError> {
                                 fn_get_status_json: std::mem::transmute(s),
                                 fn_reset_metrics: std::mem::transmute(r),
                                 fn_free_string: std::mem::transmute(f),
+                                fn_record_hardware_resources: hw_sym.map(|sym| std::mem::transmute(sym)),
+                                fn_set_desktop_mode: mode_sym.map(|sym| std::mem::transmute(sym)),
                             };
                             let init_rc = (module.fn_init)();
                             if init_rc != 0 {
@@ -417,6 +426,9 @@ fn load_watchguard() -> Result<(), MissingComponentError> {
                                     path.display()
                                 ));
                                 continue;
+                            }
+                            if let Some(set_mode) = module.fn_set_desktop_mode {
+                                set_mode(1);
                             }
                             let ver_ptr = (module.fn_version)();
                             let ver_str = if !ver_ptr.is_null() {
@@ -686,6 +698,59 @@ pub mod watchguard {
         pub warning_message: Option<String>,
         pub recommend_system_codec: bool,
         pub timestamp_ms: u64,
+        #[serde(default)]
+        pub cpu_usage_pct: f32,
+        #[serde(default)]
+        pub memory_rss_bytes: u64,
+        #[serde(default)]
+        pub gpu_usage_pct: f32,
+        #[serde(default)]
+        pub thread_count: u32,
+        #[serde(default)]
+        pub is_desktop_mode: bool,
+        #[serde(default)]
+        pub system_memory_total_bytes: u64,
+        #[serde(default)]
+        pub logical_cpu_cores: u32,
+    }
+
+    pub fn record_hardware_resources(
+        cpu_usage_pct: f32,
+        memory_rss_bytes: u64,
+        gpu_usage_pct: f32,
+        thread_count: u32,
+    ) -> Result<(), String> {
+        let guard = WATCHGUARD
+            .lock()
+            .map_err(|e| format!("watchguard mutex poisoned: {e}"))?;
+        let module = guard
+            .as_ref()
+            .ok_or_else(|| "libattune_watchguard is not loaded".to_string())?;
+        if let Some(fn_ptr) = module.fn_record_hardware_resources {
+            unsafe {
+                fn_ptr(cpu_usage_pct, memory_rss_bytes, gpu_usage_pct, thread_count);
+            }
+            Ok(())
+        } else {
+            Err("watchguard_record_hardware_resources symbol not found in loaded library".to_string())
+        }
+    }
+
+    pub fn set_desktop_mode(is_desktop: bool) -> Result<(), String> {
+        let guard = WATCHGUARD
+            .lock()
+            .map_err(|e| format!("watchguard mutex poisoned: {e}"))?;
+        let module = guard
+            .as_ref()
+            .ok_or_else(|| "libattune_watchguard is not loaded".to_string())?;
+        if let Some(fn_ptr) = module.fn_set_desktop_mode {
+            unsafe {
+                fn_ptr(if is_desktop { 1 } else { 0 });
+            }
+            Ok(())
+        } else {
+            Err("watchguard_set_desktop_mode symbol not found in loaded library".to_string())
+        }
     }
 
     pub fn record_audio_event(peak_amplitude: f32, is_underrun: bool, is_clipping: bool) -> Result<(), String> {
@@ -705,6 +770,7 @@ pub mod watchguard {
         Ok(())
     }
 
+    #[allow(dead_code)]
     pub fn record_ui_frame(frame_time_ms: f32) -> Result<(), String> {
         let guard = WATCHGUARD
             .lock()
@@ -915,8 +981,11 @@ mod tests {
 
         watchguard::record_ui_frame(16.0).expect("watchguard::record_ui_frame must succeed");
         watchguard::record_audio_event(0.5, false, false).expect("watchguard::record_audio_event must succeed");
+        watchguard::record_hardware_resources(10.0, 100_000_000, 20.0, 8).expect("record_hardware_resources must succeed");
         let status = watchguard::get_status().expect("watchguard::get_status must succeed");
         assert!(!status.is_overloaded);
+        assert!(status.is_desktop_mode);
+        assert_eq!(status.cpu_usage_pct, 10.0);
         watchguard::reset_metrics().expect("watchguard::reset_metrics must succeed");
     }
 }

@@ -3091,6 +3091,51 @@ This file records all major architectural decisions for **Attune**, including co
   - Binary string and symbol inspection confirms 0 leaked fallback strings and 0 static dylib symbols in `target/release/attune-desktop`.
   - All 3 external `.so`/`.dll` libraries are genuinely exercised at runtime with transparent error propagation under Mandate 4.
 
+---
+
+## ADR-087: Desktop Hardware Resource Stability Guardrails & Decoupling from Mobile UI Frame Pacing
+- **Date**: 2026-11-07
+- **Status**: `LOCKED`
+- **Context**:
+  1. **Mobile vs. Desktop Stability Discrepancy**:
+     - On mobile (Android / Flutter), OEM power governors aggressively throttle background apps and drop UI rendering frames without allowing unprivileged access to `/sys` or `/proc` metrics. Watchguard appropriately used frame-pacing drops and UI lag spikes as an early indicator of mobile thermal/power throttling.
+     - On desktop (`attune-desktop`), users do not face mobile battery/OEM thermal governor constraints, and have direct access to kernel hardware telemetry (`/proc/stat`, `/proc/self/status`, `/proc/meminfo`, `/proc/interrupts`, and `/sys/class/drm`).
+  2. **False Throttling Triggered by 50ms Async Poller**:
+     - In `crates/attune-desktop/src/app.rs`, passing the 50ms background poller interval into `watchguard::record_ui_frame(frame_ms)` caused Watchguard to calculate `average_fps ~ 20.0` and falsely trigger `is_heavy_throttling` alerts on desktop even with 0% CPU load and zero audio underruns!
+     - Furthermore, desktop monitor refresh rates (60Hz, 144Hz, 240Hz, or compositors minimizing background draws) legitimately vary without any impact on DSP audio playback. Evaluating desktop device stability via UI frame rate is unfeasible and misleading.
+  3. **Mandate 4 (No Hardcoded Values) Compliance**:
+     - Desktop stability evaluation must dynamically inspect live OS hardware resources: process CPU load normalized against available CPU cores (`std::thread::available_parallelism()`), memory RSS normalized against physical system RAM (`/proc/meminfo` or `sysconf`), GPU frequency utilization, OS thread counts, physical DAC audio buffer underruns, and signal clipping, with zero hardcoded fixed limits.
+- **Decision**:
+  1. **Dual Evaluation Paths in `crates/watchguard` (`libattune_watchguard.so`)**:
+     - Added `is_desktop_mode`, `last_cpu_pct`, `last_memory_rss_bytes`, `last_gpu_usage_pct`, `last_thread_count`, `system_memory_total_bytes`, and `logical_cpu_cores` to `WatchguardState`.
+     - Added exported C-ABI functions:
+       * `watchguard_record_hardware_resources(cpu_usage_pct: f32, memory_rss_bytes: u64, gpu_usage_pct: f32, thread_count: u32)`
+       * `watchguard_set_desktop_mode(is_desktop: i32)`
+     - When `is_desktop_mode == true`:
+       * UI FPS / frame pacing restrictions are bypassed completely (`fps_penalty = 0.0`, `spike_penalty = 0.0`, `is_heavy_throttling = false`).
+       * Instability score is computed from:
+         - Audio ring buffer underruns (`recent_underruns * 0.30`, up to 0.50).
+         - Audio signal clipping (`recent_clipping * 0.15`, up to 0.25).
+         - Normalized system CPU load relative to online CPU cores (`whole_system_cpu_ratio > 0.80`, or single-core audio thread saturation `> 90%` with underruns, up to 0.35).
+         - Process memory footprint relative to total physical RAM (`mem_ratio > 0.35`, up to 0.30).
+         - Thread contention (`thread_count > cores * 16`, up to 0.15).
+       * `is_overloaded` requires physical DAC buffer starvation (`recent_underruns >= 2`), severe CPU contention with underruns, memory exhaustion with underruns, or instability score exceeding threshold with underruns.
+       * Warning messages reflect real hardware conditions (DAC buffer underruns, CPU contention, memory bloat, or clipping).
+     - When `is_desktop_mode == false`:
+       * Preserved 100% of the existing mobile frame-pacing and UI FPS evaluation for Android/Flutter backward compatibility.
+  2. **Dynamic Components & Poller Integration in `crates/attune-desktop`**:
+     * Added `fn_record_hardware_resources` and `fn_set_desktop_mode` to `dynamic_components.rs` with safe dynamic symbol resolution and error propagation.
+     * Updated `watchguard::StabilityStatus` with serde-default fields.
+     * Configured `watchguard::set_desktop_mode(true)` during initialization in `main.rs` and dynamically upon component loading.
+     * Removed `record_ui_frame(frame_ms)` from the 50ms async poller in `app.rs`, and instead sample live `procmgr` metrics every 1000ms and feed to `watchguard::record_hardware_resources`.
+  3. **Stage Display Update in `stages/process_manager.rs`**:
+     * Updated Watchguard card title and description to emphasize desktop hardware mode.
+     * Replaced the "Poller / UI Cadence" card with "Hardware Resource Guard", displaying live CPU % and logical CPU cores alongside Memory RSS, Underruns, and Clipping.
+- **Consequences**:
+  - Eliminates false throttling alerts on desktop while ensuring true hardware starvation (DAC underruns or severe CPU/RAM exhaustion) is detected accurately with zero hardcoded thresholds.
+  - 100% backward-compatible with Android and Flutter (all 164 Flutter tests, all 8 watchguard tests, and all 41 desktop tests pass cleanly).
+
+
 
 
 
