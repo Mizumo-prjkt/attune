@@ -94,21 +94,54 @@ pub fn LyricsFinderStandaloneWindow() -> Element {
 
     let config_sig = use_signal(load_config);
     let curr_cfg = config_sig.read().clone();
-    let strings = crate::i18n::get_strings(crate::i18n::Language::from_code(&curr_cfg.language));
+    let _strings = crate::i18n::get_strings(crate::i18n::Language::from_code(&curr_cfg.language));
 
-    let track = use_signal(|| {
-        ACTIVE_FINDER_TRACK
-            .lock()
-            .unwrap()
-            .clone()
-            .unwrap_or_else(|| TrackEntry {
-                title: "Ready".to_string(),
-                artist: strings.app_name.to_string(),
-                album: "Attune Library".to_string(),
-                duration_ms: 0,
-                ..Default::default()
-            })
+    let track_opt = ACTIVE_FINDER_TRACK.lock().unwrap().clone();
+    let is_track_valid = track_opt.as_ref().map_or(false, |t| {
+        !t.title.trim().is_empty()
+            && t.title != "Ready"
+            && (!t.path.as_os_str().is_empty() || t.duration_ms > 0)
     });
+
+    if !is_track_valid {
+        return rsx! {
+            div {
+                class: "lyrics-finder-container",
+                style: "display: flex; flex-direction: column; width: 100%; height: 100vh; overflow: hidden; background: rgba(10, 14, 23, 0.96); color: #ffffff; align-items: center; justify-content: center; text-align: center; padding: 32px; box-sizing: border-box; font-family: var(--font-sans, sans-serif);",
+
+                div {
+                    style: "background: rgba(22, 28, 45, 0.85); border: 1px solid var(--border-glass); border-radius: 20px; padding: 44px 36px; max-width: 480px; display: flex; flex-direction: column; align-items: center; gap: 18px; box-shadow: 0 16px 40px rgba(0,0,0,0.55); backdrop-filter: blur(24px); -webkit-backdrop-filter: blur(24px);",
+
+                    div {
+                        style: "width: 72px; height: 72px; border-radius: 50%; background: rgba(244, 63, 94, 0.12); border: 1.5px solid rgba(244, 63, 94, 0.35); display: flex; align-items: center; justify-content: center; color: #fb7185;",
+                        span { class: "material-icons md-36", "music_off" }
+                    }
+
+                    div { style: "display: flex; flex-direction: column; gap: 8px;",
+                        h2 { style: "font-size: 20px; font-weight: 700; color: #ffffff; margin: 0;",
+                            "Select tracks to find their lyrics"
+                        }
+                        p { style: "font-size: 13.5px; color: var(--text-muted); line-height: 1.5; margin: 0; max-width: 380px;",
+                            "No active song or track candidate is selected. Please choose or play a song in Attune first to find, match, or manage its lyrics."
+                        }
+                    }
+
+                    div { style: "display: flex; gap: 12px; margin-top: 6px;",
+                        button {
+                            class: "btn-pill active",
+                            style: "padding: 10px 24px; font-size: 13px; font-weight: 700; border-radius: 9999px; cursor: pointer;",
+                            onclick: move |_| {
+                                dioxus::desktop::window().close();
+                            },
+                            "Close Window"
+                        }
+                    }
+                }
+            }
+        };
+    }
+
+    let track = use_signal(|| track_opt.unwrap());
 
     let current_track = track.read().clone();
     let initial_query = format!("{} {}", current_track.title, current_track.artist).trim().to_string();
@@ -632,6 +665,9 @@ pub fn LyricsFinderStandaloneWindow() -> Element {
 /// Scans local files next to audio path and inside app lyrics cache for candidate matches.
 pub fn scan_local_lyric_files(track: &TrackEntry) -> Vec<LyricCandidate> {
     let mut candidates = Vec::new();
+    if track.path.as_os_str().is_empty() {
+        return candidates;
+    }
     let mut seen_paths = std::collections::HashSet::new();
 
     let stem = track.path.file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_default();
@@ -707,6 +743,10 @@ pub fn fetch_lrclib_candidates(query: &str, track_title: &str, artist: &str, dur
     } else {
         query.trim().to_string()
     };
+
+    if search_term.is_empty() || search_term == "Ready Attune" || search_term == "Ready" {
+        return results;
+    }
 
     // 1. Try search endpoint with free-text query
     let encoded_q = urlencoding(&search_term);
@@ -882,6 +922,19 @@ fn urlencoding(input: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_empty_or_placeholder_track_returns_no_candidates() {
+        let empty_track = TrackEntry::default();
+        let local = scan_local_lyric_files(&empty_track);
+        assert!(local.is_empty(), "Empty track should return 0 local candidates");
+
+        let ready_results = fetch_lrclib_candidates("Ready Attune", "Ready", "Attune", 0);
+        assert!(ready_results.is_empty(), "Dummy 'Ready Attune' query should return 0 candidates without searching");
+
+        let blank_results = fetch_lrclib_candidates("", "", "", 0);
+        assert!(blank_results.is_empty(), "Blank query should return 0 candidates");
+    }
 
     #[test]
     fn test_candidate_serialization() {

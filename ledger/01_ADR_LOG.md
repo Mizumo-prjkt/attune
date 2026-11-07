@@ -3917,3 +3917,31 @@ This file records all major architectural decisions for **Attune**, including co
   - Songs without local lyrics immediately display matching online candidates upon opening the Lyrics Finder window.
   - No reactive loops or state corruption.
 
+---
+
+## ADR-112: Graceful Error Screen & Candidate Gating for Unselected or Empty Song in Standalone Lyrics Finder Window
+- **Date**: 2026-11-08
+- **Status**: `LOCKED`
+- **Context**:
+  1. When opening the Lyrics Finder window while no song was playing or queued in Attune (or clicking the Find button with no active track), the window previously fell back to a dummy placeholder `TrackEntry { title: "Ready", artist: "Attune", ... }`.
+  2. This led the finder to treat `"Ready Attune"` as a genuine song candidate, searching the local audio directory and querying LRCLIB for dummy matches.
+  3. The user requested adding a condition where if there is no track or no song to be a candidate, the system errors out and clearly informs the user: `"Select tracks to find their lyrics"`.
+- **Decision**:
+  1. **Track Candidate Validity Check (`crates/attune-desktop/src/stages/lyrics_finder.rs`)**:
+     - Evaluated `is_track_valid`: verifies that the track exists (`track_opt.is_some()`), has a non-empty title that is not the placeholder `"Ready"`, and has a valid file path or non-zero duration (`!t.path.as_os_str().is_empty() || t.duration_ms > 0`).
+  2. **Liquid Glass Error View (`Select tracks to find their lyrics`)**:
+     - When `!is_track_valid`, the window bypasses the 2-column finder interface and renders a dedicated centered Liquid Glass error screen.
+     - Features a circular rose badge with `music_off` glyph, heading `"Select tracks to find their lyrics"`, descriptive guidance informing the user to select or play a song in Attune first, and a prominent `"Close Window"` button (`dioxus::desktop::window().close()`).
+  3. **Zero False Queries & Local CWD Guarding**:
+     - In `scan_local_lyric_files`, immediately returns an empty vector if `track.path.as_os_str().is_empty()` to avoid querying the app's current working directory.
+     - In `fetch_lrclib_candidates`, short-circuits and returns an empty vector if the query is blank or matches dummy placeholders (`"Ready"`, `"Ready Attune"`).
+  4. **Dock Header Button Dynamic Tooltip (`crates/attune-desktop/src/app.rs`)**:
+     - Updated the `title` attribute on the `[ Find ]` pill in `DockMode::Lyrics` to display `"Select tracks to find their lyrics"` when `current_track` is `None`.
+  5. **Verification**:
+     - Added unit test `test_empty_or_placeholder_track_returns_no_candidates` verifying that empty tracks and placeholder queries yield 0 candidates without initiating network or filesystem searches.
+     - All 81 desktop tests and workspace checks pass cleanly.
+- **Consequences**:
+  - No dummy "Ready Attune" cards or bogus queries are generated when no song is active.
+  - Listeners opening the window with no track see a clear, helpful error dialog stating `"Select tracks to find their lyrics"`.
+
+

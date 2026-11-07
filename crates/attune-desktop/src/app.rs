@@ -1704,7 +1704,11 @@ pub fn App() -> Element {
                                     button {
                                         class: "btn-pill",
                                         style: "font-size: 11px; padding: 2px 8px; display: inline-flex; align-items: center; gap: 4px; border: 1px solid rgba(100,255,218,0.25); color: var(--accent-mint); cursor: pointer;",
-                                        title: "Find Lyrics (Local, LRCLIB, BiniLyrics)",
+                                        title: if current_track.read().is_some() {
+                                            "Find Lyrics (Local, LRCLIB, BiniLyrics)"
+                                        } else {
+                                            "Select tracks to find their lyrics"
+                                        },
                                         onclick: {
                                             let current_track = current_track.clone();
                                             move |_| {
