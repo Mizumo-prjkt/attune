@@ -9,10 +9,41 @@ pub fn Home(
     playback_dur_ms: u64,
     recent_tracks: Vec<TrackEntry>,
     harmonic_matches: Vec<TrackEntry>,
+    #[props(default)]
+    all_tracks: Vec<TrackEntry>,
     on_play_track: EventHandler<TrackEntry>,
+    #[props(default)]
+    on_play_tracks: EventHandler<Vec<TrackEntry>>,
+    #[props(default)]
+    on_queue_track: EventHandler<TrackEntry>,
     on_toggle_play: EventHandler<()>,
 ) -> Element {
     let username = std::env::var("USER").unwrap_or_else(|_| "Listener".to_string());
+
+    let fav_catalog = crate::artist_profile::find_favorite_artist(&recent_tracks, &all_tracks);
+    let mut wiki_artist_image = use_signal(|| None::<String>);
+    let fav_artist_name = fav_catalog.as_ref().map(|c| c.artist.clone());
+
+    use_effect(move || {
+        if let Some(artist) = fav_artist_name.clone() {
+            spawn(async move {
+                let img = tokio::task::spawn_blocking(move || {
+                    crate::artist_profile::fetch_wikipedia_artist_image(&artist)
+                })
+                .await
+                .ok()
+                .flatten();
+                if let Some(img_url) = img {
+                    wiki_artist_image.set(Some(img_url));
+                }
+            });
+        }
+    });
+
+    let effective_image_url = wiki_artist_image
+        .read()
+        .clone()
+        .or_else(|| fav_catalog.as_ref().and_then(|f| f.fallback_artwork_url.clone()));
     
     let greeting = {
         use std::time::SystemTime;
@@ -141,6 +172,75 @@ pub fn Home(
                     div { style: "text-align: center;",
                         p { style: "font-size: 18px; font-weight: 600; color: var(--text-secondary);", "No track currently playing" }
                         p { style: "font-size: 13px; color: var(--text-muted); margin-top: 6px;", "Pick a track from Harmonic Matches or your Library below to start listening." }
+                    }
+                }
+            }
+
+            // Favorite Artist Algorithmic Catalog Card ("Top Picks for You")
+            if let Some(fav) = fav_catalog.as_ref() {
+                {
+                    let artist_name = fav.artist.clone();
+                    let track_count = fav.tracks.len();
+                    let dur_str = fav.total_duration_str.clone();
+                    let rationale = fav.rationale.clone();
+                    let tracks_for_play = fav.tracks.clone();
+                    let tracks_for_queue = fav.tracks.clone();
+                    let art_url = effective_image_url.clone();
+
+                    rsx! {
+                        div { class: "fav-artist-section", style: "margin-top: 32px; margin-bottom: 32px;",
+                            div { style: "display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px;",
+                                h3 { style: "font-size: 18px; font-weight: 700; display: flex; align-items: center; gap: 8px;",
+                                    span { class: "material-icons md-20", style: "color: var(--accent-mint);", "auto_awesome" }
+                                    "Top Picks for You"
+                                }
+                                span { style: "font-size: 12px; color: var(--text-muted);", "Algorithmic bundling" }
+                            }
+
+                            div { class: "fav-artist-card",
+                                // SVG Artwork with half-opacity artist image
+                                div { class: "fav-artist-art-box",
+                                    {crate::artist_profile::render_favorite_artist_svg(&artist_name, art_url.as_deref())}
+                                }
+
+                                // Information & Rationale
+                                div { class: "fav-artist-content",
+                                    div { class: "fav-artist-tag-row",
+                                        span { class: "fav-artist-badge", "MADE FOR YOU • ARTIST CATALOG" }
+                                    }
+                                    h2 { class: "fav-artist-title", "Your favourite {artist_name} catalogs." }
+                                    p { class: "fav-artist-rationale", "{rationale}" }
+
+                                    div { class: "fav-artist-meta",
+                                        span { class: "fav-artist-count", "{track_count} songs bundled" }
+                                        span { class: "fav-artist-dot", "•" }
+                                        span { class: "fav-artist-dur", "{dur_str}" }
+                                    }
+
+                                    // Action buttons
+                                    div { class: "fav-artist-actions",
+                                        button {
+                                            class: "btn-fav-play",
+                                            title: "Play bundled catalog",
+                                            onclick: move |_| on_play_tracks.call(tracks_for_play.clone()),
+                                            span { class: "material-icons md-20", "play_arrow" }
+                                            span { "Play Catalog" }
+                                        }
+                                        button {
+                                            class: "btn-fav-queue",
+                                            title: "Add all songs to Queue",
+                                            onclick: move |_| {
+                                                for t in &tracks_for_queue {
+                                                    on_queue_track.call(t.clone());
+                                                }
+                                            },
+                                            span { class: "material-icons md-18", "playlist_add" }
+                                            span { "Add to Queue" }
+                                        }
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
             }

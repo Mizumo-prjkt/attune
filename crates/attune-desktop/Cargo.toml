@@ -23,3 +23,4 @@ tokio = { version = "1", features = ["time", "sync"] }
 libc = "0.2"
 log = { workspace = true }
 env_logger = { workspace = true }
+ureq = { workspace = true, features = ["json", "tls"] }

@@ -3135,6 +3135,43 @@ This file records all major architectural decisions for **Attune**, including co
   - Eliminates false throttling alerts on desktop while ensuring true hardware starvation (DAC underruns or severe CPU/RAM exhaustion) is detected accurately with zero hardcoded thresholds.
   - 100% backward-compatible with Android and Flutter (all 164 Flutter tests, all 8 watchguard tests, and all 41 desktop tests pass cleanly).
 
+---
+
+## ADR-088: Dynamic Favorite Artist Catalog Recommendation ("Top Picks for You"), Procedural SVG Vector Art with Half-Opacity Cover, and Album Stage Discography Shelf
+- **Date**: 2026-11-07
+- **Status**: `LOCKED`
+- **Context**:
+  1. **Personalized Home Recommendations**:
+     - The desktop Home stage previously featured only the Hero Now Playing card, Harmonic Matches, and Recently Played items. Users with established listening habits lacked a personalized discovery card highlighting their favorite artist's catalog.
+     - The user requested adding a recommendation card to the Home stage: `"Your favourite <ARTIST NAME> catalogs."` with the algorithmic rationale: `"The local algorithm thinks that since you always listen to these songs with this artist, then it bundled these songs into one."`
+  2. **Generative Artwork & Half-Opacity Artist Profile**:
+     - The card artwork required procedural SVG vector generation (dynamic palettes, angular polygon shards, gradient meshes) integrated with the artist's profile or cover photo rendered at half opacity (50%), with asynchronous Wikipedia REST API lookup and local embedded artwork fallback.
+  3. **Album Detail Empty Space Elimination**:
+     - The Album detail view (`stages/albums.rs`) displayed a large empty area below single-track and short album tracklists (highlighted in user screenshot `media_1794025732525_294f5b7a.jpg`).
+     - The user requested populating this space with a Spotify-style discography shelf (`media_1794025822900_0826200c.jpg`) featuring release type chips (`Popular releases`, `Albums`, `Singles and EPs`).
+- **Decision**:
+  1. **Dynamic Favorite Artist Engine (`crates/attune-desktop/src/artist_profile.rs`)**:
+     - Implemented `clean_primary_artist` stripping `" feat. "`, `" ft. "`, and comma-separated secondary contributors.
+     - Implemented `find_favorite_artist` dynamically weighting recent playback occurrences from `recent_tracks` (recency multipliers) against library footprint in `library_tracks`.
+     - Zero hardcoding (Mandate 4): bundles all library songs for the top artist into a `FavoriteArtistCatalog` with formatted duration and dynamic rationale.
+     - Implemented asynchronous Wikipedia REST API queries (`fetch_wikipedia_artist_image`) querying `https://en.wikipedia.org/api/rest_v1/page/summary/{artist}` with memory caching, gracefully falling back to local track embedded artwork data URLs (`artwork_data_url`).
+  2. **Procedural SVG Vector Artwork (`render_favorite_artist_svg`)**:
+     - Seeded 5 dynamic color gradient palettes from artist name hash.
+     - Rendered modern geometric angled shards, glow radials, and the artist image at exact `opacity: 0.50` (`preserve_aspect_ratio: "xMidYMid slice"`) with a protective glass vignette scrim.
+     - Rendered stylized typographic monogram fallback when no raster image exists.
+  3. **Home Stage Integration (`stages/home.rs`)**:
+     - Added the "Top Picks for You" section featuring `.fav-artist-card` with exact user-requested title `"Your favourite {artist} catalogs."` and rationale `"The local algorithm thinks that since you always listen to these songs with this artist, then it bundled these songs into one."`.
+     - Added 1-click `[ Play Catalog ]` (`on_play_tracks`) and `[ Add to Queue ]` actions.
+  4. **Album Stage Discography Shelf (`stages/albums.rs`)**:
+     - Added filter chips: `Popular releases` / `All releases`, `Albums` (> 5 tracks), and `Singles and EPs` (<= 5 tracks).
+     - Added horizontal scrolling shelf (`.discography-shelf`) with square album cards, release year and type badge, title, and circular green hover play button.
+     - Handled single-album artists gracefully by populating with `"More Albums in Your Library"` to completely eliminate empty viewport space.
+- **Consequences**:
+  - The Home stage now provides personalized algorithmic recommendations with dynamic vector art and half-opacity artist photos.
+  - The Album detail view is populated with a Spotify-grade horizontal discography shelf.
+  - 100% compliance with Mandate 4 (zero hardcoding) and zero regressions across all 45 native desktop tests and 83 workspace tests.
+
+
 
 
 

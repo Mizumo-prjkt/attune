@@ -4,6 +4,7 @@
 
 mod app;
 mod app_icon;
+pub mod artist_profile;
 mod components;
 mod config;
 mod dynamic_components;

@@ -60,6 +60,8 @@ pub fn Albums(
     let selected_name = selected_album_name.as_ref();
     let selected_group = selected_name.and_then(|name| album_list.iter().find(|a| &a.name == name).cloned());
 
+    let mut discography_filter = use_signal(|| "all".to_string());
+
     rsx! {
         div { class: "albums-stage",
             if let Some(group) = selected_group {
@@ -71,6 +73,41 @@ pub fn Albums(
 
                     let is_current_album = current_track_path.as_ref().map(|p| group.tracks.iter().any(|t| &t.path == p)).unwrap_or(false);
                     let is_current_album_playing = is_playing && is_current_album;
+
+                    let artist_clean = crate::artist_profile::clean_primary_artist(&group.artist).to_lowercase();
+                    let mut artist_releases: Vec<AlbumGroup> = album_list
+                        .iter()
+                        .filter(|a| {
+                            let a_clean = crate::artist_profile::clean_primary_artist(&a.artist).to_lowercase();
+                            (a_clean == artist_clean || a.artist.to_lowercase().contains(&artist_clean))
+                                && a.name != group.name
+                        })
+                        .cloned()
+                        .collect();
+
+                    let has_artist_discography = !artist_releases.is_empty();
+                    let catalog_pool: Vec<AlbumGroup> = if has_artist_discography {
+                        artist_releases.sort_by(|a, b| b.tracks.len().cmp(&a.tracks.len()).then_with(|| a.name.cmp(&b.name)));
+                        artist_releases
+                    } else {
+                        let mut others: Vec<AlbumGroup> = album_list
+                            .iter()
+                            .filter(|a| a.name != group.name)
+                            .cloned()
+                            .collect();
+                        others.sort_by(|a, b| b.tracks.len().cmp(&a.tracks.len()).then_with(|| a.name.cmp(&b.name)));
+                        others
+                    };
+
+                    let active_filter = discography_filter.read().clone();
+                    let filtered_discography: Vec<AlbumGroup> = catalog_pool
+                        .into_iter()
+                        .filter(|a| match active_filter.as_str() {
+                            "albums" => a.tracks.len() > 5,
+                            "singles" => a.tracks.len() <= 5,
+                            _ => true,
+                        })
+                        .collect();
 
                     // Dominant color extraction for atmospheric header gradient
                     let hero_color_rgb = group.artwork_path.as_deref()
@@ -362,6 +399,117 @@ pub fn Albums(
                                 div { class: "album-detail-footer",
                                     p { class: "album-footer-lore", "{lore_description}" }
                                 }
+
+                                // 6. Discography & More Catalogs Section
+                                div { class: "album-discography-section",
+                                    div { class: "discography-header-row",
+                                        div { style: "display: flex; align-items: center; gap: 16px; flex-wrap: wrap;",
+                                            h2 { class: "discography-title",
+                                                if has_artist_discography {
+                                                    "Discography"
+                                                } else {
+                                                    "More Albums in Your Library"
+                                                }
+                                            }
+                                            div { class: "discography-chips",
+                                                button {
+                                                    class: if active_filter == "all" { "discography-chip active" } else { "discography-chip" },
+                                                    onclick: move |_| discography_filter.set("all".to_string()),
+                                                    if has_artist_discography { "Popular releases" } else { "All releases" }
+                                                }
+                                                button {
+                                                    class: if active_filter == "albums" { "discography-chip active" } else { "discography-chip" },
+                                                    onclick: move |_| discography_filter.set("albums".to_string()),
+                                                    "Albums"
+                                                }
+                                                button {
+                                                    class: if active_filter == "singles" { "discography-chip active" } else { "discography-chip" },
+                                                    onclick: move |_| discography_filter.set("singles".to_string()),
+                                                    "Singles and EPs"
+                                                }
+                                            }
+                                        }
+                                        span { class: "discography-count", "{filtered_discography.len()} releases" }
+                                    }
+
+                                    if filtered_discography.is_empty() {
+                                        div { class: "discography-empty",
+                                            "No releases found matching the selected filter category."
+                                        }
+                                    } else {
+                                        div { class: "discography-shelf",
+                                            for disc_album in filtered_discography.iter() {
+                                                {
+                                                    let a_name = disc_album.name.clone();
+                                                    let a_name_click = disc_album.name.clone();
+                                                    let a_art = disc_album.artwork_data_url.clone();
+                                                    let a_tracks = disc_album.tracks.clone();
+                                                    let track_len = disc_album.tracks.len();
+
+                                                    let rel_type = if track_len == 1 {
+                                                        "Single".to_string()
+                                                    } else if track_len <= 5 {
+                                                        "Single • EP".to_string()
+                                                    } else {
+                                                        "Album".to_string()
+                                                    };
+
+                                                    let year_str = disc_album.tracks.first().and_then(|_| {
+                                                        let re_year = disc_album.name.split('(').nth(1)?.split(')').next()?;
+                                                        if re_year.len() == 4 && re_year.chars().all(|c| c.is_ascii_digit()) {
+                                                            Some(re_year.to_string())
+                                                        } else {
+                                                            None
+                                                        }
+                                                    });
+
+                                                    let subtitle = if let Some(yr) = year_str {
+                                                        format!("{yr} • {rel_type}")
+                                                    } else {
+                                                        format!("{rel_type} • {track_len} songs")
+                                                    };
+
+                                                    rsx! {
+                                                        div {
+                                                            key: "{a_name}",
+                                                            class: "discography-card",
+                                                            onclick: move |_| on_select_album.call(a_name_click.clone()),
+
+                                                            div { class: "discography-art-box",
+                                                                if let Some(ref art) = a_art {
+                                                                    img { class: "discography-art-img", src: "{art}", alt: "{a_name}" }
+                                                                } else {
+                                                                    div { class: "discography-art-fallback",
+                                                                        span { class: "material-icons md-36", "album" }
+                                                                    }
+                                                                }
+
+                                                                // Green circular hover play button
+                                                                button {
+                                                                    class: "discography-hover-play",
+                                                                    title: "Play entire release",
+                                                                    onclick: {
+                                                                        let t_play = a_tracks.clone();
+                                                                        move |evt: MouseEvent| {
+                                                                            evt.stop_propagation();
+                                                                            on_play_tracks.call(t_play.clone());
+                                                                        }
+                                                                    },
+                                                                    span { class: "material-icons md-28", "play_arrow" }
+                                                                }
+                                                            }
+
+                                                            div { class: "discography-meta-col",
+                                                                span { class: "discography-card-title", title: "{a_name}", "{a_name}" }
+                                                                span { class: "discography-card-sub", "{subtitle}" }
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
                             }
                         }
                     }
@@ -559,5 +707,95 @@ mod tests {
 
         let total = format_total_duration(&tracks);
         assert_eq!(total, "5 min 59 sec");
+    }
+
+    #[test]
+    fn test_discography_filter_categorization() {
+        let single = AlbumGroup {
+            name: "Vampire".into(),
+            artist: "DECO*27".into(),
+            artwork_path: None,
+            artwork_data_url: None,
+            tracks: vec![TrackEntry {
+                path: PathBuf::from("/music/vampire.flac"),
+                title: "Vampire".into(),
+                artist: "DECO*27".into(),
+                album: "Vampire".into(),
+                genre: None,
+                duration_ms: 180000,
+                bpm: None,
+                key: None,
+                format: "FLAC".into(),
+                sample_rate: 44100,
+                bit_depth: 16,
+                artwork_path: None,
+                artwork_data_url: None,
+                aggression: None,
+                vibe_family: None,
+            }],
+        };
+
+        let ep = AlbumGroup {
+            name: "Rabbit Hole EP".into(),
+            artist: "DECO*27".into(),
+            artwork_path: None,
+            artwork_data_url: None,
+            tracks: (0..3)
+                .map(|i| TrackEntry {
+                    path: PathBuf::from(format!("/music/track{i}.flac")),
+                    title: format!("Track {i}"),
+                    artist: "DECO*27".into(),
+                    album: "Rabbit Hole EP".into(),
+                    genre: None,
+                    duration_ms: 180000,
+                    bpm: None,
+                    key: None,
+                    format: "FLAC".into(),
+                    sample_rate: 44100,
+                    bit_depth: 16,
+                    artwork_path: None,
+                    artwork_data_url: None,
+                    aggression: None,
+                    vibe_family: None,
+                })
+                .collect(),
+        };
+
+        let lp = AlbumGroup {
+            name: "GHOST".into(),
+            artist: "DECO*27".into(),
+            artwork_path: None,
+            artwork_data_url: None,
+            tracks: (0..12)
+                .map(|i| TrackEntry {
+                    path: PathBuf::from(format!("/music/ghost{i}.flac")),
+                    title: format!("Ghost {i}"),
+                    artist: "DECO*27".into(),
+                    album: "GHOST".into(),
+                    genre: None,
+                    duration_ms: 180000,
+                    bpm: None,
+                    key: None,
+                    format: "FLAC".into(),
+                    sample_rate: 44100,
+                    bit_depth: 16,
+                    artwork_path: None,
+                    artwork_data_url: None,
+                    aggression: None,
+                    vibe_family: None,
+                })
+                .collect(),
+        };
+
+        let all = vec![single, ep, lp];
+
+        // Filter: Albums (> 5 tracks)
+        let albums_only: Vec<_> = all.iter().filter(|a| a.tracks.len() > 5).collect();
+        assert_eq!(albums_only.len(), 1);
+        assert_eq!(albums_only[0].name, "GHOST");
+
+        // Filter: Singles and EPs (<= 5 tracks)
+        let singles_eps: Vec<_> = all.iter().filter(|a| a.tracks.len() <= 5).collect();
+        assert_eq!(singles_eps.len(), 2);
     }
 }

@@ -1006,7 +1006,10 @@ pub fn App() -> Element {
                                 playback_dur_ms: *playback_dur_ms.read(),
                                 recent_tracks: recent_tracks.read().clone(),
                                 harmonic_matches: harmonic_matches.clone(),
+                                all_tracks: tracks.read().clone(),
                                 on_play_track: move |t| play_track(t),
+                                on_play_tracks: move |list| play_track_list(list),
+                                on_queue_track: move |t| queue.write().push(t),
                                 on_toggle_play: move |_| {
                                     let p = player.read();
                                     if *is_playing.read() { p.pause(); } else { p.play(); }
