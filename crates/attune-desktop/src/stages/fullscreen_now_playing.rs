@@ -41,6 +41,7 @@ pub fn FullscreenNowPlaying(
     let current_track_id = current_track.as_ref().map(|t| t.path.clone());
     use_effect(use_reactive(&current_track_id, move |_| {
         is_locked_to_active.set(true);
+        let _ = document::eval("if (window.attuneResetLyricsSync) window.attuneResetLyricsSync();");
     }));
 
     // Ensure the OS window enters pure borderless fullscreen
@@ -349,7 +350,7 @@ pub fn FullscreenNowPlaying(
                     div {
                         class: "fullscreen-lyrics-scroll",
                         "data-locked": if *is_locked_to_active.read() { "true" } else { "false" },
-                        style: "overflow-y: auto; max-height: 85vh; padding: 38vh 32px; display: flex; flex-direction: column; gap: 28px; mask-image: linear-gradient(to bottom, transparent 0%, black 15%, black 85%, transparent 100%); -webkit-mask-image: linear-gradient(to bottom, transparent 0%, black 15%, black 85%, transparent 100%);",
+                        style: "overflow-y: auto; max-height: 85vh; padding: 140px 32px; display: flex; flex-direction: column; gap: 28px; scroll-behavior: smooth; mask-image: linear-gradient(to bottom, transparent 0%, black 15%, black 85%, transparent 100%); -webkit-mask-image: linear-gradient(to bottom, transparent 0%, black 15%, black 85%, transparent 100%);",
                         onwheel: move |_| {
                             if *is_locked_to_active.read() {
                                 is_locked_to_active.set(false);
@@ -389,7 +390,7 @@ pub fn FullscreenNowPlaying(
                                     let text = line.text.clone();
                                     let line_class = if is_active {
                                         if config.fullscreen_text_glow {
-                                            "fullscreen-lyric-line fullscreen-lyric-active text-glow"
+                                            "fullscreen-lyric-line fullscreen-lyric-active glow"
                                         } else {
                                             "fullscreen-lyric-line fullscreen-lyric-active"
                                         }
@@ -400,6 +401,7 @@ pub fn FullscreenNowPlaying(
                                     rsx! {
                                         div {
                                             key: "{idx}",
+                                            "data-line-idx": "{idx}",
                                             class: "{line_class}",
                                             onclick: move |_| {
                                                 on_seek.call(line_ts);
@@ -472,23 +474,13 @@ pub mod tests {
     fn test_lyrics_sync_script_structure_and_selectors() {
         let script = crate::theme::LYRICS_SYNC_SCRIPT;
         assert!(script.contains("window.attuneSyncLyrics"));
+        assert!(script.contains("window.attuneResetLyricsSync"));
         assert!(script.contains(".fullscreen-lyrics-scroll"));
         assert!(script.contains(".fullscreen-lyric-active"));
         assert!(script.contains(".dock-scroll"));
         assert!(script.contains("data-locked"));
+        assert!(script.contains("data-line-idx"));
         assert!(script.contains("MutationObserver"));
-        assert!(script.contains("easeOutCubic"));
         assert!(script.contains("Escape"));
-    }
-
-    #[test]
-    fn test_ease_out_cubic_curve_mathematical_properties() {
-        let ease_out = |t: f64| 1.0 - (1.0 - t).powi(3);
-        assert!((ease_out(0.0) - 0.0).abs() < 1e-6);
-        assert!((ease_out(1.0) - 1.0).abs() < 1e-6);
-        // Halfway through time, the ease curve is already 87.5% through distance (smooth deceleration)
-        assert!((ease_out(0.5) - 0.875).abs() < 1e-6);
-        // Monotonically increasing
-        assert!(ease_out(0.75) > ease_out(0.5));
     }
 }

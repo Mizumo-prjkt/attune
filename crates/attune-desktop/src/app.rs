@@ -418,6 +418,7 @@ pub fn App() -> Element {
 
             p.play_file(track.path.clone());
             current_track.set(Some(track.clone()));
+            let _ = document::eval("if (window.attuneResetLyricsSync) window.attuneResetLyricsSync();");
             has_handled_track_end.set(false);
 
             if app_config.read().system_media_toast {
@@ -983,6 +984,7 @@ pub fn App() -> Element {
                         }
                         p.set_current_profile(completed.incoming_bpm, completed.incoming_key.clone());
                         current_track.set(Some(new_track.clone()));
+                        let _ = document::eval("if (window.attuneResetLyricsSync) window.attuneResetLyricsSync();");
                         if app_config.read().system_media_toast {
                             let payload = attune_player_syscore_playertoast_broadcast::PlayerToastPayload {
                                 title: new_track.title.clone(),
@@ -1798,6 +1800,7 @@ pub fn App() -> Element {
                                                 rsx! {
                                                     div {
                                                         key: "{idx}",
+                                                        "data-line-idx": "{idx}",
                                                         class: if is_active {
                                                             if app_config.read().sidebar_text_glow {
                                                                 "lyric-line active sidebar-text-glow"

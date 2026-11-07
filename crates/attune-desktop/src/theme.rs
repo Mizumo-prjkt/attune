@@ -68,70 +68,32 @@ pub const MARQUEE_SCRIPT: &str = r#"
 pub const LYRICS_SYNC_SCRIPT: &str = r#"
 <script>
 (function() {
-  var currentScrollAnim = null;
+  var currentSyncedFsIndex = null;
+  var currentSyncedDockIndex = null;
 
-  function easeOutCubic(t) {
-    return 1 - Math.pow(1 - t, 3);
-  }
+  window.attuneResetLyricsSync = function() {
+    currentSyncedFsIndex = null;
+    currentSyncedDockIndex = null;
+  };
 
-  function smoothScrollTo(container, targetY, duration) {
-    if (!container) return;
-    if (currentScrollAnim) {
-      cancelAnimationFrame(currentScrollAnim);
-      currentScrollAnim = null;
-    }
-
-    var startY = container.scrollTop;
-    var maxScroll = container.scrollHeight - container.clientHeight;
-    var clampedTarget = Math.max(0, Math.min(targetY, maxScroll));
-    var distance = clampedTarget - startY;
-
-    if (Math.abs(distance) < 1.5) {
-      container.scrollTop = clampedTarget;
-      return;
-    }
-
-    var startTime = performance.now();
-    var dur = duration || 550;
-
-    function step(now) {
-      var elapsed = now - startTime;
-      var progress = Math.min(elapsed / dur, 1.0);
-      var ease = easeOutCubic(progress);
-
-      container.scrollTop = startY + (distance * ease);
-
-      if (progress < 1.0) {
-        currentScrollAnim = requestAnimationFrame(step);
-      } else {
-        container.scrollTop = clampedTarget;
-        currentScrollAnim = null;
-      }
-    }
-
-    currentScrollAnim = requestAnimationFrame(step);
-  }
-
-  function centerElement(container, active, duration) {
+  function centerElement(container, active) {
     if (!container || !active) return;
     var cTop = container.scrollTop;
     var cRect = container.getBoundingClientRect();
     var aRect = active.getBoundingClientRect();
     var target = cTop + (aRect.top - cRect.top) - (cRect.height / 2) + (aRect.height / 2);
-    smoothScrollTo(container, target, duration || 550);
+    container.scrollTo({ top: target, behavior: 'smooth' });
   }
-
-  var lastSyncedFsLine = null;
-  var lastSyncedDockLine = null;
 
   window.attuneSyncLyrics = function(force) {
     var fsContainer = document.querySelector('.fullscreen-lyrics-scroll');
     if (fsContainer && (force || fsContainer.getAttribute('data-locked') !== 'false')) {
       var active = fsContainer.querySelector('.fullscreen-lyric-active');
       if (active) {
-        if (force || active !== lastSyncedFsLine) {
-          lastSyncedFsLine = active;
-          centerElement(fsContainer, active, 550);
+        var lineIdx = active.getAttribute('data-line-idx');
+        if (force || lineIdx !== currentSyncedFsIndex) {
+          currentSyncedFsIndex = lineIdx;
+          centerElement(fsContainer, active);
         }
       }
     }
@@ -139,9 +101,10 @@ pub const LYRICS_SYNC_SCRIPT: &str = r#"
     if (dockContainer && (force || dockContainer.getAttribute('data-locked') !== 'false')) {
       var activeDock = dockContainer.querySelector('.lyric-line.active');
       if (activeDock) {
-        if (force || activeDock !== lastSyncedDockLine) {
-          lastSyncedDockLine = activeDock;
-          centerElement(dockContainer, activeDock, 450);
+        var dockIdx = activeDock.getAttribute('data-line-idx') || activeDock.innerText;
+        if (force || dockIdx !== currentSyncedDockIndex) {
+          currentSyncedDockIndex = dockIdx;
+          centerElement(dockContainer, activeDock);
         }
       }
     }

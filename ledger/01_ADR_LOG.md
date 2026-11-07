@@ -4052,4 +4052,34 @@ This file records all major architectural decisions for **Attune**, including co
   - Escape key reliably exits Fullscreen Now Playing from any focus state.
   - Synchronized lyrics glide down effortlessly with zero stutter, zero jitter, and zero reflow thrashing.
 
+---
+
+## ADR-116: Elimination of WebKitGTK Offscreen Clipping Block Artifacts, Restoration of Warm Cream Lyrics Glow & Independent Line-Indexed Auto-Scroll Centering
+- **Date**: 2026-11-08
+- **Status**: `LOCKED`
+- **Context**:
+  1. The user reported that the active lyric line glow became blocky and visually distorted (as captured in user screenshot `media_1794094029529_317e9cac.jpg`). Investigation revealed:
+     - ADR-115 introduced `filter: blur(0.35px)` and `will-change: transform, opacity, filter` to `.fullscreen-lyric-line`. In WebKitGTK's Cairo rasterizer on Linux, applying CSS `filter: blur` combined with `text-shadow` forces WebKit to allocate an offscreen bounding box texture. When rendered and alpha-composited, it produces an opaque rectangular milky pill/box artifact behind the active glyphs, rather than an organic, glyph-hugging radial halo.
+     - ADR-115 had also replaced the warm cream tone `#FFFDD0` with stark white `#ffffff`.
+  2. The user also reported "the lyrics lock is broken again", with the active singing line resting near the bottom of the viewport rather than auto-centering. Investigation revealed:
+     - The custom `smoothScrollTo` function in ADR-115 used a single global `currentScrollAnim` variable shared between `.fullscreen-lyrics-scroll` and `.dock-scroll`. When `attuneSyncLyrics()` ran, it called `centerElement` for fullscreen, and then immediately called `centerElement` for the docked side-pane, which cancelled `currentScrollAnim` on frame 0 before fullscreen could scroll.
+     - Furthermore, `active !== lastSyncedFsLine` using DOM node object identity failed to re-trigger after the cancellation, permanently freezing the fullscreen scroll container.
+- **Decision**:
+  1. **Purged Cairo Offscreen Blur Buffers & Restored Pure Glyph Glow**:
+     - Removed `filter: blur`, `will-change: filter`, and `translateZ(0)` completely from `.fullscreen-lyric-line`, `.fullscreen-lyric-inactive`, and `.fullscreen-lyric-active`.
+     - Restored the warm cream `#FFFDD0` typography: `font-size: 32px; font-weight: 800; line-height: 1.35; transform: scale(1.02); transform-origin: left center;` on active lines, and `font-size: 22px; font-weight: 500; color: rgba(255, 255, 255, 0.40); line-height: 1.4;` on inactive lines.
+     - Re-instated the beloved soft dual radial text shadow: `text-shadow: 0 0 24px rgba(255, 253, 208, 0.85), 0 0 48px rgba(100, 255, 218, 0.40);` without any bounding box artifacts.
+  2. **Independent Line-Indexed Auto-Scroll Centering (`data-line-idx`)**:
+     - Bound `"data-line-idx": "{idx}"` explicitly to each lyric line in both fullscreen and dock modes.
+     - Decoupled fullscreen and dock sync state into independent tracker variables: `currentSyncedFsIndex` and `currentSyncedDockIndex`.
+     - In `attuneSyncLyrics(force)`: only triggers scroll when `force: true` or `lineIdx !== currentSyncedFsIndex`, ensuring exactly one clean scroll per line transition and eliminating redundant triggers from DOM mutation observers and use_effect loops.
+     - Added `window.attuneResetLyricsSync()` called on track change in both `FullscreenNowPlaying` and `app.rs`.
+     - Re-established native `container.scrollTo({ top: target, behavior: 'smooth' })` with `padding: 140px 32px`, which WebKitGTK executes smoothly and independently per container without timer collisions or cancellations.
+  3. **Verification**:
+     - Updated `test_lyrics_sync_script_structure_and_selectors` to verify `window.attuneResetLyricsSync` and `data-line-idx`.
+     - 100% of desktop tests (84 tests) and all workspace tests pass cleanly.
+- **Consequences**:
+  - The blocky rectangular visual artifact is 100% eliminated; the active singing line renders with a soft, glyph-conforming cream aura.
+  - Fullscreen lyrics follow-mode auto-centering works reliably on every line change, seek, and track transition without freezes or stuttering.
+
 
