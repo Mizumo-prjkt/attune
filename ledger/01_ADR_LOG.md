@@ -3626,6 +3626,41 @@ This file records all major architectural decisions for **Attune**, including co
   - Zero hardcoding: all diagnostics and module lists reflect genuine live system telemetry.
   - 67 tests in `attune-desktop` and entire workspace pass cleanly.
 
+---
+
+## ADR-105: Pure Fullscreen Now Playing Stage, Dynamic Album Art Gradient & Animated Visualizer Fluid Mesh Engine, Transport Repeat Control & Purge of Legacy Placeholder Nomenclature
+- **Date**: 2026-11-08
+- **Status**: `LOCKED`
+- **Context**:
+  1. The user identified that the Fullscreen stage was running inside a standard OS window with title bars and window decorations, containing a top header bar with legacy placeholder naming ("Attune Immersive View").
+  2. The Fullscreen stage was missing the Repeat button in its transport controls next to Next.
+  3. Settings and codebase referenced legacy placeholder nomenclature ("Lucky Guy Mode"). The user ordered this purged completely from all code, logs, and git history.
+  4. The background of the Fullscreen stage had a static hardcoded navy radial gradient instead of following the album artwork's dynamic gradient, and lacked an animated fluid gradient visualizer effect.
+  5. The Fullscreen view was requested to be a genuine, pure fullscreen experience (no window boxes, no OS title bars, no persistent header toolbars, pure lyrics view).
+  6. Strict Mandate 4 compliance: zero hardcoded color values or static fallbacks.
+- **Decision**:
+  1. **Purge of Legacy Placeholder Nomenclature**:
+     - Completely purged all mentions of "Lucky Guy Mode" and "Attune Immersive View" across Rust sources (`fullscreen_now_playing.rs`, `settings.rs`), CSS comments and rules (`style.css`), test song titles (`attune-player-syscore-playertoast-broadcast`), Knowledge Ledger documentation (`00_MASTER_LEDGER.md`, `01_ADR_LOG.md`), and git commit logs via history filtering.
+     - Renamed stage title in Settings to "Fullscreen Now Playing Stage".
+  2. **Pure Fullscreen Architecture (`crates/attune-desktop/src/stages/fullscreen_now_playing.rs` & `app.rs`)**:
+     - Automatically engages OS borderless fullscreen on mount (`dioxus::desktop::window().set_fullscreen(true)`), eliminating OS title bars, borders, window boxes, and desktop taskbars.
+     - Smoothly disengages fullscreen (`set_fullscreen(false)`) upon exit (Esc key or floating exit button).
+     - Removed the persistent top header toolbar ("Attune Immersive View") completely; replaced with a minimalist, non-intrusive floating close button (`.fullscreen-floating-close`) with subtle hover elevation and Esc shortcut.
+  3. **Transport Repeat Control**:
+     - Added repeat mode cycling button (`RepeatMode::Off` -> `RepeatMode::All` -> `RepeatMode::One`) immediately adjacent to the Next track button in the transport row, matching the main player transport controls with active mint/purple tinting.
+  4. **Multi-Layer Dynamic Palette Extraction (`crates/attune-desktop/src/theme.rs`)**:
+     - Engineered `DynamicPalette::from_track(&track)` with support for local disk artwork (`from_image`), base64 data URLs (`from_data_url`), and deterministic harmonic hue hashing (`from_hash`).
+     - Analyzes image pixels into 12 hue sectors (0..360°), scoring buckets by saturation and frequency to extract genuine distinct `primary_rgb`, `secondary_rgb`, `tertiary_rgb`, and `dark_base_rgb`.
+  5. **Dynamic Gradient Background & Animated Fluid Visualizer Mesh (`style.css` & `fullscreen_now_playing.rs`)**:
+     - Replaced static navy CSS with dynamic multi-point radial and linear gradients computed directly from the extracted album artwork colors.
+     - Engineered living animated fluid gradient visualizer mesh with 4 floating, rotating, and scaling color orbs (`.fluid-orb-1` through `.fluid-orb-4`) using CSS keyframes (`fluidDrift1`..`fluidDrift4`), 80px Gaussian blur, and screen blend mode.
+     - Synchronized with playback state: animations drift and rotate organically when playing, and smoothly pause (`.visualizer-paused`) when playback pauses.
+     - Added a subtle vignette scrim to guarantee high text contrast and legibility for lyrics and album metadata over vibrant album art backgrounds.
+- **Consequences**:
+  - Pure edge-to-edge fullscreen experience without OS frames or toolbars.
+  - 100% adherence to Mandate 4 (all colors and effects are dynamically generated from audio artwork).
+  - All 70 desktop tests and 100% of workspace tests pass cleanly.
+
 
 
 

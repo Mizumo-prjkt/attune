@@ -2568,6 +2568,123 @@ body, html {
   box-sizing: border-box;
 }
 
+.fullscreen-floating-close {
+  position: fixed;
+  top: 24px;
+  right: 28px;
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  color: #ffffff;
+  cursor: pointer;
+  opacity: 0.40;
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+}
+
+.fullscreen-floating-close:hover {
+  opacity: 1.0;
+  background: rgba(255, 255, 255, 0.20);
+  transform: scale(1.08);
+  border-color: rgba(255, 255, 255, 0.35);
+}
+
+/* Dynamic Living Fluid Gradient Visualizer Mesh */
+.fullscreen-visualizer-container {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  z-index: 1;
+  filter: blur(80px) saturate(1.6);
+  -webkit-filter: blur(80px) saturate(1.6);
+}
+
+.fluid-orb {
+  position: absolute;
+  border-radius: 50%;
+  pointer-events: none;
+  mix-blend-mode: screen;
+  will-change: transform, opacity;
+}
+
+.fluid-orb-1 {
+  top: 6%;
+  left: 3%;
+  width: 680px;
+  height: 680px;
+  animation: fluidDrift1 14s ease-in-out infinite alternate;
+}
+
+.fluid-orb-2 {
+  top: 18%;
+  right: 6%;
+  width: 720px;
+  height: 720px;
+  animation: fluidDrift2 18s ease-in-out infinite alternate;
+}
+
+.fluid-orb-3 {
+  bottom: -12%;
+  left: 26%;
+  width: 820px;
+  height: 660px;
+  animation: fluidDrift3 22s ease-in-out infinite alternate;
+}
+
+.fluid-orb-4 {
+  top: 38%;
+  left: 44%;
+  width: 520px;
+  height: 520px;
+  animation: fluidDrift4 16s ease-in-out infinite alternate-reverse;
+}
+
+.visualizer-paused .fluid-orb {
+  animation-play-state: paused !important;
+}
+
+@keyframes fluidDrift1 {
+  0% { transform: translate(0px, 0px) scale(1.0) rotate(0deg); }
+  33% { transform: translate(75px, -55px) scale(1.18) rotate(45deg); }
+  66% { transform: translate(-50px, 65px) scale(0.90) rotate(90deg); }
+  100% { transform: translate(35px, -35px) scale(1.10) rotate(135deg); }
+}
+
+@keyframes fluidDrift2 {
+  0% { transform: translate(0px, 0px) scale(1.08) rotate(0deg); }
+  33% { transform: translate(-85px, 55px) scale(0.88) rotate(-45deg); }
+  66% { transform: translate(65px, -75px) scale(1.22) rotate(-90deg); }
+  100% { transform: translate(-45px, 40px) scale(1.02) rotate(-135deg); }
+}
+
+@keyframes fluidDrift3 {
+  0% { transform: translate(0px, 0px) scale(0.94); }
+  50% { transform: translate(95px, -50px) scale(1.26); }
+  100% { transform: translate(-75px, 40px) scale(1.04); }
+}
+
+@keyframes fluidDrift4 {
+  0% { transform: translate(0px, 0px) scale(1.0) rotate(0deg); }
+  50% { transform: translate(-65px, -75px) scale(1.28) rotate(60deg); }
+  100% { transform: translate(55px, 65px) scale(0.92) rotate(-40deg); }
+}
+
+.fullscreen-vignette-scrim {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 2;
+  background: radial-gradient(circle at 50% 50%, rgba(10, 14, 23, 0.20) 0%, rgba(6, 9, 14, 0.72) 100%);
+}
+
 @keyframes orbPulse {
   0% {
     transform: scale(0.95);

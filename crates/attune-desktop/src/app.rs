@@ -257,11 +257,22 @@ pub fn App() -> Element {
 
     // Helper: Navigation change with history tracking
     let mut navigate_to = move |new_stage: StageView| {
+        let is_entering_fs = new_stage == StageView::FullscreenNowPlaying;
+        let is_leaving_fs = *nav_state.read().current() == StageView::FullscreenNowPlaying && !is_entering_fs;
+        if is_entering_fs {
+            dioxus::desktop::window().set_fullscreen(true);
+        } else if is_leaving_fs {
+            dioxus::desktop::window().set_fullscreen(false);
+        }
         nav_state.write().push(new_stage);
     };
 
     // Helper: History back navigation
     let mut go_back = move || {
+        let was_fs = *nav_state.read().current() == StageView::FullscreenNowPlaying;
+        if was_fs {
+            dioxus::desktop::window().set_fullscreen(false);
+        }
         let mut nav = nav_state.write();
         if nav.back().is_none() {
             match nav.current().clone() {
@@ -964,6 +975,7 @@ pub fn App() -> Element {
                     }
                     Key::Escape => {
                         if *nav_state.read().current() == StageView::FullscreenNowPlaying {
+                            dioxus::desktop::window().set_fullscreen(false);
                             nav_state.write().back();
                         }
                     }
@@ -1435,6 +1447,7 @@ pub fn App() -> Element {
                             let sheet = lyrics_sheet.read().clone();
                             let active_idx = *active_lyric_index.read();
                             let s_mode = *shuffle_mode.read();
+                            let r_mode = *repeat_mode.read();
                             let cfg = app_config.read().clone();
 
                             rsx! {
@@ -1444,6 +1457,7 @@ pub fn App() -> Element {
                                     position_ms: pos_ms,
                                     duration_ms: dur_ms,
                                     shuffle_mode: s_mode,
+                                    repeat_mode: r_mode,
                                     lyrics_sheet: sheet,
                                     active_lyric_index: active_idx,
                                     config: cfg,
@@ -1483,7 +1497,16 @@ pub fn App() -> Element {
                                         };
                                         shuffle_mode.set(next);
                                     },
+                                    on_cycle_repeat: move |_| {
+                                        let next_mode = match *repeat_mode.read() {
+                                            RepeatMode::Off => RepeatMode::All,
+                                            RepeatMode::All => RepeatMode::One,
+                                            RepeatMode::One => RepeatMode::Off,
+                                        };
+                                        repeat_mode.set(next_mode);
+                                    },
                                     on_exit: move |_| {
+                                        dioxus::desktop::window().set_fullscreen(false);
                                         nav_state.write().back();
                                     },
                                 }
@@ -1922,8 +1945,16 @@ pub fn App() -> Element {
                     // Fullscreen / Stage Toggle
                     button {
                         class: "btn-ctrl",
-                        title: "Toggle Immersive Fullscreen Now Playing",
-                        onclick: move |_| navigate_to(StageView::FullscreenNowPlaying),
+                        title: "Toggle Pure Fullscreen Now Playing",
+                        onclick: move |_| {
+                            let is_fs = *nav_state.read().current() == StageView::FullscreenNowPlaying;
+                            if is_fs {
+                                dioxus::desktop::window().set_fullscreen(false);
+                                nav_state.write().back();
+                            } else {
+                                navigate_to(StageView::FullscreenNowPlaying);
+                            }
+                        },
                         span { class: "material-icons md-20", "fullscreen" }
                     }
                 }

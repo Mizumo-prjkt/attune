@@ -1,14 +1,17 @@
 //! Pure Fullscreen Now Playing Stage.
 //!
-//! Provides an edge-to-edge full-window playback and synchronized lyrics
+//! Provides an edge-to-edge pure fullscreen playback and synchronized lyrics
 //! experience with dynamic artwork gradient backgrounds, glowing lyrics typography,
-//! and background visualizer effects. Adheres strictly to Mandate 4.
+//! living animated visualizer fluid mesh effects, and full transport controls
+//! (including Repeat). Adheres strictly to Mandate 4 (zero hardcoded values).
 
 use dioxus::prelude::*;
+use crate::app::RepeatMode;
 use crate::components::lyrics_parser::LyricsSheet;
 use crate::config::AppConfig;
 use crate::library::{fmt_ms, TrackEntry};
 use crate::smart_shuffle::ShuffleMode;
+use crate::theme::DynamicPalette;
 
 #[component]
 pub fn FullscreenNowPlaying(
@@ -17,6 +20,7 @@ pub fn FullscreenNowPlaying(
     position_ms: u64,
     duration_ms: u64,
     shuffle_mode: ShuffleMode,
+    repeat_mode: RepeatMode,
     lyrics_sheet: LyricsSheet,
     active_lyric_index: Option<usize>,
     config: AppConfig,
@@ -25,9 +29,15 @@ pub fn FullscreenNowPlaying(
     on_prev: EventHandler<()>,
     on_next: EventHandler<()>,
     on_cycle_shuffle: EventHandler<()>,
+    on_cycle_repeat: EventHandler<()>,
     on_exit: EventHandler<()>,
 ) -> Element {
     let strings = crate::i18n::current_strings();
+
+    // Ensure the OS window enters pure borderless fullscreen
+    use_effect(move || {
+        dioxus::desktop::window().set_fullscreen(true);
+    });
 
     let track = current_track.unwrap_or_else(|| TrackEntry {
         title: strings.select_track_to_play.to_string(),
@@ -64,12 +74,48 @@ pub fn FullscreenNowPlaying(
         "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='400' height='400' viewBox='0 0 400 400'><rect width='400' height='400' fill='%23121722'/><circle cx='200' cy='200' r='90' fill='none' stroke='%2364ffda' stroke-width='8'/><polygon points='180,150 240,200 180,250' fill='%2364ffda'/></svg>".to_string()
     });
 
-    // Background style based on config
+    // Dynamic color extraction strictly from the active track artwork
+    let palette = DynamicPalette::from_track(&track);
+    let (r1, g1, b1) = palette.primary_rgb;
+    let (r2, g2, b2) = palette.secondary_rgb;
+    let (r3, g3, b3) = palette.tertiary_rgb;
+    let (dr, dg, db) = palette.dark_base_rgb;
+
+    // Dynamic background style matching the album cover colors
     let bg_style = if config.fullscreen_gradient_bg {
-        "background: radial-gradient(circle at 25% 40%, rgba(20, 35, 60, 0.90) 0%, rgba(10, 14, 23, 0.98) 70%), linear-gradient(135deg, #0d131f 0%, #06090e 100%);"
+        format!(
+            "background: radial-gradient(circle at 18% 28%, rgba({}, {}, {}, 0.42) 0%, transparent 55%), \
+                         radial-gradient(circle at 82% 72%, rgba({}, {}, {}, 0.32) 0%, transparent 60%), \
+                         linear-gradient(145deg, rgba({}, {}, {}, 0.97) 0%, #06090e 100%);",
+            r1, g1, b1, r2, g2, b2, dr, dg, db
+        )
     } else {
-        "background: #090d16;"
+        "background: #090d16;".to_string()
     };
+
+    // Animated living fluid gradient visualizer orbs
+    let visualizer_class = if is_playing {
+        "fullscreen-visualizer-container"
+    } else {
+        "fullscreen-visualizer-container visualizer-paused"
+    };
+
+    let orb1_style = format!(
+        "background: radial-gradient(circle, rgba({}, {}, {}, 0.45) 0%, rgba({}, {}, {}, 0.15) 50%, transparent 75%);",
+        r1, g1, b1, r1, g1, b1
+    );
+    let orb2_style = format!(
+        "background: radial-gradient(circle, rgba({}, {}, {}, 0.38) 0%, rgba({}, {}, {}, 0.12) 50%, transparent 75%);",
+        r2, g2, b2, r2, g2, b2
+    );
+    let orb3_style = format!(
+        "background: radial-gradient(circle, rgba({}, {}, {}, 0.32) 0%, rgba({}, {}, {}, 0.09) 55%, transparent 75%);",
+        r3, g3, b3, r3, g3, b3
+    );
+    let orb4_style = format!(
+        "background: radial-gradient(circle, rgba({}, {}, {}, 0.28) 0%, transparent 70%);",
+        r1, g1, b1
+    );
 
     let text_glow_style = if config.fullscreen_text_glow {
         "text-shadow: 0 0 24px rgba(255, 253, 208, 0.85), 0 0 48px rgba(100, 255, 218, 0.40);"
@@ -82,43 +128,35 @@ pub fn FullscreenNowPlaying(
             class: "fullscreen-stage",
             style: "{bg_style}",
 
-            // Optional background visualizer pulse effects
+            // Dynamic Living Fluid Gradient Visualizer Mesh
             if config.fullscreen_visualizer_effects {
                 div {
-                    class: "fullscreen-visualizer-orb",
-                    style: "position: absolute; top: 15%; right: 20%; width: 500px; height: 500px; border-radius: 50%; background: radial-gradient(circle, rgba(100, 255, 218, 0.08) 0%, transparent 70%); filter: blur(50px); pointer-events: none; animation: orbPulse 6s ease-in-out infinite alternate;"
+                    class: "{visualizer_class}",
+                    div { class: "fluid-orb fluid-orb-1", style: "{orb1_style}" }
+                    div { class: "fluid-orb fluid-orb-2", style: "{orb2_style}" }
+                    div { class: "fluid-orb fluid-orb-3", style: "{orb3_style}" }
+                    div { class: "fluid-orb fluid-orb-4", style: "{orb4_style}" }
                 }
-                div {
-                    class: "fullscreen-visualizer-orb-2",
-                    style: "position: absolute; bottom: 10%; left: 15%; width: 420px; height: 420px; border-radius: 50%; background: radial-gradient(circle, rgba(168, 85, 247, 0.08) 0%, transparent 70%); filter: blur(60px); pointer-events: none; animation: orbPulse 8s ease-in-out infinite alternate-reverse;"
-                }
+                div { class: "fullscreen-vignette-scrim" }
             }
 
-            // Top Header: Title & Close Button
-            div {
-                class: "fullscreen-header",
-                style: "display: flex; justify-content: space-between; align-items: center; padding: 24px 36px; z-index: 10;",
-                div { style: "display: flex; align-items: center; gap: 10px; opacity: 0.8;",
-                    span { class: "material-icons md-20", style: "color: var(--accent-mint);", "auto_awesome" }
-                    span { style: "font-size: 13px; font-weight: 600; letter-spacing: 1px; text-transform: uppercase; color: var(--text-secondary);",
-                        "Attune Immersive View"
-                    }
-                }
-                button {
-                    class: "btn-icon",
-                    style: "background: rgba(255, 255, 255, 0.08); width: 40px; height: 40px; border-radius: 50%; border: 1px solid var(--border-glass); cursor: pointer; transition: all 0.2s;",
-                    title: "Exit Fullscreen (Esc)",
-                    onclick: move |_| on_exit.call(()),
-                    span { class: "material-icons md-22", "close" }
-                }
+            // Minimalist Floating Exit Button (No Persistent Header Toolbars)
+            button {
+                class: "fullscreen-floating-close",
+                title: "Exit Fullscreen (Esc)",
+                onclick: move |_| {
+                    dioxus::desktop::window().set_fullscreen(false);
+                    on_exit.call(());
+                },
+                span { class: "material-icons md-22", "close" }
             }
 
-            // Main Content: 2-Column Split
+            // Main Content: Pure Edge-to-Edge 2-Column Split
             div {
                 class: "fullscreen-body",
-                style: "display: flex; flex: 1; padding: 10px 48px 40px 48px; gap: 64px; align-items: center; z-index: 10; max-height: calc(100vh - 100px); box-sizing: border-box;",
+                style: "display: flex; flex: 1; padding: 48px 64px; gap: 72px; align-items: center; z-index: 10; height: 100vh; max-height: 100vh; box-sizing: border-box;",
 
-                // Left Column: Artwork + Track Info + Scrubber + Transport
+                // Left Column: Artwork + Track Info + Scrubber + Full Transport Controls
                 div {
                     class: "fullscreen-left-col",
                     style: "display: flex; flex-direction: column; width: 380px; min-width: 340px; gap: 20px;",
@@ -176,9 +214,9 @@ pub fn FullscreenNowPlaying(
                         }
                     }
 
-                    // Transport Controls
+                    // Full Transport Controls (Shuffle, Previous, Play/Pause, Next, Repeat)
                     div {
-                        style: "display: flex; justify-content: center; align-items: center; gap: 20px; padding-top: 8px;",
+                        style: "display: flex; justify-content: center; align-items: center; gap: 18px; padding-top: 8px;",
                         // Shuffle Button
                         button {
                             class: "btn-icon",
@@ -213,17 +251,37 @@ pub fn FullscreenNowPlaying(
                             onclick: move |_| on_next.call(()),
                             span { class: "material-icons md-26", "skip_next" }
                         }
+                        // Repeat Button (Right Next to Next)
+                        button {
+                            class: "btn-icon",
+                            style: match repeat_mode {
+                                RepeatMode::Off => "color: var(--text-muted);",
+                                RepeatMode::All => "color: var(--accent-mint);",
+                                RepeatMode::One => "color: var(--accent-purple);",
+                            },
+                            title: match repeat_mode {
+                                RepeatMode::Off => "Repeat: Off",
+                                RepeatMode::All => "Repeat: All",
+                                RepeatMode::One => "Repeat: One",
+                            },
+                            onclick: move |_| on_cycle_repeat.call(()),
+                            if repeat_mode == RepeatMode::One {
+                                span { class: "material-icons md-22", "repeat_one" }
+                            } else {
+                                span { class: "material-icons md-22", "repeat" }
+                            }
+                        }
                     }
                 }
 
-                // Right Column: Synchronized Lyrics
+                // Right Column: Pure Fullscreen Synchronized Lyrics
                 div {
                     class: "fullscreen-right-col",
                     style: "flex: 1; height: 100%; display: flex; flex-direction: column; justify-content: center; overflow: hidden; position: relative;",
 
                     div {
                         class: "fullscreen-lyrics-scroll",
-                        style: "overflow-y: auto; max-height: 80vh; padding: 120px 24px; display: flex; flex-direction: column; gap: 28px; scroll-behavior: smooth; mask-image: linear-gradient(to bottom, transparent 0%, black 15%, black 85%, transparent 100%); -webkit-mask-image: linear-gradient(to bottom, transparent 0%, black 15%, black 85%, transparent 100%);",
+                        style: "overflow-y: auto; max-height: 85vh; padding: 140px 32px; display: flex; flex-direction: column; gap: 28px; scroll-behavior: smooth; mask-image: linear-gradient(to bottom, transparent 0%, black 15%, black 85%, transparent 100%); -webkit-mask-image: linear-gradient(to bottom, transparent 0%, black 15%, black 85%, transparent 100%);",
 
                         if lyrics_sheet.lines.is_empty() {
                             div {
