@@ -2,7 +2,7 @@
 
 - **Project Name**: Attune
 - **Current Phase**: `Phase 6 IN PROGRESS -> Multi-Platform Packaging, Installer Scripting & Distribution Orchestration`
-- **Active Coding Status**: Completed ADR-107: Artist Avatar Verified Overlay Badge & Dynamic Responsive Marquee Auto-Scroll Architecture. Implemented the online-status-style verified badge overlay at the bottom-right of circular profile avatars in the Artists grid, eliminating detached inline checkmarks. Added a customizable General Settings toggle (`auto_scroll_long_text`) with full i18n support, enabling smooth back-and-forth ping-pong scrolling for overflowing titles, albums, and artist names, or strict ellipsis truncation (`...`) when disabled. Injected dynamic WebKit measurement script for proportional scroll duration and distance. All 70 desktop tests and 100% of workspace tests pass cleanly.
+- **Active Coding Status**: Completed ADR-108: Strict Playback Queue Sanctity & Prevention of Automatic Library Song Injection in Smart Shuffle. Fixed bug where single- or low-track queues escaped into the broader music library during Smart Shuffle and automatically injected unqueued songs (`World is Mine`, `Kimi no Taion`) into the active playback queue upon track completion or seeking near the end. Confined candidate evaluation strictly to `queue` when a queue is active, eliminated queue mutation (`q.insert`) in transition completion, and ensured clean stop on queue completion. All 79 desktop tests and 100% of workspace tests pass cleanly.
 
 
 ---

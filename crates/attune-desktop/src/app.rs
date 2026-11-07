@@ -124,6 +124,93 @@ pub enum RepeatMode {
     One,
 }
 
+/// Helper: Select next index using current ShuffleMode (Off, Linear, Smart) and recency history.
+/// Respects queue sanctity: if the queue has songs, selection is strictly confined to the queue
+/// and never escapes into the broader library or injects external songs.
+pub fn select_next_playback_index(
+    mode: ShuffleMode,
+    curr_idx: usize,
+    queue: &[TrackEntry],
+    all_tracks: &[TrackEntry],
+    history: &SmartShuffleHistory,
+) -> Option<usize> {
+    if !queue.is_empty() {
+        match mode {
+            ShuffleMode::Off => {
+                if curr_idx + 1 < queue.len() {
+                    Some(curr_idx + 1)
+                } else {
+                    None
+                }
+            }
+            ShuffleMode::Linear => {
+                if queue.len() <= 1 {
+                    None
+                } else {
+                    use std::time::SystemTime;
+                    let seed = SystemTime::now()
+                        .duration_since(SystemTime::UNIX_EPOCH)
+                        .map(|d| d.as_nanos())
+                        .unwrap_or(0);
+                    let mut next = (seed as usize) % queue.len();
+                    if next == curr_idx {
+                        next = (next + 1) % queue.len();
+                    }
+                    Some(next)
+                }
+            }
+            ShuffleMode::Smart => {
+                if queue.len() <= 1 {
+                    None
+                } else {
+                    let current = queue.get(curr_idx)?;
+                    let candidate_indices: Vec<usize> = (0..queue.len()).filter(|&i| i != curr_idx).collect();
+                    let evaluated = smart_shuffle::evaluate_candidates(current, &candidate_indices, queue, history);
+                    smart_shuffle::select_smart_candidate(&evaluated).or(Some((curr_idx + 1) % queue.len()))
+                }
+            }
+        }
+    } else if !all_tracks.is_empty() {
+        match mode {
+            ShuffleMode::Off => {
+                if curr_idx + 1 < all_tracks.len() {
+                    Some(curr_idx + 1)
+                } else {
+                    None
+                }
+            }
+            ShuffleMode::Linear => {
+                if all_tracks.len() <= 1 {
+                    None
+                } else {
+                    use std::time::SystemTime;
+                    let seed = SystemTime::now()
+                        .duration_since(SystemTime::UNIX_EPOCH)
+                        .map(|d| d.as_nanos())
+                        .unwrap_or(0);
+                    let mut idx = (seed as usize) % all_tracks.len();
+                    if idx == curr_idx {
+                        idx = (idx + 1) % all_tracks.len();
+                    }
+                    Some(idx)
+                }
+            }
+            ShuffleMode::Smart => {
+                if all_tracks.len() <= 1 {
+                    None
+                } else {
+                    let current = all_tracks.get(curr_idx)?;
+                    let candidate_indices: Vec<usize> = (0..all_tracks.len()).filter(|&i| i != curr_idx).collect();
+                    let evaluated = smart_shuffle::evaluate_candidates(current, &candidate_indices, all_tracks, history);
+                    smart_shuffle::select_smart_candidate(&evaluated).or(Some((curr_idx + 1) % all_tracks.len()))
+                }
+            }
+        }
+    } else {
+        None
+    }
+}
+
 #[component]
 pub fn App() -> Element {
     // 1. Audio Engine & Library State
@@ -304,77 +391,7 @@ pub fn App() -> Element {
         let q = queue.read().clone();
         let all = tracks.read().clone();
         let hist = shuffle_history.read().clone();
-
-        if !q.is_empty() {
-            match mode {
-                ShuffleMode::Off => {
-                    if curr_idx + 1 < q.len() {
-                        Some(curr_idx + 1)
-                    } else {
-                        None
-                    }
-                }
-                ShuffleMode::Linear => {
-                    if q.len() <= 1 {
-                        Some(0)
-                    } else {
-                        use std::time::SystemTime;
-                        let seed = SystemTime::now()
-                            .duration_since(SystemTime::UNIX_EPOCH)
-                            .map(|d| d.as_nanos())
-                            .unwrap_or(0);
-                        let mut next = (seed as usize) % q.len();
-                        if next == curr_idx {
-                            next = (next + 1) % q.len();
-                        }
-                        Some(next)
-                    }
-                }
-                ShuffleMode::Smart => {
-                    if q.len() <= 1 && all.len() <= 1 {
-                        Some(0)
-                    } else if q.len() <= 2 && all.len() > 2 {
-                        let current = q.get(curr_idx).or_else(|| all.get(curr_idx))?;
-                        let candidate_indices: Vec<usize> = (0..all.len()).filter(|&i| all[i].path != current.path).collect();
-                        let evaluated = smart_shuffle::evaluate_candidates(current, &candidate_indices, &all, &hist);
-                        smart_shuffle::select_smart_candidate(&evaluated).or(Some((curr_idx + 1) % q.len()))
-                    } else {
-                        let current = q.get(curr_idx)?;
-                        let candidate_indices: Vec<usize> = (0..q.len()).filter(|&i| i != curr_idx).collect();
-                        let evaluated = smart_shuffle::evaluate_candidates(current, &candidate_indices, &q, &hist);
-                        smart_shuffle::select_smart_candidate(&evaluated).or(Some((curr_idx + 1) % q.len()))
-                    }
-                }
-            }
-        } else if !all.is_empty() {
-            match mode {
-                ShuffleMode::Off => Some((curr_idx + 1) % all.len()),
-                ShuffleMode::Linear => {
-                    if all.len() <= 1 {
-                        Some(0)
-                    } else {
-                        use std::time::SystemTime;
-                        let seed = SystemTime::now()
-                            .duration_since(SystemTime::UNIX_EPOCH)
-                            .map(|d| d.as_nanos())
-                            .unwrap_or(0);
-                        let mut idx = (seed as usize) % all.len();
-                        if idx == curr_idx {
-                            idx = (idx + 1) % all.len();
-                        }
-                        Some(idx)
-                    }
-                }
-                ShuffleMode::Smart => {
-                    let current = all.get(curr_idx)?;
-                    let candidate_indices: Vec<usize> = (0..all.len()).filter(|&i| i != curr_idx).collect();
-                    let evaluated = smart_shuffle::evaluate_candidates(current, &candidate_indices, &all, &hist);
-                    smart_shuffle::select_smart_candidate(&evaluated).or(Some((curr_idx + 1) % all.len()))
-                }
-            }
-        } else {
-            None
-        }
+        select_next_playback_index(mode, curr_idx, &q, &all, &hist)
     };
 
     // Helper: Play a specific track
@@ -437,7 +454,7 @@ pub fn App() -> Element {
                     let all = tracks.read().clone();
                     let next_track = if !q.is_empty() && next_idx < q.len() {
                         Some(&q[next_idx])
-                    } else if !all.is_empty() && next_idx < all.len() {
+                    } else if q.is_empty() && !all.is_empty() && next_idx < all.len() {
                         Some(&all[next_idx])
                     } else {
                         None
@@ -449,7 +466,11 @@ pub fn App() -> Element {
                             nt.title.clone(),
                             nt.artist.clone(),
                         );
+                    } else {
+                        p.clear_pending_transition();
                     }
+                } else {
+                    p.clear_pending_transition();
                 }
             } else {
                 p.clear_pending_transition();
@@ -504,6 +525,7 @@ pub fn App() -> Element {
     // Helper: Next track
     let play_next_track = {
         let mut play_track = play_track.clone();
+        let player = player.clone();
         move || {
             let q = queue.read().clone();
             let curr_pos = *queue_pos.read();
@@ -521,7 +543,7 @@ pub fn App() -> Element {
             if *repeat_mode.read() == RepeatMode::All && !q.is_empty() {
                 queue_pos.set(0);
                 play_track(q[0].clone());
-            } else {
+            } else if q.is_empty() {
                 let all_tracks = tracks.read().clone();
                 if !all_tracks.is_empty() && *shuffle_mode.read() != ShuffleMode::Off {
                     let next_idx = if let Some(idx) = pick_next_index(curr_pos) {
@@ -531,6 +553,9 @@ pub fn App() -> Element {
                     };
                     play_track(all_tracks[next_idx].clone());
                 }
+            } else {
+                player.read().pause();
+                is_playing.set(false);
             }
         }
     };
@@ -931,29 +956,21 @@ pub fn App() -> Element {
                         // Transition officially concluded in DualDeckMixer (Deck B swapped into Deck A)
                         is_transition_active.set(false);
                         active_trans_name.set(None);
-                        let mut q = queue.cloned();
+                        let q = queue.cloned();
                         let all = tracks.cloned();
                         let curr_pos = *queue_pos.read();
 
                         let (next_idx, mut new_track) = if let Some(idx) = q.iter().position(|t| t.path == completed.incoming_path) {
                             (idx, q[idx].clone())
-                        } else if let Some(t) = all.iter().find(|t| t.path == completed.incoming_path) {
-                            let insert_idx = (curr_pos + 1).min(q.len());
-                            q.insert(insert_idx, t.clone());
-                            queue.set(q.clone());
-                            (insert_idx, t.clone())
+                        } else if q.is_empty() {
+                            if let Some(t) = all.iter().find(|t| t.path == completed.incoming_path) {
+                                (0, t.clone())
+                            } else {
+                                let probed = TrackEntry::from_probe(&completed.incoming_path);
+                                (0, probed)
+                            }
                         } else {
-                            let insert_idx = (curr_pos + 1).min(q.len());
-                            let mut probed = TrackEntry::from_probe(&completed.incoming_path);
-                            if probed.bpm.is_none() && completed.incoming_bpm > 10.0 {
-                                probed.bpm = Some(completed.incoming_bpm);
-                            }
-                            if probed.key.is_none() && !completed.incoming_key.is_empty() {
-                                probed.key = Some(completed.incoming_key.clone());
-                            }
-                            q.insert(insert_idx, probed.clone());
-                            queue.set(q.clone());
-                            (insert_idx, probed)
+                            (curr_pos.min(q.len().saturating_sub(1)), current_track.read().clone().unwrap_or_else(|| q[0].clone()))
                         };
 
                         queue_pos.set(next_idx);
@@ -988,7 +1005,7 @@ pub fn App() -> Element {
                             if let Some(upcoming_idx) = pick_next_index(next_idx) {
                                 let cand_track = if upcoming_idx < q.len() {
                                     Some(&q[upcoming_idx])
-                                } else if upcoming_idx < all.len() {
+                                } else if q.is_empty() && upcoming_idx < all.len() {
                                     Some(&all[upcoming_idx])
                                 } else {
                                     None
@@ -999,7 +1016,11 @@ pub fn App() -> Element {
                                         ct.title.clone(),
                                         ct.artist.clone(),
                                     );
+                                } else {
+                                    p.clear_pending_transition();
                                 }
+                            } else {
+                                p.clear_pending_transition();
                             }
                         }
                     } else if !p.is_transitioning() {
@@ -1945,7 +1966,7 @@ pub fn App() -> Element {
                                                 let all = tracks.read().clone();
                                                 let next_track = if !q.is_empty() && next_idx < q.len() {
                                                     Some(&q[next_idx])
-                                                } else if !all.is_empty() && next_idx < all.len() {
+                                                } else if q.is_empty() && !all.is_empty() && next_idx < all.len() {
                                                     Some(&all[next_idx])
                                                 } else {
                                                     None
@@ -1956,7 +1977,11 @@ pub fn App() -> Element {
                                                         nt.title.clone(),
                                                         nt.artist.clone(),
                                                     );
+                                                } else {
+                                                    p.clear_pending_transition();
                                                 }
+                                            } else {
+                                                p.clear_pending_transition();
                                             }
                                         } else {
                                             p.clear_pending_transition();
@@ -2171,7 +2196,7 @@ pub fn App() -> Element {
                     let hist = shuffle_history.cloned();
 
                     let (cand_pool, current) = if let Some(c) = curr_opt {
-                        let pool = if q_list.len() > 1 { q_list } else { all_list };
+                        let pool = if !q_list.is_empty() { q_list } else { all_list };
                         (pool, Some(c))
                     } else {
                         (q_list, None)
@@ -2478,5 +2503,78 @@ mod tests {
         assert_eq!(nav.index, 0);
         // Can go back because it has a logical parent stage (ForYou)
         assert!(nav.can_go_back());
+    }
+
+    fn make_test_track(title: &str, artist: &str, bpm: Option<f32>, key: Option<&str>) -> TrackEntry {
+        TrackEntry {
+            path: PathBuf::from(format!("/music/{title}.flac")),
+            title: title.into(),
+            artist: artist.into(),
+            album: "Test Album".into(),
+            genre: None,
+            duration_ms: 180_000,
+            bpm,
+            key: key.map(Into::into),
+            format: "FLAC".into(),
+            sample_rate: 48000,
+            bit_depth: 24,
+            artwork_path: None,
+            artwork_data_url: None,
+            aggression: None,
+            vibe_family: None,
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn test_single_song_queue_smart_shuffle_never_escapes_or_injects() {
+        let hist = SmartShuffleHistory::new(10);
+        let queue = vec![make_test_track("Song 1", "Artist 1", Some(120.0), Some("1A"))];
+
+        let mut all_tracks = Vec::new();
+        for i in 0..20 {
+            all_tracks.push(make_test_track(&format!("Library Song {i}"), "Artist X", Some(120.0 + (i as f32)), Some("1A")));
+        }
+
+        // When queue has only 1 track, Smart Shuffle MUST return None!
+        // It must NEVER return an index into all_tracks or auto-inject library songs.
+        let next_smart = select_next_playback_index(ShuffleMode::Smart, 0, &queue, &all_tracks, &hist);
+        assert_eq!(next_smart, None, "Smart Shuffle must return None for a single-track queue");
+
+        let next_linear = select_next_playback_index(ShuffleMode::Linear, 0, &queue, &all_tracks, &hist);
+        assert_eq!(next_linear, None, "Linear Shuffle must return None for a single-track queue");
+
+        let next_off = select_next_playback_index(ShuffleMode::Off, 0, &queue, &all_tracks, &hist);
+        assert_eq!(next_off, None, "Sequential playback must return None for a single-track queue at end");
+    }
+
+    #[test]
+    fn test_multi_song_queue_smart_shuffle_stays_strictly_within_queue() {
+        let hist = SmartShuffleHistory::new(10);
+        let queue = vec![
+            make_test_track("Q1", "Artist 1", Some(120.0), Some("1A")),
+            make_test_track("Q2", "Artist 2", Some(121.0), Some("1B")),
+        ];
+
+        let mut all_tracks = Vec::new();
+        for i in 0..50 {
+            all_tracks.push(make_test_track(&format!("Lib {i}"), "Lib Artist", Some(120.0), Some("1A")));
+        }
+
+        let next = select_next_playback_index(ShuffleMode::Smart, 0, &queue, &all_tracks, &hist);
+        assert_eq!(next, Some(1), "Smart Shuffle must choose the remaining song in the queue (index 1), not from library");
+    }
+
+    #[test]
+    fn test_empty_queue_selects_from_library() {
+        let hist = SmartShuffleHistory::new(10);
+        let queue = Vec::<TrackEntry>::new();
+        let all_tracks = vec![
+            make_test_track("T1", "A1", Some(120.0), Some("1A")),
+            make_test_track("T2", "A2", Some(122.0), Some("2A")),
+        ];
+
+        let next = select_next_playback_index(ShuffleMode::Smart, 0, &queue, &all_tracks, &hist);
+        assert_eq!(next, Some(1), "With empty queue, Smart Shuffle selects from library");
     }
 }

@@ -3759,3 +3759,33 @@ This file records all major architectural decisions for **Attune**, including co
   - Modern, polished visual presentation matching user expectations.
   - Full accessibility and customization for users who prefer static ellipsis truncation over moving text.
   - All 70 desktop tests and workspace tests pass with 0 errors.
+
+---
+
+## ADR-108: Strict Playback Queue Sanctity & Prevention of Automatic Library Song Injection in Smart Shuffle
+- **Date**: 2026-11-08
+- **Status**: `LOCKED`
+- **Context**:
+  1. The user reported that when adding a single track to the playback queue (e.g. `Brain Implosion Energy Drink`), seeking near the end of the track or letting it complete caused the engine to automatically inject unexpected songs from the library (`World is Mine`, `Kimi no Taion`) into the playback queue.
+  2. Investigation identified that when `ShuffleMode::Smart` was active, a legacy heuristic in `pick_next_index` (`else if q.len() <= 2 && all.len() > 2`) treated small queues (1 or 2 songs) as having "insufficient candidates", causing it to escape the user's active queue, search the entire music library for harmonic and BPM matches, and return a library index.
+  3. When the transition completed (`poll_transition_completed`), the incoming track was inserted directly into the user's active queue via `q.insert(insert_idx, t.clone())` and `queue.set(q)`.
+  4. Furthermore, because `q.len()` was now 2, the `q.len() <= 2` condition remained true, causing a third track to be selected from the library and injected upon seeking near the end of the second track.
+  5. The playback queue must be strictly sacred: user-created queues must never be automatically mutated or polluted with unqueued tracks from the broader library.
+- **Decision**:
+  1. **Strict Queue Sanctity in `select_next_playback_index` (`crates/attune-desktop/src/app.rs`)**:
+     - Extracted pure helper function `select_next_playback_index`.
+     - When `!queue.is_empty()`, selection is strictly confined to `queue`. It never escapes into `all_tracks`.
+     - When `queue.len() <= 1`, returns `None` for all shuffle modes (Off, Linear, Smart), as there are no alternative tracks to transition to.
+     - When `queue.len() > 1`, Smart Shuffle evaluates harmonic and BPM candidate scores strictly across the items in `queue`.
+  2. **Eliminated Queue Mutation in `poll_transition_completed`**:
+     - Removed `q.insert(...)` and `queue.set(q)` from `poll_transition_completed`. Incoming completed transitions never inject tracks into the active playback queue.
+  3. **Natural Queue End & Autopause in `play_next_track`**:
+     - In `play_next_track`, when the queue reaches its conclusion without `RepeatMode::All`, playback pauses and cleanly sets `is_playing = false` instead of falling through to play random tracks from the library.
+  4. **Comprehensive Unit Testing**:
+     - Added `test_single_song_queue_smart_shuffle_never_escapes_or_injects` to verify that 1-song queues return `None` across Smart, Linear, and Off modes without touching the library.
+     - Added `test_multi_song_queue_smart_shuffle_stays_strictly_within_queue` verifying multi-song queues select strictly within `0..q.len()`.
+     - Added `test_empty_queue_selects_from_library` verifying unqueued library playback functions as expected.
+- **Consequences**:
+  - The playback queue strictly honors user intent: songs added by the user remain the only songs in the queue.
+  - Seeking near the end of a single-song queue plays the song to completion and stops cleanly without injecting new tracks.
+  - All 79 desktop tests and 100% of workspace tests pass cleanly.
