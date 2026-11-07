@@ -3566,6 +3566,26 @@ This file records all major architectural decisions for **Attune**, including co
   - Sleek, compact switches and effortless 1-tap track exclusion.
   - All 63 desktop tests, all workspace tests pass, and release build succeeds cleanly.
 
+---
+
+## ADR-101: Settings Language Selection Redundancy Elimination & Dropdown Streamlining
+- **Date**: 2026-11-08
+- **Status**: `LOCKED`
+- **Context**:
+  - In `crates/attune-desktop/src/stages/settings.rs` (`SettingsTab::Language`), the language card previously displayed redundant duplicate controls:
+    1. A grid of tactile selection cards (`.language-selector-grid`) with "English (US)" and "Wikang Filipino".
+    2. A synchronized dropdown (`<select class="form-select">`).
+    3. An active confirmation badge (`[ ✓ Active Language: ... ]`).
+  - The user reported this duplication as unnecessary and requested retaining only the dropdown on Settings.
+- **Decision**:
+  - Removed the redundant card selection buttons (`.language-selector-grid`, `.language-card`) and active confirmation pill from `crates/attune-desktop/src/stages/settings.rs`.
+  - Streamlined the Language card to feature only the title, description, and the `<select class="form-select">` dropdown element matching other Settings selectors (e.g. Default Lyrics Priority).
+  - Purged unused CSS classes (`.language-selector-grid`, `.language-card`, `.language-card:hover`, `.language-card.active`) from `crates/attune-desktop/src/style.css`.
+- **Consequences**:
+  - Clean, minimal, non-redundant Language settings card adhering strictly to the user's design preference.
+  - All 63 desktop unit tests pass cleanly and release binary compiles successfully.
+
+
 
 
 

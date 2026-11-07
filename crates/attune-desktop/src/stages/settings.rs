@@ -731,67 +731,20 @@ pub fn SettingsContent(
                             h3 { class: "settings-card-title", "{strings.language}" }
                             p { class: "settings-card-desc", "Supported languages: English (US) and Wikang Filipino (Tagalog). Applies application-wide." }
 
-                            // Tactile Selection Cards
-                            div { class: "language-selector-grid",
-                                div {
-                                    class: if curr_cfg.language == "en" { "language-card active" } else { "language-card" },
-                                    onclick: move |_| update_cfg(Box::new(|c| c.language = "en".to_string())),
-                                    div { style: "display: flex; align-items: center; gap: 10px;",
-                                        span { class: "material-icons md-20", style: if curr_cfg.language == "en" { "color: var(--accent-mint);" } else { "color: var(--text-muted);" }, "language" }
-                                        div {
-                                            div { style: "font-weight: 600; font-size: 13.5px;", "English (US)" }
-                                            div { style: "font-size: 11px; color: var(--text-muted);", "Default application language" }
-                                        }
-                                    }
-                                    if curr_cfg.language == "en" {
-                                        span { class: "material-icons md-18", style: "color: var(--accent-mint);", "check_circle" }
-                                    }
-                                }
-                                div {
-                                    class: if curr_cfg.language == "fil" { "language-card active" } else { "language-card" },
-                                    onclick: move |_| update_cfg(Box::new(|c| c.language = "fil".to_string())),
-                                    div { style: "display: flex; align-items: center; gap: 10px;",
-                                        span { class: "material-icons md-20", style: if curr_cfg.language == "fil" { "color: var(--accent-mint);" } else { "color: var(--text-muted);" }, "translate" }
-                                        div {
-                                            div { style: "font-weight: 600; font-size: 13.5px;", "Wikang Filipino" }
-                                            div { style: "font-size: 11px; color: var(--text-muted);", "Tagalog localization" }
-                                        }
-                                    }
-                                    if curr_cfg.language == "fil" {
-                                        span { class: "material-icons md-18", style: "color: var(--accent-mint);", "check_circle" }
-                                    }
-                                }
-                            }
-
-                            // Synchronized Dropdown
-                            div { style: "margin-top: 14px;",
-                                select {
-                                    class: "form-select",
-                                    style: "max-width: 360px;",
-                                    value: "{curr_cfg.language}",
-                                    onchange: move |e| {
-                                        let val = e.value();
-                                        update_cfg(Box::new(move |c| c.language = val.clone()));
-                                    },
-                                    oninput: move |e| {
-                                        let val = e.value();
-                                        update_cfg(Box::new(move |c| c.language = val.clone()));
-                                    },
-                                    option { value: "en", selected: curr_cfg.language == "en", "English (US)" }
-                                    option { value: "fil", selected: curr_cfg.language == "fil", "Wikang Filipino (Tagalog)" }
-                                }
-                            }
-
-                            // Active confirmation badge
-                            div { style: "margin-top: 14px; display: inline-flex; align-items: center; gap: 8px; padding: 6px 14px; border-radius: 20px; background: rgba(45, 212, 191, 0.1); border: 1px solid rgba(45, 212, 191, 0.25);",
-                                span { class: "material-icons md-16", style: "color: var(--accent-mint);", "verified" }
-                                span { style: "font-size: 12px; color: var(--accent-mint); font-weight: 600;",
-                                    if curr_cfg.language == "fil" {
-                                        "{strings.active_language}: Wikang Filipino (Tagalog)"
-                                    } else {
-                                        "{strings.active_language}: English (US)"
-                                    }
-                                }
+                            select {
+                                class: "form-select",
+                                style: "max-width: 440px; margin-top: 14px;",
+                                value: "{curr_cfg.language}",
+                                onchange: move |e| {
+                                    let val = e.value();
+                                    update_cfg(Box::new(move |c| c.language = val.clone()));
+                                },
+                                oninput: move |e| {
+                                    let val = e.value();
+                                    update_cfg(Box::new(move |c| c.language = val.clone()));
+                                },
+                                option { value: "en", selected: curr_cfg.language == "en", "English (US)" }
+                                option { value: "fil", selected: curr_cfg.language == "fil", "Wikang Filipino (Tagalog)" }
                             }
                         }
 
