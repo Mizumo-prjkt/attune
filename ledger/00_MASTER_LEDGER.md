@@ -2,7 +2,7 @@
 
 - **Project Name**: Attune
 - **Current Phase**: `Phase 6 IN PROGRESS -> Multi-Platform Packaging, Installer Scripting & Distribution Orchestration`
-- **Active Coding Status**: Completed ADR-101: Settings Language Selection Redundancy Elimination & Dropdown Streamlining. Purged duplicate tactile selection cards (`language-selector-grid`, `language-card`) and redundant active confirmation pill from `crates/attune-desktop/src/stages/settings.rs` (`SettingsTab::Language`), streamlining the card to feature exclusively the liquid glass `<select class="form-select">` dropdown. Purged unused language card CSS rules from `style.css`. All 63 desktop tests and all workspace unit tests pass cleanly. Release binary compiles in 1m 10s.
+- **Active Coding Status**: Completed ADR-102: Character Altmap Normalization for Artist Profiling, Canonical Cache Keying, and Resilient Multi-Layer Avatar Fallback. Unified artist name variants (e.g. `DECO*27` and `DECO＊27`), canonicalized in-memory and disk cache keying with strict URL validation, preserved raw API queries in `attune-music-metadata`, and implemented resilient 3-layer avatar rendering with local album artwork fallback beneath online portraits. All 65 desktop tests and all workspace unit tests pass cleanly.
 
 
 ---

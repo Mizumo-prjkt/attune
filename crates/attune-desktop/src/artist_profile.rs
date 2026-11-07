@@ -29,6 +29,113 @@ pub struct ArtistSummary {
     pub photo_url: Option<String>,
 }
 
+/// Validates an artist profile image URL, preventing empty strings, placeholders,
+/// or bogus test URLs like example.com from poisoning disk or memory caches.
+pub fn is_valid_profile_image_url(url: &str) -> bool {
+    let u = url.trim();
+    if u.is_empty() || u.contains("example.com") {
+        return false;
+    }
+    u.starts_with("http://") || u.starts_with("https://") || u.starts_with("data:image/")
+}
+
+/// Unicode character altmap and normalization for artist names.
+/// Maps fullwidth characters, variant asterisks, Japanese / CJK punctuation, dashes, tildes,
+/// and spaces to clean standard representations, preventing broken lookups and split artist cards.
+pub fn normalize_artist_characters(raw: &str) -> String {
+    let mut result = String::with_capacity(raw.len());
+    let mut prev_is_space = false;
+
+    for ch in raw.chars() {
+        let mapped = match ch {
+            // Fullwidth & variant asterisks -> '*'
+            '＊' | '﹡' | '∗' | '✱' | '✲' | '✳' => Some('*'),
+
+            // Fullwidth Latin uppercase -> ASCII uppercase
+            'Ａ'..='Ｚ' => {
+                let ascii = ((ch as u32 - 'Ａ' as u32) + 'A' as u32) as u8 as char;
+                Some(ascii)
+            }
+            // Fullwidth Latin lowercase -> ASCII lowercase
+            'ａ'..='ｚ' => {
+                let ascii = ((ch as u32 - 'ａ' as u32) + 'a' as u32) as u8 as char;
+                Some(ascii)
+            }
+            // Fullwidth digits -> ASCII digits
+            '０'..='９' => {
+                let ascii = ((ch as u32 - '０' as u32) + '0' as u32) as u8 as char;
+                Some(ascii)
+            }
+
+            // Hyphens, dashes, minus signs -> '-'
+            '－' | '‐' | '‑' | '–' | '—' | '―' | '−' => Some('-'),
+
+            // Tildes & wave dashes -> '~'
+            '～' | '〜' => Some('~'),
+
+            // Slashes -> '/' and '\'
+            '／' => Some('/'),
+            '＼' => Some('\\'),
+
+            // Colons & Semicolons
+            '：' => Some(':'),
+            '；' => Some(';'),
+
+            // Exclamation & Question marks
+            '！' => Some('!'),
+            '？' => Some('?'),
+
+            // Commercial at
+            '＠' => Some('@'),
+
+            // Ampersand
+            '＆' => Some('&'),
+
+            // Apostrophes & Single quotes -> '\''
+            '’' | '‘' | '＇' | 'ʼ' | '｀' | '′' => Some('\''),
+
+            // Double quotes -> '"'
+            '”' | '“' | '＂' => Some('"'),
+
+            // Brackets & Parentheses
+            '（' => Some('('),
+            '）' => Some(')'),
+            '［' => Some('['),
+            '］' => Some(']'),
+            '｛' => Some('{'),
+            '｝' => Some('}'),
+
+            // Ideographic and non-breaking spaces -> ' '
+            '　' | '\u{00A0}' => Some(' '),
+
+            // Zero-width characters and BOM -> skip
+            '\u{200B}' | '\u{200C}' | '\u{200D}' | '\u{FEFF}' => None,
+
+            // Keep everything else as is
+            other => Some(other),
+        };
+
+        if let Some(c) = mapped {
+            if c.is_whitespace() {
+                if !prev_is_space && !result.is_empty() {
+                    result.push(' ');
+                    prev_is_space = true;
+                }
+            } else {
+                result.push(c);
+                prev_is_space = false;
+            }
+        }
+    }
+
+    result.trim().to_string()
+}
+
+/// Generates a normalized, case-folded canonical lookup key for artist matching and deduplication.
+pub fn canonical_artist_key(name: &str) -> String {
+    normalize_artist_characters(name).to_lowercase()
+}
+
 /// Returns the cache file path for an artist profile (~/.cache/attune/artists/{safe_name}.json).
 pub fn artist_cache_file_path(artist_name: &str) -> Option<std::path::PathBuf> {
     let clean = clean_primary_artist(artist_name);
@@ -46,25 +153,37 @@ pub fn artist_cache_file_path(artist_name: &str) -> Option<std::path::PathBuf> {
 
 /// Loads a cached artist profile from memory or disk cache.
 pub fn load_cached_artist_profile(artist_name: &str) -> Option<OnlineArtistInfo> {
-    let clean = clean_primary_artist(artist_name);
-    if clean.is_empty() {
+    let key = canonical_artist_key(artist_name);
+    if key.is_empty() {
         return None;
     }
 
-    // 1. Memory cache
+    // 1. Memory cache (indexed canonically so case/accents/alt-characters hit consistently)
     if let Ok(cache) = ARTIST_PROFILE_CACHE.read() {
-        if let Some(entry) = cache.get(&clean) {
-            return Some(entry.clone());
+        if let Some(entry) = cache.get(&key) {
+            let mut info = entry.clone();
+            if let Some(ref img) = info.image_url {
+                if !is_valid_profile_image_url(img) {
+                    info.image_url = None;
+                }
+            }
+            return Some(info);
         }
     }
 
     // 2. Disk cache
+    let clean = clean_primary_artist(artist_name);
     if let Some(path) = artist_cache_file_path(&clean) {
         if path.is_file() {
             if let Ok(data) = std::fs::read_to_string(&path) {
-                if let Ok(info) = serde_json::from_str::<OnlineArtistInfo>(&data) {
+                if let Ok(mut info) = serde_json::from_str::<OnlineArtistInfo>(&data) {
+                    if let Some(ref img) = info.image_url {
+                        if !is_valid_profile_image_url(img) {
+                            info.image_url = None;
+                        }
+                    }
                     if let Ok(mut cache) = ARTIST_PROFILE_CACHE.write() {
-                        cache.insert(clean, info.clone());
+                        cache.insert(key, info.clone());
                     }
                     return Some(info);
                 }
@@ -77,17 +196,25 @@ pub fn load_cached_artist_profile(artist_name: &str) -> Option<OnlineArtistInfo>
 
 /// Persists an artist profile to both memory and disk cache.
 pub fn save_cached_artist_profile(artist_name: &str, info: &OnlineArtistInfo) {
-    let clean = clean_primary_artist(artist_name);
-    if clean.is_empty() {
+    let key = canonical_artist_key(artist_name);
+    if key.is_empty() {
         return;
     }
 
-    if let Ok(mut cache) = ARTIST_PROFILE_CACHE.write() {
-        cache.insert(clean.clone(), info.clone());
+    let mut sanitized = info.clone();
+    if let Some(ref img) = sanitized.image_url {
+        if !is_valid_profile_image_url(img) {
+            sanitized.image_url = None;
+        }
     }
 
+    if let Ok(mut cache) = ARTIST_PROFILE_CACHE.write() {
+        cache.insert(key, sanitized.clone());
+    }
+
+    let clean = clean_primary_artist(artist_name);
     if let Some(path) = artist_cache_file_path(&clean) {
-        if let Ok(json_str) = serde_json::to_string_pretty(info) {
+        if let Ok(json_str) = serde_json::to_string_pretty(&sanitized) {
             let _ = std::fs::write(path, json_str);
         }
     }
@@ -116,7 +243,8 @@ fn is_close_bracket(ch: char) -> bool {
 /// delimiters such as ',', ';', '/', '&', '&amp;', 'x', 'vs.', 'feat.', 'ft.', 'featuring', 'with',
 /// and Japanese / East Asian punctuation: '＆', '，', '、', '・', '×', '✕', '／', '；', '＋'.
 pub fn split_artist_string(raw: &str) -> Vec<String> {
-    let trimmed = raw.trim();
+    let normalized = normalize_artist_characters(raw);
+    let trimmed = normalized.trim();
     if trimmed.is_empty() {
         return Vec::new();
     }
@@ -258,9 +386,9 @@ pub fn split_artist_string(raw: &str) -> Vec<String> {
             t = t[t.len() - rest.len()..].trim();
         }
 
-        let cleaned = t.trim();
-        if !cleaned.is_empty() && !is_ignorable_artist(cleaned) {
-            results.push(cleaned.to_string());
+        let cleaned = normalize_artist_characters(t.trim());
+        if !cleaned.is_empty() && !is_ignorable_artist(&cleaned) {
+            results.push(cleaned);
         }
     }
 
@@ -395,32 +523,36 @@ pub fn extract_all_artists_from_track(track: &TrackEntry) -> Vec<String> {
         }
     }
 
-    // Deduplicate case-insensitively, preferring mixed/title-casing over ALL-CAPS or all-lowercase
+    // Deduplicate case-insensitively with character altmap normalization, preferring mixed/title-casing over ALL-CAPS or all-lowercase
     let mut deduplicated: Vec<String> = Vec::new();
 
     for candidate in candidates {
-        let cand_lower = candidate.to_lowercase();
-        if let Some(pos) = deduplicated.iter().position(|existing| existing.to_lowercase() == cand_lower) {
-            if should_prefer_casing(&candidate, &deduplicated[pos]) {
-                deduplicated[pos] = candidate;
+        let norm_cand = normalize_artist_characters(&candidate);
+        if norm_cand.is_empty() || is_ignorable_artist(&norm_cand) {
+            continue;
+        }
+        let cand_key = canonical_artist_key(&norm_cand);
+        if let Some(pos) = deduplicated.iter().position(|existing| canonical_artist_key(existing) == cand_key) {
+            if should_prefer_casing(&norm_cand, &deduplicated[pos]) {
+                deduplicated[pos] = norm_cand;
             }
         } else {
-            deduplicated.push(candidate);
+            deduplicated.push(norm_cand);
         }
     }
 
     deduplicated
 }
 
-/// Checks if a track features or is by a given artist name (case-insensitive).
+/// Checks if a track features or is by a given artist name using character altmap and case insensitivity.
 pub fn track_has_artist(track: &TrackEntry, target_artist: &str) -> bool {
-    let target = target_artist.trim().to_lowercase();
-    if target.is_empty() {
+    let target_key = canonical_artist_key(target_artist);
+    if target_key.is_empty() {
         return false;
     }
     extract_all_artists_from_track(track)
         .iter()
-        .any(|a| a.to_lowercase() == target)
+        .any(|a| canonical_artist_key(a) == target_key)
 }
 
 /// Extracts all unique individual artists across all tracks in the library,
@@ -438,16 +570,16 @@ pub fn extract_all_unique_artists(tracks: &[TrackEntry]) -> Vec<ArtistSummary> {
                 continue;
             }
 
-            let lower = artist.to_lowercase();
-            if let Some(existing) = canonical_names.get_mut(&lower) {
+            let key = canonical_artist_key(&artist);
+            if let Some(existing) = canonical_names.get_mut(&key) {
                 if should_prefer_casing(&artist, existing) {
                     *existing = artist.clone();
                 }
             } else {
-                canonical_names.insert(lower.clone(), artist.clone());
+                canonical_names.insert(key.clone(), artist.clone());
             }
 
-            let entry = artist_map.entry(lower).or_insert_with(|| (Vec::new(), HashSet::new()));
+            let entry = artist_map.entry(key).or_insert_with(|| (Vec::new(), HashSet::new()));
             if !entry.0.iter().any(|t| t.path == track.path) {
                 entry.0.push(track.clone());
             }
@@ -457,8 +589,8 @@ pub fn extract_all_unique_artists(tracks: &[TrackEntry]) -> Vec<ArtistSummary> {
 
     let mut list: Vec<ArtistSummary> = artist_map
         .into_iter()
-        .map(|(lower, (artist_tracks, albums))| {
-            let name = canonical_names.get(&lower).cloned().unwrap_or(lower);
+        .map(|(key, (artist_tracks, albums))| {
+            let name = canonical_names.get(&key).cloned().unwrap_or(key);
             let fallback_artwork_url = artist_tracks.iter().find_map(|t| t.artwork_data_url.clone());
             let photo_url = load_cached_artist_profile(&name).and_then(|p| p.image_url);
             let sample_track = artist_tracks[0].clone();
@@ -478,13 +610,14 @@ pub fn extract_all_unique_artists(tracks: &[TrackEntry]) -> Vec<ArtistSummary> {
 }
 
 /// Computes the primary artist name, stripping collaborative '&', 'feat.', or 'ft.' clauses
-/// while respecting multi-artist delimiters.
+/// while respecting multi-artist delimiters and character altmap normalization.
 pub fn clean_primary_artist(raw_artist: &str) -> String {
-    let artists = split_artist_string(raw_artist);
+    let normalized = normalize_artist_characters(raw_artist);
+    let artists = split_artist_string(&normalized);
     if let Some(first) = artists.into_iter().next() {
         first
     } else {
-        raw_artist.trim().to_string()
+        normalized.trim().to_string()
     }
 }
 
@@ -509,15 +642,15 @@ pub fn find_favorite_artist(
             if is_ignorable_artist(&artist) {
                 continue;
             }
-            let lower = artist.to_lowercase();
-            if let Some(existing) = canonical_names.get_mut(&lower) {
+            let key = canonical_artist_key(&artist);
+            if let Some(existing) = canonical_names.get_mut(&key) {
                 if should_prefer_casing(&artist, existing) {
                     *existing = artist.clone();
                 }
             } else {
-                canonical_names.insert(lower.clone(), artist.clone());
+                canonical_names.insert(key.clone(), artist.clone());
             }
-            *artist_scores.entry(lower).or_insert(0) += recency_weight;
+            *artist_scores.entry(key).or_insert(0) += recency_weight;
         }
     }
 
@@ -528,21 +661,21 @@ pub fn find_favorite_artist(
             if is_ignorable_artist(&artist) {
                 continue;
             }
-            let lower = artist.to_lowercase();
-            if let Some(existing) = canonical_names.get_mut(&lower) {
+            let key = canonical_artist_key(&artist);
+            if let Some(existing) = canonical_names.get_mut(&key) {
                 if should_prefer_casing(&artist, existing) {
                     *existing = artist.clone();
                 }
             } else {
-                canonical_names.insert(lower.clone(), artist.clone());
+                canonical_names.insert(key.clone(), artist.clone());
             }
-            *artist_scores.entry(lower).or_insert(0) += 2;
+            *artist_scores.entry(key).or_insert(0) += 2;
         }
     }
 
     // Select artist with the highest composite score
-    let (top_lower, _) = artist_scores.into_iter().max_by_key(|(_, score)| *score)?;
-    let top_artist = canonical_names.get(&top_lower).cloned().unwrap_or(top_lower);
+    let (top_key, _) = artist_scores.into_iter().max_by_key(|(_, score)| *score)?;
+    let top_artist = canonical_names.get(&top_key).cloned().unwrap_or(top_key);
 
     // Bundle all library tracks by this artist using pinpointed track_has_artist
     let mut bundled: Vec<TrackEntry> = library_tracks
@@ -1382,24 +1515,57 @@ mod tests {
     }
 
     #[test]
+    fn test_normalize_artist_characters_altmap() {
+        assert_eq!(normalize_artist_characters("DECO＊27"), "DECO*27");
+        assert_eq!(normalize_artist_characters("DECO*27"), "DECO*27");
+        assert_eq!(canonical_artist_key("DECO＊27"), "deco*27");
+        assert_eq!(canonical_artist_key("DECO*27"), "deco*27");
+        assert_eq!(normalize_artist_characters("CosMo＠暴走P"), "CosMo@暴走P");
+        assert_eq!(normalize_artist_characters("ＡＢＢＡ"), "ABBA");
+        assert_eq!(normalize_artist_characters("初音ミク　"), "初音ミク");
+        assert_eq!(normalize_artist_characters("BPM １２０"), "BPM 120");
+    }
+
+    #[test]
+    fn test_extract_all_unique_artists_deduplicates_fullwidth_asterisk() {
+        let tracks = vec![
+            make_test_track("Rabbit Hole", "DECO*27", "Album 1", 180000),
+            make_test_track("Ghost Rule", "DECO*27", "Album 2", 200000),
+            make_test_track("YUMEYUME", "DECO＊27", "Project Mirai", 220000),
+            make_test_track("Other Song", "PinocchioP", "PINO", 150000),
+        ];
+
+        let summaries = extract_all_unique_artists(&tracks);
+        assert_eq!(summaries.len(), 2);
+
+        let deco = summaries.iter().find(|s| canonical_artist_key(&s.name) == "deco*27").expect("deco found");
+        assert_eq!(deco.track_count, 3);
+        assert_eq!(deco.album_count, 3);
+    }
+
+    #[test]
     fn test_artist_cache_memory_and_file_path() {
-        let path = artist_cache_file_path("DECO*27").expect("path created");
-        assert!(path.to_string_lossy().contains("DECO_27.json"));
+        let test_artist = "__attune_unit_test_mock_artist__";
+        let path = artist_cache_file_path(test_artist).expect("path created");
+        assert!(path.to_string_lossy().contains("__attune_unit_test_mock_artist__"));
 
         let info = OnlineArtistInfo {
-            name: Some("DECO*27".to_string()),
-            image_url: Some("https://example.com/avatar.jpg".to_string()),
+            name: Some(test_artist.to_string()),
+            image_url: Some("https://images.unsplash.com/mock-avatar.jpg".to_string()),
             bio: Some("Famous producer".to_string()),
             subscribers: Some("2.91M".to_string()),
             views: Some("1.8B views".to_string()),
             browse_id: Some("UC123".to_string()),
             ..Default::default()
         };
-        save_cached_artist_profile("DECO*27", &info);
+        save_cached_artist_profile(test_artist, &info);
 
-        let loaded = load_cached_artist_profile("DECO*27").expect("cached loaded");
-        assert_eq!(loaded.name.as_deref(), Some("DECO*27"));
-        assert_eq!(loaded.image_url.as_deref(), Some("https://example.com/avatar.jpg"));
+        let loaded = load_cached_artist_profile(test_artist).expect("cached loaded");
+        assert_eq!(loaded.name.as_deref(), Some(test_artist));
+        assert_eq!(loaded.image_url.as_deref(), Some("https://images.unsplash.com/mock-avatar.jpg"));
         assert_eq!(loaded.subscribers.as_deref(), Some("2.91M"));
+
+        // Clean up mock file so tests never pollute user cache
+        let _ = std::fs::remove_file(path);
     }
 }

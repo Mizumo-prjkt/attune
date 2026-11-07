@@ -22,6 +22,40 @@ pub fn Artists(
     let _ = *refresh_trigger.read();
     let all_artists = extract_all_unique_artists(&tracks);
 
+    // Proactive background profile resolver for uncached artists (throttled)
+    let uncached_artists: Vec<String> = all_artists
+        .iter()
+        .filter(|a| a.photo_url.is_none())
+        .map(|a| a.name.clone())
+        .take(12)
+        .collect();
+
+    use_effect(move || {
+        let uncached = uncached_artists.clone();
+        if !uncached.is_empty() {
+            spawn(async move {
+                let mut any_fetched = false;
+                for name in uncached {
+                    let n = name.clone();
+                    let res = tokio::task::spawn_blocking(move || {
+                        fetch_online_artist_profile(&n, false)
+                    })
+                    .await;
+                    if let Ok(info) = res {
+                        if info.image_url.is_some() || info.bio.is_some() {
+                            any_fetched = true;
+                        }
+                    }
+                    tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+                }
+                if any_fetched {
+                    let current = *refresh_trigger.read();
+                    refresh_trigger.set(current + 1);
+                }
+            });
+        }
+    });
+
     let query = search_query.read().trim().to_lowercase();
     let filtered_artists: Vec<_> = all_artists
         .into_iter()
@@ -111,7 +145,8 @@ pub fn Artists(
                             let name_click = name.clone();
                             let track_count = artist.track_count;
                             let album_count = artist.album_count;
-                            let art_url = artist.photo_url.clone().or_else(|| artist.fallback_artwork_url.clone());
+                            let fallback_art = artist.fallback_artwork_url.clone();
+                            let photo_art = artist.photo_url.clone();
 
                             rsx! {
                                 div {
@@ -120,15 +155,28 @@ pub fn Artists(
                                     onclick: move |_| on_select_artist.call(name_click.clone()),
 
                                     div { class: "artist-avatar-container",
-                                        if let Some(ref art) = art_url {
+                                        // Base layer: Silhouette person icon
+                                        div { class: "artist-avatar-fallback",
+                                            span { class: "material-icons md-48", "person" }
+                                        }
+                                        // Mid layer: Local album artwork if available
+                                        if let Some(ref fallback) = fallback_art {
                                             img {
-                                                src: "{art}",
-                                                alt: "{name}",
+                                                src: "{fallback}",
+                                                alt: "",
                                                 class: "artist-avatar-img",
+                                                style: "position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; z-index: 1;",
                                             }
-                                        } else {
-                                            div { class: "artist-avatar-fallback",
-                                                span { class: "material-icons md-48", "person" }
+                                        }
+                                        // Top layer: Online portrait if available and distinct
+                                        if let Some(ref photo) = photo_art {
+                                            if Some(photo) != fallback_art.as_ref() {
+                                                img {
+                                                    src: "{photo}",
+                                                    alt: "",
+                                                    class: "artist-avatar-img",
+                                                    style: "position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; z-index: 2;",
+                                                }
                                             }
                                         }
                                     }
@@ -217,9 +265,8 @@ pub fn ArtistDetail(
     });
 
     let profile = online_info.read().clone();
-    let effective_photo = profile.image_url.clone().or_else(|| {
-        artist_tracks.iter().find_map(|t| t.artwork_data_url.clone())
-    });
+    let fallback_art = artist_tracks.iter().find_map(|t| t.artwork_data_url.clone());
+    let online_photo = profile.image_url.clone();
 
     // 4. Discography Filter state for Artist View: "all", "albums", "singles"
     let mut discography_filter = use_signal(|| "all".to_string());
@@ -301,15 +348,28 @@ pub fn ArtistDetail(
             // 1. Hero Header: 232px Artist Avatar on left + Big Metadata on right
             div { class: "album-detail-hero",
                 div { class: "artist-avatar-box",
-                    if let Some(ref photo) = effective_photo {
+                    // Base layer: Silhouette person icon
+                    div { class: "album-cover-fallback",
+                        span { class: "material-icons md-64", "person" }
+                    }
+                    // Mid layer: Local album artwork if available
+                    if let Some(ref fallback) = fallback_art {
                         img {
                             class: "album-cover-img",
-                            src: "{photo}",
-                            alt: "{artist_name}",
+                            src: "{fallback}",
+                            alt: "",
+                            style: "position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; z-index: 1;",
                         }
-                    } else {
-                        div { class: "album-cover-fallback",
-                            span { class: "material-icons md-64", "person" }
+                    }
+                    // Top layer: Online portrait if available and distinct
+                    if let Some(ref photo) = online_photo {
+                        if Some(photo) != fallback_art.as_ref() {
+                            img {
+                                class: "album-cover-img",
+                                src: "{photo}",
+                                alt: "",
+                                style: "position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; z-index: 2;",
+                            }
                         }
                     }
                 }
@@ -319,10 +379,22 @@ pub fn ArtistDetail(
                     h1 { class: "album-meta-title", "{artist_name}" }
                     div { class: "album-meta-subline",
                         div { class: "album-artist-avatar",
-                            if let Some(ref photo) = effective_photo {
-                                img { src: "{photo}", alt: "{artist_name}" }
-                            } else {
-                                span { class: "material-icons md-14", style: "color: var(--accent-mint);", "verified" }
+                            span { class: "material-icons md-14", style: "color: var(--accent-mint);", "verified" }
+                            if let Some(ref fallback) = fallback_art {
+                                img {
+                                    src: "{fallback}",
+                                    alt: "",
+                                    style: "position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; z-index: 1;",
+                                }
+                            }
+                            if let Some(ref photo) = online_photo {
+                                if Some(photo) != fallback_art.as_ref() {
+                                    img {
+                                        src: "{photo}",
+                                        alt: "",
+                                        style: "position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; z-index: 2;",
+                                    }
+                                }
                             }
                         }
                         span { class: "album-artist-name", "{strings.verified_artist}" }
@@ -747,7 +819,7 @@ pub fn ArtistDetail(
                                                     div { class: "track-menu-divider" }
 
                                                     for other in extract_all_artists_from_track(&t) {
-                                                        if other.to_lowercase() != artist_name.to_lowercase() {
+                                                        if crate::artist_profile::canonical_artist_key(&other) != crate::artist_profile::canonical_artist_key(&artist_name) {
                                                             {
                                                                 let other_name = other.clone();
                                                                 rsx! {

@@ -3585,6 +3585,32 @@ This file records all major architectural decisions for **Attune**, including co
   - Clean, minimal, non-redundant Language settings card adhering strictly to the user's design preference.
   - All 63 desktop unit tests pass cleanly and release binary compiles successfully.
 
+---
+
+## ADR-102: Character Altmap Normalization for Artist Profiling, Canonical Cache Keying, and Resilient Multi-Layer Avatar Fallback
+- **Date**: 2026-11-08
+- **Status**: `LOCKED`
+- **Context**:
+  - Artist cards were splitting into separate entities when audio tags used Unicode variants (e.g. `DECO*27` with ASCII `*` U+002A vs `DECO＊27` with fullwidth `＊` U+FF0A).
+  - Calling out the local artist cache (`~/.cache/attune/artists/`) failed when special characters were stripped into underscores without canonical keying, and dummy test URLs (`https://example.com/avatar.jpg`) polluted the user's cache, causing WebKitGTK to render broken image boxes (`[?]`) and clipped alt text (`..O*27`).
+  - Furthermore, API queries (YouTube Music Innertube, Wikipedia) can handle special characters naturally, but our internal cache lookup, artist deduplication, and file path generation required canonical normalization.
+  - The single-element avatar rendering (`photo_url.or_else(fallback)`) completely discarded local embedded album art when a web photo was present, causing broken image boxes if the network was offline or the remote URL failed.
+- **Decision**:
+  1. Engineered `normalize_artist_characters(raw)` and `canonical_artist_key(name)` in `crates/attune-desktop/src/artist_profile.rs` and `crates/attune-music-metadata/src/innertube.rs`: maps fullwidth Latin/digits, variant asterisks (`＊`, `﹡`, `∗`, etc. -> `*`), tildes (`～`, `〜` -> `~`), hyphens (`－`, `‑`, `–`, `—`, `―`, `−` -> `-`), CJK quotes, slashes, brackets, and whitespace, while preserving all natural script characters (Kanji, Hiragana, Katakana, Cyrillic, etc.).
+  2. Preserved raw API queries in `crates/attune-music-metadata/src/innertube.rs` (`clean_query = query.trim()`), allowing external APIs to use special characters as needed without artificial mutation.
+  3. Canonicalized local cache keying in `ARTIST_PROFILE_CACHE` using `canonical_artist_key(artist_name)`, ensuring that `DECO*27`, `DECO＊27`, and case variations always hit the exact same cache entry.
+  4. Added `is_valid_profile_image_url(url)` to sanitize cache entries, preventing empty, non-HTTP(S), or test URLs (like `example.com`) from ever entering the cache. Fixed unit tests to use mock artist identifiers and clean up temporary files immediately.
+  5. Implemented Resilient 3-Layer Avatar Architecture in `crates/attune-desktop/src/stages/artists.rs`:
+     - Layer 0 (Base): Circular silhouette person icon.
+     - Layer 1 (Mid): High-fidelity local album artwork from the artist's library tracks (`fallback_artwork_url`), positioned absolutely with `alt: ""`.
+     - Layer 2 (Top): Online portrait (`photo_url`), positioned absolutely on top with `alt: ""`.
+  6. Added a throttled proactive background profile resolver in `Artists` stage that lazily resolves up to 12 uncached artists on mount without blocking the UI.
+- **Consequences**:
+  - `DECO*27` and `DECO＊27` merge into a single artist entry with 9 tracks and 5 albums.
+  - Zero broken image icons or clipped alt-text boxes.
+  - All 65 desktop tests and all workspace unit tests pass cleanly.
+
+
 
 
 

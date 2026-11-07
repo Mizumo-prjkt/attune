@@ -22,6 +22,98 @@ pub struct InnertubeArtistProfile {
     pub browse_id: Option<String>,
 }
 
+/// Unicode character altmap and normalization for artist names.
+/// Maps fullwidth characters, variant asterisks, Japanese / CJK punctuation, dashes, tildes,
+/// and spaces to clean standard representations, preventing broken lookups and split artist cards.
+pub fn normalize_artist_characters(raw: &str) -> String {
+    let mut result = String::with_capacity(raw.len());
+    let mut prev_is_space = false;
+
+    for ch in raw.chars() {
+        let mapped = match ch {
+            // Fullwidth & variant asterisks -> '*'
+            '＊' | '﹡' | '∗' | '✱' | '✲' | '✳' => Some('*'),
+
+            // Fullwidth Latin uppercase -> ASCII uppercase
+            'Ａ'..='Ｚ' => {
+                let ascii = ((ch as u32 - 'Ａ' as u32) + 'A' as u32) as u8 as char;
+                Some(ascii)
+            }
+            // Fullwidth Latin lowercase -> ASCII lowercase
+            'ａ'..='ｚ' => {
+                let ascii = ((ch as u32 - 'ａ' as u32) + 'a' as u32) as u8 as char;
+                Some(ascii)
+            }
+            // Fullwidth digits -> ASCII digits
+            '０'..='９' => {
+                let ascii = ((ch as u32 - '０' as u32) + '0' as u32) as u8 as char;
+                Some(ascii)
+            }
+
+            // Hyphens, dashes, minus signs -> '-'
+            '－' | '‐' | '‑' | '–' | '—' | '―' | '−' => Some('-'),
+
+            // Tildes & wave dashes -> '~'
+            '～' | '〜' => Some('~'),
+
+            // Slashes -> '/' and '\'
+            '／' => Some('/'),
+            '＼' => Some('\\'),
+
+            // Colons & Semicolons
+            '：' => Some(':'),
+            '；' => Some(';'),
+
+            // Exclamation & Question marks
+            '！' => Some('!'),
+            '？' => Some('?'),
+
+            // Commercial at
+            '＠' => Some('@'),
+
+            // Ampersand
+            '＆' => Some('&'),
+
+            // Apostrophes & Single quotes -> '\''
+            '’' | '‘' | '＇' | 'ʼ' | '｀' | '′' => Some('\''),
+
+            // Double quotes -> '"'
+            '”' | '“' | '＂' => Some('"'),
+
+            // Brackets & Parentheses
+            '（' => Some('('),
+            '）' => Some(')'),
+            '［' => Some('['),
+            '］' => Some(']'),
+            '｛' => Some('{'),
+            '｝' => Some('}'),
+
+            // Ideographic and non-breaking spaces -> ' '
+            '　' | '\u{00A0}' => Some(' '),
+
+            // Zero-width characters and BOM -> skip
+            '\u{200B}' | '\u{200C}' | '\u{200D}' | '\u{FEFF}' => None,
+
+            // Keep everything else as is
+            other => Some(other),
+        };
+
+        if let Some(c) = mapped {
+            if c.is_whitespace() {
+                if !prev_is_space && !result.is_empty() {
+                    result.push(' ');
+                    prev_is_space = true;
+                }
+            } else {
+                result.push(c);
+                prev_is_space = false;
+            }
+        }
+    }
+
+    result.trim().to_string()
+}
+
 /// Dynamic Google CDN avatar resizer.
 /// Appends or replaces the `=w...` sizing token with `=w{size}-h{size}-p-l90-rj`.
 pub fn resize_google_avatar_url(url: &str, size: u32) -> String {
@@ -516,6 +608,16 @@ mod tests {
             resized_plain,
             "https://lh3.googleusercontent.com/abc=w512-h512-p-l90-rj"
         );
+    }
+
+    #[test]
+    fn test_normalize_artist_characters() {
+        assert_eq!(normalize_artist_characters("DECO＊27"), "DECO*27");
+        assert_eq!(normalize_artist_characters("DECO*27"), "DECO*27");
+        assert_eq!(normalize_artist_characters("CosMo＠暴走P"), "CosMo@暴走P");
+        assert_eq!(normalize_artist_characters("ＡＢＢＡ"), "ABBA");
+        assert_eq!(normalize_artist_characters("初音ミク　"), "初音ミク");
+        assert_eq!(normalize_artist_characters("BPM １２０"), "BPM 120");
     }
 
     #[test]

@@ -1020,6 +1020,7 @@ body, html {
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
+  position: relative;
 }
 
 .album-artist-avatar img {
@@ -2190,6 +2191,7 @@ body, html {
   background: var(--bg-card);
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
   flex-shrink: 0;
+  position: relative;
 }
 
 .artist-avatar-img {
