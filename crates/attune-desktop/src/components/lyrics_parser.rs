@@ -12,7 +12,7 @@ pub struct LyricLine {
     pub text: String,
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, PartialEq, Default)]
 pub struct LyricsSheet {
     pub is_timed: bool,
     pub lines: Vec<LyricLine>,

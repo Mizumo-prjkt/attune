@@ -12,6 +12,7 @@ path = "src/main.rs"
 
 [dependencies]
 attune-core = { path = "../attune-core" }
+attune-player-syscore-playertoast-broadcast = { path = "../attune-player-syscore-playertoast-broadcast" }
 dioxus = { version = "0.6", features = ["desktop"] }
 image = { version = "0.25", default-features = false, features = ["jpeg", "png", "webp"] }
 base64 = "0.22"

@@ -8,6 +8,7 @@ pub mod artist_profile;
 mod components;
 mod config;
 mod dynamic_components;
+pub mod i18n;
 mod library;
 mod player;
 mod process_manager;

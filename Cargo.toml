@@ -9,6 +9,7 @@ members = [
     "crates/attune-music-metadata",
     "crates/attune-procmgr",
     "crates/attune-desktop",
+    "crates/attune-player-syscore-playertoast-broadcast",
 ]
 
 [workspace.package]

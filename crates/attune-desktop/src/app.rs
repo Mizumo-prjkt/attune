@@ -14,8 +14,9 @@ use crate::smart_shuffle::{self, ShuffleMode, SmartShuffleHistory};
 use crate::stages::{
     about::About, album_editor::AlbumEditor, albums::{AlbumGroup, Albums},
     artists::{ArtistDetail, Artists}, equalizer::Equalizer,
-    favorites::Favorites, for_you::ForYou, home::Home, library::Library,
-    process_manager::ProcessManager, settings::Settings, setup::SetupStage,
+    favorites::Favorites, for_you::ForYou, fullscreen_now_playing::FullscreenNowPlaying,
+    home::Home, library::Library, process_manager::ProcessManager,
+    settings::Settings, setup::SetupStage,
 };
 
 #[derive(Debug, Clone, PartialEq)]
@@ -35,6 +36,7 @@ pub enum StageView {
     Settings,
     ProcessManager,
     About,
+    FullscreenNowPlaying,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -63,6 +65,7 @@ impl NavigationState {
                     | StageView::AlbumEditor(_)
                     | StageView::ForYouDetail(_)
                     | StageView::ArtistDetail(_)
+                    | StageView::FullscreenNowPlaying
             )
     }
 
@@ -124,6 +127,7 @@ pub fn App() -> Element {
     // 1. Audio Engine & Library State
     let player = use_signal(|| Arc::new(Player::new()));
     let mut tracks = use_signal(Vec::<TrackEntry>::new);
+    let app_config = use_signal(config::load_config);
     let mut music_dir = use_signal(|| {
         let (dir, _) = config::resolve_music_dir(None);
         dir
@@ -384,6 +388,18 @@ pub fn App() -> Element {
             p.play_file(track.path.clone());
             current_track.set(Some(track.clone()));
             has_handled_track_end.set(false);
+
+            if app_config.read().system_media_toast {
+                let payload = attune_player_syscore_playertoast_broadcast::PlayerToastPayload {
+                    title: track.title.clone(),
+                    artist: track.artist.clone(),
+                    album: track.album.clone(),
+                    duration_ms: track.duration_ms,
+                    is_playing: true,
+                    artwork_path: None,
+                };
+                let _ = attune_player_syscore_playertoast_broadcast::broadcast_player_toast(&payload);
+            }
 
             // Record track in rotation history
             shuffle_history.write().record_played(track.path.clone());
@@ -775,6 +791,17 @@ pub fn App() -> Element {
                         }
                         p.set_current_profile(completed.incoming_bpm, completed.incoming_key.clone());
                         current_track.set(Some(new_track.clone()));
+                        if app_config.read().system_media_toast {
+                            let payload = attune_player_syscore_playertoast_broadcast::PlayerToastPayload {
+                                title: new_track.title.clone(),
+                                artist: new_track.artist.clone(),
+                                album: new_track.album.clone(),
+                                duration_ms: new_track.duration_ms,
+                                is_playing: true,
+                                artwork_path: None,
+                            };
+                            let _ = attune_player_syscore_playertoast_broadcast::broadcast_player_toast(&payload);
+                        }
                         shuffle_history.write().record_played(new_track.path.clone());
                         let sheet = resolve_companion_lyrics(&new_track.path).unwrap_or_else(LyricsSheet::empty);
                         lyrics_sheet.set(sheet);
@@ -886,7 +913,39 @@ pub fn App() -> Element {
     });
 
     rsx! {
-        div { class: "app-container",
+        div {
+            class: "app-container",
+            tabindex: "0",
+            onkeydown: move |e| {
+                let cfg = app_config.read();
+                if !cfg.enable_shortcuts {
+                    return;
+                }
+                if cfg.alt_shortcut_prefix && !e.modifiers().alt() {
+                    return;
+                }
+                match e.key() {
+                    Key::Character(ref c) if c == " " => {
+                        let p = player.read();
+                        if *is_playing.read() { p.pause(); } else { p.play(); }
+                    }
+                    Key::ArrowLeft => {
+                        let curr = *playback_pos_ms.read();
+                        player.read().seek_ms(curr.saturating_sub(5000));
+                    }
+                    Key::ArrowRight => {
+                        let curr = *playback_pos_ms.read();
+                        let dur = *playback_dur_ms.read();
+                        player.read().seek_ms((curr + 5000).min(dur));
+                    }
+                    Key::Escape => {
+                        if *nav_state.read().current() == StageView::FullscreenNowPlaying {
+                            nav_state.write().back();
+                        }
+                    }
+                    _ => {}
+                }
+            },
             div { class: "ambient-mesh" }
 
             // ==========================================
@@ -1124,6 +1183,7 @@ pub fn App() -> Element {
                                 recent_tracks: recent_tracks.read().clone(),
                                 harmonic_matches: harmonic_matches.clone(),
                                 all_tracks: tracks.read().clone(),
+                                home_subtext: app_config.read().home_subtext.clone(),
                                 on_play_track: move |t| play_track(t),
                                 on_play_tracks: move |list| play_track_list(list),
                                 on_queue_track: move |t| queue.write().push(t),
@@ -1441,6 +1501,68 @@ pub fn App() -> Element {
                         StageView::About => rsx! {
                             About {}
                         },
+                        StageView::FullscreenNowPlaying => {
+                            let curr_track = current_track.read().clone();
+                            let is_p = *is_playing.read();
+                            let pos_ms = *playback_pos_ms.read();
+                            let dur_ms = *playback_dur_ms.read();
+                            let sheet = lyrics_sheet.read().clone();
+                            let active_idx = *active_lyric_index.read();
+                            let s_mode = *shuffle_mode.read();
+                            let cfg = app_config.read().clone();
+
+                            rsx! {
+                                FullscreenNowPlaying {
+                                    current_track: curr_track,
+                                    is_playing: is_p,
+                                    position_ms: pos_ms,
+                                    duration_ms: dur_ms,
+                                    shuffle_mode: s_mode,
+                                    lyrics_sheet: sheet,
+                                    active_lyric_index: active_idx,
+                                    config: cfg,
+                                    on_toggle_play: move |_| {
+                                        let p = player.read();
+                                        if *is_playing.read() { p.pause(); } else { p.play(); }
+                                    },
+                                    on_seek: move |ms| {
+                                        let p = player.read();
+                                        p.seek_ms(ms);
+                                    },
+                                    on_prev: move |_| {
+                                        let q = queue.read();
+                                        if !q.is_empty() {
+                                            let curr = *queue_pos.read();
+                                            let prev_idx = if curr > 0 { curr - 1 } else { q.len() - 1 };
+                                            let track = q[prev_idx].clone();
+                                            drop(q);
+                                            play_track(track);
+                                        }
+                                    },
+                                    on_next: move |_| {
+                                        let q = queue.read();
+                                        if !q.is_empty() {
+                                            let curr = *queue_pos.read();
+                                            let next_idx = (curr + 1) % q.len();
+                                            let track = q[next_idx].clone();
+                                            drop(q);
+                                            play_track(track);
+                                        }
+                                    },
+                                    on_cycle_shuffle: move |_| {
+                                        let next = match *shuffle_mode.read() {
+                                            ShuffleMode::Off => ShuffleMode::Linear,
+                                            ShuffleMode::Linear => ShuffleMode::Smart,
+                                            ShuffleMode::Smart => ShuffleMode::Off,
+                                        };
+                                        shuffle_mode.set(next);
+                                    },
+                                    on_exit: move |_| {
+                                        nav_state.write().back();
+                                    },
+                                }
+                            }
+                        },
                     }
                 }
             }
@@ -1498,7 +1620,15 @@ pub fn App() -> Element {
                                                 rsx! {
                                                     div {
                                                         key: "{idx}",
-                                                        class: if is_active { "lyric-line active" } else { "lyric-line" },
+                                                        class: if is_active {
+                                                            if app_config.read().sidebar_text_glow {
+                                                                "lyric-line active sidebar-text-glow"
+                                                            } else {
+                                                                "lyric-line active"
+                                                            }
+                                                        } else {
+                                                            "lyric-line"
+                                                        },
                                                         onclick: move |_| player.read().seek_ms(ts),
                                                         "{text}"
                                                     }
@@ -1866,8 +1996,8 @@ pub fn App() -> Element {
                     // Fullscreen / Stage Toggle
                     button {
                         class: "btn-ctrl",
-                        title: "Toggle Now Playing",
-                        onclick: move |_| navigate_to(StageView::Home),
+                        title: "Toggle Immersive Fullscreen Now Playing",
+                        onclick: move |_| navigate_to(StageView::FullscreenNowPlaying),
                         span { class: "material-icons md-20", "fullscreen" }
                     }
                 }

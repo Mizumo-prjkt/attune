@@ -3408,6 +3408,44 @@ This file records all major architectural decisions for **Attune**, including co
   - Zero unstyled buttons or default white boxes.
   - All 59 desktop tests and 112 workspace tests pass cleanly. Release binary compiles in under 1 minute.
 
+---
+
+## ADR-096: Dedicated 2-Column Settings Architecture, Standalone Window Execution, Lucky Guy Fullscreen Now Playing & System Player Toast Broadcaster
+- **Date**: 2026-11-07
+- **Status**: `LOCKED`
+- **Context**:
+  1. The user requested moving Settings to a dedicated 2-column layout matching the modern liquid glass aesthetic with an independent secondary native OS window option (`new_window`) that frees RAM upon dismissal.
+  2. Requested 8 categorized menu tabs: General, Audio, Language, Lyrics, API Providers, Directory & Indexes, Backup & Restore, Developer Options.
+  3. Strict Mandate 4 enforcement (zero hardcoding, dynamic GPU capability detection, transparent fallbacks).
+  4. System-level player interaction needed to be modularized into a dedicated crate (`attune-player-syscore-playertoast-broadcast`) to broadcast playback state to KDE/GNOME MPRIS and Windows toasts without bloating `attune-desktop`.
+  5. Fullscreen button in transport controls needed to open an immersive Lucky Guy Now Playing stage with synchronized lyrics, glowing singing line typography, album art gradient background, and background visualizer color pulse effects.
+  6. Licensing requirement for BiniLyrics `<am-lyrics>`: Modal agreement for Mozilla Public License Version 2.0 (MPL-2.0).
+- **Decision**:
+  1. **System-Level Player Toast Crate (`crates/attune-player-syscore-playertoast-broadcast`)**:
+     - Built an independent workspace crate dispatching non-blocking notifications via Linux `notify-send` and Windows PowerShell `ToastNotificationManager` with `PlayerToastPayload`.
+     - Integrated into `app.rs` on track start and automatic DJ transition handoff.
+  2. **2-Column Settings Stage & Standalone Window (`stages/settings.rs`)**:
+     - Engineered responsive 2-column Liquid Material Glass layout: left sidebar with 8 categorized tabs, right pane with liquid glass cards (`rgba(22, 28, 45, 0.70)`).
+     - Added `open_settings_window()` with `SETTINGS_WINDOW_OPEN` atomic guard and Dioxus desktop `new_window` spawning.
+     - Tab 1 General: Listener display name, Home DJ transition announcement banner subtext editor, Alt-prefix accidental press hotkey guard, shortcut toggles, and system media toast test button.
+     - Tab 2 Audio: `[EXPERIMENTAL]` 32-bit PCM float output toggle, Skip Silence toggle, Codec Engine switcher (Attune vs System Default with transition lock warning), and Open Studio Equalizer button.
+     - Tab 3 Language: English (US) vs Wikang Filipino (Tagalog) and exportable dictionary template JSON (`i18n::export_language_template_json`).
+     - Tab 4 Lyrics: Priority source matrix, provider switcher (LRCLIB, BiniLyrics `<am-lyrics>`, Musixmatch), MPL-2.0 modal license agreement, Musixmatch API key input, font selector (`System Default`, `Plus Jakarta Sans`, `Sora`, `Inter`, `Roboto`), sidebar glowing text toggle, and fullscreen visual options.
+     - Tab 5 API Providers: Provider priority matrix, toggles for YouTube Music Innertube API, Wikipedia + MusicBrainz, and Musixmatch.
+     - Tab 6 Directory & Indexes: Music directories management, tree vs flat hierarchy display, minimum song duration filter (e.g. 60s disqualification), song exclusion index, and `[EXPERIMENTAL]` GPU parallel indexing offload with live hardware probe.
+     - Tab 7 Backup & Restore: POSIX ustar TAR archive backup creation (`export_backup_tar`) and archive restoration (`import_backup_tar`) for `config.json` and `library_cache.json`.
+     - Tab 8 Developer Options: Smart Shuffle micro-verdict latency and candidate throughput benchmark, external shared library preflight diagnostics, memory trim, and thumbnail/portrait cache clearing.
+  3. **Strict Mandate 4 Compliance & Dynamic Hardware Probing (`config.rs`)**:
+     - Implemented `probe_gpu_capabilities()` inspecting `/sys/class/drm`, Vulkan (`vulkaninfo`), and OpenCL (`/etc/OpenCL/vendors`, `clinfo`). Gracefully disables GPU offload with transparent diagnostics if criteria (Vulkan >= 1.1 / OpenCL) are not met (e.g. legacy HD 5xxx series).
+  4. **Fullscreen Now Playing Stage (`stages/fullscreen_now_playing.rs`)**:
+     - Built Lucky Guy mode (`StageView::FullscreenNowPlaying`): left column with 320px album artwork, title, artist, audio profile badge, range scrubber, transport controls; right column with flowing synchronized lyrics.
+     - Dynamic album gradient background (`fullscreen_gradient_bg`), breathing visualizer orbs (`fullscreen_visualizer_effects`), and cream white `#FFFDD0` text glow (`fullscreen_text_glow`).
+     - Transport bar fullscreen button rewired to toggle immersive stage; Escape key returns to previous stage.
+- **Consequences**:
+  - Full adherence to Mandate 4 with 0 hardcoded values and transparent system diagnostics.
+  - All 63 desktop tests and all 118 workspace tests pass cleanly. Release binary compiles in 1m 03s.
+
+
 
 
 

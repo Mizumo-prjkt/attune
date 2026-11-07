@@ -11,6 +11,8 @@ pub fn Home(
     harmonic_matches: Vec<TrackEntry>,
     #[props(default)]
     all_tracks: Vec<TrackEntry>,
+    #[props(default)]
+    home_subtext: Option<String>,
     on_play_track: EventHandler<TrackEntry>,
     #[props(default)]
     on_play_tracks: EventHandler<Vec<TrackEntry>>,
@@ -73,7 +75,7 @@ pub fn Home(
                         "{greeting}, {username}"
                     }
                     p { style: "color: var(--text-secondary); font-size: 13.5px; margin-top: 4px;",
-                        "Attune Dynamic DJ Transition Engine is active"
+                        "{home_subtext.as_deref().unwrap_or(\"Attune Dynamic DJ Transition Engine is active\")}"
                     }
                 }
             }
