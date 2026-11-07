@@ -128,6 +128,12 @@ pub fn App() -> Element {
         let (dir, _) = config::resolve_music_dir(None);
         dir
     });
+    let mut extra_music_dirs = use_signal(|| {
+        config::load_config().extra_music_dirs
+    });
+    let mut song_exclusions = use_signal(|| {
+        config::load_config().song_exclusions
+    });
     let mut is_scanning = use_signal(|| false);
     let mut scan_progress = use_signal(|| (0usize, 0usize));
     let mut last_scanned_file = use_signal(String::new);
@@ -174,19 +180,74 @@ pub fn App() -> Element {
     let mut dock_mode = use_signal(|| DockMode::Lyrics);
     let mut search_query = use_signal(String::new);
 
-    // Initial cache loading or scan on launch if music directory is resolved
-    use_hook(|| {
-        if let Some(dir) = music_dir.read().clone() {
-            if let Some(cached) = library::load_library_cache(&dir) {
-                tracks.set(cached.clone());
-                if queue.read().is_empty() {
-                    queue.set(cached);
+    // Helper: Scans all configured libraries with exclusion filtering
+    let scan_all_libraries = {
+        let music_dir = music_dir.clone();
+        let extra_music_dirs = extra_music_dirs.clone();
+        let song_exclusions = song_exclusions.clone();
+        let mut tracks = tracks.clone();
+        let mut scan_rx = scan_rx.clone();
+        let mut is_scanning = is_scanning.clone();
+        move || {
+            let mut all_dirs = Vec::new();
+            if let Some(ref d) = music_dir.read().clone() {
+                if d.is_dir() && !all_dirs.contains(d) {
+                    all_dirs.push(d.clone());
                 }
-            } else if crate::config::is_setup_completed() {
-                let rx = library::spawn_scan(dir);
-                *scan_rx.write() = Arc::new(Mutex::new(Some(rx)));
-                is_scanning.set(true);
             }
+            for d in extra_music_dirs.read().iter() {
+                if d.is_dir() && !all_dirs.contains(d) {
+                    all_dirs.push(d.clone());
+                }
+            }
+            if all_dirs.is_empty() {
+                return;
+            }
+            tracks.set(Vec::new());
+            let rx = library::spawn_scan_multi(all_dirs, song_exclusions.read().clone());
+            *scan_rx.write() = Arc::new(Mutex::new(Some(rx)));
+            is_scanning.set(true);
+        }
+    };
+
+    // Initial cache loading or scan on launch across all resolved music directories
+    use_hook(|| {
+        let mut all_dirs = Vec::new();
+        if let Some(dir) = music_dir.read().clone() {
+            if dir.is_dir() {
+                all_dirs.push(dir);
+            }
+        }
+        for d in extra_music_dirs.read().iter() {
+            if d.is_dir() && !all_dirs.contains(d) {
+                all_dirs.push(d.clone());
+            }
+        }
+        let exclusions = song_exclusions.read().clone();
+
+        let mut loaded_tracks = Vec::new();
+        let mut any_uncached = false;
+        for dir in &all_dirs {
+            if let Some(cached) = library::load_library_cache(dir) {
+                for t in cached {
+                    if !crate::config::AppConfig::is_path_or_title_excluded(&exclusions, &t.path, Some(&t.title)) {
+                        loaded_tracks.push(t);
+                    }
+                }
+            } else {
+                any_uncached = true;
+            }
+        }
+
+        if !loaded_tracks.is_empty() && !any_uncached {
+            tracks.set(loaded_tracks.clone());
+            if queue.read().is_empty() {
+                queue.set(loaded_tracks);
+            }
+        } else if !all_dirs.is_empty() && crate::config::is_setup_completed() {
+            let rx = library::spawn_scan_multi(all_dirs, exclusions);
+            *scan_rx.write() = Arc::new(Mutex::new(Some(rx)));
+            is_scanning.set(true);
         }
     });
 
@@ -369,8 +430,21 @@ pub fn App() -> Element {
     // Helper: Start playlist / album / mix
     let mut play_track_list = {
         let mut play_track = play_track.clone();
+        let player = player.clone();
         move |list: Vec<TrackEntry>| {
-            if list.is_empty() { return; }
+            if list.is_empty() {
+                let mut q = queue.read().clone();
+                q.clear();
+                queue.set(q);
+                queue_pos.set(0);
+                player.read().stop();
+                is_playing.set(false);
+                current_track.set(None);
+                pending_trans_info.set(None);
+                last_verdict.set(None);
+                is_transition_active.set(false);
+                return;
+            }
             queue.set(list.clone());
             queue_pos.set(0);
             play_track(list[0].clone());
@@ -803,6 +877,7 @@ pub fn App() -> Element {
     };
     let vol_pct = (*volume_pct.read()).clamp(0, 100);
     let (scan_curr, scan_total) = *scan_progress.read();
+    let extra_sources_count = extra_music_dirs.read().len();
 
     let curr_track_clone = current_track.read().clone();
     let mini_pill_info = curr_track_clone.as_ref().map(|track| {
@@ -890,37 +965,46 @@ pub fn App() -> Element {
                     div { style: "display: flex; align-items: center; gap: 6px; padding: 6px 8px; font-size: 11.5px; color: var(--text-muted); word-break: break-all; background: rgba(255,255,255,0.03); border-radius: 6px; border: 1px solid var(--border-glass); margin-bottom: 8px;",
                         span { class: "material-icons md-16", "folder" }
                         if let Some(dir) = music_dir.read().as_ref() {
-                            "{dir.display()}"
+                            if extra_sources_count > 0 {
+                                span { "{dir.file_name().and_then(|s| s.to_str()).unwrap_or(\"Music\")} (+{extra_sources_count} more)" }
+                            } else {
+                                span { "{dir.display()}" }
+                            }
                         } else {
-                            "No folder chosen"
+                            span { "No folder chosen" }
                         }
                     }
                     div { style: "display: flex; gap: 6px;",
                         button {
                             class: "btn-pill",
                             style: "flex: 1; padding: 4px 8px; font-size: 11.5px;",
-                            onclick: move |_| {
-                                if let Some(path) = rfd::FileDialog::new().pick_folder() {
-                                    music_dir.set(Some(path.clone()));
-                                    tracks.set(Vec::new());
-                                    let rx = library::spawn_scan(path);
-                                    *scan_rx.write() = Arc::new(Mutex::new(Some(rx)));
-                                    is_scanning.set(true);
+                            onclick: {
+                                let mut scan_all = scan_all_libraries.clone();
+                                move |_| {
+                                    if let Some(path) = rfd::FileDialog::new().pick_folder() {
+                                        config::add_music_dir(path.clone());
+                                        if music_dir.read().is_none() {
+                                            music_dir.set(Some(path));
+                                        } else {
+                                            let mut extras = extra_music_dirs.read().clone();
+                                            if !extras.contains(&path) {
+                                                extras.push(path);
+                                                extra_music_dirs.set(extras);
+                                            }
+                                        }
+                                        scan_all();
+                                    }
                                 }
                             },
-                            "Choose"
+                            "Add Folder"
                         }
                         button {
                             class: "btn-pill",
                             style: "flex: 1; padding: 4px 8px; font-size: 11.5px;",
                             disabled: music_dir.read().is_none() || *is_scanning.read(),
-                            onclick: move |_| {
-                                if let Some(dir) = music_dir.read().clone() {
-                                    tracks.set(Vec::new());
-                                    let rx = library::spawn_scan(dir);
-                                    *scan_rx.write() = Arc::new(Mutex::new(Some(rx)));
-                                    is_scanning.set(true);
-                                }
+                            onclick: {
+                                let mut scan_all = scan_all_libraries.clone();
+                                move |_| scan_all()
                             },
                             if *is_scanning.read() { "Scanning..." } else { "Rescan" }
                         }
@@ -1263,6 +1347,9 @@ pub fn App() -> Element {
                             rsx! {
                                 Settings {
                                     music_dir: music_dir.read().clone(),
+                                    extra_music_dirs: extra_music_dirs.read().clone(),
+                                    song_exclusions: song_exclusions.read().clone(),
+                                    tracks: tracks.read().clone(),
                                     music_dir_source: dir_src.label().to_string(),
                                     has_hardware_output: has_hw,
                                     driver_error: drv_err,
@@ -1274,21 +1361,72 @@ pub fn App() -> Element {
                                             player.read().clear_pending_transition();
                                         }
                                     },
-                                    on_choose_folder: move |_| {
-                                        if let Some(path) = rfd::FileDialog::new().pick_folder() {
-                                            music_dir.set(Some(path.clone()));
-                                            tracks.set(Vec::new());
-                                            let rx = library::spawn_scan(path);
-                                            *scan_rx.write() = Arc::new(Mutex::new(Some(rx)));
-                                            is_scanning.set(true);
+                                    on_choose_folder: {
+                                        let mut scan_all = scan_all_libraries.clone();
+                                        move |_| {
+                                            if let Some(path) = rfd::FileDialog::new().pick_folder() {
+                                                music_dir.set(Some(path.clone()));
+                                                config::set_setup_completed(true, Some(path));
+                                                scan_all();
+                                            }
                                         }
                                     },
-                                    on_rescan_library: move |_| {
-                                        if let Some(dir) = music_dir.read().clone() {
-                                            tracks.set(Vec::new());
-                                            let rx = library::spawn_scan(dir);
-                                            *scan_rx.write() = Arc::new(Mutex::new(Some(rx)));
-                                            is_scanning.set(true);
+                                    on_add_folder: {
+                                        let mut scan_all = scan_all_libraries.clone();
+                                        move |_| {
+                                            if let Some(path) = rfd::FileDialog::new().pick_folder() {
+                                                config::add_music_dir(path.clone());
+                                                let mut extras = extra_music_dirs.read().clone();
+                                                if !extras.contains(&path) {
+                                                    extras.push(path);
+                                                    extra_music_dirs.set(extras);
+                                                }
+                                                scan_all();
+                                            }
+                                        }
+                                    },
+                                    on_remove_folder: {
+                                        let mut scan_all = scan_all_libraries.clone();
+                                        move |rem_path: PathBuf| {
+                                            config::remove_music_dir(&rem_path);
+                                            let mut extras = extra_music_dirs.read().clone();
+                                            extras.retain(|p| p != &rem_path);
+                                            extra_music_dirs.set(extras);
+                                            if music_dir.read().as_ref() == Some(&rem_path) {
+                                                music_dir.set(extra_music_dirs.read().first().cloned());
+                                            }
+                                            scan_all();
+                                        }
+                                    },
+                                    on_rescan_library: {
+                                        let mut scan_all = scan_all_libraries.clone();
+                                        move |_| scan_all()
+                                    },
+                                    on_add_exclusion: {
+                                        let mut scan_all = scan_all_libraries.clone();
+                                        move |pattern: String| {
+                                            config::add_song_exclusion(pattern.clone());
+                                            let mut excs = song_exclusions.read().clone();
+                                            if !excs.contains(&pattern) {
+                                                excs.push(pattern);
+                                                song_exclusions.set(excs);
+                                            }
+                                            let filtered: Vec<TrackEntry> = tracks.read().iter()
+                                                .filter(|t| !crate::config::AppConfig::is_path_or_title_excluded(&song_exclusions.read(), &t.path, Some(&t.title)))
+                                                .cloned()
+                                                .collect();
+                                            tracks.set(filtered);
+                                            scan_all();
+                                        }
+                                    },
+                                    on_remove_exclusion: {
+                                        let mut scan_all = scan_all_libraries.clone();
+                                        move |pattern: String| {
+                                            config::remove_song_exclusion(&pattern);
+                                            let mut excs = song_exclusions.read().clone();
+                                            excs.retain(|x| x != &pattern);
+                                            song_exclusions.set(excs);
+                                            scan_all();
                                         }
                                     },
                                     on_open_equalizer: move |_| navigate_to(StageView::Equalizer),
@@ -1411,6 +1549,13 @@ pub fn App() -> Element {
                                             let mut q = queue.read().clone();
                                             q.clear();
                                             queue.set(q);
+                                            queue_pos.set(0);
+                                            player.read().stop();
+                                            is_playing.set(false);
+                                            current_track.set(None);
+                                            pending_trans_info.set(None);
+                                            last_verdict.set(None);
+                                            is_transition_active.set(false);
                                         },
                                         "Clear"
                                     }

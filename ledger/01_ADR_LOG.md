@@ -3304,6 +3304,36 @@ This file records all major architectural decisions for **Attune**, including co
   - Zero hardcoding (Mandate 4): palette colors, track stats, formats, and biographies are derived dynamically.
   - All 53 desktop tests and 104 workspace tests pass cleanly. Release binary compiles in 42.35s.
 
+---
+
+## ADR-093: Playback Stop on Queue Wipe, `feat.<char>` Delimiter Splitting, Song Exclusion Index, Multiple Music Folders with Directory Tree Hierarchy, and Zero-Jitter Sidebar Item Selection
+- **Date**: 2026-11-07
+- **Status**: `LOCKED`
+- **Context**:
+  1. Clearing/wiping the Up Next queue pane previously left the current audio playing in the background rather than halting playback and resetting deck states.
+  2. Collaborative artist tags featuring non-spaced suffixes (e.g. `daniwellP feat.初音ミク` or `ArtistA ft.ArtistB`) failed to split because token matchers required trailing whitespace (`" feat. "`), causing collaborative combinations to be indexed as unitary monolithic artist names.
+  3. Power listeners with complex music hierarchies needed the ability to configure multiple music directories (instead of a single folder), inspect them in a directory tree hierarchy, and maintain a persistent **Song Exclusion Index** to omit unwanted tracks, interludes, or subdirectories from indexing and DJ transition queues.
+  4. Selecting options on the left navigation sidebar caused a visual jump in element dimensions (adding 2px border on active state only), causing adjacent sidebar items to jitter.
+- **Decision**:
+  1. **Playback Stop on Queue Wipe**:
+     - Added `Mixer::stop(&mut self)` to `attune-core` and `Player::stop(&self)` to `attune-desktop`, halting decks, clearing active transitions, and zeroing playhead positions.
+     - Updated queue "Clear" action and `play_track_list` to stop playback, clear current track, and reset pending transition states whenever the playlist is wiped.
+  2. **Zero-Spacing `feat.<char>` Delimiter Splitting**:
+     - Updated `split_artist_string` and `extract_featured_artists_from_title` to match `" feat."` and `" ft."` without requiring trailing whitespace, successfully splitting tokens like `daniwellP feat.初音ミク` into `["daniwellP", "初音ミク"]`.
+  3. **Multiple Music Folders & Directory Tree Hierarchy**:
+     - Added `extra_music_dirs: Vec<PathBuf>` to `AppConfig` and implemented `build_directory_tree` to hierarchically sort directories with branch connectors (`├── `, `└── `).
+     - Added Directory Tree / Flat List toggles, "Add Music Folder...", and per-directory exclusion actions in Settings.
+     - Implemented `library::spawn_scan_multi` to discover, index, and cache tracks across all configured roots in parallel.
+  4. **Song Exclusion Index**:
+     - Added `song_exclusions: Vec<String>` to `AppConfig` and implemented `is_path_or_title_excluded` in `config.rs`.
+     - Provided a dedicated Song Exclusion Index card in Settings with search/entry form, active exclusion chips, and one-click removal/restoration.
+     - Added "Exclude from Library" action to track context menus (`...`) in Album and Artist views.
+  5. **Zero-Jitter Sidebar Item Selection**:
+     - Added `border: 1px solid transparent; box-sizing: border-box; min-height: 38px; line-height: 1.2;` to `.nav-item` in `style.css`, transitioning only `border-color` on `.active`. Selection dimensions remain 100% constant without layout shift.
+- **Consequences**:
+  - Full adherence to Mandate 4 (zero hardcoded paths or exclusions).
+  - All 56 desktop tests and 107 workspace tests pass cleanly. Release binary compiles in under 45s.
+
 
 
 

@@ -367,6 +367,13 @@ impl Player {
         }
     }
 
+    pub fn stop(&self) {
+        self.clear_pending_transition();
+        if let Ok(mut m) = self.mixer.lock() {
+            m.stop();
+        }
+    }
+
     pub fn seek_ms(&self, ms: u64) {
         if let Ok(mut m) = self.mixer.lock() {
             match m.active_deck {

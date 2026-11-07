@@ -37,6 +37,10 @@ pub struct AppConfig {
     pub setup_completed: bool,
     #[serde(default)]
     pub music_dir: Option<PathBuf>,
+    #[serde(default)]
+    pub extra_music_dirs: Vec<PathBuf>,
+    #[serde(default)]
+    pub song_exclusions: Vec<String>,
 }
 
 impl Default for AppConfig {
@@ -44,8 +48,100 @@ impl Default for AppConfig {
         Self {
             setup_completed: false,
             music_dir: None,
+            extra_music_dirs: Vec::new(),
+            song_exclusions: Vec::new(),
         }
     }
+}
+
+impl AppConfig {
+    /// Returns all configured music directories: primary `music_dir` followed by any `extra_music_dirs`.
+    pub fn all_music_dirs(&self) -> Vec<PathBuf> {
+        let mut dirs = Vec::new();
+        if let Some(ref d) = self.music_dir {
+            if d.is_dir() && !dirs.contains(d) {
+                dirs.push(d.clone());
+            }
+        }
+        for d in &self.extra_music_dirs {
+            if d.is_dir() && !dirs.contains(d) {
+                dirs.push(d.clone());
+            }
+        }
+        dirs
+    }
+
+    /// Checks whether a track path or title is excluded under the exclusion index.
+    pub fn is_path_or_title_excluded(exclusions: &[String], path: &std::path::Path, title: Option<&str>) -> bool {
+        let path_str = path.to_string_lossy().to_lowercase();
+        let file_name = path.file_name()
+            .and_then(|s| s.to_str())
+            .map(|s| s.to_lowercase())
+            .unwrap_or_default();
+        let title_lower = title.map(|t| t.to_lowercase());
+
+        for exc in exclusions {
+            let exc_clean = exc.trim().to_lowercase();
+            if exc_clean.is_empty() {
+                continue;
+            }
+            if path_str.contains(&exc_clean)
+                || file_name == exc_clean
+                || title_lower.as_deref() == Some(&exc_clean)
+            {
+                return true;
+            }
+        }
+        false
+    }
+
+    pub fn is_excluded(&self, path: &std::path::Path, title: Option<&str>) -> bool {
+        Self::is_path_or_title_excluded(&self.song_exclusions, path, title)
+    }
+}
+
+/// Adds an exclusion to the song exclusion index and persists to config.
+pub fn add_song_exclusion(pattern: String) {
+    let mut cfg = load_config();
+    let trimmed = pattern.trim().to_string();
+    if !trimmed.is_empty() && !cfg.song_exclusions.iter().any(|x| x.eq_ignore_ascii_case(&trimmed)) {
+        cfg.song_exclusions.push(trimmed);
+        save_config(&cfg);
+    }
+}
+
+/// Removes an exclusion from the song exclusion index and persists to config.
+pub fn remove_song_exclusion(pattern: &str) {
+    let mut cfg = load_config();
+    cfg.song_exclusions.retain(|x| !x.eq_ignore_ascii_case(pattern));
+    save_config(&cfg);
+}
+
+/// Adds a music directory and persists to config.
+pub fn add_music_dir(dir: PathBuf) {
+    if !dir.is_dir() { return; }
+    let mut cfg = load_config();
+    if cfg.music_dir.is_none() {
+        cfg.music_dir = Some(dir);
+    } else if cfg.music_dir.as_ref() != Some(&dir) && !cfg.extra_music_dirs.contains(&dir) {
+        cfg.extra_music_dirs.push(dir);
+    }
+    save_config(&cfg);
+}
+
+/// Removes a music directory and persists to config.
+pub fn remove_music_dir(dir: &std::path::Path) {
+    let mut cfg = load_config();
+    if cfg.music_dir.as_deref() == Some(dir) {
+        cfg.music_dir = if !cfg.extra_music_dirs.is_empty() {
+            Some(cfg.extra_music_dirs.remove(0))
+        } else {
+            None
+        };
+    } else {
+        cfg.extra_music_dirs.retain(|d| d != dir);
+    }
+    save_config(&cfg);
 }
 
 /// Returns the configuration file path (~/.config/attune/config.json).
@@ -175,9 +271,26 @@ mod tests {
         let mut cfg = AppConfig::default();
         cfg.setup_completed = true;
         cfg.music_dir = Some(PathBuf::from("/tmp"));
+        cfg.extra_music_dirs = vec![PathBuf::from("/tmp/extra")];
+        cfg.song_exclusions = vec!["excluded_song.flac".to_string(), "sample".to_string()];
         let json = serde_json::to_string(&cfg).unwrap();
         let loaded: AppConfig = serde_json::from_str(&json).unwrap();
         assert!(loaded.setup_completed);
         assert_eq!(loaded.music_dir, Some(PathBuf::from("/tmp")));
+        assert_eq!(loaded.extra_music_dirs, vec![PathBuf::from("/tmp/extra")]);
+        assert_eq!(loaded.song_exclusions, vec!["excluded_song.flac", "sample"]);
+    }
+
+    #[test]
+    fn test_song_exclusion_matching() {
+        let exclusions = vec!["sample.wav".to_string(), "/skits/".to_string(), "Interlude".to_string()];
+        let path1 = PathBuf::from("/music/skits/track1.mp3");
+        let path2 = PathBuf::from("/music/sample.wav");
+        let path3 = PathBuf::from("/music/song.flac");
+
+        assert!(AppConfig::is_path_or_title_excluded(&exclusions, &path1, None));
+        assert!(AppConfig::is_path_or_title_excluded(&exclusions, &path2, None));
+        assert!(AppConfig::is_path_or_title_excluded(&exclusions, &path3, Some("Interlude")));
+        assert!(!AppConfig::is_path_or_title_excluded(&exclusions, &path3, Some("Good Song")));
     }
 }

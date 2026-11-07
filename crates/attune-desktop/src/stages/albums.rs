@@ -552,6 +552,20 @@ pub fn Albums(
                                                                     span { class: "material-icons md-16", "info" }
                                                                     span { "View Track Credits & Metadata" }
                                                                 }
+
+                                                                button {
+                                                                    class: "track-menu-item",
+                                                                    style: "color: #fb7185;",
+                                                                    onclick: {
+                                                                        let t_p = t.path.to_string_lossy().to_string();
+                                                                        move |_| {
+                                                                            active_menu_track.set(None);
+                                                                            crate::config::add_song_exclusion(t_p.clone());
+                                                                        }
+                                                                    },
+                                                                    span { class: "material-icons md-16", style: "color: #fb7185;", "block" }
+                                                                    span { "Exclude from Library" }
+                                                                }
                                                             }
                                                         }
                                                     }

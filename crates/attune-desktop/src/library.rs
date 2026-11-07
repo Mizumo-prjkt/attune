@@ -487,46 +487,70 @@ pub enum ScanEvent {
     Finished,
 }
 
-/// Spawns a fast worker that yields existing cached tracks immediately,
-/// then indexes any missing files without blocking.
-pub fn spawn_scan(root: PathBuf) -> Receiver<ScanEvent> {
+/// Spawns a fast worker across multiple root directories with song exclusion filtering,
+/// yielding existing cached tracks immediately and indexing missing files without blocking.
+pub fn spawn_scan_multi(roots: Vec<PathBuf>, exclusions: Vec<String>) -> Receiver<ScanEvent> {
     let (tx, rx) = mpsc::channel();
     thread::Builder::new()
         .name("attune-library-scan".into())
         .spawn(move || {
-            // 1. If disk cache exists, yield all cached tracks immediately (< 5ms)
-            if let Some(cached_tracks) = load_library_cache(&root) {
-                if tx.send(ScanEvent::Discovered(cached_tracks.len())).is_err() {
-                    return;
-                }
-                for t in cached_tracks {
-                    if tx.send(ScanEvent::Track(Box::new(t))).is_err() {
-                        return;
-                    }
-                }
+            let valid_roots: Vec<PathBuf> = roots.into_iter().filter(|r| r.is_dir()).collect();
+            if valid_roots.is_empty() {
+                let _ = tx.send(ScanEvent::Discovered(0));
                 let _ = tx.send(ScanEvent::Finished);
                 return;
             }
 
-            // 2. Otherwise discover and probe files
-            let files = LibraryScanner::discover_audio_files(&root);
-            log::info!("Discovered {} audio files under {}", files.len(), root.display());
-            if tx.send(ScanEvent::Discovered(files.len())).is_err() {
+            let mut all_scanned_tracks: Vec<TrackEntry> = Vec::new();
+
+            for root in &valid_roots {
+                // 1. Check if cache exists for this root
+                if let Some(cached_tracks) = load_library_cache(root) {
+                    for t in cached_tracks {
+                        if !crate::config::AppConfig::is_path_or_title_excluded(&exclusions, &t.path, Some(&t.title)) {
+                            all_scanned_tracks.push(t);
+                        }
+                    }
+                    continue;
+                }
+
+                // 2. Discover and probe files for uncached root
+                let files = LibraryScanner::discover_audio_files(root);
+                log::info!("Discovered {} audio files under {}", files.len(), root.display());
+                let mut root_tracks = Vec::with_capacity(files.len());
+                for file in files.iter() {
+                    if crate::config::AppConfig::is_path_or_title_excluded(&exclusions, file, None) {
+                        continue;
+                    }
+                    let entry = TrackEntry::profile_and_index(file);
+                    if !crate::config::AppConfig::is_path_or_title_excluded(&exclusions, &entry.path, Some(&entry.title)) {
+                        root_tracks.push(entry.clone());
+                        all_scanned_tracks.push(entry);
+                    }
+                }
+                let _ = save_library_cache(root, &root_tracks);
+            }
+
+            if tx.send(ScanEvent::Discovered(all_scanned_tracks.len())).is_err() {
                 return;
             }
-            let mut scanned = Vec::with_capacity(files.len());
-            for file in files.iter() {
-                let entry = TrackEntry::profile_and_index(file);
-                scanned.push(entry.clone());
-                if tx.send(ScanEvent::Track(Box::new(entry))).is_err() {
+
+            for t in all_scanned_tracks {
+                if tx.send(ScanEvent::Track(Box::new(t))).is_err() {
                     return;
                 }
             }
-            let _ = save_library_cache(&root, &scanned);
+
             let _ = tx.send(ScanEvent::Finished);
         })
         .expect("failed to spawn library scan thread");
     rx
+}
+
+/// Spawns a fast worker that yields existing cached tracks immediately,
+/// then indexes any missing files without blocking.
+pub fn spawn_scan(root: PathBuf) -> Receiver<ScanEvent> {
+    spawn_scan_multi(vec![root], Vec::new())
 }
 
 /// Formats milliseconds as `m:ss`.

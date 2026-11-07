@@ -161,6 +161,13 @@ impl DualDeckMixer {
         self.deck_b.pause();
     }
 
+    pub fn stop(&mut self) {
+        self.should_be_playing = false;
+        self.transition = None;
+        self.deck_a.stop();
+        self.deck_b.stop();
+    }
+
     pub fn is_playing(&self) -> bool {
         self.deck_a.is_playing() || self.deck_b.is_playing() || self.transition.is_some()
     }

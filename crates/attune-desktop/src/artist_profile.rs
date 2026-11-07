@@ -108,15 +108,27 @@ pub fn split_artist_string(raw: &str) -> Vec<String> {
         } else if remaining_lower.starts_with(" feat. ") {
             output.push('\x1f');
             i += 7;
+        } else if remaining_lower.starts_with(" feat.") {
+            output.push('\x1f');
+            i += 6;
         } else if remaining_lower.starts_with(" feat ") {
             output.push('\x1f');
             i += 6;
         } else if remaining_lower.starts_with(" ft. ") {
             output.push('\x1f');
             i += 5;
+        } else if remaining_lower.starts_with(" ft.") {
+            output.push('\x1f');
+            i += 4;
         } else if remaining_lower.starts_with(" ft ") {
             output.push('\x1f');
             i += 4;
+        } else if (i == 0 || chars[i - 1] == ' ' || chars[i - 1] == '\x1f' || !chars[i - 1].is_alphabetic())
+            && (remaining_lower.starts_with("feat.") || remaining_lower.starts_with("ft."))
+        {
+            let adv = if remaining_lower.starts_with("feat.") { 5 } else { 3 };
+            output.push('\x1f');
+            i += adv;
         } else if remaining_lower.starts_with(" with ") {
             output.push('\x1f');
             i += 6;
@@ -240,10 +252,14 @@ pub fn extract_featured_artists_from_title(title: &str) -> Vec<String> {
         let lower = trimmed.to_lowercase();
         let feat_cut = if let Some(pos) = lower.find(" feat. ") {
             Some(pos + 7)
+        } else if let Some(pos) = lower.find(" feat.") {
+            Some(pos + 6)
         } else if let Some(pos) = lower.find(" feat ") {
             Some(pos + 6)
         } else if let Some(pos) = lower.find(" ft. ") {
             Some(pos + 5)
+        } else if let Some(pos) = lower.find(" ft.") {
+            Some(pos + 4)
         } else if let Some(pos) = lower.find(" ft ") {
             Some(pos + 4)
         } else if let Some(pos) = lower.find(" featuring ") {
@@ -909,6 +925,31 @@ mod tests {
         assert_eq!(
             split_artist_string("Artist A、Artist B；Artist C／Artist D"),
             vec!["Artist A", "Artist B", "Artist C", "Artist D"]
+        );
+    }
+
+    #[test]
+    fn test_split_artist_string_feat_without_trailing_space() {
+        // Specifically testing "feat.<char>" without space, such as "daniwellP feat.初音ミク"
+        assert_eq!(
+            split_artist_string("daniwellP feat.初音ミク"),
+            vec!["daniwellP", "初音ミク"]
+        );
+        assert_eq!(
+            split_artist_string("ArtistA ft.ArtistB"),
+            vec!["ArtistA", "ArtistB"]
+        );
+        assert_eq!(
+            clean_primary_artist("daniwellP feat.初音ミク"),
+            "daniwellP"
+        );
+        assert_eq!(
+            extract_featured_artists_from_title("ねこみみスイッチ feat.初音ミク"),
+            vec!["初音ミク"]
+        );
+        assert_eq!(
+            extract_featured_artists_from_title("ねこみみスイッチ（feat.初音ミク）"),
+            vec!["初音ミク"]
         );
     }
 
