@@ -593,6 +593,12 @@ mod tests {
         assert_eq!(loaded.music_dir, Some(PathBuf::from("/tmp")));
         assert_eq!(loaded.extra_music_dirs, vec![PathBuf::from("/tmp/extra")]);
         assert_eq!(loaded.song_exclusions, vec!["excluded_song.flac", "sample"]);
+        assert!(loaded.auto_scroll_long_text);
+
+        cfg.auto_scroll_long_text = false;
+        let json2 = serde_json::to_string(&cfg).unwrap();
+        let loaded2: AppConfig = serde_json::from_str(&json2).unwrap();
+        assert!(!loaded2.auto_scroll_long_text);
     }
 
     #[test]

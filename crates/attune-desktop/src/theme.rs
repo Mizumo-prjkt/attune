@@ -14,6 +14,56 @@ pub const PRIMARY_HEX: &str = "#2DD4BF";
 pub const SECONDARY_HEX: &str = "#A855F7";
 pub const TERTIARY_HEX: &str = "#FB7185";
 
+/// Injected WebKit runtime script measuring overflowing text and enabling smooth ping-pong marquee scrolling.
+pub const MARQUEE_SCRIPT: &str = r#"
+<script>
+(function() {
+  function refreshMarquees() {
+    var isMovingEnabled = document.querySelector('.text-moving-enabled') !== null;
+    var elements = document.querySelectorAll('.marquee-text');
+    for (var i = 0; i < elements.length; i++) {
+      var el = elements[i];
+      var parent = el.parentElement;
+      if (!parent) continue;
+      var overflow = el.scrollWidth - parent.clientWidth;
+      if (isMovingEnabled && overflow > 2) {
+        if (!el.classList.contains('is-overflowing')) {
+          el.classList.add('is-overflowing');
+        }
+        el.style.setProperty('--scroll-dist', (overflow + 14) + 'px');
+        var dur = Math.max(4.5, Math.min(14.0, overflow / 20.0 + 3.0));
+        el.style.setProperty('--scroll-dur', dur.toFixed(2) + 's');
+      } else {
+        if (el.classList.contains('is-overflowing')) {
+          el.classList.remove('is-overflowing');
+          el.style.removeProperty('--scroll-dist');
+          el.style.removeProperty('--scroll-dur');
+        }
+      }
+    }
+  }
+
+  window.addEventListener('resize', refreshMarquees);
+  if (document.readyState === 'loading') {
+    window.addEventListener('DOMContentLoaded', initMarqueeObserver);
+  } else {
+    initMarqueeObserver();
+  }
+
+  function initMarqueeObserver() {
+    refreshMarquees();
+    var observer = new MutationObserver(function() {
+      requestAnimationFrame(refreshMarquees);
+    });
+    if (document.body) {
+      observer.observe(document.body, { childList: true, subtree: true, characterData: true });
+    }
+    setInterval(refreshMarquees, 2500);
+  }
+})();
+</script>
+"#;
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct DynamicPalette {
     pub primary: String,

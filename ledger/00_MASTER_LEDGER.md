@@ -2,7 +2,7 @@
 
 - **Project Name**: Attune
 - **Current Phase**: `Phase 6 IN PROGRESS -> Multi-Platform Packaging, Installer Scripting & Distribution Orchestration`
-- **Active Coding Status**: Completed ADR-106: Bidirectional System Media Player Integration — Linux MPRIS v2 over D-Bus & Windows System Media Transport Controls (SMTC) via WinRT, Dynamic Metadata & Artwork Streaming, Timeline Scrubber Synchronization, and Remote OS Transport Controls. Transformed the desktop integration from one-way notifications into a native system-level media player. On Linux, registers `org.mpris.MediaPlayer2.attune` over D-Bus; on Windows, binds to WinRT `ISystemMediaTransportControlsInterop`. Supports live album art and metadata streaming, continuous timeline scrubber tracking, hardware media keys, and full remote control (Play, Pause, Next, Previous, Seek, Volume, Shuffle, Repeat) from KDE Media Player widgets, GNOME media center, playerctl, and Windows 10/11 Quick Settings flyouts. All 70 desktop tests and 100% of workspace tests pass cleanly.
+- **Active Coding Status**: Completed ADR-107: Artist Avatar Verified Overlay Badge & Dynamic Responsive Marquee Auto-Scroll Architecture. Implemented the online-status-style verified badge overlay at the bottom-right of circular profile avatars in the Artists grid, eliminating detached inline checkmarks. Added a customizable General Settings toggle (`auto_scroll_long_text`) with full i18n support, enabling smooth back-and-forth ping-pong scrolling for overflowing titles, albums, and artist names, or strict ellipsis truncation (`...`) when disabled. Injected dynamic WebKit measurement script for proportional scroll duration and distance. All 70 desktop tests and 100% of workspace tests pass cleanly.
 
 
 ---

@@ -3725,3 +3725,37 @@ This file records all major architectural decisions for **Attune**, including co
   - KDE Plasma Media Player widget, GNOME media notification center, and Windows 10/11 Quick Settings flyout now recognize Attune as a native music player, display album art, title, artist, and timeline scrubber, and control playback seamlessly.
   - Hardware multimedia keys and `playerctl` work out of the box across desktop sessions.
   - All 6 unit tests in `attune-player-syscore-playertoast-broadcast`, all 70 unit tests in `attune-desktop`, and 100% of workspace tests pass cleanly.
+
+---
+
+## ADR-107: Artist Avatar Verified Overlay Badge & Dynamic Responsive Marquee Auto-Scroll Architecture
+- **Date**: 2026-11-08
+- **Status**: `LOCKED`
+- **Context**:
+  1. In the Artists grid view, verified checkmarks were previously rendered as detached floating icons in the text row next to the artist name, which looked disconnected and visually cluttered.
+  2. The user requested styling the verified status badge as an overlay at the bottom-right of the circular artist profile avatar—resembling modern online status indicators (like Discord/Steam presence indicators) with a genuine checkmark glyph for verified artists.
+  3. Long song titles, album names, and artist tags were previously abruptly cut off or forced into overflow, hiding valuable metadata from users on cards and player rows.
+  4. The user requested an accessible toggle in General Settings allowing text movement: when enabled, overflowing text moves smoothly back and forth (ping-pong marquee) so users can read the entire title/name; when disabled, overflow gracefully truncates with ellipsis (`...`).
+  5. Strict Mandate 4 adherence: zero hardcoding, full i18n support in English and Wikang Filipino, and seamless responsiveness.
+- **Decision**:
+  1. **Circular Avatar Verified Overlay Badge (`crates/attune-desktop/src/stages/artists.rs` & `style.css`)**:
+     - Introduced `.artist-avatar-wrapper` (`position: relative; width: 130px; height: 130px; margin: 0 auto 16px;`) wrapping `.artist-avatar-container`.
+     - Placed `.artist-avatar-verified-badge` positioned at `bottom: 2px; right: 4px; width: 26px; height: 26px; border-radius: 50%; background: #141a29; border: 2.5px solid #0a0e17; color: var(--accent-mint); box-shadow: 0 2px 8px rgba(0, 0, 0, 0.6);`.
+     - Removed detached checkmarks from the name row, leaving clean typography.
+     - Badge is strictly gated behind `artist.is_verified` (computed from online cached profiles via Innertube / Wikipedia API).
+  2. **Config & Settings Toggle (`crates/attune-desktop/src/config.rs` & `stages/settings.rs`)**:
+     - Added `pub auto_scroll_long_text: bool` with `#[serde(default = "default_true")]` to `AppConfig`, persisting to `attune_config.json`.
+     - Added an accessible card in `SettingsTab::General` with localized title, description, and `SwitchToggle`.
+     - Bound `.text-moving-enabled` or `.text-moving-disabled` dynamically to `.app-container` and `.settings-standalone-window`.
+  3. **Marquee Ping-Pong CSS & Dynamic WebKit Measurement Script (`style.css` & `theme.rs`)**:
+     - Styled `.marquee-container` and `.marquee-text`.
+     - Injected runtime script (`MARQUEE_SCRIPT`) via `with_custom_head` in `main.rs` and `settings.rs` that calculates exact overflow (`scrollWidth - clientWidth`) and sets dynamic CSS properties `--scroll-dist` and `--scroll-dur`.
+     - Under `.text-moving-enabled`, overflowing text animates back and forth via `@keyframes attune-pingpong-scroll` with a comfortable reading speed (`4.5s` to `14.0s`), pausing on hover.
+     - Under `.text-moving-disabled` or non-overflowing text, enforces strict ellipsis `...` truncation without animation.
+  4. **Internationalization & Testing**:
+     - Added `auto_scroll_long_text` and `auto_scroll_long_text_desc` to `AppStrings` for English and Wikang Filipino.
+     - Added unit tests in `config.rs` and `i18n.rs` verifying serialization roundtrips and template JSON inclusion.
+- **Consequences**:
+  - Modern, polished visual presentation matching user expectations.
+  - Full accessibility and customization for users who prefer static ellipsis truncation over moving text.
+  - All 70 desktop tests and workspace tests pass with 0 errors.

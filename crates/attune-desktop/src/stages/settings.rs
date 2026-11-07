@@ -169,7 +169,8 @@ pub fn open_settings_window() {
             .with_window(window)
             .with_menu(None)
             .with_custom_head(format!(
-                "<link rel=\"stylesheet\" href=\"https://fonts.googleapis.com/icon?family=Material+Icons\">\n<style>\n{icons_css}\n{css}\n</style>"
+                "<link rel=\"stylesheet\" href=\"https://fonts.googleapis.com/icon?family=Material+Icons\">\n<style>\n{icons_css}\n{css}\n</style>\n{}",
+                crate::theme::MARQUEE_SCRIPT
             ));
 
         dioxus::desktop::window().new_window(dom, cfg);
@@ -655,7 +656,13 @@ pub fn SettingsContent(
                             div { style: "display: flex; justify-content: space-between; align-items: center; margin-top: 12px; padding: 8px 0;",
                                 div {
                                     div { style: "font-weight: 500; font-size: 13.5px;", "{strings.auto_scroll_long_text}" }
-                                    div { style: "font-size: 12px; color: var(--text-muted);", "Animate overflowing text back and forth across album cards, artist grids, track rows, and player bar." }
+                                    div { style: "font-size: 12px; color: var(--text-muted);",
+                                        if curr_cfg.auto_scroll_long_text {
+                                            "{strings.enabled}"
+                                        } else {
+                                            "{strings.disabled}"
+                                        }
+                                    }
                                 }
                                 SwitchToggle {
                                     active: curr_cfg.auto_scroll_long_text,
