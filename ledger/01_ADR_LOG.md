@@ -3921,6 +3921,33 @@ This file records all major architectural decisions for **Attune**, including co
 
 ---
 
+## ADR-112: Graceful Error Screen & Candidate Gating for Unselected or Empty Song in Standalone Lyrics Finder Window
+- **Date**: 2026-11-08
+- **Status**: `LOCKED`
+- **Context**:
+  1. When opening the Lyrics Finder window while no song was playing or queued in Attune (or clicking the Find button with no active track), the window previously fell back to a dummy placeholder `TrackEntry { title: "Ready", artist: "Attune", ... }`.
+  2. This led the finder to treat `"Ready Attune"` as a genuine song candidate, searching the local audio directory and querying LRCLIB for dummy matches.
+  3. The user requested adding a condition where if there is no track or no song to be a candidate, the system errors out and clearly informs the user: `"Select tracks to find their lyrics"`.
+- **Decision**:
+  1. **Track Candidate Validity Check (`crates/attune-desktop/src/stages/lyrics_finder.rs`)**:
+     - Evaluated `is_track_valid`: verifies that the track exists (`track_opt.is_some()`), has a non-empty title that is not the placeholder `"Ready"`, and has a valid file path or non-zero duration (`!t.path.as_os_str().is_empty() || t.duration_ms > 0`).
+  2. **Liquid Glass Error View (`Select tracks to find their lyrics`)**:
+     - When `!is_track_valid`, the window bypasses the 2-column finder interface and renders a dedicated centered Liquid Glass error screen.
+     - Features a circular rose badge with `music_off` glyph, heading `"Select tracks to find their lyrics"`, descriptive guidance informing the user to select or play a song in Attune first, and a prominent `"Close Window"` button (`dioxus::desktop::window().close()`).
+  3. **Zero False Queries & Local CWD Guarding**:
+     - In `scan_local_lyric_files`, immediately returns an empty vector if `track.path.as_os_str().is_empty()` to avoid querying the app's current working directory.
+     - In `fetch_lrclib_candidates`, short-circuits and returns an empty vector if the query is blank or matches dummy placeholders (`"Ready"`, `"Ready Attune"`).
+  4. **Dock Header Button Dynamic Tooltip (`crates/attune-desktop/src/app.rs`)**:
+     - Updated the `title` attribute on the `[ Find ]` pill in `DockMode::Lyrics` to display `"Select tracks to find their lyrics"` when `current_track` is `None`.
+  5. **Verification**:
+     - Added unit test `test_empty_or_placeholder_track_returns_no_candidates` verifying that empty tracks and placeholder queries yield 0 candidates without initiating network or filesystem searches.
+     - All 81 desktop tests and workspace checks pass cleanly.
+- **Consequences**:
+  - No dummy "Ready Attune" cards or bogus queries are generated when no song is active.
+  - Listeners opening the window with no track see a clear, helpful error dialog stating `"Select tracks to find their lyrics"`.
+
+---
+
 ## ADR-113: Dedicated Contextual Settings Help Guide Pane & Elimination of Redundant Inspector Cards in Attune Desktop
 - **Date**: 2026-11-08
 - **Status**: `LOCKED`
@@ -3953,28 +3980,43 @@ This file records all major architectural decisions for **Attune**, including co
   - The right column of the Settings interface acts cleanly as a dedicated, focused Help Guide that dynamically adapts to each preferences tab.
   - No background polling runs while browsing settings, keeping the UI whisper-quiet and power-efficient.
   - Telemetry remains accessible on demand via the dedicated Process Manager modal.
+
+---
+
+## ADR-114: Desktop Lyrics Locked Follow & Free-Scroll Modes (Flutter Parity), Auto-Centering WebKit Script & Top-Right Control Bar Unification
 - **Date**: 2026-11-08
 - **Status**: `LOCKED`
 - **Context**:
-  1. When opening the Lyrics Finder window while no song was playing or queued in Attune (or clicking the Find button with no active track), the window previously fell back to a dummy placeholder `TrackEntry { title: "Ready", artist: "Attune", ... }`.
-  2. This led the finder to treat `"Ready Attune"` as a genuine song candidate, searching the local audio directory and querying LRCLIB for dummy matches.
-  3. The user requested adding a condition where if there is no track or no song to be a candidate, the system errors out and clearly informs the user: `"Select tracks to find their lyrics"`.
+  1. Synchronized lyrics in Fullscreen Now Playing and Desktop lyrics dock did not default to locked follow mode, allowing the view to drift away from the active singing line.
+  2. In the Flutter reference application (`apps/attune_app/lib/stages/synchronized_lyrics_stage.dart`), lyrics default to `_isLockedToActive = true`, auto-centering the currently active lyric line. When the listener scrolls manually, it enters free-scroll mode (`_isLockedToActive = false`) and displays a floating Liquid Glass `[ ⇕ Sync to Current Line ]` button at the bottom center.
+  3. In Fullscreen Now Playing, the `Lyrics Sources` button was placed at `position: absolute; top: 24px; right: 28px;` inside `.fullscreen-right-col`. Because `.fullscreen-floating-close` (`X` button) was fixed at `top: 24px; right: 28px;`, the two buttons directly collided and overlapped, the text squished and wrapped into `≡_ Lyrics \n Sources`, and it overlapped the scrollbar track.
 - **Decision**:
-  1. **Track Candidate Validity Check (`crates/attune-desktop/src/stages/lyrics_finder.rs`)**:
-     - Evaluated `is_track_valid`: verifies that the track exists (`track_opt.is_some()`), has a non-empty title that is not the placeholder `"Ready"`, and has a valid file path or non-zero duration (`!t.path.as_os_str().is_empty() || t.duration_ms > 0`).
-  2. **Liquid Glass Error View (`Select tracks to find their lyrics`)**:
-     - When `!is_track_valid`, the window bypasses the 2-column finder interface and renders a dedicated centered Liquid Glass error screen.
-     - Features a circular rose badge with `music_off` glyph, heading `"Select tracks to find their lyrics"`, descriptive guidance informing the user to select or play a song in Attune first, and a prominent `"Close Window"` button (`dioxus::desktop::window().close()`).
-  3. **Zero False Queries & Local CWD Guarding**:
-     - In `scan_local_lyric_files`, immediately returns an empty vector if `track.path.as_os_str().is_empty()` to avoid querying the app's current working directory.
-     - In `fetch_lrclib_candidates`, short-circuits and returns an empty vector if the query is blank or matches dummy placeholders (`"Ready"`, `"Ready Attune"`).
-  4. **Dock Header Button Dynamic Tooltip (`crates/attune-desktop/src/app.rs`)**:
-     - Updated the `title` attribute on the `[ Find ]` pill in `DockMode::Lyrics` to display `"Select tracks to find their lyrics"` when `current_track` is `None`.
+  1. **Locked Follow Mode by Default (`is_locked_to_active = true`)**:
+     - Initialized `is_locked_to_active = use_signal(|| true)` in Fullscreen Now Playing and `auto_scroll_lyrics = use_signal(|| true)` in right dock.
+     - Reset `is_locked_to_active.set(true)` whenever the track changes (`use_effect(use_reactive(&current_track_id, ...))`).
+  2. **Free-Scroll Mode Detection & Floating Sync Button**:
+     - Bound `data-locked` attribute to the scroll containers (`.fullscreen-lyrics-scroll` and `.dock-scroll`).
+     - Added `onwheel` and `onpointerdown` handlers switching `is_locked_to_active` / `auto_scroll_lyrics` to `false` when the user manually scrolls or touches the lyrics.
+     - When in Free-Scroll Mode (`!is_locked_to_active`), a floating Liquid Glass button appears at bottom center: `[ ⇕ Sync to Current Line ]` (`.fullscreen-sync-button`, `.dock-sync-button`).
+     - Clicking the Sync button (or clicking any lyric line to seek) sets `is_locked_to_active.set(true)` and smoothly auto-centers the active line.
+  3. **Smooth Auto-Centering WebKit Script (`LYRICS_SYNC_SCRIPT`)**:
+     - Injected runtime script computing exact dynamic centering math without hardcoded offsets (Mandate 4):
+       `target = container.scrollTop + (active.top - container.top) - (container.height / 2) + (active.height / 2);`
+     - Uses `MutationObserver` on `document.body` tracking attribute changes for `fullscreen-lyric-active` and `lyric-line active`.
+     - Supports `attuneSyncLyrics(force)`: respects `data-locked` unless `force: true`.
+  4. **Unified Top-Right Control Bar (`.fullscreen-top-actions`)**:
+     - Eliminated overlapping standalone exit button and squished right-column button.
+     - Created a single fixed flex container at `top: 24px; right: 28px; z-index: 60; display: flex; align-items: center; gap: 10px;`.
+     - Contains:
+       1. `[ 🔍 Lyrics Sources ]` pill (`white-space: nowrap;`).
+       2. `[ 🔒 Follow Lyrics ]` / `[ 🔓 Free-Scroll ]` toggle pill.
+       3. `[ ✕ ]` circular exit button (`.fullscreen-floating-close-inline`).
+     - Zero overlap, zero text wrapping, and zero scrollbar collision.
   5. **Verification**:
-     - Added unit test `test_empty_or_placeholder_track_returns_no_candidates` verifying that empty tracks and placeholder queries yield 0 candidates without initiating network or filesystem searches.
-     - All 81 desktop tests and workspace checks pass cleanly.
+     - Added unit tests `test_compute_centered_scroll_target_when_active_is_lower`, `test_compute_centered_scroll_target_when_already_centered`, and `test_lyrics_sync_script_structure_and_selectors`.
+     - All 84 desktop tests and 100% of workspace tests pass cleanly.
 - **Consequences**:
-  - No dummy "Ready Attune" cards or bogus queries are generated when no song is active.
-  - Listeners opening the window with no track see a clear, helpful error dialog stating `"Select tracks to find their lyrics"`.
+  - Desktop synchronized lyrics now provide 100% feature parity with Flutter: defaults to locked follow, switches gracefully to free-scroll upon touch/wheel, provides clear status indicators, and enables 1-tap re-sync.
+  - The Fullscreen Now Playing stage header controls are cleanly unified without collisions or awkward text wrapping.
 
 

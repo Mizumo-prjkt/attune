@@ -427,3 +427,51 @@ pub fn FullscreenNowPlaying(
         }
     }
 }
+
+/// Dynamically calculates the centered scroll target position for the active lyric line
+/// inside a scrollable container. Adheres strictly to Mandate 4 (zero hardcoded values).
+pub fn compute_centered_scroll_target(
+    container_scroll_top: f64,
+    container_top: f64,
+    container_height: f64,
+    active_top: f64,
+    active_height: f64,
+) -> f64 {
+    container_scroll_top + (active_top - container_top) - (container_height / 2.0) + (active_height / 2.0)
+}
+
+#[cfg(test)]
+pub mod tests {
+    use super::*;
+
+    #[test]
+    fn test_compute_centered_scroll_target_when_active_is_lower() {
+        // Container is 800px tall at viewport y=100 with scrollTop=0.
+        // Active line is 50px tall at viewport y=600.
+        // Active center relative to container top is (600 - 100) + 25 = 525.
+        // Container center is 400.
+        // Expected target scroll is 0 + 525 - 400 = 125.
+        let target = compute_centered_scroll_target(0.0, 100.0, 800.0, 600.0, 50.0);
+        assert!((target - 125.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn test_compute_centered_scroll_target_when_already_centered() {
+        // Container is 600px tall at viewport y=0 with scrollTop=200.
+        // Active line is 40px tall at viewport y=280 (center is 300, matching container center 300).
+        // Expected target scroll is 200 + 0 = 200.
+        let target = compute_centered_scroll_target(200.0, 0.0, 600.0, 280.0, 40.0);
+        assert!((target - 200.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn test_lyrics_sync_script_structure_and_selectors() {
+        let script = crate::theme::LYRICS_SYNC_SCRIPT;
+        assert!(script.contains("window.attuneSyncLyrics"));
+        assert!(script.contains(".fullscreen-lyrics-scroll"));
+        assert!(script.contains(".fullscreen-lyric-active"));
+        assert!(script.contains(".dock-scroll"));
+        assert!(script.contains("data-locked"));
+        assert!(script.contains("MutationObserver"));
+    }
+}
