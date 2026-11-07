@@ -3476,6 +3476,43 @@ This file records all major architectural decisions for **Attune**, including co
   - Zero hardcoding under Mandate 4, complete RAII lifecycle safety, and clean multi-window synchronization.
   - All 63 desktop tests and all 118 workspace tests pass cleanly. Release binary compiles in 57.52s.
 
+---
+
+## ADR-098: Settings Visual Refinement — Tactile Switches, Dropdown Language & Lyrics Priority Selection, Musixmatch API Key Management, and Badge Pill Nested Typography
+- **Date**: 2026-11-07
+- **Status**: `LOCKED`
+- **Context**:
+  1. The user requested removing the redundant "Close Window" button from the settings sidebar since the window titlebar already provides native OS window closing.
+  2. Requested converting text buttons into sliding switch toggles across relevant options.
+  3. Language selection needed to be converted from side-by-side buttons into a `<select>` dropdown.
+  4. Lyrics priority matrix needed to be converted into a dropdown allowing selection of the primary priority source, with the ordered fallback sequence clearly displayed below.
+  5. In the API Providers area, there was no input field to enter the Musixmatch user API key when Musixmatch was enabled.
+  6. In Developer Options, preflight badges (`libattune_procmgr`, `libattune_watchguard`, `libattune_music_metadata`) suffered from unnested, unpadded text because `.badge-pill` lacked styling in `style.css`.
+- **Decision**:
+  1. **Purged Redundant Sidebar Close Button**:
+     - Removed the red bottom button from `SettingsContent`, leaving the settings navigation clean and focused.
+  2. **Tactile Sliding `SwitchToggle` Component (`stages/settings.rs`)**:
+     - Engineered reusable `SwitchToggle` component utilizing `.switch-toggle-row`, `.switch-track` (with `.active` mint glow and smooth cubic-bezier transition), `.switch-thumb`, and `.switch-status`.
+     - Replaced toggles across:
+       - General: `Enable Player Shortcuts`, `Require Alt Prefix for Hotkeys`, `System Player Toast Notifications`.
+       - Audio: `[EXPERIMENTAL] Force 32-bit PCM Float Output`, `Skip Silence`.
+       - Lyrics: `Sidebar Lyrics Text Glow`, `Active Lyric Glowing Shadow`, `Album Art Atmospheric Gradient`, `Visualizer Palette Pulse Effects`.
+       - API Providers: `YouTube Music Innertube API`, `Wikipedia & MusicBrainz REST API`, `Musixmatch API`.
+       - Directory & Indexes: `GPU Artist Info Indexing Offload`, `GPU BPM / CQT Profiling Offload`.
+  3. **Dropdown Selection for Language & Lyrics Priority**:
+     - In Language tab, replaced buttons with a liquid glass `<select>` element (`en` for English (US), `fil` for Wikang Filipino (Tagalog)).
+     - In Lyrics tab, replaced static priority tags with a dropdown allowing the user to select the primary priority source (`embedded`, `lrc`, `ttml`, `elrc`, `external`), dynamically placing the choice at index 0 and reordering the remaining fallbacks with visual badges.
+  4. **Musixmatch API Key Input in API Providers**:
+     - Embedded a password input field within the Musixmatch card that dynamically displays when `api_musixmatch_enabled` is true, featuring real-time state synchronization and a "Key Configured" status badge.
+  5. **Badge Pill Typography & Iconography (`style.css` & `settings.rs`)**:
+     - Defined `.badge-pill` with `display: inline-flex; align-items: center; justify-content: center; gap: 6px; padding: 4px 10px; border-radius: 9999px; line-height: 1.2; border: 1px solid var(--border-glass)`.
+     - Added `display: inline-flex; align-items: center; justify-content: center; gap: 6px;` to `.btn-pill`.
+     - Replaced plain text tick marks with crisp Material Icon `check_circle` glyphs inside library preflight badges in Developer Options.
+- **Consequences**:
+  - Perfect visual nesting and layout alignment across all cards, pills, and dropdowns.
+  - Zero hardcoding under Mandate 4, complete usability parity, and immediate configuration feedback.
+  - All 63 desktop tests and all 118 workspace tests pass cleanly. Release binary compiles in 48.23s.
+
 
 
 

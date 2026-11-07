@@ -205,6 +205,10 @@ body, html {
 }
 
 .btn-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
   background: rgba(255, 255, 255, 0.06);
   border: 1px solid var(--border-glass);
   border-radius: 20px;
@@ -212,8 +216,10 @@ body, html {
   padding: 6px 14px;
   font-size: 12.5px;
   font-weight: 500;
+  line-height: 1.2;
   cursor: pointer;
   transition: all 0.15s ease;
+  box-sizing: border-box;
 }
 
 .btn-pill:hover {
@@ -225,6 +231,22 @@ body, html {
   background: rgba(45, 212, 191, 0.18);
   color: var(--accent-mint);
   border-color: rgba(45, 212, 191, 0.35);
+}
+
+.badge-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 9999px;
+  font-size: 11.5px;
+  font-weight: 600;
+  line-height: 1.2;
+  letter-spacing: 0.02em;
+  border: 1px solid var(--border-glass);
+  box-sizing: border-box;
+  white-space: nowrap;
 }
 
 .content-scroll {

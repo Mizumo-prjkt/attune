@@ -40,6 +40,34 @@ pub enum SettingsTab {
     DeveloperOptions,
 }
 
+/// Tactile and accessible sliding switch toggle matching Equalizer and modern OS styling
+#[component]
+pub fn SwitchToggle(
+    active: bool,
+    on_toggle: EventHandler<()>,
+    active_label: Option<String>,
+    inactive_label: Option<String>,
+) -> Element {
+    let act_lbl = active_label.unwrap_or_else(|| "ON".to_string());
+    let inact_lbl = inactive_label.unwrap_or_else(|| "OFF".to_string());
+    rsx! {
+        div {
+            class: "switch-toggle-row",
+            role: "switch",
+            aria_checked: "{active}",
+            onclick: move |_| on_toggle.call(()),
+            div {
+                class: if active { "switch-track active" } else { "switch-track" },
+                div { class: "switch-thumb" }
+            }
+            span {
+                class: if active { "switch-status active" } else { "switch-status bypassed" },
+                if active { "{act_lbl}" } else { "{inact_lbl}" }
+            }
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct DirTreeNode {
     pub name: String,
@@ -407,20 +435,6 @@ pub fn SettingsContent(
                     span { class: "material-icons md-18", "developer_mode" }
                     span { "Developer Options" }
                 }
-
-                div { style: "flex: 1;" }
-
-                // Bottom Sidebar Action: Close Window
-                button {
-                    class: "btn-pill",
-                    style: "width: 100%; display: flex; align-items: center; justify-content: center; gap: 6px; font-size: 11.5px; padding: 8px 12px; margin-top: 12px; background: rgba(251,113,133,0.15); border-color: rgba(251,113,133,0.3); color: #fb7185;",
-                    onclick: move |_| {
-                        SETTINGS_WINDOW_OPEN.store(false, Ordering::SeqCst);
-                        dioxus::desktop::window().close();
-                    },
-                    span { class: "material-icons md-16", "close" }
-                    "Close Window"
-                }
             }
 
             // =========================================================================
@@ -488,10 +502,11 @@ pub fn SettingsContent(
                                     div { style: "font-weight: 500; font-size: 13.5px;", "Enable Player Shortcuts" }
                                     div { style: "font-size: 12px; color: var(--text-muted);", "Space for Play/Pause, Left/Right for Seek, J/K for Next/Previous." }
                                 }
-                                button {
-                                    class: if curr_cfg.enable_shortcuts { "btn-pill active" } else { "btn-pill" },
-                                    onclick: move |_| update_cfg(Box::new(|c| c.enable_shortcuts = !c.enable_shortcuts)),
-                                    if curr_cfg.enable_shortcuts { "Enabled" } else { "Disabled" }
+                                SwitchToggle {
+                                    active: curr_cfg.enable_shortcuts,
+                                    on_toggle: move |_| update_cfg(Box::new(|c| c.enable_shortcuts = !c.enable_shortcuts)),
+                                    active_label: Some("Enabled".to_string()),
+                                    inactive_label: Some("Disabled".to_string()),
                                 }
                             }
 
@@ -500,10 +515,11 @@ pub fn SettingsContent(
                                     div { style: "font-weight: 500; font-size: 13.5px;", "Require Alt Prefix for Hotkeys" }
                                     div { style: "font-size: 12px; color: var(--text-muted);", "Hold Alt before pressing keys to prevent accidental triggers while typing." }
                                 }
-                                button {
-                                    class: if curr_cfg.alt_shortcut_prefix { "btn-pill active" } else { "btn-pill" },
-                                    onclick: move |_| update_cfg(Box::new(|c| c.alt_shortcut_prefix = !c.alt_shortcut_prefix)),
-                                    if curr_cfg.alt_shortcut_prefix { "Alt Required" } else { "Direct" }
+                                SwitchToggle {
+                                    active: curr_cfg.alt_shortcut_prefix,
+                                    on_toggle: move |_| update_cfg(Box::new(|c| c.alt_shortcut_prefix = !c.alt_shortcut_prefix)),
+                                    active_label: Some("Alt Required".to_string()),
+                                    inactive_label: Some("Direct".to_string()),
                                 }
                             }
                         }
@@ -520,10 +536,11 @@ pub fn SettingsContent(
                                     div { style: "font-weight: 500; font-size: 13.5px;", "System Player Toast Notifications" }
                                     div { style: "font-size: 12px; color: var(--text-muted);", "Show native desktop notifications whenever a new song plays." }
                                 }
-                                button {
-                                    class: if curr_cfg.system_media_toast { "btn-pill active" } else { "btn-pill" },
-                                    onclick: move |_| update_cfg(Box::new(|c| c.system_media_toast = !c.system_media_toast)),
-                                    if curr_cfg.system_media_toast { "Enabled" } else { "Disabled" }
+                                SwitchToggle {
+                                    active: curr_cfg.system_media_toast,
+                                    on_toggle: move |_| update_cfg(Box::new(|c| c.system_media_toast = !c.system_media_toast)),
+                                    active_label: Some("Enabled".to_string()),
+                                    inactive_label: Some("Disabled".to_string()),
                                 }
                             }
 
@@ -578,10 +595,11 @@ pub fn SettingsContent(
                                         "Stream unclipped 32-bit floating point PCM directly to hardware DAC. (Not recommended for Atom-level or Athlon Embedded systems with older drivers)."
                                     }
                                 }
-                                button {
-                                    class: if curr_cfg.force_32bit_float { "btn-pill active" } else { "btn-pill" },
-                                    onclick: move |_| update_cfg(Box::new(|c| c.force_32bit_float = !c.force_32bit_float)),
-                                    if curr_cfg.force_32bit_float { "Active" } else { "Standard 16/24-bit" }
+                                SwitchToggle {
+                                    active: curr_cfg.force_32bit_float,
+                                    on_toggle: move |_| update_cfg(Box::new(|c| c.force_32bit_float = !c.force_32bit_float)),
+                                    active_label: Some("Active".to_string()),
+                                    inactive_label: Some("Standard 16/24-bit".to_string()),
                                 }
                             }
                         }
@@ -595,10 +613,11 @@ pub fn SettingsContent(
                                         "Automatically trim and advance past leading/trailing digital silence. (Note: Silently ignored when Smart Shuffle transitions are active)."
                                     }
                                 }
-                                button {
-                                    class: if curr_cfg.skip_silence { "btn-pill active" } else { "btn-pill" },
-                                    onclick: move |_| update_cfg(Box::new(|c| c.skip_silence = !c.skip_silence)),
-                                    if curr_cfg.skip_silence { "Enabled" } else { "Disabled" }
+                                SwitchToggle {
+                                    active: curr_cfg.skip_silence,
+                                    on_toggle: move |_| update_cfg(Box::new(|c| c.skip_silence = !c.skip_silence)),
+                                    active_label: Some("Enabled".to_string()),
+                                    inactive_label: Some("Disabled".to_string()),
                                 }
                             }
                         }
@@ -688,17 +707,16 @@ pub fn SettingsContent(
                             h3 { class: "settings-card-title", "Application Language" }
                             p { class: "settings-card-desc", "Supported languages: English (US) and Wikang Filipino (Tagalog)." }
 
-                            div { style: "display: flex; gap: 12px; margin-top: 12px;",
-                                button {
-                                    class: if curr_cfg.language == "en" { "btn-pill active" } else { "btn-pill" },
-                                    onclick: move |_| update_cfg(Box::new(|c| c.language = "en".to_string())),
-                                    "English (US)"
-                                }
-                                button {
-                                    class: if curr_cfg.language == "fil" { "btn-pill active" } else { "btn-pill" },
-                                    onclick: move |_| update_cfg(Box::new(|c| c.language = "fil".to_string())),
-                                    "Wikang Filipino (Tagalog)"
-                                }
+                            select {
+                                class: "search-bar",
+                                style: "width: 100%; max-width: 360px; margin-top: 12px; padding: 8px 12px; border-radius: 8px; background: rgba(22, 28, 45, 0.95); border: 1px solid var(--border-glass); color: #fff; font-size: 13px; cursor: pointer;",
+                                value: "{curr_cfg.language}",
+                                onchange: move |e| {
+                                    let val = e.value();
+                                    update_cfg(Box::new(move |c| c.language = val.clone()));
+                                },
+                                option { value: "en", selected: curr_cfg.language == "en", "English (US)" }
+                                option { value: "fil", selected: curr_cfg.language == "fil", "Wikang Filipino (Tagalog)" }
                             }
                         }
 
@@ -745,14 +763,43 @@ pub fn SettingsContent(
 
                         // Card: Priority Matrix
                         div { class: "settings-card",
-                            h3 { class: "settings-card-title", "Lyrics Source Priority Matrix" }
-                            p { class: "settings-card-desc", "Resolution order when scanning for synchronized and static singing lines." }
-                            div { style: "display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px;",
+                            h3 { class: "settings-card-title", "Default Lyrics Priority" }
+                            p { class: "settings-card-desc", "Select the preferred source queried first when matching synchronized and static singing lines." }
+
+                            select {
+                                class: "search-bar",
+                                style: "width: 100%; max-width: 440px; margin-top: 12px; padding: 8px 12px; border-radius: 8px; background: rgba(22, 28, 45, 0.95); border: 1px solid var(--border-glass); color: #fff; font-size: 13px; cursor: pointer;",
+                                value: "{curr_cfg.lyric_priority.first().map(|s| s.as_str()).unwrap_or(\"embedded\")}",
+                                onchange: move |e| {
+                                    let choice = e.value();
+                                    update_cfg(Box::new(move |c| {
+                                        let mut list = vec![choice.clone()];
+                                        for item in &["embedded", "lrc", "ttml", "elrc", "external"] {
+                                            if *item != choice && !list.contains(&item.to_string()) {
+                                                list.push(item.to_string());
+                                            }
+                                        }
+                                        c.lyric_priority = list;
+                                    }));
+                                },
+                                option { value: "embedded", selected: curr_cfg.lyric_priority.first().map(|s| s == "embedded").unwrap_or(true), "Embedded Metadata (FLAC Vorbis / MP3 ID3)" }
+                                option { value: "lrc", selected: curr_cfg.lyric_priority.first().map(|s| s == "lrc").unwrap_or(false), "Companion .lrc File (Local File Storage)" }
+                                option { value: "ttml", selected: curr_cfg.lyric_priority.first().map(|s| s == "ttml").unwrap_or(false), "TTML Formatted Lyrics (Time-synced XML)" }
+                                option { value: "elrc", selected: curr_cfg.lyric_priority.first().map(|s| s == "elrc").unwrap_or(false), "ELRC (Enhanced Word-by-Word LRC)" }
+                                option { value: "external", selected: curr_cfg.lyric_priority.first().map(|s| s == "external").unwrap_or(false), "External Online Provider (LRCLIB / BiniLyrics / Musixmatch)" }
+                            }
+
+                            div { style: "display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; align-items: center;",
+                                span { style: "font-size: 11.5px; color: var(--text-muted); margin-right: 4px;", "Fallback Chain:" }
                                 for (idx, p) in curr_cfg.lyric_priority.iter().enumerate() {
                                     div {
                                         key: "{idx}",
                                         class: "badge-pill",
-                                        style: "padding: 6px 12px; font-size: 12px; background: rgba(255,255,255,0.06);",
+                                        style: if idx == 0 {
+                                            "background: rgba(100,255,218,0.15); color: var(--accent-mint); border-color: rgba(100,255,218,0.35); font-weight: 700;"
+                                        } else {
+                                            "background: rgba(255,255,255,0.06); color: var(--text-secondary);"
+                                        },
                                         span { style: "color: var(--accent-mint); margin-right: 4px;", "#{idx + 1}" }
                                         "{p}"
                                     }
@@ -835,10 +882,11 @@ pub fn SettingsContent(
                                     div { style: "font-weight: 500; font-size: 13.5px;", "Sidebar Lyrics Text Glow" }
                                     div { style: "font-size: 12px; color: var(--text-muted);", "Apply dynamic glowing text shadow to active lines in docked right panel." }
                                 }
-                                button {
-                                    class: if curr_cfg.sidebar_text_glow { "btn-pill active" } else { "btn-pill" },
-                                    onclick: move |_| update_cfg(Box::new(|c| c.sidebar_text_glow = !c.sidebar_text_glow)),
-                                    if curr_cfg.sidebar_text_glow { "Glowing" } else { "Plain" }
+                                SwitchToggle {
+                                    active: curr_cfg.sidebar_text_glow,
+                                    on_toggle: move |_| update_cfg(Box::new(|c| c.sidebar_text_glow = !c.sidebar_text_glow)),
+                                    active_label: Some("Glowing".to_string()),
+                                    inactive_label: Some("Plain".to_string()),
                                 }
                             }
                         }
@@ -853,10 +901,11 @@ pub fn SettingsContent(
                                     div { style: "font-weight: 500; font-size: 13.5px;", "Active Lyric Glowing Shadow" }
                                     div { style: "font-size: 12px; color: var(--text-muted);", "Bold cream-white glow on currently singing line." }
                                 }
-                                button {
-                                    class: if curr_cfg.fullscreen_text_glow { "btn-pill active" } else { "btn-pill" },
-                                    onclick: move |_| update_cfg(Box::new(|c| c.fullscreen_text_glow = !c.fullscreen_text_glow)),
-                                    if curr_cfg.fullscreen_text_glow { "Enabled" } else { "Disabled" }
+                                SwitchToggle {
+                                    active: curr_cfg.fullscreen_text_glow,
+                                    on_toggle: move |_| update_cfg(Box::new(|c| c.fullscreen_text_glow = !c.fullscreen_text_glow)),
+                                    active_label: Some("Enabled".to_string()),
+                                    inactive_label: Some("Disabled".to_string()),
                                 }
                             }
 
@@ -865,10 +914,11 @@ pub fn SettingsContent(
                                     div { style: "font-weight: 500; font-size: 13.5px;", "Album Art Atmospheric Gradient" }
                                     div { style: "font-size: 12px; color: var(--text-muted);", "Deep dynamic gradient mesh background extracted from cover." }
                                 }
-                                button {
-                                    class: if curr_cfg.fullscreen_gradient_bg { "btn-pill active" } else { "btn-pill" },
-                                    onclick: move |_| update_cfg(Box::new(|c| c.fullscreen_gradient_bg = !c.fullscreen_gradient_bg)),
-                                    if curr_cfg.fullscreen_gradient_bg { "Enabled" } else { "Disabled" }
+                                SwitchToggle {
+                                    active: curr_cfg.fullscreen_gradient_bg,
+                                    on_toggle: move |_| update_cfg(Box::new(|c| c.fullscreen_gradient_bg = !c.fullscreen_gradient_bg)),
+                                    active_label: Some("Enabled".to_string()),
+                                    inactive_label: Some("Disabled".to_string()),
                                 }
                             }
 
@@ -877,10 +927,11 @@ pub fn SettingsContent(
                                     div { style: "font-weight: 500; font-size: 13.5px;", "Visualizer Palette Pulse Effects" }
                                     div { style: "font-size: 12px; color: var(--text-muted);", "Subtle breathing color orbs in background." }
                                 }
-                                button {
-                                    class: if curr_cfg.fullscreen_visualizer_effects { "btn-pill active" } else { "btn-pill" },
-                                    onclick: move |_| update_cfg(Box::new(|c| c.fullscreen_visualizer_effects = !c.fullscreen_visualizer_effects)),
-                                    if curr_cfg.fullscreen_visualizer_effects { "Enabled" } else { "Disabled" }
+                                SwitchToggle {
+                                    active: curr_cfg.fullscreen_visualizer_effects,
+                                    on_toggle: move |_| update_cfg(Box::new(|c| c.fullscreen_visualizer_effects = !c.fullscreen_visualizer_effects)),
+                                    active_label: Some("Enabled".to_string()),
+                                    inactive_label: Some("Disabled".to_string()),
                                 }
                             }
                         }
@@ -906,10 +957,11 @@ pub fn SettingsContent(
                                     div { style: "font-weight: 500; font-size: 13.5px;", "YouTube Music Innertube API" }
                                     div { style: "font-size: 12px; color: var(--text-muted);", "High-res portraits, 16:9 widescreen banners, subscriber stats, and curated bios without API keys." }
                                 }
-                                button {
-                                    class: if curr_cfg.api_youtube_enabled { "btn-pill active" } else { "btn-pill" },
-                                    onclick: move |_| update_cfg(Box::new(|c| c.api_youtube_enabled = !c.api_youtube_enabled)),
-                                    if curr_cfg.api_youtube_enabled { "Active" } else { "Disabled" }
+                                SwitchToggle {
+                                    active: curr_cfg.api_youtube_enabled,
+                                    on_toggle: move |_| update_cfg(Box::new(|c| c.api_youtube_enabled = !c.api_youtube_enabled)),
+                                    active_label: Some("Active".to_string()),
+                                    inactive_label: Some("Disabled".to_string()),
                                 }
                             }
 
@@ -918,13 +970,14 @@ pub fn SettingsContent(
                                     div { style: "font-weight: 500; font-size: 13.5px;", "Wikipedia & MusicBrainz REST API" }
                                     div { style: "font-size: 12px; color: var(--text-muted);", "Open community discography, release years, and encyclopedia artist lore." }
                                 }
-                                button {
-                                    class: if curr_cfg.api_wikipedia_enabled { "btn-pill active" } else { "btn-pill" },
-                                    onclick: move |_| update_cfg(Box::new(|c| {
+                                SwitchToggle {
+                                    active: curr_cfg.api_wikipedia_enabled,
+                                    on_toggle: move |_| update_cfg(Box::new(|c| {
                                         c.api_wikipedia_enabled = !c.api_wikipedia_enabled;
                                         c.api_musicbrainz_enabled = c.api_wikipedia_enabled;
                                     })),
-                                    if curr_cfg.api_wikipedia_enabled { "Active" } else { "Disabled" }
+                                    active_label: Some("Active".to_string()),
+                                    inactive_label: Some("Disabled".to_string()),
                                 }
                             }
 
@@ -933,10 +986,36 @@ pub fn SettingsContent(
                                     div { style: "font-weight: 500; font-size: 13.5px;", "Musixmatch API" }
                                     div { style: "font-size: 12px; color: var(--text-muted);", "Commercial synced lyrics catalog (requires API key)." }
                                 }
-                                button {
-                                    class: if curr_cfg.api_musixmatch_enabled { "btn-pill active" } else { "btn-pill" },
-                                    onclick: move |_| update_cfg(Box::new(|c| c.api_musixmatch_enabled = !c.api_musixmatch_enabled)),
-                                    if curr_cfg.api_musixmatch_enabled { "Active" } else { "Disabled" }
+                                SwitchToggle {
+                                    active: curr_cfg.api_musixmatch_enabled,
+                                    on_toggle: move |_| update_cfg(Box::new(|c| c.api_musixmatch_enabled = !c.api_musixmatch_enabled)),
+                                    active_label: Some("Active".to_string()),
+                                    inactive_label: Some("Disabled".to_string()),
+                                }
+                            }
+
+                            if curr_cfg.api_musixmatch_enabled {
+                                div { style: "margin-top: 12px; padding: 12px 14px; background: rgba(255,255,255,0.03); border-radius: 8px; border: 1px solid rgba(255,255,255,0.06);",
+                                    label { style: "font-size: 11.5px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; display: block; margin-bottom: 6px;", "Musixmatch User API Key" }
+                                    div { style: "display: flex; gap: 10px; align-items: center; flex-wrap: wrap;",
+                                        input {
+                                            r#type: "password",
+                                            class: "search-bar",
+                                            style: "flex: 1; min-width: 260px; max-width: 440px; padding: 8px 12px; border-radius: 8px; background: rgba(255,255,255,0.06); border: 1px solid var(--border-glass); color: #fff; font-size: 13px;",
+                                            placeholder: "Enter Musixmatch API Key...",
+                                            value: "{curr_cfg.musixmatch_api_key}",
+                                            oninput: move |e| {
+                                                let key = e.value();
+                                                update_cfg(Box::new(move |c| c.musixmatch_api_key = key.clone()));
+                                            }
+                                        }
+                                        if !curr_cfg.musixmatch_api_key.is_empty() {
+                                            span { class: "badge-pill", style: "background: rgba(100,255,218,0.15); color: var(--accent-mint); border-color: rgba(100,255,218,0.3);",
+                                                span { class: "material-icons md-14", "check_circle" }
+                                                "Key Configured"
+                                            }
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -1139,15 +1218,15 @@ pub fn SettingsContent(
                                     div { style: "font-weight: 500; font-size: 13.5px;", "GPU Artist Info Indexing Offload" }
                                     div { style: "font-size: 12px; color: var(--text-muted);", "Parallel JSON and metadata extraction." }
                                 }
-                                button {
-                                    class: if curr_cfg.gpu_artist_index_offload && gpu_info.is_supported { "btn-pill active" } else { "btn-pill" },
-                                    disabled: !gpu_info.is_supported,
-                                    onclick: move |_| {
+                                SwitchToggle {
+                                    active: curr_cfg.gpu_artist_index_offload && gpu_info.is_supported,
+                                    on_toggle: move |_| {
                                         if gpu_info.is_supported {
                                             update_cfg(Box::new(|c| c.gpu_artist_index_offload = !c.gpu_artist_index_offload));
                                         }
                                     },
-                                    if !gpu_info.is_supported { "Hardware Unsupported" } else if curr_cfg.gpu_artist_index_offload { "Enabled" } else { "Disabled" }
+                                    active_label: Some("Enabled".to_string()),
+                                    inactive_label: Some(if !gpu_info.is_supported { "Unsupported".to_string() } else { "Disabled".to_string() }),
                                 }
                             }
 
@@ -1156,15 +1235,15 @@ pub fn SettingsContent(
                                     div { style: "font-weight: 500; font-size: 13.5px;", "GPU BPM / CQT Profiling Offload" }
                                     div { style: "font-size: 12px; color: var(--text-muted);", "Vulkan/OpenCL FFT spectral analysis." }
                                 }
-                                button {
-                                    class: if curr_cfg.gpu_bpm_index_offload && gpu_info.is_supported { "btn-pill active" } else { "btn-pill" },
-                                    disabled: !gpu_info.is_supported,
-                                    onclick: move |_| {
+                                SwitchToggle {
+                                    active: curr_cfg.gpu_bpm_index_offload && gpu_info.is_supported,
+                                    on_toggle: move |_| {
                                         if gpu_info.is_supported {
                                             update_cfg(Box::new(|c| c.gpu_bpm_index_offload = !c.gpu_bpm_index_offload));
                                         }
                                     },
-                                    if !gpu_info.is_supported { "Hardware Unsupported" } else if curr_cfg.gpu_bpm_index_offload { "Enabled" } else { "Disabled" }
+                                    active_label: Some("Enabled".to_string()),
+                                    inactive_label: Some(if !gpu_info.is_supported { "Unsupported".to_string() } else { "Disabled".to_string() }),
                                 }
                             }
                         }
@@ -1300,15 +1379,30 @@ pub fn SettingsContent(
                             div { style: "display: flex; flex-direction: column; gap: 8px; margin-top: 10px;",
                                 div { style: "display: flex; justify-content: space-between; align-items: center; background: rgba(255,255,255,0.03); padding: 8px 12px; border-radius: 6px;",
                                     span { style: "font-family: monospace; font-size: 12.5px;", "libattune_procmgr" }
-                                    span { class: "badge-pill", style: "background: rgba(100,255,218,0.15); color: var(--accent-mint); border-color: rgba(100,255,218,0.3);", "✓ Certified Loadable" }
+                                    span {
+                                        class: "badge-pill",
+                                        style: "background: rgba(100,255,218,0.15); color: var(--accent-mint); border: 1px solid rgba(100,255,218,0.3); padding: 4px 12px; font-size: 11.5px;",
+                                        span { class: "material-icons md-14", style: "margin-right: 2px;", "check_circle" }
+                                        "Certified Loadable"
+                                    }
                                 }
                                 div { style: "display: flex; justify-content: space-between; align-items: center; background: rgba(255,255,255,0.03); padding: 8px 12px; border-radius: 6px;",
                                     span { style: "font-family: monospace; font-size: 12.5px;", "libattune_watchguard" }
-                                    span { class: "badge-pill", style: "background: rgba(100,255,218,0.15); color: var(--accent-mint); border-color: rgba(100,255,218,0.3);", "✓ Certified Loadable" }
+                                    span {
+                                        class: "badge-pill",
+                                        style: "background: rgba(100,255,218,0.15); color: var(--accent-mint); border: 1px solid rgba(100,255,218,0.3); padding: 4px 12px; font-size: 11.5px;",
+                                        span { class: "material-icons md-14", style: "margin-right: 2px;", "check_circle" }
+                                        "Certified Loadable"
+                                    }
                                 }
                                 div { style: "display: flex; justify-content: space-between; align-items: center; background: rgba(255,255,255,0.03); padding: 8px 12px; border-radius: 6px;",
                                     span { style: "font-family: monospace; font-size: 12.5px;", "libattune_music_metadata" }
-                                    span { class: "badge-pill", style: "background: rgba(100,255,218,0.15); color: var(--accent-mint); border-color: rgba(100,255,218,0.3);", "✓ Certified Loadable" }
+                                    span {
+                                        class: "badge-pill",
+                                        style: "background: rgba(100,255,218,0.15); color: var(--accent-mint); border: 1px solid rgba(100,255,218,0.3); padding: 4px 12px; font-size: 11.5px;",
+                                        span { class: "material-icons md-14", style: "margin-right: 2px;", "check_circle" }
+                                        "Certified Loadable"
+                                    }
                                 }
                             }
                         }
