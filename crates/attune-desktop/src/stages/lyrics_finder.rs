@@ -991,8 +991,16 @@ pub fn fetch_binilyrics_candidates(query: &str, track_title: &str, artist: &str)
     results
 }
 
-/// Trims Musixmatch commercial notice and copyright boilerplate from the end of lyrics text.
+/// Trims Musixmatch commercial notice and copyright boilerplate from the end of lyrics text,
+/// and rejects copyright-restricted placeholder messages per the Musixmatch API Content Restrictions guide.
 pub fn clean_musixmatch_lyrics(text: &str) -> String {
+    let trimmed_in = text.trim();
+    if trimmed_in.is_empty()
+        || trimmed_in.starts_with("Unfortunately we're not authorized to show these lyrics")
+    {
+        return String::new();
+    }
+
     let mut cleaned = text.to_string();
     if let Some(pos) = cleaned.find("******* This Lyrics is NOT for Commercial use *******") {
         cleaned.truncate(pos);
@@ -1003,25 +1011,122 @@ pub fn clean_musixmatch_lyrics(text: &str) -> String {
     if let Some(pos) = cleaned.find("... \n\n*******") {
         cleaned.truncate(pos);
     }
+    if let Some(pos) = cleaned.find("...\n\n*******") {
+        cleaned.truncate(pos);
+    }
     cleaned.trim().to_string()
 }
 
-/// Evaluates Musixmatch API status code and constructs a human-readable feedback message.
-pub fn parse_musixmatch_status(status_code: i64, track_name: Option<&str>) -> Result<String, String> {
+/// Evaluates Musixmatch API status code (per official Musixmatch v1.1 API Reference)
+/// and constructs a human-readable feedback message.
+pub fn parse_musixmatch_status(status_code: i64, detail: Option<&str>) -> Result<String, String> {
+    let hint_suffix = detail
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(|s| format!(" ({s})"))
+        .unwrap_or_default();
+
     match status_code {
         200 => {
-            let name = track_name.unwrap_or("Track Verified");
-            Ok(format!("✓ Musixmatch API connected successfully (Status 200 OK — Found '{name}')"))
+            let info = detail.unwrap_or("Track Verified");
+            Ok(format!("✓ Musixmatch API connected successfully (Status 200 OK — {info})"))
         }
-        401 => Err("✕ Musixmatch Error 401: Invalid or unauthorized API key.".into()),
-        402 => Err("✕ Musixmatch Error 402: Usage limit exceeded for this API key.".into()),
-        403 => Err("✕ Musixmatch Error 403: Forbidden / Access not permitted.".into()),
-        404 => Ok("⚠ Musixmatch API connected (Status 404: Resource not found, but API Key is valid).".into()),
-        code => Err(format!("✕ Musixmatch API returned error code {code}.")),
+        400 => Err(format!(
+            "✕ Musixmatch Error 400: Bad syntax or request could not be satisfied{hint_suffix}."
+        )),
+        401 => Err(format!(
+            "✕ Musixmatch Error 401: Authentication failed — invalid or missing API key{hint_suffix}."
+        )),
+        402 => Err(format!(
+            "✕ Musixmatch Error 402: Usage limit reached or insufficient plan balance{hint_suffix}."
+        )),
+        403 => Err(format!(
+            "✕ Musixmatch Error 403: Not authorized to perform this operation{hint_suffix}."
+        )),
+        404 => Ok(format!(
+            "⚠ Musixmatch API connected (Status 404: Requested resource not found, but API Key is valid{hint_suffix})."
+        )),
+        405 => Err(format!(
+            "✕ Musixmatch Error 405: Requested API method was not found{hint_suffix}."
+        )),
+        500 => Err(format!(
+            "✕ Musixmatch Error 500: Internal server error on Musixmatch{hint_suffix}."
+        )),
+        503 => Err(format!(
+            "✕ Musixmatch Error 503: Musixmatch service is temporarily busy; please retry{hint_suffix}."
+        )),
+        code => Err(format!("✕ Musixmatch API returned error code {code}{hint_suffix}.")),
     }
 }
 
-/// Tests connectivity to the Musixmatch API with the provided user API key.
+/// Formats a floating-point timestamp in seconds into a standard 2-digit centisecond LRC timestamp `mm:ss.xx`.
+fn format_lrc_time_tag(seconds: f64) -> String {
+    let clamped = if seconds.is_finite() && seconds > 0.0 { seconds } else { 0.0 };
+    let total_cs = (clamped * 100.0).round() as u64;
+    let mins = total_cs / 6000;
+    let secs = (total_cs % 6000) / 100;
+    let cs = total_cs % 100;
+    format!("{mins:02}:{secs:02}.{cs:02}")
+}
+
+/// Converts a Musixmatch `track.richsync.get` `richsync_body` JSON string
+/// (`[{"ts": 11.42, "te": 14.37, "l": [{"c": "First", "o": 0}, ...], "x": "First lyrics sentence"}]`)
+/// into Attune's Enhanced LRC (`.elrc`) word-by-word syllable format (`[mm:ss.xx] <mm:ss.xx>word ...`).
+pub fn convert_musixmatch_richsync_to_elrc(richsync_body_json: &str) -> Option<String> {
+    let parsed: Vec<serde_json::Value> = serde_json::from_str(richsync_body_json.trim()).ok()?;
+    if parsed.is_empty() {
+        return None;
+    }
+
+    let mut out_lines = Vec::with_capacity(parsed.len());
+    for line_obj in &parsed {
+        let ts = line_obj
+            .get("ts")
+            .and_then(|v| v.as_f64().or_else(|| v.as_i64().map(|i| i as f64)))?;
+        let line_tag = format_lrc_time_tag(ts);
+
+        let mut syllable_buf = String::new();
+        if let Some(tokens) = line_obj.get("l").and_then(|v| v.as_array()) {
+            for tok in tokens {
+                let text = tok.get("c").and_then(|v| v.as_str()).unwrap_or("");
+                if text.is_empty() {
+                    continue;
+                }
+                if text.chars().all(char::is_whitespace) {
+                    if !syllable_buf.ends_with(' ') && !syllable_buf.is_empty() {
+                        syllable_buf.push(' ');
+                    }
+                } else {
+                    let offset = tok
+                        .get("o")
+                        .and_then(|v| v.as_f64().or_else(|| v.as_i64().map(|i| i as f64)))
+                        .unwrap_or(0.0);
+                    let word_tag = format_lrc_time_tag((ts + offset).max(0.0));
+                    syllable_buf.push_str(&format!("<{word_tag}>{text}"));
+                }
+            }
+        }
+
+        let trimmed_syllables = syllable_buf.trim();
+        if !trimmed_syllables.is_empty() {
+            out_lines.push(format!("[{line_tag}] {trimmed_syllables}"));
+        } else if let Some(fallback_text) = line_obj.get("x").and_then(|v| v.as_str()) {
+            let clean_x = fallback_text.trim();
+            if !clean_x.is_empty() {
+                out_lines.push(format!("[{line_tag}] {clean_x}"));
+            }
+        }
+    }
+
+    if out_lines.is_empty() {
+        None
+    } else {
+        Some(out_lines.join("\n"))
+    }
+}
+
+/// Tests connectivity to the Musixmatch v1.1 API with the provided user API key
+/// using the lightweight `music.genres.get` catalog endpoint (zero hardcoded song titles).
 pub fn test_musixmatch_api(api_key: &str) -> Result<String, String> {
     let key_trimmed = api_key.trim();
     if key_trimmed.is_empty() {
@@ -1029,7 +1134,7 @@ pub fn test_musixmatch_api(api_key: &str) -> Result<String, String> {
     }
 
     let url = format!(
-        "https://api.musixmatch.com/ws/1.1/track.search?q_artist=Queen&q_track=Bohemian%20Rhapsody&page_size=1&apikey={}",
+        "https://api.musixmatch.com/ws/1.1/music.genres.get?apikey={}",
         urlencoding(key_trimmed)
     );
 
@@ -1047,27 +1152,44 @@ pub fn test_musixmatch_api(api_key: &str) -> Result<String, String> {
         Err(e) => return Err(format!("Invalid JSON response: {e}")),
     };
 
-    let status_code = json
-        .get("message")
-        .and_then(|m| m.get("header"))
+    let header = json.get("message").and_then(|m| m.get("header"));
+    let status_code = header
         .and_then(|h| h.get("status_code"))
         .and_then(|c| c.as_i64())
         .unwrap_or(0);
 
-    let track_name = json
+    let hint = header
+        .and_then(|h| h.get("hint"))
+        .and_then(|v| v.as_str());
+
+    let genre_summary = json
         .get("message")
         .and_then(|m| m.get("body"))
-        .and_then(|b| b.get("track_list"))
-        .and_then(|tl| tl.as_array())
-        .and_then(|arr| arr.first())
-        .and_then(|item| item.get("track"))
-        .and_then(|t| t.get("track_name"))
-        .and_then(|name| name.as_str());
+        .and_then(|b| b.get("music_genre_list"))
+        .and_then(|gl| gl.as_array())
+        .map(|arr| format!("{} catalog genres verified", arr.len()));
 
-    parse_musixmatch_status(status_code, track_name)
+    let detail = if status_code == 200 {
+        genre_summary.as_deref().or(Some("Catalog Verified"))
+    } else {
+        hint
+    };
+
+    parse_musixmatch_status(status_code, detail)
 }
 
-/// Queries Musixmatch API for synchronized (LRC) and plain lyrics candidates.
+/// Builds the canonical `commontrack_id` and `track_id` query parameter clause for Musixmatch track endpoints.
+fn build_musixmatch_track_id_query(commontrack_id: i64, track_id: i64) -> String {
+    match (commontrack_id > 0, track_id > 0) {
+        (true, true) => format!("commontrack_id={commontrack_id}&track_id={track_id}"),
+        (true, false) => format!("commontrack_id={commontrack_id}"),
+        (false, true) => format!("track_id={track_id}"),
+        (false, false) => String::new(),
+    }
+}
+
+/// Queries Musixmatch v1.1 API for RichSync (word-by-word `.elrc`), synchronized Subtitle (`.lrc`),
+/// and plain lyrics (`.txt`) candidates following the official Musixmatch catalog matching guidelines.
 pub fn fetch_musixmatch_candidates(
     query: &str,
     track_title: &str,
@@ -1091,20 +1213,77 @@ pub fn fetch_musixmatch_candidates(
         return results;
     }
 
-    // 1. First search via track.search endpoint
-    let encoded_q = urlencoding(&search_term);
-    let search_url = format!(
-        "https://api.musixmatch.com/ws/1.1/track.search?q={}&page_size=5&s_track_rating=desc&apikey={}",
-        encoded_q,
-        urlencoding(key_trimmed)
-    );
+    let encoded_key = urlencoding(key_trimmed);
+    let dur_sec_opt = if dur_ms >= 1000 { Some(dur_ms / 1000) } else { None };
 
-    let resp = ureq::get(&search_url)
+    // Collect candidate `track` JSON objects from:
+    // 1. `matcher.track.get` (recommended primary catalog matcher when title & artist are known)
+    // 2. `track.search` with `g_commontrack=1&s_track_rating=desc` (deduplicated across releases)
+    let mut track_objects: Vec<serde_json::Value> = Vec::new();
+    let mut seen_ids: std::collections::HashSet<(i64, i64)> = std::collections::HashSet::new();
+
+    let default_combined = format!("{} {}", track_title, artist).trim().to_string();
+    let is_structured_match = !track_title.trim().is_empty()
+        && !artist.trim().is_empty()
+        && (query.trim().is_empty() || query.trim().eq_ignore_ascii_case(&default_combined));
+
+    if is_structured_match {
+        let matcher_track_url = format!(
+            "https://api.musixmatch.com/ws/1.1/matcher.track.get?q_track={}&q_artist={}&apikey={}",
+            urlencoding(track_title.trim()),
+            urlencoding(artist.trim()),
+            encoded_key
+        );
+        if let Ok(r) = ureq::get(&matcher_track_url)
+            .set("User-Agent", "Attune/0.1.0 (https://github.com/Mizumo-prjkt/attune)")
+            .timeout(std::time::Duration::from_secs(6))
+            .call()
+        {
+            if let Ok(json) = r.into_json::<serde_json::Value>() {
+                let status = json
+                    .get("message")
+                    .and_then(|m| m.get("header"))
+                    .and_then(|h| h.get("status_code"))
+                    .and_then(|c| c.as_i64())
+                    .unwrap_or(0);
+                if status == 200 {
+                    if let Some(track) = json
+                        .get("message")
+                        .and_then(|m| m.get("body"))
+                        .and_then(|b| b.get("track"))
+                    {
+                        let cid = track.get("commontrack_id").and_then(|v| v.as_i64()).unwrap_or(0);
+                        let tid = track.get("track_id").and_then(|v| v.as_i64()).unwrap_or(0);
+                        if (cid > 0 || tid > 0) && seen_ids.insert((cid, tid)) {
+                            track_objects.push(track.clone());
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Search via `track.search` with `g_commontrack=1` (removes compilation duplicates per Musixmatch docs)
+    let search_url = if is_structured_match {
+        format!(
+            "https://api.musixmatch.com/ws/1.1/track.search?q_track={}&q_artist={}&g_commontrack=1&page_size=5&s_track_rating=desc&apikey={}",
+            urlencoding(track_title.trim()),
+            urlencoding(artist.trim()),
+            encoded_key
+        )
+    } else {
+        format!(
+            "https://api.musixmatch.com/ws/1.1/track.search?q={}&g_commontrack=1&page_size=5&s_track_rating=desc&apikey={}",
+            urlencoding(&search_term),
+            encoded_key
+        )
+    };
+
+    if let Ok(r) = ureq::get(&search_url)
         .set("User-Agent", "Attune/0.1.0 (https://github.com/Mizumo-prjkt/attune)")
         .timeout(std::time::Duration::from_secs(8))
-        .call();
-
-    if let Ok(r) = resp {
+        .call()
+    {
         if let Ok(json) = r.into_json::<serde_json::Value>() {
             let status_code = json
                 .get("message")
@@ -1122,111 +1301,10 @@ pub fn fetch_musixmatch_candidates(
                 {
                     for item in track_list.iter().take(5) {
                         if let Some(track) = item.get("track") {
-                            let track_id = track.get("track_id").and_then(|v| v.as_i64()).unwrap_or(0);
-                            if track_id == 0 {
-                                continue;
-                            }
-                            let title = track
-                                .get("track_name")
-                                .and_then(|v| v.as_str())
-                                .unwrap_or(track_title)
-                                .to_string();
-                            let art = track
-                                .get("artist_name")
-                                .and_then(|v| v.as_str())
-                                .unwrap_or(artist)
-                                .to_string();
-                            let alb = track
-                                .get("album_name")
-                                .and_then(|v| v.as_str())
-                                .unwrap_or("")
-                                .to_string();
-                            let length_sec = track
-                                .get("track_length")
-                                .and_then(|v| v.as_f64())
-                                .or_else(|| track.get("track_length").and_then(|v| v.as_i64()).map(|s| s as f64));
-                            let has_subtitles = track
-                                .get("has_subtitles")
-                                .and_then(|v| v.as_i64())
-                                .unwrap_or(0) == 1;
-
-                            // If subtitles are available, attempt track.subtitle.get (LRC format)
-                            let mut lyric_content: Option<String> = None;
-                            if has_subtitles {
-                                let sub_url = format!(
-                                    "https://api.musixmatch.com/ws/1.1/track.subtitle.get?track_id={}&subtitle_format=lrc&apikey={}",
-                                    track_id,
-                                    urlencoding(key_trimmed)
-                                );
-                                if let Ok(sub_r) = ureq::get(&sub_url)
-                                    .set("User-Agent", "Attune/0.1.0 (https://github.com/Mizumo-prjkt/attune)")
-                                    .timeout(std::time::Duration::from_secs(5))
-                                    .call()
-                                {
-                                    if let Ok(sub_json) = sub_r.into_json::<serde_json::Value>() {
-                                        if let Some(body) = sub_json
-                                            .get("message")
-                                            .and_then(|m| m.get("body"))
-                                            .and_then(|b| b.get("subtitle"))
-                                            .and_then(|s| s.get("subtitle_body"))
-                                            .and_then(|s| s.as_str())
-                                        {
-                                            if !body.trim().is_empty() {
-                                                lyric_content = Some(body.to_string());
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-
-                            // If no subtitles were obtained, attempt track.lyrics.get (plain text)
-                            if lyric_content.is_none() {
-                                let lyr_url = format!(
-                                    "https://api.musixmatch.com/ws/1.1/track.lyrics.get?track_id={}&apikey={}",
-                                    track_id,
-                                    urlencoding(key_trimmed)
-                                );
-                                if let Ok(lyr_r) = ureq::get(&lyr_url)
-                                    .set("User-Agent", "Attune/0.1.0 (https://github.com/Mizumo-prjkt/attune)")
-                                    .timeout(std::time::Duration::from_secs(5))
-                                    .call()
-                                {
-                                    if let Ok(lyr_json) = lyr_r.into_json::<serde_json::Value>() {
-                                        if let Some(body) = lyr_json
-                                            .get("message")
-                                            .and_then(|m| m.get("body"))
-                                            .and_then(|b| b.get("lyrics"))
-                                            .and_then(|s| s.get("lyrics_body"))
-                                            .and_then(|s| s.as_str())
-                                        {
-                                            if !body.trim().is_empty() {
-                                                let cleaned = clean_musixmatch_lyrics(body);
-                                                lyric_content = Some(cleaned);
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-
-                            if let Some(content) = lyric_content {
-                                let validation = lyrics_validator::validate_and_classify_lyrics(
-                                    &content,
-                                    Some("Musixmatch"),
-                                );
-                                if validation.is_safe {
-                                    results.push(LyricCandidate {
-                                        id: format!("musixmatch-{}", track_id),
-                                        title,
-                                        artist: art,
-                                        album: alb,
-                                        duration_sec: length_sec,
-                                        provider: "Musixmatch [Exp]".into(),
-                                        sync_type: validation.sync_type,
-                                        content,
-                                        file_path: None,
-                                        validation,
-                                    });
-                                }
+                            let cid = track.get("commontrack_id").and_then(|v| v.as_i64()).unwrap_or(0);
+                            let tid = track.get("track_id").and_then(|v| v.as_i64()).unwrap_or(0);
+                            if (cid > 0 || tid > 0) && seen_ids.insert((cid, tid)) {
+                                track_objects.push(track.clone());
                             }
                         }
                     }
@@ -1235,47 +1313,214 @@ pub fn fetch_musixmatch_candidates(
         }
     }
 
-    // 2. Fallback: If track.search yielded 0 results, try matcher.subtitle.get or matcher.lyrics.get
-    if results.is_empty() && (!track_title.is_empty() || !artist.is_empty()) {
-        let enc_title = urlencoding(track_title);
-        let enc_artist = urlencoding(artist);
+    for track in track_objects.iter().take(5) {
+        // Respect Musixmatch Content Restrictions (`restricted == 1` or `instrumental == 1`)
+        let is_restricted = track.get("restricted").and_then(|v| v.as_i64()).unwrap_or(0) == 1;
+        let is_instrumental = track.get("instrumental").and_then(|v| v.as_i64()).unwrap_or(0) == 1;
+        if is_restricted || is_instrumental {
+            continue;
+        }
 
-        // Try matcher.subtitle.get
+        let commontrack_id = track.get("commontrack_id").and_then(|v| v.as_i64()).unwrap_or(0);
+        let track_id = track.get("track_id").and_then(|v| v.as_i64()).unwrap_or(0);
+        let id_query = build_musixmatch_track_id_query(commontrack_id, track_id);
+        if id_query.is_empty() {
+            continue;
+        }
+
+        let title = track
+            .get("track_name")
+            .and_then(|v| v.as_str())
+            .unwrap_or(track_title)
+            .to_string();
+        let art = track
+            .get("artist_name")
+            .and_then(|v| v.as_str())
+            .unwrap_or(artist)
+            .to_string();
+        let alb = track
+            .get("album_name")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
+        let length_sec = track
+            .get("track_length")
+            .and_then(|v| v.as_f64())
+            .or_else(|| track.get("track_length").and_then(|v| v.as_i64()).map(|s| s as f64));
+
+        let has_richsync = track.get("has_richsync").and_then(|v| v.as_i64()).unwrap_or(0) == 1;
+        let has_subtitles = track.get("has_subtitles").and_then(|v| v.as_i64()).unwrap_or(0) == 1;
+        let has_lyrics = track.get("has_lyrics").and_then(|v| v.as_i64()).unwrap_or(1) == 1;
+
+        let mut lyric_content: Option<String> = None;
+        let mut provider_label = "Musixmatch [Exp]";
+
+        // Tier 1: If `has_richsync == 1`, attempt `track.richsync.get` for word-by-word `.elrc` syllables
+        if has_richsync {
+            let rich_url = format!(
+                "https://api.musixmatch.com/ws/1.1/track.richsync.get?{}&apikey={}",
+                id_query, encoded_key
+            );
+            if let Ok(rich_r) = ureq::get(&rich_url)
+                .set("User-Agent", "Attune/0.1.0 (https://github.com/Mizumo-prjkt/attune)")
+                .timeout(std::time::Duration::from_secs(5))
+                .call()
+            {
+                if let Ok(rich_json) = rich_r.into_json::<serde_json::Value>() {
+                    if let Some(rich_obj) = rich_json
+                        .get("message")
+                        .and_then(|m| m.get("body"))
+                        .and_then(|b| b.get("richsync"))
+                    {
+                        let rich_restricted = rich_obj.get("restricted").and_then(|v| v.as_i64()).unwrap_or(0) == 1;
+                        if !rich_restricted {
+                            if let Some(raw_body) = rich_obj.get("richsync_body").and_then(|s| s.as_str()) {
+                                if let Some(elrc) = convert_musixmatch_richsync_to_elrc(raw_body) {
+                                    lyric_content = Some(elrc);
+                                    provider_label = "Musixmatch RichSync";
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Tier 2: If no RichSync, attempt `track.subtitle.get` (`subtitle_format=lrc`)
+        if lyric_content.is_none() && has_subtitles {
+            let sub_url = format!(
+                "https://api.musixmatch.com/ws/1.1/track.subtitle.get?{}&subtitle_format=lrc&apikey={}",
+                id_query, encoded_key
+            );
+            if let Ok(sub_r) = ureq::get(&sub_url)
+                .set("User-Agent", "Attune/0.1.0 (https://github.com/Mizumo-prjkt/attune)")
+                .timeout(std::time::Duration::from_secs(5))
+                .call()
+            {
+                if let Ok(sub_json) = sub_r.into_json::<serde_json::Value>() {
+                    if let Some(sub_obj) = sub_json
+                        .get("message")
+                        .and_then(|m| m.get("body"))
+                        .and_then(|b| b.get("subtitle"))
+                    {
+                        let sub_restricted = sub_obj.get("restricted").and_then(|v| v.as_i64()).unwrap_or(0) == 1;
+                        if !sub_restricted {
+                            if let Some(body) = sub_obj.get("subtitle_body").and_then(|s| s.as_str()) {
+                                let cleaned = clean_musixmatch_lyrics(body);
+                                if !cleaned.is_empty() {
+                                    lyric_content = Some(cleaned);
+                                    provider_label = "Musixmatch LRC";
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Tier 3: If no subtitles, attempt `track.lyrics.get` (`commontrack_id` + `track_id`)
+        if lyric_content.is_none() && has_lyrics {
+            let lyr_url = format!(
+                "https://api.musixmatch.com/ws/1.1/track.lyrics.get?{}&apikey={}",
+                id_query, encoded_key
+            );
+            if let Ok(lyr_r) = ureq::get(&lyr_url)
+                .set("User-Agent", "Attune/0.1.0 (https://github.com/Mizumo-prjkt/attune)")
+                .timeout(std::time::Duration::from_secs(5))
+                .call()
+            {
+                if let Ok(lyr_json) = lyr_r.into_json::<serde_json::Value>() {
+                    if let Some(lyr_obj) = lyr_json
+                        .get("message")
+                        .and_then(|m| m.get("body"))
+                        .and_then(|b| b.get("lyrics"))
+                    {
+                        let lyr_restricted = lyr_obj.get("restricted").and_then(|v| v.as_i64()).unwrap_or(0) == 1;
+                        let lyr_inst = lyr_obj.get("instrumental").and_then(|v| v.as_i64()).unwrap_or(0) == 1;
+                        if !lyr_restricted && !lyr_inst {
+                            if let Some(body) = lyr_obj.get("lyrics_body").and_then(|s| s.as_str()) {
+                                let cleaned = clean_musixmatch_lyrics(body);
+                                if !cleaned.is_empty() {
+                                    lyric_content = Some(cleaned);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        if let Some(content) = lyric_content {
+            let validation = lyrics_validator::validate_and_classify_lyrics(
+                &content,
+                Some("Musixmatch"),
+            );
+            if validation.is_safe {
+                let canonical_id = if commontrack_id > 0 { commontrack_id } else { track_id };
+                results.push(LyricCandidate {
+                    id: format!("musixmatch-{canonical_id}"),
+                    title,
+                    artist: art,
+                    album: alb,
+                    duration_sec: length_sec,
+                    provider: provider_label.into(),
+                    sync_type: validation.sync_type,
+                    content,
+                    file_path: None,
+                    validation,
+                });
+            }
+        }
+    }
+
+    // Fallback: If catalog search yielded 0 results, try `matcher.subtitle.get` (with optional duration deviation filter)
+    // and `matcher.lyrics.get` per the Musixmatch catalog matching specification.
+    if results.is_empty() && (!track_title.is_empty() || !artist.is_empty()) {
+        let enc_title = urlencoding(track_title.trim());
+        let enc_artist = urlencoding(artist.trim());
+
+        let dur_filter = dur_sec_opt
+            .map(|d| format!("&f_subtitle_length={d}&f_subtitle_length_max_deviation=15"))
+            .unwrap_or_default();
+
         let matcher_sub_url = format!(
-            "https://api.musixmatch.com/ws/1.1/matcher.subtitle.get?q_track={}&q_artist={}&subtitle_format=lrc&apikey={}",
-            enc_title,
-            enc_artist,
-            urlencoding(key_trimmed)
+            "https://api.musixmatch.com/ws/1.1/matcher.subtitle.get?q_track={}&q_artist={}{}&subtitle_format=lrc&apikey={}",
+            enc_title, enc_artist, dur_filter, encoded_key
         );
 
         let mut matched_content: Option<String> = None;
+        let mut matched_provider = "Musixmatch [Exp]";
+
         if let Ok(m_resp) = ureq::get(&matcher_sub_url)
             .set("User-Agent", "Attune/0.1.0 (https://github.com/Mizumo-prjkt/attune)")
             .timeout(std::time::Duration::from_secs(6))
             .call()
         {
             if let Ok(m_json) = m_resp.into_json::<serde_json::Value>() {
-                if let Some(body) = m_json
+                if let Some(sub_obj) = m_json
                     .get("message")
                     .and_then(|m| m.get("body"))
                     .and_then(|b| b.get("subtitle"))
-                    .and_then(|s| s.get("subtitle_body"))
-                    .and_then(|s| s.as_str())
                 {
-                    if !body.trim().is_empty() {
-                        matched_content = Some(body.to_string());
+                    let sub_restricted = sub_obj.get("restricted").and_then(|v| v.as_i64()).unwrap_or(0) == 1;
+                    if !sub_restricted {
+                        if let Some(body) = sub_obj.get("subtitle_body").and_then(|s| s.as_str()) {
+                            let cleaned = clean_musixmatch_lyrics(body);
+                            if !cleaned.is_empty() {
+                                matched_content = Some(cleaned);
+                                matched_provider = "Musixmatch LRC";
+                            }
+                        }
                     }
                 }
             }
         }
 
-        // If matcher.subtitle.get failed, try matcher.lyrics.get
+        // If `matcher.subtitle.get` failed, try `matcher.lyrics.get`
         if matched_content.is_none() {
             let matcher_lyr_url = format!(
                 "https://api.musixmatch.com/ws/1.1/matcher.lyrics.get?q_track={}&q_artist={}&apikey={}",
-                enc_title,
-                enc_artist,
-                urlencoding(key_trimmed)
+                enc_title, enc_artist, encoded_key
             );
             if let Ok(lyr_resp) = ureq::get(&matcher_lyr_url)
                 .set("User-Agent", "Attune/0.1.0 (https://github.com/Mizumo-prjkt/attune)")
@@ -1283,15 +1528,20 @@ pub fn fetch_musixmatch_candidates(
                 .call()
             {
                 if let Ok(lyr_json) = lyr_resp.into_json::<serde_json::Value>() {
-                    if let Some(body) = lyr_json
+                    if let Some(lyr_obj) = lyr_json
                         .get("message")
                         .and_then(|m| m.get("body"))
                         .and_then(|b| b.get("lyrics"))
-                        .and_then(|s| s.get("lyrics_body"))
-                        .and_then(|s| s.as_str())
                     {
-                        if !body.trim().is_empty() {
-                            matched_content = Some(clean_musixmatch_lyrics(body));
+                        let lyr_restricted = lyr_obj.get("restricted").and_then(|v| v.as_i64()).unwrap_or(0) == 1;
+                        let lyr_inst = lyr_obj.get("instrumental").and_then(|v| v.as_i64()).unwrap_or(0) == 1;
+                        if !lyr_restricted && !lyr_inst {
+                            if let Some(body) = lyr_obj.get("lyrics_body").and_then(|s| s.as_str()) {
+                                let cleaned = clean_musixmatch_lyrics(body);
+                                if !cleaned.is_empty() {
+                                    matched_content = Some(cleaned);
+                                }
+                            }
                         }
                     }
                 }
@@ -1307,7 +1557,7 @@ pub fn fetch_musixmatch_candidates(
                     artist: artist.to_string(),
                     album: String::new(),
                     duration_sec: if dur_ms > 0 { Some(dur_ms as f64 / 1000.0) } else { None },
-                    provider: "Musixmatch [Exp]".into(),
+                    provider: matched_provider.into(),
                     sync_type: validation.sync_type,
                     content,
                     file_path: None,
@@ -1366,24 +1616,78 @@ mod tests {
 
     #[test]
     fn test_clean_musixmatch_lyrics() {
-        let raw = "Is this the real life?\nIs this just fantasy?\n\n******* This Lyrics is NOT for Commercial use *******\n(1409618177218)";
+        let raw = "First line of lyrics\nSecond line of lyrics\n\n******* This Lyrics is NOT for Commercial use *******\n(1409618177218)";
         let cleaned = clean_musixmatch_lyrics(raw);
-        assert_eq!(cleaned, "Is this the real life?\nIs this just fantasy?");
+        assert_eq!(cleaned, "First line of lyrics\nSecond line of lyrics");
 
         let raw_c = "Another song lyric here\n/* Commercial use of this lyric is prohibited */";
         let cleaned_c = clean_musixmatch_lyrics(raw_c);
         assert_eq!(cleaned_c, "Another song lyric here");
+
+        // Content restriction placeholder per Musixmatch Content Restrictions documentation
+        let restricted_msg = "Unfortunately we're not authorized to show these lyrics.";
+        assert_eq!(clean_musixmatch_lyrics(restricted_msg), "");
     }
 
     #[test]
     fn test_parse_musixmatch_status() {
-        assert!(parse_musixmatch_status(200, Some("Bohemian Rhapsody")).unwrap().contains("Bohemian Rhapsody"));
+        assert!(parse_musixmatch_status(200, Some("34 catalog genres verified")).unwrap().contains("34 catalog genres verified"));
         assert!(parse_musixmatch_status(200, None).unwrap().contains("Track Verified"));
+        assert!(parse_musixmatch_status(400, Some("Missing parameter")).unwrap_err().contains("400"));
         assert!(parse_musixmatch_status(401, None).unwrap_err().contains("401"));
         assert!(parse_musixmatch_status(402, None).unwrap_err().contains("402"));
         assert!(parse_musixmatch_status(403, None).unwrap_err().contains("403"));
         assert!(parse_musixmatch_status(404, None).unwrap().contains("404"));
+        assert!(parse_musixmatch_status(405, None).unwrap_err().contains("405"));
         assert!(parse_musixmatch_status(500, None).unwrap_err().contains("500"));
+        assert!(parse_musixmatch_status(503, None).unwrap_err().contains("503"));
+    }
+
+    #[test]
+    fn test_convert_musixmatch_richsync_to_elrc() {
+        // Exact structure from Musixmatch v1.1 `track.richsync.get` reference
+        let richsync_sample = r#"[
+            {
+                "ts": 11.42,
+                "te": 14.37,
+                "l": [
+                    { "c": "First", "o": 0 },
+                    { "c": " ", "o": 0.105 },
+                    { "c": "lyrics", "o": 0.158 },
+                    { "c": " ", "o": 0.692 },
+                    { "c": "sentence", "o": 0.728 }
+                ],
+                "x": "First lyrics sentence"
+            },
+            {
+                "ts": 14.48,
+                "te": 18.42,
+                "l": [
+                    { "c": "Second", "o": 0 },
+                    { "c": " ", "o": 0.17 },
+                    { "c": "line", "o": 0.50 }
+                ],
+                "x": "Second line"
+            }
+        ]"#;
+
+        let elrc = convert_musixmatch_richsync_to_elrc(richsync_sample).expect("RichSync should convert to .elrc");
+        let lines: Vec<&str> = elrc.lines().collect();
+        assert_eq!(lines.len(), 2);
+        assert_eq!(lines[0], "[00:11.42] <00:11.42>First <00:11.58>lyrics <00:12.15>sentence");
+        assert_eq!(lines[1], "[00:14.48] <00:14.48>Second <00:14.98>line");
+
+        let validation = lyrics_validator::validate_and_classify_lyrics(&elrc, Some("Musixmatch"));
+        assert!(validation.is_safe);
+        assert_eq!(validation.sync_type, LyricsSyncType::Syllable);
+    }
+
+    #[test]
+    fn test_build_musixmatch_track_id_query() {
+        assert_eq!(build_musixmatch_track_id_query(10075866, 15953433), "commontrack_id=10075866&track_id=15953433");
+        assert_eq!(build_musixmatch_track_id_query(10075866, 0), "commontrack_id=10075866");
+        assert_eq!(build_musixmatch_track_id_query(0, 15953433), "track_id=15953433");
+        assert_eq!(build_musixmatch_track_id_query(0, 0), "");
     }
 
     #[test]

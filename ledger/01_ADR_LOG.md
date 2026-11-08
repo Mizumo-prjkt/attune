@@ -4962,6 +4962,40 @@ This file records all major architectural decisions for **Attune**, including co
   - Full feature parity between Desktop `About` and Flutter `AboutStage`, with interactive contributor/AI sorting and searchable third-party license inspection.
   - All 115 desktop unit tests pass cleanly.
 
+---
+
+## ADR-141: Musixmatch v1.1 Official API Specification Upgrade (`commontrack_id`, `matcher.track.get`, `track.richsync.get` Word-by-Word `.elrc` Syllable Conversion, `g_commontrack=1` Deduplication, Content Restriction Filtering, Zero-Hardcoded `music.genres.get` Test Endpoint & `artist.search` Integration)
+
+- **Date**: 2026-11-09
+- **Status**: LOCKED
+- **Context**:
+  - Reviewing the official Musixmatch Developer Documentation (`https://docs.musixmatch.com/llms-full.txt`) identified several API capabilities and requirements that needed to be integrated into Attune's Musixmatch client:
+    1. **Canonical `commontrack_id` Requirement**: Per the Musixmatch v1.1 API reference for `track.lyrics.get`, `track.subtitle.get`, and `track.richsync.get`, `commontrack_id` is the primary identifier linking a composition across albums/singles/compilations to its shared lyrics and syncs. Previously, `fetch_musixmatch_candidates` only passed `track_id`.
+    2. **Word-by-Word RichSync (`track.richsync.get`)**: Musixmatch provides character/word-offset synchronization via `track.richsync.get` (`has_richsync == 1`), returning a JSON array of line objects (`"ts"`, `"te"`, `"l": [{"c": "word", "o": 0.158}]`, `"x"`). Converting this payload into Attune's native Enhanced LRC (`.elrc`) `<mm:ss.xx>word` format unlocks word-by-word syllable animations for Musixmatch tracks.
+    3. **Catalog Matching & Deduplication (`matcher.track.get` & `g_commontrack=1`)**: The Musixmatch implementation guidelines recommend matching known catalog metadata via `matcher.track.get?q_track=...&q_artist=...` and passing `g_commontrack=1` to `track.search` to deduplicate identical songs across compilation albums, plus `f_subtitle_length` and `f_subtitle_length_max_deviation` on `matcher.subtitle.get`.
+    4. **Content Restrictions (`restricted == 1` & `instrumental == 1`)**: Tracks, lyrics, subtitles, and richsync objects include `restricted` and `instrumental` flags (as well as `"Unfortunately we're not authorized to show these lyrics."` placeholder text) that must be filtered out before validation.
+    5. **Complete 9-Code Status Table & Zero-Hardcoded Connectivity Test (`test_musixmatch_api`)**: The official status code table defines `200`, `400`, `401`, `402`, `403`, `404`, `405`, `500`, and `503` (with optional `message.header.hint`), and `test_musixmatch_api` previously hardcoded a third-party song query (`q_artist=Queen&q_track=Bohemian%20Rhapsody`) instead of using the lightweight catalog endpoint `music.genres.get`.
+    6. **Artist Metadata Search (`artist.search`)**: Musixmatch's `artist.search` endpoint provides disambiguation comments (`artist_comment`), origin country (`artist_country`), localized aliases (`artist_alias_list`), popularity rating (`artist_rating`), and primary genres (`primary_genres`).
+- **Decision**:
+  1. **Canonical Identifier Builder (`build_musixmatch_track_id_query`)**:
+     - Extracts both `commontrack_id` and `track_id` from Musixmatch `track` objects and passes `commontrack_id={cid}&track_id={tid}` to `track.richsync.get`, `track.subtitle.get`, and `track.lyrics.get`.
+  2. **RichSync to Enhanced LRC Converter (`convert_musixmatch_richsync_to_elrc`)**:
+     - Parses `richsync.richsync_body` JSON lines (`ts`, `te`, `l: [{c, o}]`, `x`) and computes per-word absolute timestamps `ts + o` formatted as `[mm:ss.xx] <mm:ss.xx>word ...`, validated as `LyricsSyncType::Syllable` (`Musixmatch RichSync`).
+  3. **3-Stage Catalog Matching & 3-Tier Sync Waterfall (`fetch_musixmatch_candidates`)**:
+     - Queries `matcher.track.get` (`q_track`, `q_artist`) first when structured track metadata is present, followed by `track.search` with `g_commontrack=1&s_track_rating=desc&page_size=5`, deduplicating by `(commontrack_id, track_id)`.
+     - Skips any track or lyric response where `restricted == 1` or `instrumental == 1`, and rejects `"Unfortunately we're not authorized to show these lyrics"` in `clean_musixmatch_lyrics`.
+     - Executes a 3-tier waterfall per track: `track.richsync.get` (`.elrc` word-by-word) $\to$ `track.subtitle.get` (`subtitle_format=lrc`) $\to$ `track.lyrics.get` (plain text).
+     - Falls back to `matcher.subtitle.get` (with `f_subtitle_length={dur_sec}&f_subtitle_length_max_deviation=15`) and `matcher.lyrics.get`.
+  4. **Complete Status Code Handler (`parse_musixmatch_status`) & Zero-Hardcoded Test Query (`test_musixmatch_api`)**:
+     - Updated `parse_musixmatch_status` to handle all 9 documented status codes (`200`, `400`, `401`, `402`, `403`, `404`, `405`, `500`, `503`) and append `message.header.hint` when present.
+     - Updated `test_musixmatch_api` to query `https://api.musixmatch.com/ws/1.1/music.genres.get?apikey=...`, reporting the verified catalog genre count on HTTP 200 without any hardcoded song or artist strings.
+  5. **Musixmatch Artist Search Integration (`artist_profile.rs` & `stages/artist_finder.rs`)**:
+     - Added `parse_musixmatch_artist_candidates` in `crates/attune-desktop/src/artist_profile.rs`, querying `artist.search?q_artist=...&page_size=4` when `api_musixmatch_enabled` is active and surfacing `Musixmatch` as a provider tab in `ArtistFinderStandaloneWindow`.
+- **Consequences**:
+  - Full compliance with the Musixmatch v1.1 API specification (`docs.musixmatch.com/llms-full.txt`) and Mandate 4 (zero hardcoded song/artist strings).
+  - Tracks on Musixmatch with `has_richsync == 1` now render with full word-by-word syllable animations in Attune.
+  - All 118 unit tests in `attune-desktop` pass cleanly.
+
 
 
 

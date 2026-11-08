@@ -388,7 +388,164 @@ pub fn search_online_artist_candidates(query: &str) -> Vec<ArtistCandidate> {
         }
     }
 
+    // 4. Musixmatch v1.1 `artist.search` (when enabled in Settings with a valid API key)
+    let cfg = crate::config::load_config();
+    if cfg.api_musixmatch_enabled && !cfg.musixmatch_api_key.trim().is_empty() {
+        let mxm_url = format!(
+            "https://api.musixmatch.com/ws/1.1/artist.search?q_artist={}&page_size=4&apikey={}",
+            en_encoded,
+            urlencoding(cfg.musixmatch_api_key.trim())
+        );
+        if let Ok(resp) = ureq::get(&mxm_url)
+            .set("User-Agent", "Attune/0.1.0 (https://github.com/Mizumo-prjkt/attune)")
+            .set("Accept", "application/json")
+            .timeout(std::time::Duration::from_millis(3500))
+            .call()
+        {
+            if let Ok(json) = resp.into_json::<serde_json::Value>() {
+                for mxm_cand in parse_musixmatch_artist_candidates(&json) {
+                    candidates.push(mxm_cand);
+                }
+            }
+        }
+    }
+
     candidates
+}
+
+/// Parses a Musixmatch v1.1 `artist.search` JSON response (`message.body.artist_list`)
+/// into `ArtistCandidate` entries, extracting `artist_comment`, `artist_country`, `artist_rating`,
+/// `artist_alias_list`, and `primary_genres` per the Musixmatch API specification.
+pub fn parse_musixmatch_artist_candidates(json: &serde_json::Value) -> Vec<ArtistCandidate> {
+    let mut out = Vec::new();
+    let status = json
+        .get("message")
+        .and_then(|m| m.get("header"))
+        .and_then(|h| h.get("status_code"))
+        .and_then(|c| c.as_i64())
+        .unwrap_or(0);
+    if status != 200 {
+        return out;
+    }
+
+    let Some(artist_list) = json
+        .get("message")
+        .and_then(|m| m.get("body"))
+        .and_then(|b| b.get("artist_list"))
+        .and_then(|al| al.as_array())
+    else {
+        return out;
+    };
+
+    for item in artist_list.iter().take(4) {
+        let Some(artist) = item.get("artist") else {
+            continue;
+        };
+        let artist_id = artist.get("artist_id").and_then(|v| v.as_i64()).unwrap_or(0);
+        let name = artist
+            .get("artist_name")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .trim()
+            .to_string();
+        if name.is_empty() {
+            continue;
+        }
+
+        let comment = artist
+            .get("artist_comment")
+            .and_then(|v| v.as_str())
+            .map(str::trim)
+            .filter(|s| !s.is_empty());
+        let country = artist
+            .get("artist_country")
+            .and_then(|v| v.as_str())
+            .map(str::trim)
+            .filter(|s| !s.is_empty());
+        let rating = artist.get("artist_rating").and_then(|v| v.as_i64());
+
+        let mut genres = Vec::new();
+        if let Some(g_list) = artist
+            .get("primary_genres")
+            .and_then(|pg| pg.get("music_genre_list"))
+            .and_then(|gl| gl.as_array())
+        {
+            for g_item in g_list {
+                if let Some(g_name) = g_item
+                    .get("music_genre")
+                    .and_then(|mg| mg.get("music_genre_name_extended").or_else(|| mg.get("music_genre_name")))
+                    .and_then(|v| v.as_str())
+                {
+                    let trimmed = g_name.trim();
+                    if !trimmed.is_empty() && !genres.contains(&trimmed.to_string()) {
+                        genres.push(trimmed.to_string());
+                    }
+                }
+            }
+        }
+
+        let mut aliases = Vec::new();
+        if let Some(a_list) = artist.get("artist_alias_list").and_then(|al| al.as_array()) {
+            for a_item in a_list {
+                if let Some(alias) = a_item.get("artist_alias").and_then(|v| v.as_str()) {
+                    let trimmed = alias.trim();
+                    if !trimmed.is_empty() && !aliases.contains(&trimmed.to_string()) {
+                        aliases.push(trimmed.to_string());
+                    }
+                }
+            }
+        }
+
+        let mut desc_parts = Vec::new();
+        if let Some(c) = comment {
+            desc_parts.push(c.to_string());
+        }
+        if let Some(cty) = country {
+            desc_parts.push(format!("Country: {cty}"));
+        }
+        if !genres.is_empty() {
+            desc_parts.push(genres.join(", "));
+        }
+        let description = if desc_parts.is_empty() {
+            Some("Musixmatch Catalog Artist".to_string())
+        } else {
+            Some(desc_parts.join(" • "))
+        };
+
+        let mut bio_lines = Vec::new();
+        if let Some(c) = comment {
+            bio_lines.push(format!("{name} ({c})."));
+        } else {
+            bio_lines.push(format!("{name} is an indexed artist in the Musixmatch global catalog."));
+        }
+        if let Some(cty) = country {
+            bio_lines.push(format!("Origin country: {cty}."));
+        }
+        if !genres.is_empty() {
+            bio_lines.push(format!("Primary genres: {}.", genres.join(", ")));
+        }
+        if !aliases.is_empty() {
+            bio_lines.push(format!("Also known as: {}.", aliases.join(", ")));
+        }
+
+        out.push(ArtistCandidate {
+            name,
+            provider: "Musixmatch".to_string(),
+            description,
+            bio: Some(bio_lines.join(" ")),
+            image_url: None,
+            banner_url: None,
+            subscribers: rating.map(|r| format!("Rating {r}/100")),
+            views: None,
+            browse_id: if artist_id > 0 {
+                Some(format!("mxm-artist-{artist_id}"))
+            } else {
+                None
+            },
+        });
+    }
+
+    out
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -1774,5 +1931,53 @@ mod tests {
 
         // Clean up mock file so tests never pollute user cache
         let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn test_parse_musixmatch_artist_candidates() {
+        let sample_json: serde_json::Value = serde_json::from_str(
+            r#"{
+                "message": {
+                    "header": { "status_code": 200, "execute_time": 0.05 },
+                    "body": {
+                        "artist_list": [
+                            {
+                                "artist": {
+                                    "artist_id": 118,
+                                    "artist_name": "Attune Ensemble",
+                                    "artist_comment": "Electronic DSP Group",
+                                    "artist_country": "JP",
+                                    "artist_rating": 91,
+                                    "artist_alias_list": [
+                                        { "artist_alias": "アチューン" }
+                                    ],
+                                    "primary_genres": {
+                                        "music_genre_list": [
+                                            {
+                                                "music_genre": {
+                                                    "music_genre_name": "Electronic",
+                                                    "music_genre_name_extended": "Electronic / Synth"
+                                                }
+                                            }
+                                        ]
+                                    }
+                                }
+                            }
+                        ]
+                    }
+                }
+            }"#,
+        )
+        .unwrap();
+
+        let cands = parse_musixmatch_artist_candidates(&sample_json);
+        assert_eq!(cands.len(), 1);
+        assert_eq!(cands[0].name, "Attune Ensemble");
+        assert_eq!(cands[0].provider, "Musixmatch");
+        assert_eq!(cands[0].subscribers.as_deref(), Some("Rating 91/100"));
+        assert_eq!(cands[0].browse_id.as_deref(), Some("mxm-artist-118"));
+        assert!(cands[0].description.as_deref().unwrap_or("").contains("Electronic DSP Group"));
+        assert!(cands[0].description.as_deref().unwrap_or("").contains("Country: JP"));
+        assert!(cands[0].bio.as_deref().unwrap_or("").contains("アチューン"));
     }
 }

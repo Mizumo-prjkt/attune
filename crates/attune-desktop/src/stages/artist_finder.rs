@@ -34,6 +34,7 @@ pub enum ArtistFinderTab {
     All,
     YouTubeMusic,
     Wikipedia,
+    Musixmatch,
     Custom,
 }
 
@@ -192,6 +193,7 @@ pub fn ArtistFinderStandaloneWindow() -> Element {
             ArtistFinderTab::All => true,
             ArtistFinderTab::YouTubeMusic => c.provider.contains("YouTube"),
             ArtistFinderTab::Wikipedia => c.provider.contains("Wikipedia"),
+            ArtistFinderTab::Musixmatch => c.provider.contains("Musixmatch"),
             ArtistFinderTab::Custom => false,
         })
         .cloned()
@@ -287,6 +289,14 @@ pub fn ArtistFinderStandaloneWindow() -> Element {
                         onclick: move |_| active_tab.set(ArtistFinderTab::Wikipedia),
                         span { class: "material-icons md-14", style: "color: var(--accent-mint); margin-right: 4px;", "menu_book" }
                         "Wikipedia"
+                    }
+                    if curr_cfg.api_musixmatch_enabled {
+                        button {
+                            class: if *active_tab.read() == ArtistFinderTab::Musixmatch { "discography-chip active" } else { "discography-chip" },
+                            onclick: move |_| active_tab.set(ArtistFinderTab::Musixmatch),
+                            span { class: "material-icons md-14", style: "color: #f43f5e; margin-right: 4px;", "lyrics" }
+                            "Musixmatch"
+                        }
                     }
                     button {
                         class: if *active_tab.read() == ArtistFinderTab::Custom { "discography-chip active" } else { "discography-chip" },
