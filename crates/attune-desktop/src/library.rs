@@ -28,6 +28,7 @@ pub fn clear_thumbnail_cache() {
             cache.clear();
         }
     }
+    crate::theme::clear_palette_cache();
 }
 
 /// Resolves an album cover to a Base64 Data URL, supporting both high-quality mode (up to 1024x1024 HD)

@@ -46,14 +46,21 @@ pub fn FullscreenNowPlaying(
     // Reset to follow mode whenever track changes
     let current_track_id = current_track.as_ref().map(|t| t.path.clone());
     use_effect(use_reactive(&current_track_id, move |_| {
-        is_locked_to_active.set(true);
-        let _ = document::eval("if (window.attuneResetLyricsSync) window.attuneResetLyricsSync();");
-        let _ = document::eval("var img = document.querySelector('.fullscreen-art-img'); if (img && window.attuneCheckArtworkAspect) window.attuneCheckArtworkAspect(img);");
+        if !*is_locked_to_active.peek() {
+            is_locked_to_active.set(true);
+        }
+        let _ = document::eval(
+            "if (window.attuneResetLyricsSync) window.attuneResetLyricsSync(); \
+             var img = document.querySelector('.fullscreen-art-img'); \
+             if (img && window.attuneCheckArtworkAspect) window.attuneCheckArtworkAspect(img); \
+             if (window.attuneSyncLyrics) window.attuneSyncLyrics(true);",
+        );
     }));
 
-    // Ensure the OS window enters pure borderless fullscreen
+    // Ensure the OS window enters pure borderless fullscreen after the stage DOM mounts
     use_effect(move || {
-        dioxus::desktop::window().set_fullscreen(true);
+        crate::app::set_window_fullscreen(true);
+        let _ = document::eval("var fs = document.querySelector('.fullscreen-stage'); if (fs) fs.focus();");
     });
 
     // Automatically trigger smooth centering when active line updates in Follow Mode
@@ -152,7 +159,7 @@ pub fn FullscreenNowPlaying(
             autofocus: true,
             onkeydown: move |e| {
                 if e.key() == Key::Escape {
-                    dioxus::desktop::window().set_fullscreen(false);
+                    crate::app::set_window_fullscreen(false);
                     on_exit.call(());
                 }
             },
@@ -270,7 +277,7 @@ pub fn FullscreenNowPlaying(
                     class: "fullscreen-floating-close-inline",
                     title: "Exit Fullscreen (Esc)",
                     onclick: move |_| {
-                        dioxus::desktop::window().set_fullscreen(false);
+                        crate::app::set_window_fullscreen(false);
                         on_exit.call(());
                     },
                     span { class: "material-icons md-20", "close" }

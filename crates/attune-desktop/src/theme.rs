@@ -229,20 +229,24 @@ pub const LYRICS_SYNC_SCRIPT: &str = r#"
   var lyricsObserver = new MutationObserver(function(mutations) {
     attachContainerListeners();
     var shouldSync = false;
+    var shouldCheckArtwork = false;
     for (var i = 0; i < mutations.length; i++) {
       var m = mutations[i];
       if (m.type === 'attributes' && m.attributeName === 'class') {
         var t = m.target;
         if (t && (t.classList.contains('fullscreen-lyric-active') || (t.classList.contains('lyric-line') && t.classList.contains('active')))) {
           shouldSync = true;
-          break;
         }
       } else if (m.type === 'childList') {
         for (var j = 0; j < m.addedNodes.length; j++) {
           var node = m.addedNodes[j];
-          if (node.nodeType === 1 && (node.classList.contains('fullscreen-lyric-active') || (node.classList.contains('lyric-line') && node.classList.contains('active')) || node.querySelector('.fullscreen-lyric-active') || node.querySelector('.lyric-line.active'))) {
-            shouldSync = true;
-            break;
+          if (node.nodeType === 1) {
+            if (!shouldSync && (node.classList.contains('fullscreen-lyric-active') || (node.classList.contains('lyric-line') && node.classList.contains('active')) || node.querySelector('.fullscreen-lyric-active') || node.querySelector('.lyric-line.active'))) {
+              shouldSync = true;
+            }
+            if (!shouldCheckArtwork && (node.classList.contains('fullscreen-art-img') || node.querySelector('.fullscreen-art-img'))) {
+              shouldCheckArtwork = true;
+            }
           }
         }
       }
@@ -250,8 +254,10 @@ pub const LYRICS_SYNC_SCRIPT: &str = r#"
     if (shouldSync) {
       window.attuneSyncLyrics(false);
     }
-    var artImg = document.querySelector('.fullscreen-art-img');
-    if (artImg) window.attuneCheckArtworkAspect(artImg);
+    if (shouldCheckArtwork) {
+      var artImg = document.querySelector('.fullscreen-art-img');
+      if (artImg) window.attuneCheckArtworkAspect(artImg);
+    }
   });
 
   function initLyricsObserver() {
@@ -265,21 +271,28 @@ pub const LYRICS_SYNC_SCRIPT: &str = r#"
     if (!img) return;
     function applyAspect() {
       if (!img.naturalWidth || !img.naturalHeight) return;
+      var currentSrc = img.getAttribute('src') || '';
+      if (img._attuneCheckedSrc === currentSrc) return;
+      img._attuneCheckedSrc = currentSrc;
       var ratio = img.naturalWidth / img.naturalHeight;
       var box = img.closest('.fullscreen-art-box');
       if (!box) return;
       if (ratio >= 1.35) {
-        box.classList.add('aspect-16-9');
-        box.classList.remove('aspect-1-1');
+        if (!box.classList.contains('aspect-16-9')) box.classList.add('aspect-16-9');
+        if (box.classList.contains('aspect-1-1')) box.classList.remove('aspect-1-1');
       } else {
-        box.classList.add('aspect-1-1');
-        box.classList.remove('aspect-16-9');
+        if (!box.classList.contains('aspect-1-1')) box.classList.add('aspect-1-1');
+        if (box.classList.contains('aspect-16-9')) box.classList.remove('aspect-16-9');
       }
     }
     if (img.complete && img.naturalWidth > 0) {
       applyAspect();
-    } else {
-      img.addEventListener('load', applyAspect, { once: true });
+    } else if (!img._attuneLoadBound) {
+      img._attuneLoadBound = true;
+      img.addEventListener('load', function() {
+        img._attuneLoadBound = false;
+        applyAspect();
+      }, { once: true });
     }
   };
 
@@ -339,25 +352,83 @@ impl Default for DynamicPalette {
     }
 }
 
+static PALETTE_CACHE: std::sync::Mutex<Option<std::collections::HashMap<String, DynamicPalette>>> =
+    std::sync::Mutex::new(None);
+
+/// Clears the in-memory dynamic palette cache (invoked when track/album artwork is updated).
+pub fn clear_palette_cache() {
+    if let Ok(mut guard) = PALETTE_CACHE.lock() {
+        if let Some(ref mut cache) = *guard {
+            cache.clear();
+        }
+    }
+}
+
 impl DynamicPalette {
-    /// Extracts dominant vibrant colors from an image file on disk.
+    /// Extracts dominant vibrant colors from an image file on disk (with in-memory caching).
     pub fn from_image(path: &Path) -> Option<Self> {
+        let mtime_secs = std::fs::metadata(path)
+            .and_then(|m| m.modified())
+            .ok()
+            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+        let cache_key = format!("path:{}:{mtime_secs}", path.display());
+
+        if let Ok(guard) = PALETTE_CACHE.lock() {
+            if let Some(ref cache) = *guard {
+                if let Some(cached) = cache.get(&cache_key) {
+                    return Some(cached.clone());
+                }
+            }
+        }
+
         let reader = image::ImageReader::open(path).ok()?.with_guessed_format().ok()?;
         let img = reader.decode().ok()?;
-        Some(Self::from_dynamic_image(&img))
+        let pal = Self::from_dynamic_image(&img);
+
+        if let Ok(mut guard) = PALETTE_CACHE.lock() {
+            let cache = guard.get_or_insert_with(std::collections::HashMap::new);
+            cache.insert(cache_key, pal.clone());
+        }
+
+        Some(pal)
     }
 
-    /// Extracts dominant vibrant colors from a base64 Data URL (e.g. embedded artwork).
+    /// Extracts dominant vibrant colors from a base64 Data URL (e.g. embedded artwork, with in-memory caching).
     pub fn from_data_url(data_url: &str) -> Option<Self> {
         if !data_url.starts_with("data:image/") {
             return None;
         }
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        std::hash::Hash::hash(&data_url.len(), &mut hasher);
+        let head_end = data_url.len().min(256);
+        let tail_start = data_url.len().saturating_sub(256);
+        std::hash::Hash::hash(&data_url.as_bytes()[..head_end], &mut hasher);
+        std::hash::Hash::hash(&data_url.as_bytes()[tail_start..], &mut hasher);
+        let cache_key = format!("data:{}:{:016x}", data_url.len(), std::hash::Hasher::finish(&hasher));
+
+        if let Ok(guard) = PALETTE_CACHE.lock() {
+            if let Some(ref cache) = *guard {
+                if let Some(cached) = cache.get(&cache_key) {
+                    return Some(cached.clone());
+                }
+            }
+        }
+
         let comma_idx = data_url.find(',')?;
         let base64_payload = &data_url[comma_idx + 1..];
         use base64::Engine;
         let bytes = base64::prelude::BASE64_STANDARD.decode(base64_payload.trim()).ok()?;
         let img = image::load_from_memory(&bytes).ok()?;
-        Some(Self::from_dynamic_image(&img))
+        let pal = Self::from_dynamic_image(&img);
+
+        if let Ok(mut guard) = PALETTE_CACHE.lock() {
+            let cache = guard.get_or_insert_with(std::collections::HashMap::new);
+            cache.insert(cache_key, pal.clone());
+        }
+
+        Some(pal)
     }
 
     /// Resolves dynamic palette from a `TrackEntry` using artwork path, data URL,
@@ -606,5 +677,41 @@ mod tests {
         assert!(EVENT_COORDINATE_SANITIZER_SCRIPT.contains("clientX"));
         assert!(EVENT_COORDINATE_SANITIZER_SCRIPT.contains("clientY"));
         assert!(EVENT_COORDINATE_SANITIZER_SCRIPT.contains("Math.round"));
+    }
+
+    #[test]
+    fn test_lyrics_sync_script_artwork_aspect_mutation_loop_guard() {
+        assert!(LYRICS_SYNC_SCRIPT.contains("shouldCheckArtwork"));
+        assert!(LYRICS_SYNC_SCRIPT.contains("_attuneCheckedSrc"));
+        assert!(LYRICS_SYNC_SCRIPT.contains("!box.classList.contains('aspect-16-9')"));
+        assert!(LYRICS_SYNC_SCRIPT.contains("!box.classList.contains('aspect-1-1')"));
+    }
+
+    #[test]
+    fn test_dynamic_palette_data_url_cache_and_clear() {
+        use base64::Engine;
+        use image::{ImageBuffer, Rgb};
+
+        clear_palette_cache();
+        let img = ImageBuffer::from_fn(16, 16, |_, _| Rgb([45u8, 212u8, 191u8]));
+        let dyn_img = image::DynamicImage::ImageRgb8(img);
+        let mut png_bytes = Vec::new();
+        dyn_img
+            .write_to(&mut std::io::Cursor::new(&mut png_bytes), image::ImageFormat::Png)
+            .unwrap();
+        let data_url = format!(
+            "data:image/png;base64,{}",
+            base64::prelude::BASE64_STANDARD.encode(&png_bytes)
+        );
+
+        let pal1 = DynamicPalette::from_data_url(&data_url).expect("palette should decode");
+        let pal2 = DynamicPalette::from_data_url(&data_url).expect("palette should hit cache");
+        assert_eq!(pal1, pal2);
+
+        clear_palette_cache();
+        let guard = PALETTE_CACHE.lock().unwrap();
+        if let Some(ref map) = *guard {
+            assert!(map.is_empty());
+        }
     }
 }

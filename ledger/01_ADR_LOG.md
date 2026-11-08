@@ -5044,6 +5044,41 @@ This file records all major architectural decisions for **Attune**, including co
   - `attune-desktop` ELF binaries compiled on Ubuntu/Debian run out-of-the-box on Arch, Fedora, openSUSE, and systems without `xdotool`/`libxdo` installed.
   - All 119 desktop unit tests pass cleanly.
 
+---
+
+## ADR-144: Fullscreen Now Playing Freeze Resolution (`MutationObserver` Microtask Loop Elimination in `LYRICS_SYNC_SCRIPT`, Wayland-Safe `set_window_fullscreen`, Native `tao` `Esc`/`F11` Window Event Handler & In-Memory `DynamicPalette` Cache)
+
+- **Date**: 2026-11-09
+- **Status**: LOCKED
+- **Context**:
+  - Clicking the Fullscreen button (`fullscreen` icon in the bottom-right transport bar) while playing a track caused the OS window to expand to fullscreen (`1920x1080`), while the WebKitGTK viewport remained frozen on the `1280x820` `Home` view in the top-left corner with dark gray (`#2a2a2e`) filling the right and bottom regions, completely ignoring mouse clicks and `Escape` key presses while `cpal` audio playback continued in the background.
+  - **Root Causes Identified**:
+    1. **Infinite `MutationObserver` Microtask Loop in `LYRICS_SYNC_SCRIPT` (`crates/attune-desktop/src/theme.rs`)**:
+       - `lyricsObserver` observes `document.body` with `{ attributes: true, subtree: true, attributeFilter: ['class'], childList: true }`.
+       - At the end of every `lyricsObserver` callback (lines 253–254), the script unconditionally executed `var artImg = document.querySelector('.fullscreen-art-img'); if (artImg) window.attuneCheckArtworkAspect(artImg);`.
+       - When `FullscreenNowPlaying` mounted inside Dioxus's `rafEdits` callback with an already-loaded `data:image/...` cover art (`artImg.complete && artImg.naturalWidth > 0`), `window.attuneCheckArtworkAspect` synchronously invoked `applyAspect()`, which unconditionally called `box.classList.add('aspect-1-1'); box.classList.remove('aspect-16-9');`.
+       - Per the WHATWG DOM `DOMTokenList` specification, `classList.add()` and `classList.remove()` unconditionally run the attribute update steps on `box`'s `class` attribute even when the class token set is unchanged, queuing a new `MutationRecord` (`type: 'attributes', attributeName: 'class'`) on `lyricsObserver` in the same microtask checkpoint.
+       - Because WebKit drains the microtask queue to completion before returning to the WebProcess event loop, `lyricsObserver` and `window.attuneCheckArtworkAspect` entered a permanent infinite microtask loop on the exact frame `FullscreenNowPlaying` mounted — freezing `WebKitWebProcess` before it could paint `FullscreenNowPlaying` or process the `DrawingArea::UpdateGeometry(1920x1080)` backing-store resize from the UIProcess.
+    2. **Wayland `current_monitor()` Gate in `dioxus::desktop::DesktopService::set_fullscreen` (`crates/attune-desktop/src/app.rs`)**:
+       - `dioxus-desktop 0.6.3` wraps both `set_fullscreen(true)` and `set_fullscreen(false)` inside `if let Some(handle) = &self.window.current_monitor()`. On Wayland (`GDK_BACKEND=wayland`), `display.primary_monitor()` is always `None`, so if `monitor_at_window` returns `None` during a surface transition, `set_fullscreen(false)` silently fails to unfullscreen the window.
+       - Additionally, `navigate_to` was calling `set_fullscreen(true)` synchronously inside the `__events` XHR handler before the `FullscreenNowPlaying` DOM edits were flushed to WebKit.
+    3. **Uncached 20 Hz Full-Image Decoding in `DynamicPalette::from_track` (`crates/attune-desktop/src/theme.rs`)**:
+       - Because `position_ms` updates every 50ms (20 Hz), `FullscreenNowPlaying` re-renders 20 times per second during playback, and `DynamicPalette::from_track(&track)` was decoding the full cover art image and computing a 48x48 thumbnail + 12-bin HSL histogram on every 50ms tick without caching.
+- **Decision**:
+  1. **Eliminate `MutationObserver` Microtask Loop (`crates/attune-desktop/src/theme.rs`)**:
+     - Restricted `lyricsObserver` so `window.attuneCheckArtworkAspect` is invoked **only** when a `childList` mutation actually adds `.fullscreen-art-img` (never on `attributes` mutations).
+     - Guarded `applyAspect()` in `window.attuneCheckArtworkAspect` with `img._attuneCheckedSrc === currentSrc` deduplication and `!box.classList.contains(...)` / `box.classList.contains(...)` checks before calling `classList.add` / `classList.remove`.
+  2. **Wayland-Safe `set_window_fullscreen` & Post-Mount Fullscreen Transition (`crates/attune-desktop/src/app.rs`, `stages/fullscreen_now_playing.rs`)**:
+     - Implemented `pub fn set_window_fullscreen(fullscreen: bool)` in `app.rs` calling `desktop.window.set_fullscreen(fullscreen.then_some(Fullscreen::Borderless(None)))` directly (bypassing `dioxus-desktop`'s `current_monitor()` gate) and restoring WebView focus via `desktop.webview.focus()`.
+     - Deferred entering OS fullscreen to `FullscreenNowPlaying`'s post-mount `use_effect` so Dioxus flushes the `.fullscreen-stage` DOM mutations to WebKit before the window manager resizes the surface.
+  3. **Native OS Window `Escape` / `F11` Handler (`crates/attune-desktop/src/app.rs`)**:
+     - Registered `dioxus::desktop::use_wry_event_handler` in `App` to intercept native `tao::event::WindowEvent::KeyboardInput` for `Escape` (exiting `FullscreenNowPlaying`) and `F11` (toggling `FullscreenNowPlaying`), ensuring `Esc` always works even if DOM focus is outside the WebView.
+  4. **In-Memory `DynamicPalette` Cache (`PALETTE_CACHE` in `crates/attune-desktop/src/theme.rs`, `library.rs`)**:
+     - Added `PALETTE_CACHE` (`Mutex<Option<HashMap<String, DynamicPalette>>>`) in `theme.rs` for `DynamicPalette::from_image` and `DynamicPalette::from_data_url`, with `clear_palette_cache()` wired into `library::clear_thumbnail_cache()`.
+- **Consequences**:
+  - Entering and exiting Fullscreen Now Playing is instantaneous, fills 100% of the fullscreen viewport without clipping or freezing, and responds immediately to `Esc`, `F11`, and the top-right close button.
+  - All 121 desktop unit tests pass cleanly.
+
 
 
 

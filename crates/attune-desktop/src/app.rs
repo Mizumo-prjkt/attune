@@ -210,6 +210,21 @@ pub fn select_next_playback_index(
     }
 }
 
+/// Safely transitions the primary OS window into or out of borderless fullscreen.
+///
+/// Bypasses `dioxus::desktop::DesktopService::set_fullscreen`, which gates both entering
+/// and exiting fullscreen behind `window.current_monitor().is_some()` (which can return
+/// `None` on Wayland compositors where `gdk_display_get_primary_monitor` is unsupported).
+/// Also restores WebView focus so keyboard shortcuts (`Esc` / `Space` / arrows) remain active.
+pub fn set_window_fullscreen(fullscreen: bool) {
+    let desktop = dioxus::desktop::window();
+    let target = fullscreen.then_some(dioxus::desktop::tao::window::Fullscreen::Borderless(None));
+    if desktop.window.fullscreen().is_some() != fullscreen {
+        desktop.window.set_fullscreen(target);
+    }
+    let _ = desktop.webview.focus();
+}
+
 #[component]
 pub fn App() -> Element {
     // 1. Audio Engine & Library State
@@ -353,13 +368,13 @@ pub fn App() -> Element {
     });
 
     // Helper: Navigation change with history tracking
+    // Note: Entering FullscreenNowPlaying transitions the OS window inside FullscreenNowPlaying's
+    // post-mount use_effect so the DOM edits flush to WebKit before the window manager resizes.
     let mut navigate_to = move |new_stage: StageView| {
         let is_entering_fs = new_stage == StageView::FullscreenNowPlaying;
         let is_leaving_fs = *nav_state.read().current() == StageView::FullscreenNowPlaying && !is_entering_fs;
-        if is_entering_fs {
-            dioxus::desktop::window().set_fullscreen(true);
-        } else if is_leaving_fs {
-            dioxus::desktop::window().set_fullscreen(false);
+        if is_leaving_fs {
+            set_window_fullscreen(false);
         }
         nav_state.write().push(new_stage);
     };
@@ -368,7 +383,7 @@ pub fn App() -> Element {
     let mut go_back = move || {
         let was_fs = *nav_state.read().current() == StageView::FullscreenNowPlaying;
         if was_fs {
-            dioxus::desktop::window().set_fullscreen(false);
+            set_window_fullscreen(false);
         }
         let mut nav = nav_state.write();
         if nav.back().is_none() {
@@ -386,6 +401,43 @@ pub fn App() -> Element {
             }
         }
     };
+
+    // Native OS window keyboard fallback (Escape exits FullscreenNowPlaying, F11 toggles FullscreenNowPlaying)
+    // Ensures Esc/F11 work reliably even when WebKitGTK / WebView2 DOM focus is outside the root container.
+    dioxus::desktop::use_wry_event_handler(move |event, _| {
+        use dioxus::desktop::tao::event::{ElementState, Event, WindowEvent};
+        use dioxus::desktop::tao::keyboard::Key as TaoKey;
+        if let Event::WindowEvent {
+            window_id,
+            event: WindowEvent::KeyboardInput { event: key_evt, .. },
+            ..
+        } = event
+        {
+            if *window_id == dioxus::desktop::window().id()
+                && key_evt.state == ElementState::Pressed
+                && !key_evt.repeat
+            {
+                match key_evt.logical_key {
+                    TaoKey::Escape => {
+                        if *nav_state.read().current() == StageView::FullscreenNowPlaying {
+                            set_window_fullscreen(false);
+                            nav_state.write().back();
+                        }
+                    }
+                    TaoKey::F11 => {
+                        let is_fs = *nav_state.read().current() == StageView::FullscreenNowPlaying;
+                        if is_fs {
+                            set_window_fullscreen(false);
+                            nav_state.write().back();
+                        } else {
+                            nav_state.write().push(StageView::FullscreenNowPlaying);
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+    });
 
     // Helper: History forward navigation
     let mut go_forward = move || {
@@ -1209,7 +1261,7 @@ pub fn App() -> Element {
             onkeydown: move |e| {
                 if e.key() == Key::Escape {
                     if *nav_state.read().current() == StageView::FullscreenNowPlaying {
-                        dioxus::desktop::window().set_fullscreen(false);
+                        set_window_fullscreen(false);
                         nav_state.write().back();
                         return;
                     }
@@ -1861,8 +1913,10 @@ pub fn App() -> Element {
                                         repeat_mode.set(next_mode);
                                     },
                                     on_exit: move |_| {
-                                        dioxus::desktop::window().set_fullscreen(false);
-                                        nav_state.write().back();
+                                        set_window_fullscreen(false);
+                                        if *nav_state.read().current() == StageView::FullscreenNowPlaying {
+                                            nav_state.write().back();
+                                        }
                                     },
                                     on_artwork_updated: handle_artwork_updated.clone(),
                                     on_config_updated: move |new_cfg: crate::config::AppConfig| {
@@ -2392,7 +2446,7 @@ pub fn App() -> Element {
                         onclick: move |_| {
                             let is_fs = *nav_state.read().current() == StageView::FullscreenNowPlaying;
                             if is_fs {
-                                dioxus::desktop::window().set_fullscreen(false);
+                                set_window_fullscreen(false);
                                 nav_state.write().back();
                             } else {
                                 navigate_to(StageView::FullscreenNowPlaying);
