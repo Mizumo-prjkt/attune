@@ -21,7 +21,7 @@ pub const ATTUNE_DEFAULT_FONTS: &[AttuneFontOption] = &[
     },
     AttuneFontOption {
         id: "Plus Jakarta Sans",
-        label: "Plus Jakarta Sans (Attune Body & Lyrics)",
+        label: "Plus Jakarta Sans (Attune Body and Lyrics)",
     },
     AttuneFontOption {
         id: "Sora",
@@ -91,6 +91,16 @@ pub fn resolve_font_family_css(font_name: &str) -> String {
     } else {
         let escaped = trimmed.replace('\'', "\\'");
         format!("'{}', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Noto Sans', sans-serif", escaped)
+    }
+}
+
+/// Sanitizes text for GTK / WebKitGTK dropdown menu items and labels by escaping bare ampersands
+/// as `&amp;` to prevent Pango markup parsing warnings (e.g. "Entity did not end with a semicolon").
+pub fn pango_escape(text: &str) -> String {
+    if text.contains('&') && !text.contains("&amp;") {
+        text.replace('&', "&amp;")
+    } else {
+        text.to_string()
     }
 }
 
@@ -231,6 +241,14 @@ mod tests {
 
         let dejavu_css = resolve_font_family_css("DejaVu Sans");
         assert!(dejavu_css.starts_with("'DejaVu Sans'"));
+    }
+
+    #[test]
+    fn test_pango_escape_ampersands() {
+        assert_eq!(pango_escape("Default and Attune Fonts"), "Default and Attune Fonts");
+        assert_eq!(pango_escape("Default & Attune Fonts"), "Default &amp; Attune Fonts");
+        assert_eq!(pango_escape("B&H Lucida"), "B&amp;H Lucida");
+        assert_eq!(pango_escape("Already &amp; Escaped"), "Already &amp; Escaped");
     }
 
     #[test]

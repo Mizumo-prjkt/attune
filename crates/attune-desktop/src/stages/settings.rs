@@ -616,24 +616,24 @@ pub fn SettingsContent(
                                                 update_cfg(Box::new(move |c| c.app_font_family = val.clone()));
                                             },
                                             optgroup {
-                                                label: "{strings.font_group_default}",
+                                                label: "{crate::system_fonts::pango_escape(strings.font_group_default)}",
                                                 for opt in crate::system_fonts::ATTUNE_DEFAULT_FONTS {
                                                     option {
                                                         key: "{opt.id}",
                                                         value: "{opt.id}",
                                                         selected: current_app_font == opt.id,
-                                                        "{opt.label}"
+                                                        "{crate::system_fonts::pango_escape(opt.label)}"
                                                     }
                                                 }
                                             }
                                             optgroup {
-                                                label: "{strings.font_group_system} ({system_fonts.len()})",
+                                                label: "{crate::system_fonts::pango_escape(strings.font_group_system)} ({system_fonts.len()})",
                                                 for sys_font in system_fonts.iter() {
                                                     option {
                                                         key: "{sys_font}",
                                                         value: "{sys_font}",
                                                         selected: current_app_font == sys_font.as_str(),
-                                                        "{sys_font}"
+                                                        "{crate::system_fonts::pango_escape(sys_font)}"
                                                     }
                                                 }
                                             }
@@ -1104,24 +1104,24 @@ pub fn SettingsContent(
                                             update_cfg(Box::new(move |c| c.lyric_font_family = val.clone()));
                                         },
                                         optgroup {
-                                            label: "{strings.font_group_default}",
+                                            label: "{crate::system_fonts::pango_escape(strings.font_group_default)}",
                                             for opt in crate::system_fonts::ATTUNE_DEFAULT_FONTS {
                                                 option {
                                                     key: "{opt.id}",
                                                     value: "{opt.id}",
                                                     selected: current_font_val == opt.id,
-                                                    "{opt.label}"
+                                                    "{crate::system_fonts::pango_escape(opt.label)}"
                                                 }
                                             }
                                         }
                                         optgroup {
-                                            label: "{strings.font_group_system} ({system_fonts.len()})",
+                                            label: "{crate::system_fonts::pango_escape(strings.font_group_system)} ({system_fonts.len()})",
                                             for sys_font in system_fonts.iter() {
                                                 option {
                                                     key: "{sys_font}",
                                                     value: "{sys_font}",
                                                     selected: current_font_val == sys_font.as_str(),
-                                                    "{sys_font}"
+                                                    "{crate::system_fonts::pango_escape(sys_font)}"
                                                 }
                                             }
                                         }

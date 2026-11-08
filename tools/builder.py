@@ -667,7 +667,15 @@ def compile_rust(mode="release", target_os=None, log_callback=None):
     if mc_path.exists():
         dest_mc = dest_lib_dir / mc_name
         shutil.copy2(mc_path, dest_mc)
-        log(f"[Rust] Copied music_metadata_changer library to: {dest_mc}")
+        log(f"[Rust] Copied music_metadata library to: {dest_mc}")
+
+        # Also maintain music_metadata_changer alias in target and app lib dir
+        changer_name = mc_name.replace("attune_music_metadata", "attune_music_metadata_changer")
+        dest_changer = dest_lib_dir / changer_name
+        shutil.copy2(mc_path, dest_changer)
+        target_changer = target_dir / changer_name
+        shutil.copy2(mc_path, target_changer)
+        log(f"[Rust] Mirrored music_metadata_changer alias to: {dest_changer}")
     return lib_path
 
 

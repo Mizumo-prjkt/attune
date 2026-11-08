@@ -4689,6 +4689,38 @@ This file records all major architectural decisions for **Attune**, including co
   - Process Manager memory cleanup reporting is concise and elegant.
   - All 102 desktop unit tests and 100% of workspace tests pass cleanly.
 
+---
+
+## ADR-133: Dynamic Shared Library FFI YouTube Thumbnail Symbol Certification & GTK Pango Markup Ampersand Sanitization
+
+- **Status**: LOCKED
+- **Date**: 2026-11-09
+- **Context**:
+  1. The user reported two bugs:
+     - "i cant find the yt info to change album image" -> Select Album Artwork modal under YouTube & YouTube Music (HQ) failing with:
+       `YouTube Search Error: attune_metadata_search_youtube_thumbn symbol not available`.
+     - "also when changing fonts, this warning shows":
+       `Gtk-WARNING **: Failed to set text from markup due to error parsing markup: Error on line 1: Entity did not end with a semicolon; most likely you used an ampersand character without intending to start an entity — escape ampersand as &amp;` (repeated 8 times on changing fonts).
+  2. Root cause analysis:
+     - Bug 1: `crates/attune-music-metadata` had added `attune_metadata_search_youtube_thumbnails`, `attune_metadata_download_youtube_thumbnail`, and `attune_metadata_fetch_hq_thumbnail` in commit `5c2ebc5`, but `target/release/libattune_music_metadata.so` was built on Nov 7 prior to that commit. Furthermore, `dynamic_components::load_metadata_changer()` did not require YouTube thumbnail symbols in its symbol resolution check tuple, meaning a stale `.so` without the YouTube symbols was silently accepted as valid at load time, failing at runtime when the user initiated an artwork search.
+     - Bug 2: In WebKitGTK / GTK on Linux, `<select>` dropdown menu items and `<optgroup>` headers are rendered natively using Pango markup via `gtk_label_set_markup_with_mnemonic`. In `i18n.rs`, `font_group_default` was `"Default & Attune Fonts"`, and in `system_fonts.rs`, `ATTUNE_DEFAULT_FONTS` contained `"Plus Jakarta Sans (Attune Body & Lyrics)"`. The bare ampersands (`&`) without XML entity termination (`&amp;`) caused Pango to emit 8 consecutive Gtk-WARNING errors whenever font dropdowns were rendered or modified in General and Lyrics settings.
+- **Decision**:
+  1. **Dynamic Shared Library Symbol Verification (`crates/attune-desktop/src/dynamic_components.rs`)**:
+     - Upgraded `load_metadata_changer()` to validate all required C-ABI symbols in its resolution match tuple (`v_sym`, `f_sym`, `r_sym`, `w_sym`, `u_sym`, `search_yt_sym`, `dl_yt_sym`, `fetch_hq_sym`). If any candidate library is missing the YouTube thumbnail exports, it is rejected and recorded with transparency, preventing stale `.so` files from silently hijacking runtime execution (Mandate 4).
+     - Dynamically formatted `LoadedComponentSummary.filename` to reflect the actual resolved filename (`libattune_music_metadata.so` or `libattune_music_metadata_changer.so`).
+     - Added `music_metadata_changer::search_youtube_thumbnails` live symbol validation to `test_preflight_loads_all_workspace_release_components`.
+  2. **Automated Mirroring in Build Pipeline (`tools/builder.py`)**:
+     - Updated `tools/builder.py` to mirror `libattune_music_metadata.so` to the `libattune_music_metadata_changer.so` alias in both target and bundle directories, preventing stale alias drift.
+     - Recompiled release and debug builds of `attune-music-metadata`.
+  3. **GTK Pango Markup Ampersand Sanitization (`crates/attune-desktop/src/system_fonts.rs`, `i18n.rs`, `stages/settings.rs`)**:
+     - Replaced bare ampersands with "and" in `font_group_default` (`"Default and Attune Fonts"`) and `ATTUNE_DEFAULT_FONTS` (`"Plus Jakarta Sans (Attune Body and Lyrics)"`).
+     - Created `system_fonts::pango_escape(text: &str) -> String` to automatically sanitize any remaining bare `&` characters into `&amp;` for `<optgroup>` labels and `<option>` text, including dynamically discovered host system fonts (e.g. `B&H`).
+     - Added comprehensive unit test `test_pango_escape_ampersands`.
+- **Consequences**:
+  - YouTube & YouTube Music HQ thumbnail artwork search and downloads now work seamlessly in Album Editor and track artwork selectors.
+  - GTK/Pango markup parsing warnings are completely eradicated from the console.
+  - All 103 desktop tests and 100% of workspace tests pass cleanly.
+
 
 
 

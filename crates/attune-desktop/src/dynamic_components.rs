@@ -95,6 +95,7 @@ struct MetadataModule {
     fn_fetch_artist_online: Option<FnMetadataFetchArtistOnline>,
     fn_search_youtube_thumbnails: Option<FnMetadataSearchYoutubeThumbnails>,
     fn_download_youtube_thumbnail: Option<FnMetadataDownloadYoutubeThumbnail>,
+    #[allow(dead_code)]
     fn_fetch_hq_thumbnail: Option<FnMetadataFetchHqThumbnail>,
 }
 unsafe impl Send for MetadataModule {}
@@ -523,8 +524,8 @@ fn load_metadata_changer() -> Result<(), MissingComponentError> {
                     let fetch_hq_sym = os_dlsym(handle, "attune_metadata_fetch_hq_thumbnail")
                         .or_else(|_| os_dlsym(handle, "attune_metadata_changer_fetch_hq_thumbnail"));
 
-                    match (v_sym, f_sym, r_sym, w_sym, u_sym) {
-                        (Ok(v), Ok(f), Ok(r), Ok(w), Ok(u)) => {
+                    match (v_sym, f_sym, r_sym, w_sym, u_sym, search_yt_sym, dl_yt_sym, fetch_hq_sym) {
+                        (Ok(v), Ok(f), Ok(r), Ok(w), Ok(u), Ok(s_yt), Ok(d_yt), Ok(f_hq)) => {
                             let module = MetadataModule {
                                 _handle: handle,
                                 resolved_path: path.clone(),
@@ -534,9 +535,9 @@ fn load_metadata_changer() -> Result<(), MissingComponentError> {
                                 fn_write_metadata: std::mem::transmute(w),
                                 fn_update_tag: std::mem::transmute(u),
                                 fn_fetch_artist_online: fetch_sym.ok().map(|s| std::mem::transmute(s)),
-                                fn_search_youtube_thumbnails: search_yt_sym.ok().map(|s| std::mem::transmute(s)),
-                                fn_download_youtube_thumbnail: dl_yt_sym.ok().map(|s| std::mem::transmute(s)),
-                                fn_fetch_hq_thumbnail: fetch_hq_sym.ok().map(|s| std::mem::transmute(s)),
+                                fn_search_youtube_thumbnails: Some(std::mem::transmute(s_yt)),
+                                fn_download_youtube_thumbnail: Some(std::mem::transmute(d_yt)),
+                                fn_fetch_hq_thumbnail: Some(std::mem::transmute(f_hq)),
                             };
                             let ver_ptr = (module.fn_version)();
                             let ver_str = if !ver_ptr.is_null() {
@@ -554,13 +555,16 @@ fn load_metadata_changer() -> Result<(), MissingComponentError> {
                             *guard = Some(module);
                             return Ok(());
                         }
-                        (v, f, r, w, u) => {
+                        (v, f, r, w, u, s_yt, d_yt, f_hq) => {
                             let mut missing = Vec::new();
                             if let Err(e) = v { missing.push(e); }
                             if let Err(e) = f { missing.push(e); }
                             if let Err(e) = r { missing.push(e); }
                             if let Err(e) = w { missing.push(e); }
                             if let Err(e) = u { missing.push(e); }
+                            if let Err(e) = s_yt { missing.push(e); }
+                            if let Err(e) = d_yt { missing.push(e); }
+                            if let Err(e) = f_hq { missing.push(e); }
                             os_dlclose(handle);
                             specific_errors.push(format!(
                                 "{}: symbol resolution failed ({})",
@@ -639,9 +643,15 @@ pub fn get_loaded_components_summary() -> Vec<LoadedComponentSummary> {
 
     if let Ok(guard) = METADATA.lock() {
         if let Some(m) = guard.as_ref() {
+            let actual_fn = m
+                .resolved_path
+                .file_name()
+                .and_then(|f| f.to_str())
+                .map(|s| s.to_string())
+                .unwrap_or_else(|| component_filename("attune_music_metadata"));
             summaries.push(LoadedComponentSummary {
                 name: "Attune Track Metadata & Audio Tweaks Engine".to_string(),
-                filename: component_filename("attune_music_metadata_changer"),
+                filename: actual_fn,
                 path: m.resolved_path.clone(),
                 version: unsafe { read_c_version(m.fn_version) },
             });
@@ -1056,6 +1066,7 @@ pub mod music_metadata_changer {
     }
 
     /// Automatically searches for the top HQ thumbnail for a song and downloads it to `dest_path`.
+    #[allow(dead_code)]
     pub fn fetch_hq_thumbnail(title: &str, artist: &str, dest_path: &Path) -> Result<YouTubeThumbnailCandidate, String> {
         let guard = METADATA
             .lock()
@@ -1127,7 +1138,10 @@ mod tests {
         assert_eq!(summary.len(), 3);
         assert!(summary.iter().any(|s| s.filename == component_filename("attune_procmgr")));
         assert!(summary.iter().any(|s| s.filename == component_filename("attune_watchguard")));
-        assert!(summary.iter().any(|s| s.filename == component_filename("attune_music_metadata_changer")));
+        assert!(summary.iter().any(|s| {
+            s.filename == component_filename("attune_music_metadata")
+                || s.filename == component_filename("attune_music_metadata_changer")
+        }));
 
         // Verify live calls through all 3 dynamic modules
         let metrics = procmgr::sample_metrics().expect("procmgr::sample_metrics must succeed");
@@ -1141,5 +1155,14 @@ mod tests {
         assert!(status.is_desktop_mode);
         assert_eq!(status.cpu_usage_pct, 10.0);
         watchguard::reset_metrics().expect("watchguard::reset_metrics must succeed");
+
+        // Verify YouTube thumbnail search symbol is available and callable through dynamic C-ABI
+        let yt_res = music_metadata_changer::search_youtube_thumbnails("Nyan Cat");
+        if let Err(ref e) = yt_res {
+            assert!(
+                !e.contains("symbol not available"),
+                "attune_metadata_search_youtube_thumbnails symbol must be dynamically available: {e}"
+            );
+        }
     }
 }

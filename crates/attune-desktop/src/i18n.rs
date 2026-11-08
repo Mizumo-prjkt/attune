@@ -444,7 +444,7 @@ pub fn get_strings(lang: Language) -> Strings {
             preview_syllable_progress: "Word Progress",
             lyrics_font_family: "Lyrics Font Family",
             lyrics_font_family_desc: "Select a typography font face for rendering singing lines across sidebar and fullscreen views.",
-            font_group_default: "Default & Attune Fonts",
+            font_group_default: "Default and Attune Fonts",
             font_group_system: "System Installed Fonts",
             font_preview_sample: "Live Typography Preview",
             app_font_family: "Application Font Family",
