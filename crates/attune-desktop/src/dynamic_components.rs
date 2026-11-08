@@ -10,10 +10,13 @@
 //! required shared library or C-ABI symbol is missing or fails at runtime, the
 //! error is surfaced transparently.
 
+use std::collections::HashMap;
 use std::ffi::{CStr, CString};
 use std::os::raw::c_char;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
+use serde::Deserialize;
+use sha2::{Digest, Sha256};
 
 /// Details of a missing or failed shared library component.
 #[derive(Debug, Clone)]
@@ -175,6 +178,151 @@ pub fn resolve_candidate_paths(base_name: &str) -> Vec<PathBuf> {
 }
 
 // ---------------------------------------------------------------------------
+// Dynamic Library Anti-Tamper Integrity Verification
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct ComponentIntegrityRecord {
+    pub sha256: String,
+    #[serde(default)]
+    pub blake3: Option<String>,
+    #[serde(default)]
+    pub size_bytes: Option<u64>,
+}
+
+#[allow(dead_code)]
+#[derive(Debug, Clone, Deserialize)]
+pub struct IntegrityManifest {
+    #[serde(default)]
+    pub version: Option<String>,
+    #[serde(default)]
+    pub dynamic_version: Option<String>,
+    #[serde(default)]
+    pub build_number: Option<String>,
+    #[serde(default)]
+    pub generated_at: Option<String>,
+    #[serde(default)]
+    pub components: HashMap<String, ComponentIntegrityRecord>,
+}
+
+/// Verifies cryptographic hashes (SHA-256 and BLAKE3) of a candidate shared library
+/// against `attune_integrity.json` if available, preventing code tampering or corrupted loads.
+pub fn verify_component_integrity(path: &Path, _base_name: &str) -> Result<(), String> {
+    if !path.exists() || !path.is_file() {
+        return Ok(());
+    }
+
+    let file_name = path
+        .file_name()
+        .map(|f| f.to_string_lossy().to_string())
+        .unwrap_or_default();
+    if file_name.is_empty() {
+        return Ok(());
+    }
+
+    // Search for attune_integrity.json in component parent hierarchy and executable directory
+    let mut manifest_candidates = Vec::new();
+    if let Some(parent) = path.parent() {
+        manifest_candidates.push(parent.join("attune_integrity.json"));
+        if let Some(grandparent) = parent.parent() {
+            manifest_candidates.push(grandparent.join("attune_integrity.json"));
+            manifest_candidates.push(grandparent.join("lib/attune_integrity.json"));
+        }
+    }
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(exe_dir) = exe.parent() {
+            manifest_candidates.push(exe_dir.join("attune_integrity.json"));
+            manifest_candidates.push(exe_dir.join("lib/attune_integrity.json"));
+            if let Some(exe_parent) = exe_dir.parent() {
+                manifest_candidates.push(exe_parent.join("attune_integrity.json"));
+            }
+        }
+    }
+
+    let found_manifest_path = manifest_candidates.into_iter().find(|p| p.is_file());
+
+    let Some(manifest_file) = found_manifest_path else {
+        if std::env::var("ATTUNE_ENFORCE_INTEGRITY")
+            .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+            .unwrap_or(false)
+        {
+            return Err(format!(
+                "Security policy violation: ATTUNE_ENFORCE_INTEGRITY is active but attune_integrity.json manifest is missing for '{}'",
+                path.display()
+            ));
+        }
+        return Ok(());
+    };
+
+    let manifest_bytes = std::fs::read(&manifest_file)
+        .map_err(|e| format!("Failed to read integrity manifest at {}: {e}", manifest_file.display()))?;
+
+    let manifest: IntegrityManifest = serde_json::from_slice(&manifest_bytes)
+        .map_err(|e| format!("Failed to parse integrity manifest at {}: {e}", manifest_file.display()))?;
+
+    let Some(record) = manifest.components.get(&file_name) else {
+        if std::env::var("ATTUNE_ENFORCE_INTEGRITY")
+            .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+            .unwrap_or(false)
+        {
+            return Err(format!(
+                "Component '{}' is not registered in integrity manifest {}",
+                file_name,
+                manifest_file.display()
+            ));
+        }
+        return Ok(());
+    };
+
+    let bytes = std::fs::read(path)
+        .map_err(|e| format!("Failed to read component binary for verification at {}: {e}", path.display()))?;
+
+    if let Some(expected_size) = record.size_bytes {
+        if (bytes.len() as u64) != expected_size {
+            return Err(format!(
+                "Component size mismatch for '{}': expected {} bytes, got {} bytes (possible tampering or truncation)",
+                path.display(),
+                expected_size,
+                bytes.len()
+            ));
+        }
+    }
+
+    let mut hasher = Sha256::new();
+    hasher.update(&bytes);
+    let computed_sha256 = format!("{:x}", hasher.finalize());
+
+    if !computed_sha256.eq_ignore_ascii_case(record.sha256.trim()) {
+        return Err(format!(
+            "CRITICAL: SHA-256 signature mismatch on '{}'! Expected {}, computed {}. Component load rejected to prevent code tampering.",
+            path.display(),
+            record.sha256,
+            computed_sha256
+        ));
+    }
+
+    if let Some(ref expected_blake3) = record.blake3 {
+        let computed_blake3 = blake3::hash(&bytes).to_hex().to_string();
+        if !computed_blake3.eq_ignore_ascii_case(expected_blake3.trim()) {
+            return Err(format!(
+                "CRITICAL: BLAKE3 hash mismatch on '{}'! Expected {}, computed {}. Component load rejected.",
+                path.display(),
+                expected_blake3,
+                computed_blake3
+            ));
+        }
+    }
+
+    log::info!(
+        "Security: Verified anti-tamper integrity for '{}' (SHA-256: {}...)",
+        file_name,
+        &computed_sha256[..12.min(computed_sha256.len())]
+    );
+
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
 // Dynamic Library OS Loader
 // ---------------------------------------------------------------------------
 
@@ -317,6 +465,12 @@ fn load_procmgr() -> Result<(), MissingComponentError> {
         }
         let Some(path_str) = path.to_str() else { continue };
 
+        if let Err(e) = verify_component_integrity(path, base) {
+            specific_errors.push(format!("{}: anti-tamper check failed ({e})", path.display()));
+            log::warn!("Component integrity check rejected {}: {e}", path.display());
+            continue;
+        }
+
         unsafe {
             match os_dlopen(path_str) {
                 Ok(handle) => {
@@ -398,6 +552,12 @@ fn load_watchguard() -> Result<(), MissingComponentError> {
             continue;
         }
         let Some(path_str) = path.to_str() else { continue };
+
+        if let Err(e) = verify_component_integrity(path, base) {
+            specific_errors.push(format!("{}: anti-tamper check failed ({e})", path.display()));
+            log::warn!("Component integrity check rejected {}: {e}", path.display());
+            continue;
+        }
 
         unsafe {
             match os_dlopen(path_str) {
@@ -506,6 +666,12 @@ fn load_metadata_changer() -> Result<(), MissingComponentError> {
             continue;
         }
         let Some(path_str) = path.to_str() else { continue };
+
+        if let Err(e) = verify_component_integrity(path, base) {
+            specific_errors.push(format!("{}: anti-tamper check failed ({e})", path.display()));
+            log::warn!("Component integrity check rejected {}: {e}", path.display());
+            continue;
+        }
 
         unsafe {
             match os_dlopen(path_str) {
@@ -1166,5 +1332,56 @@ mod tests {
                 "attune_metadata_search_youtube_thumbnails symbol must be dynamically available: {e}"
             );
         }
+    }
+
+    #[test]
+    fn test_integrity_verification_tamper_detection() {
+        let unique_dir = std::env::temp_dir().join(format!(
+            "attune_test_integrity_{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&unique_dir).expect("create test dir");
+        let fake_dll_path = unique_dir.join("attune_watchguard.dll");
+        let fake_dll_content = b"ATTUNE_FAKE_DLL_PAYLOAD_VALID";
+        std::fs::write(&fake_dll_path, fake_dll_content).expect("write fake dll");
+
+        let mut hasher = Sha256::new();
+        hasher.update(fake_dll_content);
+        let valid_sha256 = format!("{:x}", hasher.finalize());
+        let valid_blake3 = blake3::hash(fake_dll_content).to_hex().to_string();
+
+        let manifest_content = format!(
+            r#"{{
+                "version": "0.1.0",
+                "components": {{
+                    "attune_watchguard.dll": {{
+                        "sha256": "{}",
+                        "blake3": "{}",
+                        "size_bytes": {}
+                    }}
+                }}
+            }}"#,
+            valid_sha256,
+            valid_blake3,
+            fake_dll_content.len()
+        );
+
+        let manifest_path = unique_dir.join("attune_integrity.json");
+        std::fs::write(&manifest_path, manifest_content).expect("write manifest");
+
+        // 1. Untampered component must pass verification
+        assert!(verify_component_integrity(&fake_dll_path, "attune_watchguard").is_ok());
+
+        // 2. Tampered component must be detected and rejected
+        let tampered_content = b"ATTUNE_FAKE_DLL_PAYLOAD_TAMPERED";
+        std::fs::write(&fake_dll_path, tampered_content).expect("write tampered dll");
+        let err = verify_component_integrity(&fake_dll_path, "attune_watchguard")
+            .expect_err("Tampered component must be rejected");
+        assert!(err.contains("CRITICAL") || err.contains("mismatch"), "Error was: {err}");
+
+        let _ = std::fs::remove_dir_all(&unique_dir);
     }
 }

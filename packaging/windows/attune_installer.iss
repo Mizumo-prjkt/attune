@@ -2,7 +2,7 @@
 ; Inno Setup 6.x Installer Script for Windows 64-bit
 
 #ifndef MyAppVersion
-#define MyAppVersion "0.1.0"
+#define MyAppVersion "0.1.1-rc1"
 #endif
 
 #ifndef MyAppLocalVersion
@@ -47,6 +47,9 @@ WizardStyle=modern
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 UninstallDisplayIcon={app}\{#MyAppExeName}
+#if FileExists("..\..\packaging\windows\app_icon.ico")
+SetupIconFile=..\..\packaging\windows\app_icon.ico
+#endif
 
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"
@@ -61,9 +64,53 @@ Source: "..\..\apps\attune_app\build\windows\x64\runner\{#BuildMode}\*"; DestDir
 #if BuildMode == "Release"
 Source: "..\..\target\release\attune_engine.dll"; DestDir: "{app}\lib"; Flags: ignoreversion; DestName: "attune_engine.dll"
 Source: "..\..\target\release\attune_engine.dll"; DestDir: "{app}"; Flags: ignoreversion; DestName: "attune_engine.dll"
+#if FileExists("..\..\target\release\attune_watchguard.dll")
+Source: "..\..\target\release\attune_watchguard.dll"; DestDir: "{app}\lib"; Flags: ignoreversion
+Source: "..\..\target\release\attune_watchguard.dll"; DestDir: "{app}"; Flags: ignoreversion
+#endif
+#if FileExists("..\..\target\release\attune_procmgr.dll")
+Source: "..\..\target\release\attune_procmgr.dll"; DestDir: "{app}\lib"; Flags: ignoreversion
+Source: "..\..\target\release\attune_procmgr.dll"; DestDir: "{app}"; Flags: ignoreversion
+#endif
+#if FileExists("..\..\target\release\attune_music_metadata.dll")
+Source: "..\..\target\release\attune_music_metadata.dll"; DestDir: "{app}\lib"; Flags: ignoreversion
+Source: "..\..\target\release\attune_music_metadata.dll"; DestDir: "{app}"; Flags: ignoreversion
+#endif
+#if FileExists("..\..\target\release\attune_music_metadata_changer.dll")
+Source: "..\..\target\release\attune_music_metadata_changer.dll"; DestDir: "{app}\lib"; Flags: ignoreversion
+Source: "..\..\target\release\attune_music_metadata_changer.dll"; DestDir: "{app}"; Flags: ignoreversion
+#endif
+#if FileExists("..\..\target\release\attune_integrity.json")
+Source: "..\..\target\release\attune_integrity.json"; DestDir: "{app}\lib"; Flags: ignoreversion
+Source: "..\..\target\release\attune_integrity.json"; DestDir: "{app}"; Flags: ignoreversion
+#endif
 #else
 Source: "..\..\target\debug\attune_engine.dll"; DestDir: "{app}\lib"; Flags: ignoreversion; DestName: "attune_engine.dll"
 Source: "..\..\target\debug\attune_engine.dll"; DestDir: "{app}"; Flags: ignoreversion; DestName: "attune_engine.dll"
+#if FileExists("..\..\target\debug\attune_watchguard.dll")
+Source: "..\..\target\debug\attune_watchguard.dll"; DestDir: "{app}\lib"; Flags: ignoreversion
+Source: "..\..\target\debug\attune_watchguard.dll"; DestDir: "{app}"; Flags: ignoreversion
+#endif
+#if FileExists("..\..\target\debug\attune_procmgr.dll")
+Source: "..\..\target\debug\attune_procmgr.dll"; DestDir: "{app}\lib"; Flags: ignoreversion
+Source: "..\..\target\debug\attune_procmgr.dll"; DestDir: "{app}"; Flags: ignoreversion
+#endif
+#if FileExists("..\..\target\debug\attune_music_metadata.dll")
+Source: "..\..\target\debug\attune_music_metadata.dll"; DestDir: "{app}\lib"; Flags: ignoreversion
+Source: "..\..\target\debug\attune_music_metadata.dll"; DestDir: "{app}"; Flags: ignoreversion
+#endif
+#if FileExists("..\..\target\debug\attune_music_metadata_changer.dll")
+Source: "..\..\target\debug\attune_music_metadata_changer.dll"; DestDir: "{app}\lib"; Flags: ignoreversion
+Source: "..\..\target\debug\attune_music_metadata_changer.dll"; DestDir: "{app}"; Flags: ignoreversion
+#endif
+#if FileExists("..\..\target\debug\attune_integrity.json")
+Source: "..\..\target\debug\attune_integrity.json"; DestDir: "{app}\lib"; Flags: ignoreversion
+Source: "..\..\target\debug\attune_integrity.json"; DestDir: "{app}"; Flags: ignoreversion
+#endif
+#endif
+
+#if FileExists("..\..\packaging\windows\app_icon.ico")
+Source: "..\..\packaging\windows\app_icon.ico"; DestDir: "{app}"; Flags: ignoreversion
 #endif
 
 #if FileExists("..\..\apps\attune_app\assets\build_info.json")

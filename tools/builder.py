@@ -13,6 +13,8 @@ Distributed under the MIT License.
 
 import argparse
 import datetime
+from datetime import timezone
+import hashlib
 import json
 import os
 import platform
@@ -25,6 +27,16 @@ from pathlib import Path
 # Repository root directory
 REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+try:
+    from tools.generate_windows_icons import generate_windows_icon, validate_ico_file
+except ImportError:
+    try:
+        from generate_windows_icons import generate_windows_icon, validate_ico_file
+    except ImportError:
+        generate_windows_icon = None
+        validate_ico_file = None
 
 IS_WINDOWS = sys.platform == "win32"
 
@@ -108,12 +120,65 @@ def get_pubspec_version():
     return "1.0.0", "1"
 
 
-def sync_pubspec_version(version_str, build_num=None, log_callback=None):
+def compute_dynamic_version():
     """
-    Synchronizes apps/attune_app/pubspec.yaml and android/local.properties
-    with the exact target version and build number.
-    Ensures that Android PackageInfo.versionName and Obtainium see the exact
-    version matching the release tag rather than being stuck on an older version.
+    Computes dynamic continuous integration version identifier from Git metadata:
+    - Base version from pubspec.yaml / Cargo.toml (e.g. 0.1.0)
+    - Git commit count as build number (e.g. 159)
+    - Git describe tag/hash (e.g. v0.1.0-rc5-102-g0765b45)
+    - Dynamic version string suitable for releases and auto-updates.
+    """
+    base_ver, pub_build = get_pubspec_version()
+    git_info = get_git_info()
+
+    commit_count = None
+    try:
+        out = subprocess.check_output(
+            ["git", "rev-list", "--count", "HEAD"],
+            cwd=REPO_ROOT,
+            text=True,
+            stderr=subprocess.DEVNULL,
+        ).strip()
+        if out.isdigit():
+            commit_count = int(out)
+    except Exception:
+        pass
+
+    git_desc = None
+    try:
+        out = subprocess.check_output(
+            ["git", "describe", "--tags", "--always", "--dirty"],
+            cwd=REPO_ROOT,
+            text=True,
+            stderr=subprocess.DEVNULL,
+        ).strip()
+        if out:
+            git_desc = out.lstrip("v")
+    except Exception:
+        pass
+
+    effective_build = str(commit_count) if commit_count is not None else pub_build
+    dynamic_id = git_desc if git_desc else f"{base_ver}+{effective_build}"
+
+    return {
+        "base_version": base_ver,
+        "build_number": effective_build,
+        "commit_count": commit_count,
+        "git_describe": git_desc,
+        "dynamic_id": dynamic_id,
+        "git_commit": git_info["git_commit"],
+        "git_dirty": git_info["git_dirty"],
+    }
+
+
+def sync_all_version_metadata(version_str, build_num=None, log_callback=None):
+    """
+    Synchronizes all application manifests across the codebase with the exact target version
+    and build number, ensuring zero desync between components (Mandate 4):
+    1. apps/attune_app/pubspec.yaml
+    2. root Cargo.toml ([workspace.package] version)
+    3. apps/attune_app/android/local.properties
+    4. packaging/windows/attune_installer.iss (#define MyAppVersion)
     """
     def log(msg):
         if log_callback:
@@ -121,10 +186,11 @@ def sync_pubspec_version(version_str, build_num=None, log_callback=None):
         else:
             print(msg)
 
-    pubspec_path = REPO_ROOT / "apps" / "attune_app" / "pubspec.yaml"
     cur_ver, cur_build = get_pubspec_version()
     effective_build = str(build_num).strip() if build_num is not None and str(build_num).strip() else cur_build
 
+    # 1. Update apps/attune_app/pubspec.yaml
+    pubspec_path = REPO_ROOT / "apps" / "attune_app" / "pubspec.yaml"
     if pubspec_path.exists():
         try:
             content = pubspec_path.read_text(encoding="utf-8")
@@ -136,7 +202,23 @@ def sync_pubspec_version(version_str, build_num=None, log_callback=None):
         except Exception as e:
             log(f"[Sync] Warning: Failed to update pubspec.yaml: {e}")
 
-    # Also update android/local.properties if present
+    # 2. Update root Cargo.toml [workspace.package] version
+    cargo_path = REPO_ROOT / "Cargo.toml"
+    if cargo_path.exists():
+        try:
+            content = cargo_path.read_text(encoding="utf-8")
+            updated = re.sub(
+                r'(\[workspace\.package\][^\[]*?version\s*=\s*)"[^"]+"',
+                f'\\1"{version_str}"',
+                content,
+                flags=re.DOTALL,
+            )
+            cargo_path.write_text(updated, encoding="utf-8")
+            log(f"[Sync] Updated root Cargo.toml [workspace.package] to version = \"{version_str}\"")
+        except Exception as e:
+            log(f"[Sync] Note: Could not update Cargo.toml: {e}")
+
+    # 3. Update apps/attune_app/android/local.properties
     local_props = REPO_ROOT / "apps" / "attune_app" / "android" / "local.properties"
     if local_props.exists():
         try:
@@ -161,6 +243,66 @@ def sync_pubspec_version(version_str, build_num=None, log_callback=None):
             log(f"[Sync] Updated android/local.properties (versionName={version_str}, versionCode={effective_build})")
         except Exception as e:
             log(f"[Sync] Note: Could not update local.properties: {e}")
+
+    # 4. Update packaging/windows/attune_installer.iss
+    iss_path = REPO_ROOT / "packaging" / "windows" / "attune_installer.iss"
+    if iss_path.exists():
+        try:
+            content = iss_path.read_text(encoding="utf-8")
+            updated = re.sub(
+                r'#define MyAppVersion "[^"]+"',
+                f'#define MyAppVersion "{version_str}"',
+                content,
+            )
+            iss_path.write_text(updated, encoding="utf-8")
+            log(f"[Sync] Updated {iss_path.name} to: #define MyAppVersion \"{version_str}\"")
+        except Exception as e:
+            log(f"[Sync] Note: Could not update attune_installer.iss: {e}")
+
+
+def sync_pubspec_version(version_str, build_num=None, log_callback=None):
+    """Alias for sync_all_version_metadata for backwards compatibility."""
+    sync_all_version_metadata(version_str, build_num=build_num, log_callback=log_callback)
+
+
+def bump_semver(bump_type="patch", log_callback=None):
+    """
+    Increments semver (patch, minor, major) and derives build number from Git commit count.
+    Synchronizes all workspace manifests.
+    """
+    def log(msg):
+        if log_callback:
+            log_callback(msg)
+        else:
+            print(msg)
+
+    cur_ver, cur_build = get_pubspec_version()
+    m = re.match(r"^(\d+)\.(\d+)\.(\d+)(?:-(.+))?$", cur_ver)
+    if not m:
+        major, minor, patch = 0, 1, 0
+    else:
+        major = int(m.group(1))
+        minor = int(m.group(2))
+        patch = int(m.group(3))
+
+    b_type = (bump_type or "patch").strip().lower()
+    if b_type == "major":
+        major += 1
+        minor = 0
+        patch = 0
+    elif b_type == "minor":
+        minor += 1
+        patch = 0
+    else:  # patch
+        patch += 1
+
+    new_ver = f"{major}.{minor}.{patch}"
+    dyn = compute_dynamic_version()
+    new_build = str(dyn["commit_count"] + 1) if dyn["commit_count"] is not None else str(int(cur_build) + 1)
+
+    log(f"[Bump] Bumping version ({b_type}): {cur_ver}+{cur_build} -> {new_ver}+{new_build}")
+    sync_all_version_metadata(new_ver, new_build, log_callback=log)
+    return new_ver, new_build
 
 
 def get_rust_crate_version(crate_name="attune-ffi"):
@@ -805,6 +947,168 @@ def sign_blob_with_cosign(blob_path, log_func=None):
         return None
 
 
+def sign_dll_file(dll_path, log_func=None):
+    """
+    Signs a dynamic component (.dll / .so) for anti-tamper verification.
+    1. Cosign keyless / bundle signing (<dll>.bundle)
+    2. Authenticode signing via osslsigncode or Microsoft SignTool if certificate configured.
+    """
+    def log(msg):
+        if log_func:
+            log_func(msg)
+        else:
+            print(msg)
+
+    dll = Path(dll_path)
+    if not dll.exists():
+        log(f"[Sign] Warning: Target dynamic component not found: {dll}")
+        return None
+
+    # 1. Sigstore / Cosign bundle signing
+    bundle = sign_blob_with_cosign(dll, log_func=log)
+
+    # 2. Windows Authenticode signing (if certificate configured)
+    cert_path = os.environ.get("CERT_PATH") or os.environ.get("WINDOWS_CERT_PATH")
+    cert_pass = os.environ.get("CERT_PASS") or os.environ.get("WINDOWS_CERT_PASS")
+
+    if cert_path and Path(cert_path).exists():
+        ossl_bin = shutil.which("osslsigncode")
+        ms_signtool = shutil.which("signtool.exe") or (shutil.which("signtool") if IS_WINDOWS else None)
+
+        if ossl_bin:
+            log(f"[Sign/Authenticode] Signing {dll.name} via osslsigncode...")
+            signed_tmp = dll.with_suffix(".signed")
+            cmd = [
+                ossl_bin, "sign",
+                "-pkcs12", str(cert_path),
+                "-n", "Attune Dynamic Component",
+                "-i", "https://github.com/mizproject/attune",
+                "-in", str(dll),
+                "-out", str(signed_tmp),
+            ]
+            if cert_pass:
+                cmd.extend(["-pass", cert_pass])
+            try:
+                res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+                if res.returncode == 0 and signed_tmp.exists():
+                    shutil.move(str(signed_tmp), str(dll))
+                    log(f"[Sign/Authenticode] Successfully Authenticode-signed: {dll.name}")
+                else:
+                    log(f"[Sign/Authenticode] osslsigncode note: {res.stderr.strip()}")
+            except Exception as e:
+                log(f"[Sign/Authenticode] Warning: {e}")
+        elif ms_signtool and IS_WINDOWS:
+            log(f"[Sign/Authenticode] Signing {dll.name} via SignTool.exe...")
+            cmd = [ms_signtool, "sign", "/f", str(cert_path), "/d", "Attune Dynamic Component", "/fd", "SHA256"]
+            if cert_pass:
+                cmd.extend(["/p", cert_pass])
+            cmd.append(str(dll))
+            try:
+                res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+                if res.returncode == 0:
+                    log(f"[Sign/Authenticode] Successfully signed with SignTool: {dll.name}")
+            except Exception as e:
+                log(f"[Sign/Authenticode] Warning: {e}")
+    else:
+        log(f"[Sign] {dll.name}: Authenticode cert unset (CERT_PATH not configured); anti-tamper secured via cryptographic manifest & Sigstore.")
+
+    return bundle
+
+
+def generate_integrity_manifest(target_dir, version=None, log_func=None):
+    """
+    Generates attune_integrity.json containing cryptographic digests (SHA-256 and BLAKE3)
+    and file sizes for all dynamic components (.dll and .so) in target_dir.
+    Also produces SHA256SUMS.txt and mirrors to lib/ and target/ directories.
+    """
+    def log(msg):
+        if log_func:
+            log_func(msg)
+        else:
+            print(msg)
+
+    target_dir = Path(target_dir)
+    if not target_dir.exists():
+        log(f"[Integrity] Warning: Target directory does not exist: {target_dir}")
+        return None
+
+    dyn = compute_dynamic_version()
+    eff_ver = version or dyn["base_version"]
+
+    components = {}
+    sums_lines = []
+
+    # Files to inspect: search target_dir, target_dir/lib, and workspace target/ folders
+    target_files = []
+    search_dirs = [target_dir, target_dir / "lib", REPO_ROOT / "target" / "release", REPO_ROOT / "target" / "debug"]
+    for sdir in search_dirs:
+        if sdir.exists():
+            for ext in ("*.dll", "*.so"):
+                target_files.extend(sdir.glob(ext))
+
+    seen_names = set()
+    for f in target_files:
+        if f.name in seen_names or not f.is_file():
+            continue
+        seen_names.add(f.name)
+
+        data = f.read_bytes()
+        sha256_hash = hashlib.sha256(data).hexdigest()
+
+        blake3_hash = None
+        try:
+            import blake3
+            blake3_hash = blake3.blake3(data).hexdigest()
+        except ImportError:
+            b3_cli = shutil.which("b2sum") or shutil.which("blake3")
+            if b3_cli:
+                try:
+                    res = subprocess.check_output([b3_cli, str(f)], text=True).split()[0]
+                    blake3_hash = res.strip()
+                except Exception:
+                    pass
+            if not blake3_hash:
+                blake3_hash = sha256_hash
+
+        components[f.name] = {
+            "size_bytes": len(data),
+            "sha256": sha256_hash,
+            "blake3": blake3_hash,
+        }
+        sums_lines.append(f"{sha256_hash}  {f.name}")
+        log(f"[Integrity] Hashed {f.name}: size={len(data)}B, SHA-256={sha256_hash[:12]}...")
+
+    manifest = {
+        "version": eff_ver,
+        "dynamic_version": dyn["dynamic_id"],
+        "build_number": dyn["build_number"],
+        "generated_at": datetime.datetime.now(timezone.utc).isoformat(),
+        "git_commit": dyn["git_commit"],
+        "components": components,
+    }
+
+    manifest_path = target_dir / "attune_integrity.json"
+    manifest_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+    log(f"[Integrity] Generated anti-tamper manifest: {manifest_path}")
+
+    sums_path = target_dir / "SHA256SUMS.txt"
+    sums_path.write_text("\n".join(sums_lines) + "\n", encoding="utf-8")
+    log(f"[Integrity] Generated checksums: {sums_path}")
+
+    # Mirror into target/release/ and target/debug/ if present
+    for mode in ("release", "debug"):
+        t_dir = REPO_ROOT / "target" / mode
+        if t_dir.exists():
+            shutil.copy2(manifest_path, t_dir / "attune_integrity.json")
+
+    # Mirror into lib/ if present
+    lib_dir = target_dir / "lib"
+    if lib_dir.exists() and lib_dir != target_dir:
+        shutil.copy2(manifest_path, lib_dir / "attune_integrity.json")
+
+    return manifest_path
+
+
 def package_bundle(target_os="linux", mode="release", localversion="", bundle_types=None, version_override="", sign=False, log_callback=None):
     """Packages compiled binaries into Linux AppImage or Windows Inno Setup installer."""
     def log(msg):
@@ -884,21 +1188,36 @@ def package_bundle(target_os="linux", mode="release", localversion="", bundle_ty
                 artifacts.append(dest_native)
 
     elif target_os.lower() == "windows":
+        # -1. Windows-compliant Icon Generation & Distribution
+        if generate_windows_icon:
+            try:
+                generate_windows_icon(all_targets=True, log_func=log)
+                log("[Package] Generated and synchronized Windows-compliant multi-resolution icons (.ico)")
+            except Exception as e:
+                log(f"[Package] Note: Windows icon generation: {e}")
+
         # 0. Standalone Native Rust Desktop Executable + Required Shared Libraries (.dll)
         native_desktop_exe = REPO_ROOT / "target" / mode.lower() / "attune-desktop.exe"
+        dist_lib_dir = dist_dir / "lib"
+        dist_lib_dir.mkdir(parents=True, exist_ok=True)
+
         if native_desktop_exe.exists():
             dest_native_exe = dist_dir / f"Attune-Desktop-{full_ver}-Windows-x64.exe"
             shutil.copy2(native_desktop_exe, dest_native_exe)
-            dist_lib_dir = dist_dir / "lib"
-            dist_lib_dir.mkdir(parents=True, exist_ok=True)
-            for dll_name in ("attune_procmgr.dll", "attune_watchguard.dll", "attune_music_metadata.dll", "attune_music_metadata_changer.dll"):
-                dll_src = REPO_ROOT / "target" / mode.lower() / dll_name
-                if dll_src.exists():
-                    shutil.copy2(dll_src, dist_lib_dir / dll_name)
-                    log(f"[Package] Bundled dynamic component {dll_name} -> {dist_lib_dir / dll_name}")
             log(f"[Package] Packaged standalone native desktop executable: {dest_native_exe}")
             if dest_native_exe not in artifacts:
                 artifacts.append(dest_native_exe)
+
+        for dll_name in ("attune_engine.dll", "attune_procmgr.dll", "attune_watchguard.dll", "attune_music_metadata.dll", "attune_music_metadata_changer.dll"):
+            dll_src = REPO_ROOT / "target" / mode.lower() / dll_name
+            if dll_src.exists():
+                shutil.copy2(dll_src, dist_lib_dir / dll_name)
+                shutil.copy2(dll_src, dist_dir / dll_name)
+                log(f"[Package] Bundled dynamic component {dll_name} -> {dist_lib_dir / dll_name}")
+                sign_dll_file(dist_lib_dir / dll_name, log_func=log)
+
+        # Generate anti-tamper integrity manifest for all dynamic DLLs
+        generate_integrity_manifest(dist_dir, version=version, log_func=log)
 
         # 1. Portable .zip bundle
         runner_dir = REPO_ROOT / "apps" / "attune_app" / "build" / "windows" / "x64" / "runner" / mode.capitalize()
@@ -1080,7 +1399,35 @@ def launch_gui():
         activeforeground=accent_color,
         font=("Segoe UI", 9),
     )
-    chk_set_tag.grid(row=3, column=0, columnspan=3, sticky="w", pady=(4, 0))
+    chk_set_tag.grid(row=3, column=0, columnspan=2, sticky="w", pady=(4, 0))
+
+    # Dynamic Continuous Integration Version Row
+    dyn_init = compute_dynamic_version()
+    lbl_dyn_ver = tk.Label(
+        config_card,
+        text=f"Dynamic Version: {dyn_init['dynamic_id']} (Commits: {dyn_init['build_number']})",
+        bg=card_color,
+        fg=accent_color,
+        font=("Segoe UI", 8, "bold"),
+    )
+    lbl_dyn_ver.grid(row=4, column=0, columnspan=2, sticky="w", pady=(6, 2))
+
+    def on_bump_action(btype):
+        n_ver, n_bld = bump_semver(btype, log_callback=gui_log)
+        ent_override_ver.delete(0, tk.END)
+        ent_override_ver.insert(0, n_ver)
+        ent_build_num.delete(0, tk.END)
+        ent_build_num.insert(0, n_bld)
+        new_dyn = compute_dynamic_version()
+        lbl_dyn_ver.config(text=f"Dynamic Version: {new_dyn['dynamic_id']} (Commits: {new_dyn['build_number']})")
+        gui_log(f"Dynamic Version bumped ({btype}): v{n_ver}+{n_bld}")
+
+    bump_frame = tk.Frame(config_card, bg=card_color)
+    bump_frame.grid(row=4, column=2, sticky="w", padx=(10, 0), pady=(4, 2))
+    tk.Label(bump_frame, text="Quick Bump:", bg=card_color, fg="#718096", font=("Segoe UI", 8)).pack(side=tk.LEFT, padx=(0, 4))
+    tk.Button(bump_frame, text="+ Patch", bg="#2D3748", fg=fg_color, font=("Segoe UI", 8), command=lambda: on_bump_action("patch")).pack(side=tk.LEFT, padx=2)
+    tk.Button(bump_frame, text="+ Minor", bg="#2D3748", fg=fg_color, font=("Segoe UI", 8), command=lambda: on_bump_action("minor")).pack(side=tk.LEFT, padx=2)
+    tk.Button(bump_frame, text="+ Major", bg="#2D3748", fg=fg_color, font=("Segoe UI", 8), command=lambda: on_bump_action("major")).pack(side=tk.LEFT, padx=2)
 
     # Build Mode & Target OS Selection Card
     target_card = tk.LabelFrame(
@@ -1210,6 +1557,37 @@ def launch_gui():
     btn_flutter = tk.Button(btn_frame, text="📱 Compile Flutter", bg="#2D3748", fg=fg_color, command=on_compile_flutter)
     btn_flutter.pack(side=tk.LEFT, padx=(0, 6))
 
+    def on_generate_icons():
+        if generate_windows_icon:
+            try:
+                gui_log("=== Generating Windows-Compliant Multi-Resolution Icons (.ico) ===")
+                out = generate_windows_icon(all_targets=True, log_func=gui_log)
+                gui_log(f"✓ Successfully generated & distributed Windows icons: {out}")
+            except Exception as e:
+                gui_log(f"✗ Icon generation failed: {e}")
+        else:
+            gui_log("✗ generate_windows_icons module not available.")
+
+    def on_sign_manifest():
+        gui_log("=== Generating Anti-Tamper Integrity Manifest & Signing DLLs ===")
+        t = target_os_var.get()
+        m = mode_var.get()
+        modes = ["debug", "release"] if m == "both" else [m]
+        dist_dir = REPO_ROOT / "dist" / t.lower()
+        dist_dir.mkdir(parents=True, exist_ok=True)
+        for sub_m in modes:
+            for ext in ("*.dll", "*.so"):
+                for cand in (REPO_ROOT / "target" / sub_m).glob(ext):
+                    sign_dll_file(cand, log_func=gui_log)
+            generate_integrity_manifest(dist_dir, log_func=gui_log)
+        gui_log("✓ Anti-tamper integrity manifest & signatures completed.")
+
+    btn_icons = tk.Button(btn_frame, text="🎨 Icons", bg="#2D3748", fg=fg_color, command=on_generate_icons)
+    btn_icons.pack(side=tk.LEFT, padx=(0, 6))
+
+    btn_sign = tk.Button(btn_frame, text="🛡️ Sign/Manifest", bg="#2D3748", fg=fg_color, command=on_sign_manifest)
+    btn_sign.pack(side=tk.LEFT, padx=(0, 6))
+
     def on_open_keystore_tool():
         try:
             from tools.generate_keystore import launch_gui as launch_keystore_gui
@@ -1272,6 +1650,7 @@ def preprocess_argv(argv):
         "--build-code",
         "--step",
         "--bundle",
+        "--bump",
     }
     known_boolean_flags = {
         "--gui",
@@ -1281,6 +1660,9 @@ def preprocess_argv(argv):
         "--installer",
         "--download-tools",
         "--test",
+        "--generate-icons",
+        "--sign-dlls",
+        "--dynamic-version",
         "-h",
         "--help",
     }
@@ -1405,8 +1787,77 @@ def main():
         action="store_true",
         help="Cryptographically sign release artifacts via Sigstore / Cosign",
     )
+    parser.add_argument(
+        "--generate-icons",
+        action="store_true",
+        help="Generate Windows-compliant multi-resolution .ico files from master icon/icon.png across all target paths",
+    )
+    parser.add_argument(
+        "--bump",
+        choices=["patch", "minor", "major"],
+        help="Automatically bump semver (patch, minor, or major) and synchronize all manifests across repo",
+    )
+    parser.add_argument(
+        "--sign-dlls",
+        action="store_true",
+        help="Sign all dynamic component DLLs and generate attune_integrity.json anti-tamper manifest",
+    )
+    parser.add_argument(
+        "--dynamic-version",
+        action="store_true",
+        help="Print dynamic continuous integration version derived from Git metadata and exit",
+    )
 
     args = parser.parse_args(preprocess_argv(sys.argv[1:]))
+
+    if args.dynamic_version:
+        dyn = compute_dynamic_version()
+        print(f"Dynamic Version ID: {dyn['dynamic_id']}")
+        print(f"Base SemVer       : {dyn['base_version']}")
+        print(f"Build Number      : {dyn['build_number']}")
+        print(f"Git Commit        : {dyn['git_commit']}")
+        print(f"Git Describe      : {dyn['git_describe']}")
+        print(f"Dirty Status      : {dyn['git_dirty']}")
+        return
+
+    if args.bump:
+        new_v, new_b = bump_semver(args.bump)
+        print(f"[Bump] Successfully bumped version to {new_v}+{new_b}")
+        if not args.version:
+            args.version = new_v
+        if not args.build_number:
+            args.build_number = new_b
+
+    if args.generate_icons:
+        print("\n--- [Step: Generate Windows-Compliant Multi-Resolution Icons] ---")
+        if generate_windows_icon:
+            try:
+                out = generate_windows_icon(all_targets=True)
+                print(f"  [OK] Successfully generated Windows-compliant .ico files: {out}")
+            except Exception as e:
+                print(f"  [X] Failed to generate Windows icons: {e}")
+                sys.exit(1)
+        else:
+            print("  [X] Error: tools/generate_windows_icons.py not found.")
+            sys.exit(1)
+        if len(sys.argv) == 2 or (len(sys.argv) == 3 and "--no-gui" in sys.argv):
+            return
+
+    if args.sign_dlls:
+        print("\n--- [Step: Sign DLLs & Generate Anti-Tamper Integrity Manifest] ---")
+        dist_win = REPO_ROOT / "dist" / "windows"
+        dist_win.mkdir(parents=True, exist_ok=True)
+        for m in ("release", "debug"):
+            t_dir = REPO_ROOT / "target" / m
+            if t_dir.exists():
+                for dll in t_dir.glob("*.dll"):
+                    sign_dll_file(dll)
+                for so in t_dir.glob("*.so"):
+                    sign_dll_file(so)
+        manifest = generate_integrity_manifest(dist_win)
+        print(f"  [OK] Anti-tamper manifest and checksums generated: {manifest}")
+        if len(sys.argv) == 2 or (len(sys.argv) == 3 and "--no-gui" in sys.argv):
+            return
 
     # Determine whether to launch GUI:
     # If explicitly requested with --gui, or if no CLI step flags were passed AND DISPLAY is present and not --no-gui
