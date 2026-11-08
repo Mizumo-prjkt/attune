@@ -2,7 +2,7 @@
 
 - **Project Name**: Attune
 - **Current Phase**: `Phase 6 IN PROGRESS -> Multi-Platform Packaging, Installer Scripting & Distribution Orchestration`
-- **Active Coding Status**: Completed ADR-121: Transparent Unified Table Header & Interactive Column Sorting in Favorites Stage. Purged `background: var(--bg-canvas); position: sticky; top: 0; z-index: 10;` from `crates/attune-desktop/src/stages/favorites.rs`, eliminating the opaque black bar clashing with the liquid background gradient and unifying styling 1:1 with `library.rs`. Added interactive multi-column sorting (`title`, `artist`, `album`, `bpm`, `duration`) with active direction indicators (`▲`/`▼`) and wired sorted order into "Play All". All 92 desktop tests pass cleanly.
+- **Active Coding Status**: Completed ADR-122: Boundary Headroom & Overflow Inset Padding for Hover-Elevated Grid Cards. Added `padding: 10px 4px 32px 4px; box-sizing: border-box;` to `.artists-grid` and newly standardized `.albums-grid` in `style.css`. Eliminated card top-boundary clipping when hovering with `transform: translateY(-4px)` inside `overflow-y: auto` scroll containers in `favorites.rs` and `albums.rs`. All 92 desktop tests pass cleanly.
 
 
 ---

@@ -264,7 +264,7 @@ pub fn Favorites(
             // Liquid Material Glass Segmented Tabs Bar
             div {
                 class: "favorites-tab-bar",
-                style: "display: flex; gap: 8px; margin-bottom: 18px; border-bottom: 1px solid var(--border-glass); padding-bottom: 12px; flex-shrink: 0;",
+                style: "display: flex; gap: 8px; margin-bottom: 12px; border-bottom: 1px solid var(--border-glass); padding-bottom: 12px; flex-shrink: 0;",
                 button {
                     class: if *active_tab.read() == FavoritesTab::Songs { "btn-pill active" } else { "btn-pill" },
                     style: "display: inline-flex; align-items: center; gap: 6px; font-size: 13px; padding: 6px 14px; cursor: pointer;",
@@ -597,7 +597,7 @@ pub fn Favorites(
                                 p { style: "font-size: 16px; font-weight: 600; color: var(--text-primary);", "{strings.no_favorite_albums_yet}" }
                             }
                         } else {
-                            div { style: "display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 20px;",
+                            div { class: "albums-grid",
                                 for album in filtered_fav_albums.iter() {
                                     {
                                         let name = album.name.clone();

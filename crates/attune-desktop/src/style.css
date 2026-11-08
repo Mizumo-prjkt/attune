@@ -1355,6 +1355,14 @@ body, html {
 }
 
 /* Album Collection Grid */
+.albums-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 20px;
+  padding: 10px 4px 32px 4px;
+  box-sizing: border-box;
+}
+
 .album-grid-card {
   background: var(--bg-card);
   border: 1px solid var(--border-glass);
@@ -2169,6 +2177,8 @@ body, html {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
   gap: 24px;
+  padding: 10px 4px 32px 4px;
+  box-sizing: border-box;
 }
 
 .artist-grid-card {

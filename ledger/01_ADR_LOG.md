@@ -4284,6 +4284,33 @@ This file records all major architectural decisions for **Attune**, including co
   - The opaque black bar artifact is 100% eliminated; the table header blends seamlessly into the dynamic background gradient.
   - Favorites table offers identical sorting capabilities and visual cues as the Music Library.
 
+---
+
+## ADR-122: Boundary Headroom & Overflow Inset Padding for Hover-Elevated Grid Cards
+- **Date**: 2026-11-08
+- **Status**: `LOCKED`
+- **Context**:
+  1. The user reported a visual bug where cards were "hitting the top boundary making the card looked cut when hover", providing screenshot `media_1794126223945_adda12d9.png` highlighting the top edge of the hovered `DECO*27` card in `FavoritesTab::Artists`.
+  2. Root cause analysis revealed:
+     - In `crates/attune-desktop/src/style.css`, `.artist-grid-card:hover` and `.album-grid-card:hover` apply an interactive lift transition: `transform: translateY(-4px);`.
+     - In `crates/attune-desktop/src/stages/favorites.rs`, the tab panes are rendered inside a scroll container (`overflow-y: auto; flex: 1;`).
+     - Neither `.artists-grid` nor the album collection grid defined top inset padding (`padding-top: 0`).
+     - Consequently, the top row of cards sat flush against $y = 0$. When hovered, the 4px upward translation moved the top edge into negative scroll coordinates ($y = -4\text{px}$), which WebKitGTK clipped flat against the container's top boundary, slicing off the top border and rounded corners.
+- **Decision**:
+  1. **Standardized Inset Headroom Padding (`crates/attune-desktop/src/style.css`)**:
+     - Configured `.artists-grid` with `padding: 10px 4px 32px 4px; box-sizing: border-box;`.
+     - Created `.albums-grid` class with `padding: 10px 4px 32px 4px; box-sizing: border-box;` and applied it to album collections in both `favorites.rs` and `albums.rs`.
+     - The 10px top inset ensures that cards resting at $y = 10\text{px}$ lift to $y = 6\text{px}$ on hover, remaining safely 6px inside the scroll container without ever contacting the overflow boundary.
+     - The 4px lateral padding preserves box shadows and border glows on outer boundary columns.
+  2. **Harmonized Tab Bar Margin**:
+     - Adjusted `margin-bottom` on `.favorites-tab-bar` from `18px` to `12px` to maintain a proportional 22px visual gap between the tab dividing rule and the top of the cards.
+  3. **Verification**:
+     - Verified all 92 desktop unit tests and full workspace test suites pass cleanly.
+- **Consequences**:
+  - Hovering artist cards and album cards no longer clips against the top container boundary.
+  - Rounded corners, top borders, and hover elevation glows remain fully intact and visually seamless.
+
+
 
 
 

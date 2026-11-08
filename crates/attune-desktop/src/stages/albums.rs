@@ -968,7 +968,7 @@ pub fn Albums(
                             "{strings.no_albums_discovered}"
                         }
                     } else {
-                        div { style: "display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 20px;",
+                        div { class: "albums-grid",
                             for album in album_list.iter() {
                                 {
                                     let name = album.name.clone();
