@@ -47,7 +47,10 @@ pub struct Strings {
     pub library: &'static str,
     pub albums: &'static str,
     pub artists: &'static str,
+    pub favorites: &'static str,
     pub favorite_songs: &'static str,
+    pub favorite_artists: &'static str,
+    pub favorite_albums: &'static str,
     pub sources: &'static str,
     pub add_folder: &'static str,
     pub rescan: &'static str,
@@ -144,11 +147,15 @@ pub struct Strings {
 
     // Favorites & Table Details
     pub favorited_tracks_in_collection: &'static str,
+    pub favorite_artists_in_collection: &'static str,
+    pub favorite_albums_in_collection: &'static str,
     pub bpm: &'static str,
     pub key: &'static str,
     pub time: &'static str,
     pub actions: &'static str,
     pub no_favorites_yet: &'static str,
+    pub no_favorite_artists_yet: &'static str,
+    pub no_favorite_albums_yet: &'static str,
 
     // Albums Stage
     pub more_by_artist: &'static str,
@@ -183,6 +190,9 @@ pub struct Strings {
     // About Stage
     pub architecture_and_technology: &'static str,
     pub open_source_distribution: &'static str,
+    pub special_thanks_and_credits: &'static str,
+    pub custom_lyrics_css: &'static str,
+    pub custom_lyrics_css_desc: &'static str,
 }
 
 pub fn get_strings(lang: Language) -> Strings {
@@ -194,7 +204,10 @@ pub fn get_strings(lang: Language) -> Strings {
             library: "Library",
             albums: "Albums",
             artists: "Artists",
+            favorites: "Favorites",
             favorite_songs: "Favorite Songs",
+            favorite_artists: "Favorite Artists",
+            favorite_albums: "Favorite Albums",
             sources: "SOURCES",
             add_folder: "Add Folder",
             rescan: "Rescan",
@@ -286,11 +299,15 @@ pub fn get_strings(lang: Language) -> Strings {
 
             // Favorites & Table Details
             favorited_tracks_in_collection: "favorited tracks in your collection",
+            favorite_artists_in_collection: "favorite artists in your collection",
+            favorite_albums_in_collection: "favorite albums in your collection",
             bpm: "BPM",
             key: "Key",
             time: "Time",
             actions: "Actions",
             no_favorites_yet: "No favorite songs yet. Tap the heart icon next to any song to add it here.",
+            no_favorite_artists_yet: "No favorite artists yet. Tap the heart icon on any artist to add them here.",
+            no_favorite_albums_yet: "No favorite albums yet. Tap the heart icon on any album to add it here.",
 
             // Albums Stage
             more_by_artist: "More by",
@@ -325,6 +342,9 @@ pub fn get_strings(lang: Language) -> Strings {
             // About Stage
             architecture_and_technology: "Architecture & Technology",
             open_source_distribution: "Open Source & Distribution",
+            special_thanks_and_credits: "Special Thanks & Open Source Credits",
+            custom_lyrics_css: "Custom Fullscreen Lyrics CSS Animation",
+            custom_lyrics_css_desc: "Inject custom CSS keyframe animations, typography, and styling into the fullscreen lyrics stage (inspired by Better Lyrics).",
         },
         Language::Filipino => Strings {
             app_name: "Attune",
@@ -333,7 +353,10 @@ pub fn get_strings(lang: Language) -> Strings {
             library: "Koleksyon",
             albums: "Mga Album",
             artists: "Mga Artista",
+            favorites: "Mga Paborito",
             favorite_songs: "Mga Paboritong Kanta",
+            favorite_artists: "Mga Paboritong Artista",
+            favorite_albums: "Mga Paboritong Album",
             sources: "MGA PINAGMULAN",
             add_folder: "Magdagdag ng Folder",
             rescan: "I-rescan",
@@ -425,11 +448,15 @@ pub fn get_strings(lang: Language) -> Strings {
 
             // Favorites & Table Details
             favorited_tracks_in_collection: "mga paboritong kanta sa iyong koleksyon",
+            favorite_artists_in_collection: "mga paboritong artista sa iyong koleksyon",
+            favorite_albums_in_collection: "mga paboritong album sa iyong koleksyon",
             bpm: "BPM",
             key: "Key",
             time: "Oras",
             actions: "Mga Aksyon",
             no_favorites_yet: "Wala pang paboritong kanta. Pindutin ang pusong icon sa tabi ng kanta upang idagdag dito.",
+            no_favorite_artists_yet: "Wala pang paboritong artista. Pindutin ang pusong icon sa tabi ng artista upang idagdag dito.",
+            no_favorite_albums_yet: "Wala pang paboritong album. Pindutin ang pusong icon sa tabi ng album upang idagdag dito.",
 
             // Albums Stage
             more_by_artist: "Iba pa mula kay",
@@ -464,6 +491,9 @@ pub fn get_strings(lang: Language) -> Strings {
             // About Stage
             architecture_and_technology: "Arkitektura at Teknolohiya",
             open_source_distribution: "Open Source at Pamamahagi",
+            special_thanks_and_credits: "Espesyal na Pasasalamat at Kredito sa Open Source",
+            custom_lyrics_css: "Pasadyang CSS Animation para sa Fullscreen Lyrics",
+            custom_lyrics_css_desc: "Maglagay ng pasadyang CSS keyframe animation at estilo sa fullscreen lyrics (hango sa Better Lyrics).",
         },
     }
 }
@@ -484,7 +514,10 @@ pub fn export_language_template_json() -> String {
     map.insert("library", s.library);
     map.insert("albums", s.albums);
     map.insert("artists", s.artists);
+    map.insert("favorites", s.favorites);
     map.insert("favorite_songs", s.favorite_songs);
+    map.insert("favorite_artists", s.favorite_artists);
+    map.insert("favorite_albums", s.favorite_albums);
     map.insert("sources", s.sources);
     map.insert("add_folder", s.add_folder);
     map.insert("rescan", s.rescan);
@@ -574,11 +607,15 @@ pub fn export_language_template_json() -> String {
     map.insert("add_songs", s.add_songs);
 
     map.insert("favorited_tracks_in_collection", s.favorited_tracks_in_collection);
+    map.insert("favorite_artists_in_collection", s.favorite_artists_in_collection);
+    map.insert("favorite_albums_in_collection", s.favorite_albums_in_collection);
     map.insert("bpm", s.bpm);
     map.insert("key", s.key);
     map.insert("time", s.time);
     map.insert("actions", s.actions);
     map.insert("no_favorites_yet", s.no_favorites_yet);
+    map.insert("no_favorite_artists_yet", s.no_favorite_artists_yet);
+    map.insert("no_favorite_albums_yet", s.no_favorite_albums_yet);
 
     map.insert("more_by_artist", s.more_by_artist);
     map.insert("more_albums_in_library", s.more_albums_in_library);
@@ -607,6 +644,9 @@ pub fn export_language_template_json() -> String {
 
     map.insert("architecture_and_technology", s.architecture_and_technology);
     map.insert("open_source_distribution", s.open_source_distribution);
+    map.insert("special_thanks_and_credits", s.special_thanks_and_credits);
+    map.insert("custom_lyrics_css", s.custom_lyrics_css);
+    map.insert("custom_lyrics_css_desc", s.custom_lyrics_css_desc);
 
     serde_json::to_string_pretty(&map).unwrap_or_else(|_| "{}".to_string())
 }

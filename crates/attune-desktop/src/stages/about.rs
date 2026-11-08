@@ -52,6 +52,70 @@ pub fn About() -> Element {
                 }
             }
 
+            // Special Thanks & Open Source Credits
+            div { style: "background: var(--bg-card); padding: 24px; border-radius: 16px; border: 1px solid var(--border-glass); margin-bottom: 20px;",
+                h2 { style: "font-size: 18px; font-weight: 700; margin-bottom: 12px;", "{strings.special_thanks_and_credits}" }
+                p { style: "color: var(--text-secondary); font-size: 13px; margin-bottom: 16px; line-height: 1.5;",
+                    "Attune is crafted on the shoulders of remarkable open-source projects, community innovators, and audio pioneers:"
+                }
+                div { style: "display: flex; flex-direction: column; gap: 10px;",
+                    div { style: "background: rgba(255,255,255,0.03); border: 1px solid var(--border-glass); border-radius: 10px; padding: 12px 16px; display: flex; justify-content: space-between; align-items: center;",
+                        div {
+                            div { style: "font-weight: 600; font-size: 14px; color: #fff; display: flex; align-items: center; gap: 6px;",
+                                span { class: "material-icons md-16", style: "color: var(--accent-mint);", "stars" }
+                                "Better Lyrics"
+                            }
+                            div { style: "font-size: 12px; color: var(--text-secondary); margin-top: 2px;",
+                                "Lyrics animation techniques, fluid cubic-bezier easing curves, and custom CSS theme architecture."
+                            }
+                        }
+                        a {
+                            class: "btn-pill",
+                            style: "font-size: 11.5px; flex-shrink: 0; margin-left: 12px;",
+                            href: "https://github.com/better-lyrics/better-lyrics",
+                            target: "_blank",
+                            "better-lyrics/better-lyrics ↗"
+                        }
+                    }
+                    div { style: "background: rgba(255,255,255,0.03); border: 1px solid var(--border-glass); border-radius: 10px; padding: 12px 16px; display: flex; justify-content: space-between; align-items: center;",
+                        div {
+                            div { style: "font-weight: 600; font-size: 14px; color: #fff; display: flex; align-items: center; gap: 6px;",
+                                span { class: "material-icons md-16", style: "color: var(--accent-mint);", "subtitles" }
+                                "BiniLyrics (<am-lyrics>)"
+                            }
+                            div { style: "font-size: 12px; color: var(--text-secondary); margin-top: 2px;",
+                                "Apple Music TTML syllable parser & rich sync components under MPL-2.0."
+                            }
+                        }
+                        a {
+                            class: "btn-pill",
+                            style: "font-size: 11.5px; flex-shrink: 0; margin-left: 12px;",
+                            href: "https://github.com/binimum/am-lyrics",
+                            target: "_blank",
+                            "am-lyrics ↗"
+                        }
+                    }
+                    div { style: "background: rgba(255,255,255,0.03); border: 1px solid var(--border-glass); border-radius: 10px; padding: 12px 16px; display: flex; justify-content: space-between; align-items: center;",
+                        div {
+                            div { style: "font-weight: 600; font-size: 14px; color: #fff; display: flex; align-items: center; gap: 6px;",
+                                span { class: "material-icons md-16", style: "color: var(--accent-mint);", "cloud_queue" }
+                                "LRCLIB"
+                            }
+                            div { style: "font-size: 12px; color: var(--text-secondary); margin-top: 2px;",
+                                "Community-driven synchronized lyrics database and open REST API."
+                            }
+                        }
+                        a {
+                            class: "btn-pill",
+                            style: "font-size: 11.5px; flex-shrink: 0; margin-left: 12px;",
+                            href: "https://lrclib.net",
+                            target: "_blank",
+                            "lrclib.net ↗"
+                        }
+                    }
+                }
+            }
+
             // Ecosystem & Updates
             div { style: "background: var(--bg-card); padding: 24px; border-radius: 16px; border: 1px solid var(--border-glass);",
                 h2 { style: "font-size: 18px; font-weight: 700; margin-bottom: 12px;", "{strings.open_source_distribution}" }
@@ -75,5 +139,14 @@ pub fn About() -> Element {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn test_credits_contain_better_lyrics() {
+        let repo_url = "https://github.com/better-lyrics/better-lyrics";
+        assert!(repo_url.contains("better-lyrics/better-lyrics"));
     }
 }

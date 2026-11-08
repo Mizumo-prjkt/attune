@@ -4115,4 +4115,59 @@ This file records all major architectural decisions for **Attune**, including co
   - The `Error parsing user_event: Failed to deserialize event data for event pointerdown` error is 100% resolved.
   - All mouse, touch, and pointer events are impervious to fractional display scaling and subpixel coordinates.
 
+---
+
+## ADR-118: Unified Tabbed Favorites Stage with Persistent Songs, Artists, and Albums Collections
+- **Date**: 2026-11-08
+- **Status**: `LOCKED`
+- **Context**:
+  1. The user requested: "can we redo this favourite, like regroup the favourites into one and make it a tabbed area which viewing favourite song, or artist, or album?"
+  2. Previously, the desktop sidebar only had a single "Favorite Songs" button leading to a flat songs-only table stage.
+  3. Users had no dedicated area to view and manage their favorite artists or favorite albums.
+  4. Furthermore, favorites state in the desktop app was previously purely in-memory in `app.rs`, meaning user favorites were lost when restarting the app.
+- **Decision**:
+  1. **Sidebar Navigation Consolidation**:
+     - Renamed sidebar navigation item from "Favorite Songs" to unified "Favorites" (`strings.favorites`) with heart icon navigating to `StageView::Favorites`.
+  2. **Multi-Tab Segmented Switcher (`crates/attune-desktop/src/stages/favorites.rs`)**:
+     - Introduced `FavoritesTab` enum with variants `Songs`, `Artists`, `Albums`.
+     - Styled segmented pill switcher with Liquid Material Glass aesthetics, active glowing pill background, and live count badges: `Songs (N)`, `Artists (N)`, `Albums (N)`.
+     - Integrated instant search filter (`favorites_search_filter`) operating dynamically across active tab contents (filtering song titles/artists/albums, artist names, or album titles/artists).
+     - **Tab 1: Songs**:
+       - Retains full track list with Track #, Title, Artist, Album, BPM, Key, Duration, and Action buttons (Play, Remove favorite, Add to Queue).
+       - Supports double-clicking a row to play immediately.
+     - **Tab 2: Artists**:
+       - Renders `.artists-grid` with `.artist-grid-card` showing artist photo/initials avatar, verified artist badge, track count, album count, and click-through navigation to `StageView::ArtistDetail(artist_name)`.
+       - Features an overlay heart toggle button with `e.stop_propagation()`. Unfavoriting an artist removes both the explicit artist favorite and any track-level favorites for that artist.
+     - **Tab 3: Albums**:
+       - Renders album grid cards with cover art, album title, artist name, year, and track count, with click-through navigation to `StageView::AlbumDetail(album_name)`.
+       - Features an overlay heart toggle button with `e.stop_propagation()`. Unfavoriting an album removes both the explicit album favorite and any track-level favorites in that album.
+     - **Dynamic Header & Actions**:
+       - Context-aware header displaying item count and cumulative listening time based on the active tab.
+       - "Play All" and "Shuffle All" buttons play the complete collection for the selected tab.
+       - Clean empty-state view with custom icons and descriptive guidance when no items are favorited yet.
+  3. **Persistent Disk Storage (`~/.config/attune/favorites.json`)**:
+     - Created `FavoritesStore` in `crates/attune-desktop/src/config.rs` storing:
+       ```rust
+       pub struct FavoritesStore {
+           pub tracks: HashSet<PathBuf>,
+           pub artists: HashSet<String>,
+           pub albums: HashSet<String>,
+       }
+       ```
+     - Implemented `load_favorites()` and `save_favorites(&FavoritesStore)`.
+     - Initialized `favorites`, `favorite_artists`, and `favorite_albums` signals from `config::load_favorites()` on startup in `app.rs`.
+     - Wired all 7 favorite toggle call-sites across the app (Library, Albums, AlbumDetail, Artists, ArtistDetail, Favorites, Transport bar) to automatically persist changes to disk.
+  4. **Internationalization & Mandate 4 Compliance**:
+     - Added translation keys to `crates/attune-desktop/src/i18n.rs` with complete English and Filipino entries: `favorites`, `favorite_artists`, `favorite_albums`, `no_favorite_artists_yet`, `no_favorite_albums_yet`, `favorite_artists_in_collection`, `favorite_albums_in_collection`.
+     - Zero hardcoded user-facing strings.
+  5. **Verification**:
+     - Unit tests added in `favorites.rs`: `test_favorites_tab_equality_and_variants`, `test_favorite_album_item_grouping`, `test_favorite_artist_item_grouping`.
+     - Unit test added in `config.rs`: `test_favorites_store_serialization_roundtrip`.
+     - All 89 desktop unit tests and 100% of workspace tests pass cleanly.
+- **Consequences**:
+  - Desktop favorites navigation is clean, unified, and organized.
+  - Users can seamlessly switch between favorite songs, artists, and albums.
+  - User favorites persist across application restarts.
+
+
 

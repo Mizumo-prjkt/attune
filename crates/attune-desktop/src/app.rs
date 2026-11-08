@@ -1,5 +1,4 @@
 use dioxus::prelude::*;
-use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::{mpsc, Arc, Mutex};
 use std::time::Duration;
@@ -238,7 +237,10 @@ pub fn App() -> Element {
     let mut queue = use_signal(Vec::<TrackEntry>::new);
     let mut queue_pos = use_signal(|| 0usize);
     let mut recent_tracks = use_signal(Vec::<TrackEntry>::new);
-    let mut favorites = use_signal(HashSet::<PathBuf>::new);
+    let initial_fav_store = config::load_favorites();
+    let mut favorites = use_signal(|| initial_fav_store.tracks);
+    let mut favorite_artists = use_signal(|| initial_fav_store.artists);
+    let mut favorite_albums = use_signal(|| initial_fav_store.albums);
 
     let mut is_playing = use_signal(|| false);
     let mut playback_pos_ms = use_signal(|| 0u64);
@@ -1235,7 +1237,7 @@ pub fn App() -> Element {
                         class: if *nav_state.read().current() == StageView::Favorites { "nav-item active" } else { "nav-item" },
                         onclick: move |_| navigate_to(StageView::Favorites),
                         span { class: "material-icons md-20", "favorite" }
-                        span { "{strings.favorite_songs}" }
+                        span { "{strings.favorites}" }
                     }
                 }
 
@@ -1431,7 +1433,12 @@ pub fn App() -> Element {
                                 on_toggle_favorite: move |path: PathBuf| {
                                     let mut favs = favorites.read().clone();
                                     if favs.contains(&path) { favs.remove(&path); } else { favs.insert(path); }
-                                    favorites.set(favs);
+                                    favorites.set(favs.clone());
+                                config::save_favorites(&config::FavoritesStore {
+                                    tracks: favs,
+                                    artists: favorite_artists.read().clone(),
+                                    albums: favorite_albums.read().clone(),
+                                });
                                 },
                                 on_search_change: move |val| search_query.set(val),
                             }
@@ -1453,7 +1460,12 @@ pub fn App() -> Element {
                                 on_toggle_favorite: move |path: PathBuf| {
                                     let mut favs = favorites.read().clone();
                                     if favs.contains(&path) { favs.remove(&path); } else { favs.insert(path); }
-                                    favorites.set(favs);
+                                    favorites.set(favs.clone());
+                                config::save_favorites(&config::FavoritesStore {
+                                    tracks: favs,
+                                    artists: favorite_artists.read().clone(),
+                                    albums: favorite_albums.read().clone(),
+                                });
                                 },
                                 on_toggle_play: move |_| {
                                     let p = player.read();
@@ -1479,7 +1491,12 @@ pub fn App() -> Element {
                                 on_toggle_favorite: move |path: PathBuf| {
                                     let mut favs = favorites.read().clone();
                                     if favs.contains(&path) { favs.remove(&path); } else { favs.insert(path); }
-                                    favorites.set(favs);
+                                    favorites.set(favs.clone());
+                                config::save_favorites(&config::FavoritesStore {
+                                    tracks: favs,
+                                    artists: favorite_artists.read().clone(),
+                                    albums: favorite_albums.read().clone(),
+                                });
                                 },
                                 on_toggle_play: move |_| {
                                     let p = player.read();
@@ -1510,7 +1527,12 @@ pub fn App() -> Element {
                                 on_toggle_favorite: move |path: PathBuf| {
                                     let mut favs = favorites.read().clone();
                                     if favs.contains(&path) { favs.remove(&path); } else { favs.insert(path); }
-                                    favorites.set(favs);
+                                    favorites.set(favs.clone());
+                                config::save_favorites(&config::FavoritesStore {
+                                    tracks: favs,
+                                    artists: favorite_artists.read().clone(),
+                                    albums: favorite_albums.read().clone(),
+                                });
                                 },
                                 on_toggle_play: move |_| {
                                     let p = player.read();
@@ -1556,7 +1578,12 @@ pub fn App() -> Element {
                                 on_toggle_favorite: move |path: PathBuf| {
                                     let mut favs = favorites.read().clone();
                                     if favs.contains(&path) { favs.remove(&path); } else { favs.insert(path); }
-                                    favorites.set(favs);
+                                    favorites.set(favs.clone());
+                                config::save_favorites(&config::FavoritesStore {
+                                    tracks: favs,
+                                    artists: favorite_artists.read().clone(),
+                                    albums: favorite_albums.read().clone(),
+                                });
                                 },
                                 on_toggle_play: move |_| {
                                     let p = player.read();
@@ -1579,7 +1606,12 @@ pub fn App() -> Element {
                                 on_toggle_favorite: move |path: PathBuf| {
                                     let mut favs = favorites.read().clone();
                                     if favs.contains(&path) { favs.remove(&path); } else { favs.insert(path); }
-                                    favorites.set(favs);
+                                    favorites.set(favs.clone());
+                                config::save_favorites(&config::FavoritesStore {
+                                    tracks: favs,
+                                    artists: favorite_artists.read().clone(),
+                                    albums: favorite_albums.read().clone(),
+                                });
                                 },
                                 on_toggle_play: move |_| {
                                     let p = player.read();
@@ -1591,6 +1623,8 @@ pub fn App() -> Element {
                             Favorites {
                                 tracks: tracks.read().clone(),
                                 favorites: favorites.read().clone(),
+                                favorite_artists: favorite_artists.read().clone(),
+                                favorite_albums: favorite_albums.read().clone(),
                                 current_track_path: current_track.read().as_ref().map(|t| t.path.clone()),
                                 on_play_track: move |t| play_track(t),
                                 on_play_tracks: move |list| play_track_list(list),
@@ -1602,8 +1636,63 @@ pub fn App() -> Element {
                                 on_toggle_favorite: move |path: PathBuf| {
                                     let mut favs = favorites.read().clone();
                                     if favs.contains(&path) { favs.remove(&path); } else { favs.insert(path); }
-                                    favorites.set(favs);
+                                    favorites.set(favs.clone());
+                                    config::save_favorites(&config::FavoritesStore {
+                                        tracks: favs,
+                                        artists: favorite_artists.read().clone(),
+                                        albums: favorite_albums.read().clone(),
+                                    });
                                 },
+                                on_toggle_favorite_artist: move |artist_name: String| {
+                                    let mut fav_art = favorite_artists.read().clone();
+                                    let mut fav_tracks = favorites.read().clone();
+                                    let is_fav = fav_art.contains(&artist_name)
+                                        || tracks.read().iter().any(|t| crate::artist_profile::track_has_artist(t, &artist_name) && fav_tracks.contains(&t.path));
+                                    if is_fav {
+                                        fav_art.remove(&artist_name);
+                                        for t in tracks.read().iter().filter(|t| crate::artist_profile::track_has_artist(t, &artist_name)) {
+                                            fav_tracks.remove(&t.path);
+                                        }
+                                    } else {
+                                        fav_art.insert(artist_name.clone());
+                                        for t in tracks.read().iter().filter(|t| crate::artist_profile::track_has_artist(t, &artist_name)) {
+                                            fav_tracks.insert(t.path.clone());
+                                        }
+                                    }
+                                    favorite_artists.set(fav_art.clone());
+                                    favorites.set(fav_tracks.clone());
+                                    config::save_favorites(&config::FavoritesStore {
+                                        tracks: fav_tracks,
+                                        artists: fav_art,
+                                        albums: favorite_albums.read().clone(),
+                                    });
+                                },
+                                on_toggle_favorite_album: move |album_name: String| {
+                                    let mut fav_alb = favorite_albums.read().clone();
+                                    let mut fav_tracks = favorites.read().clone();
+                                    let is_fav = fav_alb.contains(&album_name)
+                                        || tracks.read().iter().any(|t| t.album == album_name && fav_tracks.contains(&t.path));
+                                    if is_fav {
+                                        fav_alb.remove(&album_name);
+                                        for t in tracks.read().iter().filter(|t| t.album == album_name) {
+                                            fav_tracks.remove(&t.path);
+                                        }
+                                    } else {
+                                        fav_alb.insert(album_name.clone());
+                                        for t in tracks.read().iter().filter(|t| t.album == album_name) {
+                                            fav_tracks.insert(t.path.clone());
+                                        }
+                                    }
+                                    favorite_albums.set(fav_alb.clone());
+                                    favorites.set(fav_tracks.clone());
+                                    config::save_favorites(&config::FavoritesStore {
+                                        tracks: fav_tracks,
+                                        artists: favorite_artists.read().clone(),
+                                        albums: fav_alb,
+                                    });
+                                },
+                                on_select_artist: move |artist: String| navigate_to(StageView::ArtistDetail(artist)),
+                                on_select_album: move |album: String| navigate_to(StageView::AlbumDetail(album)),
                             }
                         },
                         StageView::Setup => rsx! {
@@ -2160,7 +2249,12 @@ pub fn App() -> Element {
                                 } else {
                                     favs.insert(t.path.clone());
                                 }
-                                favorites.set(favs);
+                                favorites.set(favs.clone());
+                                config::save_favorites(&config::FavoritesStore {
+                                    tracks: favs,
+                                    artists: favorite_artists.read().clone(),
+                                    albums: favorite_albums.read().clone(),
+                                });
                             }
                         },
                         if current_track.read().as_ref().map(|t| favorites.read().contains(&t.path)).unwrap_or(false) {

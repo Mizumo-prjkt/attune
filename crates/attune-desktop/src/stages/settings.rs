@@ -1008,6 +1008,89 @@ pub fn SettingsContent(
                                 }
                             }
                         }
+
+                        // Card: Custom Fullscreen Lyrics CSS Animation (Inspired by Better Lyrics)
+                        div { class: "settings-card",
+                            div { style: "display: flex; justify-content: space-between; align-items: center;",
+                                div {
+                                    h3 { class: "settings-card-title", "{strings.custom_lyrics_css}" }
+                                    p { class: "settings-card-desc", "{strings.custom_lyrics_css_desc}" }
+                                }
+                                SwitchToggle {
+                                    active: curr_cfg.enable_lyrics_custom_css,
+                                    on_toggle: move |_| update_cfg(Box::new(|c| c.enable_lyrics_custom_css = !c.enable_lyrics_custom_css)),
+                                }
+                            }
+
+                            if curr_cfg.enable_lyrics_custom_css {
+                                div { style: "margin-top: 14px; display: flex; flex-direction: column; gap: 10px;",
+                                    // Presets bar
+                                    div { style: "display: flex; gap: 8px; flex-wrap: wrap; align-items: center;",
+                                        span { style: "font-size: 11.5px; color: var(--text-muted); font-weight: 600;", "Animation Presets:" }
+                                        button {
+                                            class: "btn-pill",
+                                            style: "font-size: 11px; padding: 4px 10px;",
+                                            onclick: move |_| {
+                                                update_cfg(Box::new(|c| {
+                                                    c.lyrics_custom_css = crate::config::PRESET_SPOTLIGHT_BLUR.to_string();
+                                                }));
+                                            },
+                                            "Spotlight Depth Blur"
+                                        }
+                                        button {
+                                            class: "btn-pill",
+                                            style: "font-size: 11px; padding: 4px 10px;",
+                                            onclick: move |_| {
+                                                update_cfg(Box::new(|c| {
+                                                    c.lyrics_custom_css = crate::config::PRESET_SPRING_POP.to_string();
+                                                }));
+                                            },
+                                            "Apple Music Spring Pop"
+                                        }
+                                        button {
+                                            class: "btn-pill",
+                                            style: "font-size: 11px; padding: 4px 10px;",
+                                            onclick: move |_| {
+                                                update_cfg(Box::new(|c| {
+                                                    c.lyrics_custom_css = crate::config::PRESET_CYBERPUNK_NEON.to_string();
+                                                }));
+                                            },
+                                            "Cyberpunk Neon Glow"
+                                        }
+                                        button {
+                                            class: "btn-pill",
+                                            style: "font-size: 11px; padding: 4px 10px;",
+                                            onclick: move |_| {
+                                                update_cfg(Box::new(|c| {
+                                                    c.lyrics_custom_css = crate::config::default_lyrics_custom_css();
+                                                }));
+                                            },
+                                            "Reset Template"
+                                        }
+                                    }
+
+                                    // CSS Code Editor Textarea
+                                    textarea {
+                                        style: "width: 100%; min-height: 180px; font-family: var(--font-mono, monospace); font-size: 12px; line-height: 1.45; background: rgba(0, 0, 0, 0.45); color: #64ffda; border: 1px solid var(--border-glass); border-radius: 10px; padding: 12px; box-sizing: border-box; resize: vertical;",
+                                        value: "{curr_cfg.lyrics_custom_css}",
+                                        placeholder: "Enter custom CSS rules targeting .fullscreen-lyric-active, .fullscreen-lyric-inactive, .fullscreen-lyrics-scroll...",
+                                        oninput: move |e| {
+                                            let val = e.value();
+                                            update_cfg(Box::new(move |c| c.lyrics_custom_css = val.clone()));
+                                        }
+                                    }
+
+                                    div { style: "display: flex; justify-content: space-between; align-items: center;",
+                                        span { style: "font-size: 11px; color: var(--text-muted);",
+                                            "Target classes: .fullscreen-lyric-active, .fullscreen-lyric-inactive, .fullscreen-lyrics-scroll, .lyric-line"
+                                        }
+                                        span { style: "font-size: 11.5px; color: var(--accent-mint); font-weight: 500;",
+                                            "✓ Auto-persisted to disk"
+                                        }
+                                    }
+                                }
+                            }
+                        }
                     },
 
                     // -----------------------------------------------------------------
@@ -1906,6 +1989,7 @@ pub fn SettingsContent(
                                     "The lyrics engine parses standard LRC, enhanced ELRC/YRC, and Apple Music TTML syllable trees."
                                 }
                                 div { style: "display: flex; flex-direction: column; gap: 6px; margin-top: 4px; font-size: 12px;",
+                                    div { "• " span { style: "color: #fff; font-weight: 600;", "Better Lyrics: " } "Fluid easing curves, tactile spring animations, and custom CSS theme architecture inspired by better-lyrics/better-lyrics." }
                                     div { "• " span { style: "color: #fff; font-weight: 600;", "40ms Lookahead: " } "Offsets hardware DAC latency for instantaneous word-by-word highlights." }
                                     div { "• " span { style: "color: #fff; font-weight: 600;", "MPL-2.0 License: " } "BiniLyrics utilizes <am-lyrics> under Mozilla Public License v2.0." }
                                     div { "• " span { style: "color: #fff; font-weight: 600;", "Providers: " } "LRCLIB, BiniLyrics, and embedded Vorbis/ID3 tag streams." }

@@ -2,7 +2,7 @@
 
 - **Project Name**: Attune
 - **Current Phase**: `Phase 6 IN PROGRESS -> Multi-Platform Packaging, Installer Scripting & Distribution Orchestration`
-- **Active Coding Status**: Completed ADR-117: WebKitGTK High-DPI Subpixel Event Coordinate Sanitization & Elimination of `pointerdown` Float Deserialization Failure in Dioxus Desktop. Purged `onpointerdown` from `.dock-scroll` and `.fullscreen-lyrics-scroll`, eliminating global `pointerdown` listeners and IPC message dispatch. Injected `EVENT_COORDINATE_SANITIZER_SCRIPT` in `<head>` to transparently round subpixel floating-point coordinates (`clientX`, `clientY`, `offsetX`, `offsetY`, `pageX`, `pageY`, `width`, `height`, etc.) into clean integers matching Serde's `i32` expectation on Linux systems with fractional display scaling (e.g. 125%, 150%). All 85 desktop tests pass cleanly.
+- **Active Coding Status**: Completed ADR-118: Unified Tabbed Favorites Stage with Persistent Songs, Artists, and Albums Collections. Replaced single-purpose "Favorite Songs" with unified "Favorites" stage featuring segmented Liquid Material Glass tabs (`Songs`, `Artists`, `Albums`), live count badges, instant search filtering, context-aware header stats, Play/Shuffle All actions, and overlay heart toggle buttons. Backed by persistent disk storage (`~/.config/attune/favorites.json`) ensuring user favorites survive app restarts. All 89 desktop tests pass cleanly.
 
 
 ---

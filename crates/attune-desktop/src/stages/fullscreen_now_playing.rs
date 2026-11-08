@@ -147,6 +147,14 @@ pub fn FullscreenNowPlaying(
                 }
             },
 
+            // Custom Fullscreen Lyrics CSS Animation & Styling (Configured in Lyrics Settings)
+            if config.enable_lyrics_custom_css && !config.lyrics_custom_css.trim().is_empty() {
+                style {
+                    id: "attune-custom-lyrics-css",
+                    "{config.lyrics_custom_css}"
+                }
+            }
+
             // Dynamic Living Fluid Gradient Visualizer Mesh
             if config.fullscreen_visualizer_effects {
                 div {

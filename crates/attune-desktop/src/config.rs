@@ -3,6 +3,7 @@
 //! Mandate 4 (no hardcoded values): every path is resolved from environment
 //! variables first, then user configuration, and finally OS-standard directories.
 
+use std::collections::HashSet;
 use std::path::PathBuf;
 use serde::{Deserialize, Serialize};
 
@@ -41,6 +42,51 @@ fn default_lyric_priority() -> Vec<String> {
 }
 fn default_api_priority() -> Vec<String> {
     vec!["youtube".into(), "wikipedia_musicbrainz".into(), "musixmatch".into()]
+}
+
+pub const PRESET_SPOTLIGHT_BLUR: &str = r#"/* Spotlight Depth Blur (Better Lyrics Inspired) */
+.fullscreen-lyric-inactive {
+  filter: blur(1.5px);
+  opacity: 0.28;
+  transition: filter 0.45s ease, opacity 0.45s ease, transform 0.45s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.fullscreen-lyric-inactive:hover {
+  filter: blur(0px);
+  opacity: 0.85;
+}
+
+.fullscreen-lyric-active {
+  filter: none;
+  opacity: 1;
+  transform: scale(1.04) translateX(8px);
+}"#;
+
+pub const PRESET_SPRING_POP: &str = r#"/* Apple Music Spring Pop & Float */
+.fullscreen-lyric-active {
+  animation: appleSpringPop 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275) both;
+}
+
+@keyframes appleSpringPop {
+  0% { transform: scale(0.96) translateY(4px); }
+  70% { transform: scale(1.055) translateY(-2px); }
+  100% { transform: scale(1.04) translateY(0); }
+}"#;
+
+pub const PRESET_CYBERPUNK_NEON: &str = r#"/* Cyberpunk Neon Pulse Glow */
+.fullscreen-lyric-active {
+  color: #64ffda;
+  text-shadow: 0 0 20px rgba(100, 255, 218, 0.9), 0 0 40px rgba(167, 139, 250, 0.6), 0 0 60px rgba(244, 63, 94, 0.4);
+  animation: neonFlicker 3s infinite alternate;
+}
+
+@keyframes neonFlicker {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.92; }
+}"#;
+
+pub fn default_lyrics_custom_css() -> String {
+    PRESET_SPOTLIGHT_BLUR.to_string()
 }
 
 /// Persistent user configuration for Attune Desktop.
@@ -100,6 +146,10 @@ pub struct AppConfig {
     pub fullscreen_gradient_bg: bool,
     #[serde(default = "default_true")]
     pub fullscreen_visualizer_effects: bool,
+    #[serde(default)]
+    pub enable_lyrics_custom_css: bool,
+    #[serde(default = "default_lyrics_custom_css")]
+    pub lyrics_custom_css: String,
 
     // API Providers
     #[serde(default = "default_api_priority")]
@@ -147,6 +197,8 @@ impl Default for AppConfig {
             fullscreen_text_glow: true,
             fullscreen_gradient_bg: true,
             fullscreen_visualizer_effects: true,
+            enable_lyrics_custom_css: false,
+            lyrics_custom_css: default_lyrics_custom_css(),
             api_priority: default_api_priority(),
             api_wikipedia_enabled: true,
             api_musicbrainz_enabled: true,
@@ -274,6 +326,47 @@ pub fn load_config() -> AppConfig {
 pub fn save_config(cfg: &AppConfig) {
     if let Some(path) = config_file_path() {
         if let Ok(content) = serde_json::to_string_pretty(cfg) {
+            let _ = std::fs::write(path, content);
+        }
+    }
+}
+
+/// Persisted favorites collection for songs, artists, and albums.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct FavoritesStore {
+    #[serde(default)]
+    pub tracks: HashSet<PathBuf>,
+    #[serde(default)]
+    pub artists: HashSet<String>,
+    #[serde(default)]
+    pub albums: HashSet<String>,
+}
+
+/// Returns the favorites storage file path (~/.config/attune/favorites.json).
+pub fn favorites_file_path() -> Option<PathBuf> {
+    let dir = dirs::config_dir()?.join("attune");
+    let _ = std::fs::create_dir_all(&dir);
+    Some(dir.join("favorites.json"))
+}
+
+/// Loads the persisted favorites or returns empty store.
+pub fn load_favorites() -> FavoritesStore {
+    if let Some(path) = favorites_file_path() {
+        if path.is_file() {
+            if let Ok(content) = std::fs::read_to_string(&path) {
+                if let Ok(store) = serde_json::from_str(&content) {
+                    return store;
+                }
+            }
+        }
+    }
+    FavoritesStore::default()
+}
+
+/// Saves the favorites store to disk.
+pub fn save_favorites(store: &FavoritesStore) {
+    if let Some(path) = favorites_file_path() {
+        if let Ok(content) = serde_json::to_string_pretty(store) {
             let _ = std::fs::write(path, content);
         }
     }
@@ -637,5 +730,44 @@ mod tests {
         assert!(import_res.is_ok());
 
         let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn test_favorites_store_serialization_roundtrip() {
+        let mut store = FavoritesStore::default();
+        store.tracks.insert(PathBuf::from("/music/song1.flac"));
+        store.tracks.insert(PathBuf::from("/music/song2.mp3"));
+        store.artists.insert("DECO*27".to_string());
+        store.artists.insert("Hatsune Miku".to_string());
+        store.albums.insert("Ghost".to_string());
+
+        let json = serde_json::to_string_pretty(&store).unwrap();
+        let loaded: FavoritesStore = serde_json::from_str(&json).unwrap();
+        assert_eq!(store, loaded);
+        assert_eq!(loaded.tracks.len(), 2);
+        assert!(loaded.artists.contains("DECO*27"));
+        assert!(loaded.albums.contains("Ghost"));
+    }
+
+    #[test]
+    fn test_lyrics_custom_css_presets_and_defaults() {
+        let def = default_lyrics_custom_css();
+        assert!(!def.is_empty());
+        assert!(def.contains("fullscreen-lyric"));
+
+        assert!(PRESET_SPOTLIGHT_BLUR.contains("filter: blur"));
+        assert!(PRESET_SPRING_POP.contains("appleSpringPop"));
+        assert!(PRESET_CYBERPUNK_NEON.contains("neonFlicker"));
+
+        let mut cfg = AppConfig::default();
+        assert!(!cfg.enable_lyrics_custom_css);
+        assert!(!cfg.lyrics_custom_css.is_empty());
+
+        cfg.enable_lyrics_custom_css = true;
+        cfg.lyrics_custom_css = PRESET_SPRING_POP.to_string();
+        let json = serde_json::to_string(&cfg).unwrap();
+        let loaded: AppConfig = serde_json::from_str(&json).unwrap();
+        assert!(loaded.enable_lyrics_custom_css);
+        assert_eq!(loaded.lyrics_custom_css, PRESET_SPRING_POP);
     }
 }
