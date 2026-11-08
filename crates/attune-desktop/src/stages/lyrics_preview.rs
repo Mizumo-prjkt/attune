@@ -783,8 +783,8 @@ pub fn LyricsPreviewStandaloneWindow() -> Element {
 
                             // Album Artwork Mock Box
                             div {
-                                class: "album-cover-box",
-                                style: "width: 100%; aspect-ratio: 1/1; border-radius: 16px; overflow: hidden; box-shadow: 0 20px 50px rgba(0, 0, 0, 0.65); border: 1px solid rgba(255, 255, 255, 0.12); position: relative; background: #121722; display: flex; align-items: center; justify-content: center;",
+                                class: "fullscreen-art-box aspect-1-1",
+                                style: "border-radius: 16px; background: #121722; display: flex; align-items: center; justify-content: center;",
                                 svg {
                                     style: "width: 100%; height: 100%; display: block;",
                                     view_box: "0 0 320 320",

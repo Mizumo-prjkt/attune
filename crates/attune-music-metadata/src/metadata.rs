@@ -52,6 +52,10 @@ pub struct TrackMetadata {
     pub start_trim_ms: Option<u64>,
     pub end_trim_ms: Option<u64>,
     pub speed_factor: Option<f32>,
+
+    // Attached artwork / cover file path to embed into audio stream tags:
+    #[serde(default)]
+    pub picture_path: Option<String>,
 }
 
 impl TrackMetadata {
@@ -197,6 +201,9 @@ impl TrackMetadata {
                 if let Ok(sf) = val_trimmed.parse::<f32>() {
                     self.speed_factor = Some(sf);
                 }
+            }
+            "PICTURE" | "PICTURE_PATH" | "COVER" | "ARTWORK" | "IMAGE" | "APIC" => {
+                self.picture_path = Some(val_trimmed.to_string());
             }
             _ => {
                 log::info!("Unhandled metadata tag key: {}", key);
@@ -429,6 +436,9 @@ fn merge_metadata(target: &mut TrackMetadata, source: TrackMetadata) {
     if source.speed_factor.is_some() {
         target.speed_factor = source.speed_factor;
     }
+    if source.picture_path.is_some() {
+        target.picture_path = source.picture_path;
+    }
 }
 
 pub fn get_sidecar_path(path: &Path) -> PathBuf {
@@ -464,6 +474,114 @@ pub fn write_track_metadata<P: AsRef<Path>>(
             Ok(())
         }
     }
+}
+
+// =========================================================================
+// Image Dimension & Format Parsers (Zero Third-Party Dependency)
+// =========================================================================
+
+/// Extracts image MIME type and pixel dimensions from raw bytes without third-party dependencies.
+pub fn detect_image_mime_and_dimensions(data: &[u8]) -> (&'static str, u32, u32) {
+    if data.starts_with(&[0xFF, 0xD8, 0xFF]) {
+        let (w, h) = parse_jpeg_dimensions(data).unwrap_or((0, 0));
+        ("image/jpeg", w, h)
+    } else if data.starts_with(&[0x89, 0x50, 0x4E, 0x47]) {
+        let (w, h) = parse_png_dimensions(data).unwrap_or((0, 0));
+        ("image/png", w, h)
+    } else if data.len() >= 12 && &data[0..4] == b"RIFF" && &data[8..12] == b"WEBP" {
+        ("image/webp", 0, 0)
+    } else {
+        ("image/jpeg", 0, 0)
+    }
+}
+
+fn parse_png_dimensions(data: &[u8]) -> Option<(u32, u32)> {
+    if data.len() >= 24 && &data[12..16] == b"IHDR" {
+        let w = u32::from_be_bytes([data[16], data[17], data[18], data[19]]);
+        let h = u32::from_be_bytes([data[20], data[21], data[22], data[23]]);
+        Some((w, h))
+    } else {
+        None
+    }
+}
+
+fn parse_jpeg_dimensions(data: &[u8]) -> Option<(u32, u32)> {
+    if data.len() < 4 || data[0] != 0xFF || data[1] != 0xD8 {
+        return None;
+    }
+    let mut cursor = 2;
+    while cursor + 4 <= data.len() {
+        if data[cursor] != 0xFF {
+            cursor += 1;
+            continue;
+        }
+        while cursor < data.len() && data[cursor] == 0xFF {
+            cursor += 1;
+        }
+        if cursor >= data.len() {
+            break;
+        }
+        let marker = data[cursor];
+        cursor += 1;
+        // Stop if SOS (Start of Scan) or EOI (End of Image)
+        if marker == 0xDA || marker == 0xD9 {
+            break;
+        }
+        // Standalone markers without length: RST0..RST7 (0xD0..0xD7), TEM (0x01)
+        if (0xD0..=0xD7).contains(&marker) || marker == 0x01 {
+            continue;
+        }
+        if cursor + 2 > data.len() {
+            break;
+        }
+        let chunk_len = u16::from_be_bytes([data[cursor], data[cursor + 1]]) as usize;
+        if chunk_len < 2 {
+            break;
+        }
+        // Check if SOF marker (SOF0..SOF15 except DHT 0xC4, JPG 0xC8, DAC 0xCC)
+        let is_sof = matches!(
+            marker,
+            0xC0 | 0xC1 | 0xC2 | 0xC3 | 0xC5 | 0xC6 | 0xC7 | 0xC9 | 0xCA | 0xCB | 0xCD | 0xCE | 0xCF
+        );
+        if is_sof && cursor + 7 <= data.len() && chunk_len >= 7 {
+            let h = u16::from_be_bytes([data[cursor + 3], data[cursor + 4]]) as u32;
+            let w = u16::from_be_bytes([data[cursor + 5], data[cursor + 6]]) as u32;
+            return Some((w, h));
+        }
+        cursor += chunk_len;
+    }
+    None
+}
+
+/// Builds a FLAC METADATA_BLOCK_PICTURE (block type 6) payload conforming to RFC 9636.
+pub fn build_flac_picture_block(image_path: &Path) -> Result<Vec<u8>, TrackTweaksError> {
+    let img_bytes = std::fs::read(image_path)?;
+    if img_bytes.is_empty() {
+        return Err(TrackTweaksError::Metadata("Empty image file".to_string()));
+    }
+    let (mime, width, height) = detect_image_mime_and_dimensions(&img_bytes);
+
+    let mut out = Vec::with_capacity(32 + img_bytes.len());
+    // 1. Picture type (Cover front = 3)
+    out.extend_from_slice(&3u32.to_be_bytes());
+    // 2. MIME type length + ASCII string
+    out.extend_from_slice(&(mime.len() as u32).to_be_bytes());
+    out.extend_from_slice(mime.as_bytes());
+    // 3. Description length (0)
+    out.extend_from_slice(&0u32.to_be_bytes());
+    // 4. Width (pixels)
+    out.extend_from_slice(&width.to_be_bytes());
+    // 5. Height (pixels)
+    out.extend_from_slice(&height.to_be_bytes());
+    // 6. Color depth (24 bits)
+    out.extend_from_slice(&24u32.to_be_bytes());
+    // 7. Colors used (0 for unindexed)
+    out.extend_from_slice(&0u32.to_be_bytes());
+    // 8. Picture data length + binary data
+    out.extend_from_slice(&(img_bytes.len() as u32).to_be_bytes());
+    out.extend_from_slice(&img_bytes);
+
+    Ok(out)
 }
 
 // =========================================================================
@@ -504,7 +622,10 @@ fn write_flac_metadata(path: &Path, meta: &TrackMetadata) -> Result<(), TrackTwe
         cursor += length;
 
         // Skip existing VORBIS_COMMENT block (block_type 4)
-        if block_type != 4 {
+        // Also skip existing PICTURE block (block_type 6) if a new picture is specified
+        let is_vorbis = block_type == 4;
+        let is_replacing_picture = meta.picture_path.is_some() && block_type == 6;
+        if !is_vorbis && !is_replacing_picture {
             blocks.push((is_last, block_type, block_data));
         }
 
@@ -527,6 +648,25 @@ fn write_flac_metadata(path: &Path, meta: &TrackMetadata) -> Result<(), TrackTwe
         0
     };
     blocks.insert(insert_pos, (false, 4, vorbis_block));
+
+    // If new picture specified and file exists, build and insert PICTURE block (block_type 6)
+    if let Some(ref pic_path_str) = meta.picture_path {
+        let pic_path = Path::new(pic_path_str);
+        if pic_path.is_file() {
+            match build_flac_picture_block(pic_path) {
+                Ok(pic_block) => {
+                    blocks.insert(insert_pos + 1, (false, 6, pic_block));
+                }
+                Err(e) => {
+                    log::warn!(
+                        "Failed building FLAC picture block from {}: {}",
+                        pic_path.display(),
+                        e
+                    );
+                }
+            }
+        }
+    }
 
     // Reconstruct FLAC file: "fLaC" + updated blocks + original audio stream
     let mut out = Vec::with_capacity(data.len() + 1024);
@@ -822,6 +962,26 @@ fn build_id3v24_tag(meta: &TrackMetadata) -> Vec<u8> {
         append_id3_txxx_frame(&mut frames_data, "SPEED_FACTOR", &format!("{:.4}", sf));
     }
 
+    // Embedded album art APIC frame
+    if let Some(ref pic_path_str) = meta.picture_path {
+        let pic_path = Path::new(pic_path_str);
+        if pic_path.is_file() {
+            if let Ok(img_bytes) = std::fs::read(pic_path) {
+                if !img_bytes.is_empty() {
+                    let (mime, _, _) = detect_image_mime_and_dimensions(&img_bytes);
+                    let mut payload = Vec::with_capacity(32 + img_bytes.len());
+                    payload.push(0x00); // ISO-8859-1 text encoding for MIME
+                    payload.extend_from_slice(mime.as_bytes());
+                    payload.push(0x00); // Null terminator for MIME string
+                    payload.push(0x03); // Picture type 3: Cover (front)
+                    payload.push(0x00); // Empty description null terminator
+                    payload.extend_from_slice(&img_bytes);
+                    append_id3_raw_frame(&mut frames_data, b"APIC", &payload);
+                }
+            }
+        }
+    }
+
     // ID3v2.4 Header (10 bytes)
     let mut header = Vec::with_capacity(10 + frames_data.len());
     header.extend_from_slice(b"ID3");
@@ -994,4 +1154,77 @@ fn atomic_write(path: &Path, content: &[u8]) -> Result<(), TrackTweaksError> {
     }
     std::fs::rename(tmp_path, path)?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_detect_image_mime_and_dimensions_png() {
+        let mut png_bytes = vec![0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]; // PNG signature
+        png_bytes.extend_from_slice(&13u32.to_be_bytes()); // IHDR length
+        png_bytes.extend_from_slice(b"IHDR");
+        png_bytes.extend_from_slice(&800u32.to_be_bytes()); // Width 800
+        png_bytes.extend_from_slice(&600u32.to_be_bytes()); // Height 600
+        png_bytes.extend_from_slice(&[8, 2, 0, 0, 0]); // Bit depth, color type, etc.
+
+        let (mime, w, h) = detect_image_mime_and_dimensions(&png_bytes);
+        assert_eq!(mime, "image/png");
+        assert_eq!(w, 800);
+        assert_eq!(h, 600);
+    }
+
+    #[test]
+    fn test_detect_image_mime_and_dimensions_jpeg() {
+        let mut jpg_bytes = vec![0xFF, 0xD8, 0xFF, 0xE0]; // SOI + APP0
+        jpg_bytes.extend_from_slice(&16u16.to_be_bytes()); // APP0 length 16
+        jpg_bytes.extend_from_slice(b"JFIF\0\x01\x01\x01\0`\0`\0\0");
+        // SOF0 marker (0xFF, 0xC0)
+        jpg_bytes.extend_from_slice(&[0xFF, 0xC0]);
+        jpg_bytes.extend_from_slice(&11u16.to_be_bytes()); // SOF0 length 11
+        jpg_bytes.push(8); // Precision 8 bits
+        jpg_bytes.extend_from_slice(&1080u16.to_be_bytes()); // Height 1080
+        jpg_bytes.extend_from_slice(&1920u16.to_be_bytes()); // Width 1920
+        jpg_bytes.push(3); // Components 3 (YCbCr)
+
+        let (mime, w, h) = detect_image_mime_and_dimensions(&jpg_bytes);
+        assert_eq!(mime, "image/jpeg");
+        assert_eq!(w, 1920);
+        assert_eq!(h, 1080);
+    }
+
+    #[test]
+    fn test_build_flac_picture_block_and_id3_apic() {
+        let tmp_dir = std::env::temp_dir().join(format!("attune_test_{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&tmp_dir);
+        let sample_jpg = tmp_dir.join("test_cover.jpg");
+
+        let mut jpg_bytes = vec![0xFF, 0xD8, 0xFF, 0xC0];
+        jpg_bytes.extend_from_slice(&11u16.to_be_bytes());
+        jpg_bytes.push(8);
+        jpg_bytes.extend_from_slice(&500u16.to_be_bytes()); // Height 500
+        jpg_bytes.extend_from_slice(&500u16.to_be_bytes()); // Width 500
+        jpg_bytes.push(3);
+        jpg_bytes.extend_from_slice(&[0xFF, 0xD9]); // EOI
+
+        std::fs::write(&sample_jpg, &jpg_bytes).expect("Failed to write sample test image");
+
+        let block = build_flac_picture_block(&sample_jpg).expect("Failed to build flac picture block");
+        // Check picture type Cover front (3)
+        let pic_type = u32::from_be_bytes([block[0], block[1], block[2], block[3]]);
+        assert_eq!(pic_type, 3);
+
+        // Check ID3 tag embedding
+        let mut meta = TrackMetadata::new();
+        meta.title = Some("Test Track".into());
+        meta.picture_path = Some(sample_jpg.to_string_lossy().to_string());
+        let id3_tag = build_id3v24_tag(&meta);
+        assert!(&id3_tag[0..3] == b"ID3");
+        // Contains APIC frame
+        assert!(id3_tag.windows(4).any(|w| w == b"APIC"));
+
+        let _ = std::fs::remove_file(&sample_jpg);
+        let _ = std::fs::remove_dir(&tmp_dir);
+    }
 }

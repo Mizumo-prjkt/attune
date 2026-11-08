@@ -250,6 +250,8 @@ pub const LYRICS_SYNC_SCRIPT: &str = r#"
     if (shouldSync) {
       window.attuneSyncLyrics(false);
     }
+    var artImg = document.querySelector('.fullscreen-art-img');
+    if (artImg) window.attuneCheckArtworkAspect(artImg);
   });
 
   function initLyricsObserver() {
@@ -257,6 +259,29 @@ pub const LYRICS_SYNC_SCRIPT: &str = r#"
       lyricsObserver.observe(document.body, { attributes: true, subtree: true, attributeFilter: ['class'], childList: true });
     }
   }
+
+  // Fullscreen Artwork Aspect Ratio Detector (16:9 widescreen vs 1:1 square)
+  window.attuneCheckArtworkAspect = function(img) {
+    if (!img) return;
+    function applyAspect() {
+      if (!img.naturalWidth || !img.naturalHeight) return;
+      var ratio = img.naturalWidth / img.naturalHeight;
+      var box = img.closest('.fullscreen-art-box');
+      if (!box) return;
+      if (ratio >= 1.35) {
+        box.classList.add('aspect-16-9');
+        box.classList.remove('aspect-1-1');
+      } else {
+        box.classList.add('aspect-1-1');
+        box.classList.remove('aspect-16-9');
+      }
+    }
+    if (img.complete && img.naturalWidth > 0) {
+      applyAspect();
+    } else {
+      img.addEventListener('load', applyAspect, { once: true });
+    }
+  };
 
   // Universal Escape key listener: triggers exit fullscreen immediately from any focused element
   window.addEventListener('keydown', function(e) {

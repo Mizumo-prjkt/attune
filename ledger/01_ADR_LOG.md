@@ -4721,6 +4721,39 @@ This file records all major architectural decisions for **Attune**, including co
   - GTK/Pango markup parsing warnings are completely eradicated from the console.
   - All 103 desktop tests and 100% of workspace tests pass cleanly.
 
+---
+
+## ADR-134: Album Artwork Embedding, Self-Copy Truncation Elimination, Cache Invalidation Protocol & Auto-Return Navigation
+
+- **Status**: LOCKED
+- **Date**: 2026-11-09
+- **Context**:
+  1. The user reported: "ok for some reason, updating album art here does not work" with a screenshot of `Edit Album Information` (`crates/attune-desktop/src/stages/album_editor.rs`) for the album "Liar Dancer" by "masarada".
+  2. Investigation and forensic root cause analysis revealed a chain of four interacting bugs:
+     - **Bug A (Self-Copy File Truncation)**: In `album_editor.rs`, when artwork was downloaded via `ArtworkSelectorModal` to `parent.join("cover.jpg")`, `custom_splash_path` was set to that exact file. On clicking "Save Album Info", the editor executed `std::fs::copy(splash_src, &dest)` where `splash_src == dest`. On Linux/POSIX, opening the destination file with write/create flags (`O_TRUNC`) truncated `cover.jpg` to 0 bytes before copying from it.
+     - **Bug B (Embedded PICTURE Metadata Ignored & Overriding)**: FLAC file `01 Liar Dancer.flac` contained an embedded `METADATA_BLOCK_PICTURE` (type 6, cover front). Symphonia probes embedded visuals first and writes them to `~/.cache/attune/artwork/{path_hash}.jpg`. However, `attune-music-metadata` only modified `VORBIS_COMMENT` (type 4) tags without updating the embedded `PICTURE` block or ID3v2 `APIC` frame. As a result, the old embedded image always took precedence over companion `cover.jpg`.
+     - **Bug C (Stale Library Disk Cache Serving Old State)**: `spawn_scan_multi` checks `load_library_cache(root)`. Because `library_cache_{hash}.json` remained on disk with the old metadata and old artwork data URLs, scanning directly returned stale records without re-probing files.
+     - **Bug D (Cached Probed Visual Mtime Check)**: In `crates/attune-core/src/audio.rs`, `probe_metadata` checked `!dest_file.exists() && !visual.data.is_empty()`, which prevented updating the cached thumbnail even when the audio file was retagged with newer art.
+     - **Bug E (Missing Stage Navigation on Save)**: In `crates/attune-desktop/src/app.rs`, the `on_saved` handler for `StageView::AlbumEditor` triggered a scan but omitted `go_back()`, leaving the user stranded on the editor form.
+- **Decision**:
+  1. **Direct Audio Stream Picture Embedding (`crates/attune-music-metadata/src/metadata.rs`)**:
+     - Added `picture_path: Option<String>` to `TrackMetadata`.
+     - Implemented zero-dependency image MIME and dimension parsers (`detect_image_mime_and_dimensions`, `parse_png_dimensions`, `parse_jpeg_dimensions`) extracting width, height, and format (JPEG, PNG, WebP) directly from binary headers without external dependencies.
+     - Implemented RFC 9636 FLAC `METADATA_BLOCK_PICTURE` generator (`build_flac_picture_block`) and updated `write_flac_metadata` to purge old type 6 blocks and insert new front cover blocks.
+     - Implemented ID3v2.4 `APIC` attached picture frame generator in `build_id3v24_tag` for MP3 tracks.
+  2. **Self-Copy Guarding in Album Editor (`crates/attune-desktop/src/stages/album_editor.rs`)**:
+     - Added `if splash_src != &dest { let _ = std::fs::copy(splash_src, &dest); }` preventing self-truncation.
+     - Set `meta.picture_path = Some(effective_cover_path)` across all tracks in the album when saving so the image is embedded directly into file tags.
+  3. **Library Disk Cache Invalidation Protocol (`crates/attune-desktop/src/library.rs`)**:
+     - Added `invalidate_library_cache(root: &Path)` and `clear_all_library_caches()`, ensuring stale JSON cache files are deleted upon saving.
+  4. **Probed Artwork Mtime Refresh (`crates/attune-core/src/audio.rs`)**:
+     - Updated `probe_metadata` to compare audio file modification time (`file_mtime`) against `dest_file` modification time (`dest_mtime`), overwriting cached visuals when the source audio file is updated.
+  5. **Auto-Return Navigation (`crates/attune-desktop/src/app.rs`)**:
+     - Added `go_back()` to the `on_saved` callback of `StageView::AlbumEditor`, smoothly transitioning the user back to the album view with the freshly updated cover art.
+- **Consequences**:
+  - Updating album art from local images or YouTube HQ search now reliably embeds the image into FLAC/MP3 files, saves companion `cover.jpg` without truncation, invalidates caches, and automatically refreshes all views across the player.
+  - All 175 workspace tests (105 desktop, 21 core, 17 metadata, 10 broadcast, 8 watchguard, 7 dsp_ffi, 4 engine, 3 procmgr) pass with 100% success.
+
 
 
 

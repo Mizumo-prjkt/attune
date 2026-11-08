@@ -138,14 +138,23 @@ pub fn AlbumEditor(
                                     .filter(|s| !s.is_empty())
                                     .collect();
 
+                                let mut effective_cover_path: Option<std::path::PathBuf> = None;
+
                                 // If new splash art was picked, copy it to the album directory as cover.<ext>
                                 if let Some(splash_src) = new_splash.as_ref() {
                                     if let Some(first_track) = tracks.first() {
                                         if let Some(parent) = first_track.path.parent() {
                                             let ext = splash_src.extension().and_then(|e| e.to_str()).unwrap_or("jpg");
                                             let dest = parent.join(format!("cover.{}", ext));
-                                            if let Err(e) = std::fs::copy(splash_src, &dest) {
-                                                log::error!("AlbumEditor: Failed to copy cover art to {}: {}", dest.display(), e);
+                                            if splash_src != &dest {
+                                                if let Err(e) = std::fs::copy(splash_src, &dest) {
+                                                    log::error!("AlbumEditor: Failed to copy cover art to {}: {}", dest.display(), e);
+                                                }
+                                            }
+                                            if dest.is_file() {
+                                                effective_cover_path = Some(dest);
+                                            } else if splash_src.is_file() {
+                                                effective_cover_path = Some(splash_src.clone());
                                             }
                                         }
                                     }
@@ -178,6 +187,9 @@ pub fn AlbumEditor(
                                     if !target_mb.is_empty() {
                                         meta.musicbrainz_id = Some(target_mb.clone());
                                     }
+                                    if let Some(ref cov) = effective_cover_path {
+                                        meta.picture_path = Some(cov.to_string_lossy().to_string());
+                                    }
 
                                     match write_track_metadata(&track.path, &meta) {
                                         Ok(()) => {
@@ -192,6 +204,9 @@ pub fn AlbumEditor(
                                         }
                                     }
                                 }
+
+                                crate::library::clear_thumbnail_cache();
+                                crate::library::clear_all_library_caches();
 
                                 is_saving.set(false);
                                 if errors.is_empty() {

@@ -48,6 +48,7 @@ pub fn FullscreenNowPlaying(
     use_effect(use_reactive(&current_track_id, move |_| {
         is_locked_to_active.set(true);
         let _ = document::eval("if (window.attuneResetLyricsSync) window.attuneResetLyricsSync();");
+        let _ = document::eval("var img = document.querySelector('.fullscreen-art-img'); if (img && window.attuneCheckArtworkAspect) window.attuneCheckArtworkAspect(img);");
     }));
 
     // Ensure the OS window enters pure borderless fullscreen
@@ -96,6 +97,9 @@ pub fn FullscreenNowPlaying(
     let artwork_url = track.artwork_data_url.clone().unwrap_or_else(|| {
         "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='400' height='400' viewBox='0 0 400 400'><rect width='400' height='400' fill='%23121722'/><circle cx='200' cy='200' r='90' fill='none' stroke='%2364ffda' stroke-width='8'/><polygon points='180,150 240,200 180,250' fill='%2364ffda'/></svg>".to_string()
     });
+
+    let is_wide = track.is_artwork_widescreen();
+    let aspect_class = if is_wide { "aspect-16-9" } else { "aspect-1-1" };
 
     // Dynamic color extraction strictly from the active track artwork
     let palette = DynamicPalette::from_track(&track);
@@ -287,19 +291,18 @@ pub fn FullscreenNowPlaying(
                     class: "fullscreen-left-col",
                     style: "display: flex; flex-direction: column; width: 380px; min-width: 340px; gap: 20px;",
 
-                    // Album Art
+                    // Album Art Box (Dynamically adapts between 1:1 Square and 16:9 Widescreen)
                     div {
-                        class: "album-cover-box",
-                        style: "width: 100%; aspect-ratio: 1/1; border-radius: 18px; overflow: hidden; box-shadow: 0 24px 60px rgba(0, 0, 0, 0.65); border: 1px solid rgba(255, 255, 255, 0.12); position: relative; cursor: pointer;",
+                        class: "fullscreen-art-box {aspect_class}",
                         title: "Click to select or change album artwork (YouTube HQ / Local File)",
                         onclick: {
                             let mut show_m = show_artwork_modal;
                             move |_| show_m.set(true)
                         },
                         img {
+                            class: "fullscreen-art-img",
                             src: "{artwork_url}",
                             alt: "{track.title}",
-                            style: "width: 100%; height: 100%; object-fit: cover; display: block;"
                         }
                         div {
                             class: "album-cover-hover-overlay",

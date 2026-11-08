@@ -15,12 +15,18 @@ use attune_core::{AudioDecoder, LibraryScanner};
 use serde::{Deserialize, Serialize};
 
 static THUMBNAIL_CACHE: Mutex<Option<HashMap<PathBuf, String>>> = Mutex::new(None);
+static ARTWORK_ASPECT_CACHE: Mutex<Option<HashMap<String, bool>>> = Mutex::new(None);
 
 /// Clears the in-memory thumbnail string cache to free heap memory.
 pub fn clear_thumbnail_cache() {
     let mut guard = THUMBNAIL_CACHE.lock().unwrap();
     if let Some(ref mut cache) = *guard {
         cache.clear();
+    }
+    if let Ok(mut aspect_guard) = ARTWORK_ASPECT_CACHE.lock() {
+        if let Some(ref mut cache) = *aspect_guard {
+            cache.clear();
+        }
     }
 }
 
@@ -130,6 +136,79 @@ pub fn resolve_thumbnail_data_url_with_quality(art_p: &Path, high_quality: bool)
 pub fn resolve_thumbnail_data_url(art_p: &Path) -> Option<String> {
     let hq = crate::config::load_config().high_quality_thumbnails;
     resolve_thumbnail_data_url_with_quality(art_p, hq)
+}
+
+/// Probes whether an artwork image has a widescreen (16:9) aspect ratio (ratio >= 1.35)
+/// versus a standard square 1:1 aspect ratio (ratio < 1.35).
+pub fn is_artwork_widescreen(artwork_path: Option<&Path>, artwork_data_url: Option<&str>) -> bool {
+    let cache_key = if let Some(p) = artwork_path {
+        p.to_string_lossy().to_string()
+    } else if let Some(u) = artwork_data_url {
+        let prefix_len = u.len().min(128);
+        u[..prefix_len].to_string()
+    } else {
+        return false;
+    };
+
+    if let Ok(guard) = ARTWORK_ASPECT_CACHE.lock() {
+        if let Some(ref cache) = *guard {
+            if let Some(&is_wide) = cache.get(&cache_key) {
+                return is_wide;
+            }
+        }
+    }
+
+    let is_wide = probe_artwork_widescreen_inner(artwork_path, artwork_data_url);
+
+    if let Ok(mut guard) = ARTWORK_ASPECT_CACHE.lock() {
+        let cache = guard.get_or_insert_with(HashMap::new);
+        cache.insert(cache_key, is_wide);
+    }
+
+    is_wide
+}
+
+fn probe_artwork_widescreen_inner(artwork_path: Option<&Path>, artwork_data_url: Option<&str>) -> bool {
+    // 1. Probe from disk path if valid
+    if let Some(p) = artwork_path {
+        if p.is_file() {
+            if let Ok((w, h)) = image::image_dimensions(p) {
+                if h > 0 {
+                    return (w as f32 / h as f32) >= 1.35;
+                }
+            }
+        }
+    }
+
+    // 2. Probe from Data URL
+    if let Some(data_url) = artwork_data_url {
+        if let Some(comma_pos) = data_url.find(',') {
+            let b64_part = &data_url[comma_pos + 1..];
+            use base64::Engine;
+            // Decode up to 4KB (sufficient for image dimensions metadata)
+            let take_len = b64_part.len().min(4096);
+            if let Ok(bytes) = base64::engine::general_purpose::STANDARD.decode(&b64_part[..take_len]) {
+                if let Ok(reader) = image::ImageReader::new(std::io::Cursor::new(&bytes)).with_guessed_format() {
+                    if let Ok((w, h)) = reader.into_dimensions() {
+                        if h > 0 {
+                            return (w as f32 / h as f32) >= 1.35;
+                        }
+                    }
+                }
+            }
+            // Fallback to full load if header was not in first chunk
+            if let Ok(bytes_full) = base64::engine::general_purpose::STANDARD.decode(b64_part) {
+                if let Ok(img) = image::load_from_memory(&bytes_full) {
+                    let h = img.height();
+                    if h > 0 {
+                        return (img.width() as f32 / h as f32) >= 1.35;
+                    }
+                }
+            }
+        }
+    }
+
+    false
 }
 
 /// A single playable track in the desktop library.
@@ -294,6 +373,11 @@ impl TrackEntry {
         parts.join("\n")
     }
 
+    /// True if the track's artwork is widescreen (16:9) rather than 1:1 square.
+    pub fn is_artwork_widescreen(&self) -> bool {
+        is_artwork_widescreen(self.artwork_path.as_deref(), self.artwork_data_url.as_deref())
+    }
+
     /// True if the given lowercase query matches title, artist or album.
     pub fn matches(&self, query_lower: &str) -> bool {
         query_lower.is_empty()
@@ -382,6 +466,33 @@ pub fn save_library_cache(root: &Path, tracks: &[TrackEntry]) -> Result<(), std:
         p.display()
     );
     Ok(())
+}
+
+/// Invalidates (deletes) the library disk cache for a specific root directory.
+pub fn invalidate_library_cache(root: &Path) {
+    let p = library_cache_path(root);
+    if p.exists() {
+        let _ = std::fs::remove_file(&p);
+        log::info!("Invalidated library cache at {}", p.display());
+    }
+}
+
+/// Clears all library disk caches across all music roots under ~/.cache/attune/.
+pub fn clear_all_library_caches() {
+    let cache_dir = dirs::cache_dir()
+        .unwrap_or_else(|| PathBuf::from("/tmp"))
+        .join("attune");
+    if let Ok(entries) = std::fs::read_dir(&cache_dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
+                if name.starts_with("library_cache_") && name.ends_with(".json") {
+                    let _ = std::fs::remove_file(&path);
+                    log::info!("Removed library disk cache {}", path.display());
+                }
+            }
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -672,5 +783,64 @@ mod tests {
         assert_eq!(loaded.tracks[0].title, "Song 1");
         assert_eq!(loaded.tracks[0].bpm, Some(171.4));
         assert_eq!(loaded.tracks[0].aggression, Some(0.75));
+    }
+
+    #[test]
+    fn test_is_artwork_widescreen_detection() {
+        use image::{ImageBuffer, Rgb};
+
+        // 1. None should return false (default to 1:1)
+        assert!(!is_artwork_widescreen(None, None));
+
+        // 2. Generate a 1:1 square image (100x100) and convert to PNG data URL
+        let square_img: ImageBuffer<Rgb<u8>, Vec<u8>> = ImageBuffer::new(100, 100);
+        let mut square_bytes = Vec::new();
+        square_img.write_to(&mut std::io::Cursor::new(&mut square_bytes), image::ImageFormat::Png).unwrap();
+        use base64::Engine;
+        let square_b64 = base64::engine::general_purpose::STANDARD.encode(&square_bytes);
+        let square_data_url = format!("data:image/png;base64,{square_b64}");
+
+        assert!(!is_artwork_widescreen(None, Some(&square_data_url)));
+
+        // 3. Generate a 16:9 widescreen image (160x90) and convert to PNG data URL
+        let wide_img: ImageBuffer<Rgb<u8>, Vec<u8>> = ImageBuffer::new(160, 90);
+        let mut wide_bytes = Vec::new();
+        wide_img.write_to(&mut std::io::Cursor::new(&mut wide_bytes), image::ImageFormat::Png).unwrap();
+        let wide_b64 = base64::engine::general_purpose::STANDARD.encode(&wide_bytes);
+        let wide_data_url = format!("data:image/png;base64,{wide_b64}");
+
+        assert!(is_artwork_widescreen(None, Some(&wide_data_url)));
+
+        // 4. Test TrackEntry helper method
+        let mut t = entry("Wide Song", "Artist", "Album");
+        t.artwork_data_url = Some(wide_data_url);
+        assert!(t.is_artwork_widescreen());
+
+        t.artwork_data_url = Some(square_data_url);
+        assert!(!t.is_artwork_widescreen());
+    }
+
+    #[test]
+    fn test_cache_invalidation_and_cleanup() {
+        let root = std::env::temp_dir().join(format!("attune_inv_test_{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&root);
+        let tracks = vec![entry("Test Song", "Test Artist", "Test Album")];
+
+        // 1. Save cache to disk
+        assert!(save_library_cache(&root, &tracks).is_ok());
+        let cache_p = library_cache_path(&root);
+        assert!(cache_p.exists());
+
+        // 2. Load cache
+        let loaded = load_library_cache(&root);
+        assert!(loaded.is_some());
+        assert_eq!(loaded.unwrap().len(), 1);
+
+        // 3. Invalidate cache
+        invalidate_library_cache(&root);
+        assert!(!cache_p.exists());
+        assert!(load_library_cache(&root).is_none());
+
+        let _ = std::fs::remove_dir(&root);
     }
 }

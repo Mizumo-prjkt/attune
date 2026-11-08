@@ -1618,12 +1618,15 @@ pub fn App() -> Element {
                                 group,
                                 on_back: move |_| go_back(),
                                 on_saved: move |_| {
+                                    crate::library::clear_thumbnail_cache();
+                                    crate::library::clear_all_library_caches();
                                     if let Some(dir) = music_dir.read().clone() {
                                         tracks.set(Vec::new());
                                         let rx = library::spawn_scan(dir);
                                         *scan_rx.write() = Arc::new(Mutex::new(Some(rx)));
                                         is_scanning.set(true);
                                     }
+                                    go_back();
                                 },
                             }
                         },

@@ -280,7 +280,9 @@ impl AudioDecoder {
     /// Executes in < 2ms without decoding full audio frames.
     pub fn probe_metadata<P: AsRef<Path>>(path: P) -> Result<TrackMetadataProbe, AudioError> {
         let file = std::fs::File::open(&path)?;
-        let _file_len = file.metadata().map(|m| m.len()).unwrap_or(0);
+        let file_meta = file.metadata().ok();
+        let _file_len = file_meta.as_ref().map(|m| m.len()).unwrap_or(0);
+        let file_mtime = file_meta.and_then(|m| m.modified().ok());
         let mss = MediaSourceStream::new(Box::new(file), Default::default());
 
         let mut hint = Hint::new();
@@ -445,7 +447,13 @@ impl AudioDecoder {
                     if std::fs::create_dir_all(&art_dir).is_ok() {
                         let path_hash = blake3::hash(path.as_ref().to_string_lossy().as_bytes()).to_hex();
                         let dest_file = art_dir.join(format!("{}.{}", path_hash, ext));
-                        if !dest_file.exists() && !visual.data.is_empty() {
+                        let dest_mtime = dest_file.metadata().and_then(|m| m.modified()).ok();
+                        let should_write = match (dest_file.exists(), file_mtime, dest_mtime) {
+                            (false, _, _) => true,
+                            (true, Some(fm), Some(dm)) => fm > dm,
+                            _ => false,
+                        };
+                        if should_write && !visual.data.is_empty() {
                             let _ = std::fs::write(&dest_file, &visual.data);
                         }
                         if dest_file.exists() {

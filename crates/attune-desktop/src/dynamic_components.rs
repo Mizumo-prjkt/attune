@@ -895,6 +895,8 @@ pub mod music_metadata_changer {
         pub musicbrainz_id: Option<String>,
         pub musicbrainz_track_id: Option<String>,
         pub online_query_url: Option<String>,
+        #[serde(default)]
+        pub picture_path: Option<String>,
     }
 
     impl TrackMetadata {

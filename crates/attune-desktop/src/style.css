@@ -497,6 +497,8 @@ body, html {
 .mini-art {
   width: 44px;
   height: 44px;
+  min-width: 44px;
+  aspect-ratio: 1 / 1;
   border-radius: 8px;
   object-fit: cover;
   background: rgba(255, 255, 255, 0.05);
@@ -573,11 +575,14 @@ body, html {
 .hero-art {
   width: 130px;
   height: 130px;
+  min-width: 130px;
+  aspect-ratio: 1 / 1;
   border-radius: 12px;
   object-fit: cover;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
   cursor: pointer;
   transition: transform 0.2s ease;
+  flex-shrink: 0;
 }
 
 .hero-art:hover {
@@ -668,9 +673,12 @@ body, html {
 .match-thumb {
   width: 50px;
   height: 50px;
+  min-width: 50px;
+  aspect-ratio: 1 / 1;
   border-radius: 8px;
   object-fit: cover;
   background: rgba(255, 255, 255, 0.05);
+  flex-shrink: 0;
 }
 
 /* Table List (Library / Favorites) */
@@ -994,6 +1002,48 @@ body, html {
   background: var(--bg-card);
   position: relative;
   flex-shrink: 0;
+}
+
+/* Fullscreen Now Playing Adaptive Artwork (1:1 Square vs 16:9 Widescreen) */
+.fullscreen-art-box {
+  width: 100%;
+  max-width: 380px;
+  border-radius: 18px;
+  overflow: hidden;
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.65), 0 0 1px rgba(255, 255, 255, 0.15);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  position: relative;
+  cursor: pointer;
+  background: var(--bg-card);
+  flex-shrink: 0;
+  transition: aspect-ratio 0.25s cubic-bezier(0.2, 0, 0, 1), height 0.25s cubic-bezier(0.2, 0, 0, 1), transform 0.2s ease;
+}
+
+.fullscreen-art-box:hover {
+  transform: scale(1.015);
+  border-color: rgba(255, 255, 255, 0.22);
+}
+
+.fullscreen-art-box.aspect-1-1 {
+  aspect-ratio: 1 / 1;
+  height: auto;
+}
+
+.fullscreen-art-box.aspect-16-9 {
+  aspect-ratio: 16 / 9;
+  height: auto;
+}
+
+.fullscreen-art-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center;
+  display: block;
+}
+
+.fullscreen-art-box:hover .album-cover-hover-overlay {
+  opacity: 1;
 }
 
 .album-cover-img {

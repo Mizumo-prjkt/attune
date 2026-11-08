@@ -353,17 +353,24 @@ fn test_flac_and_mp3_metadata_untouched_audio() {
 
     std::fs::write(&flac_path, &flac_bytes).unwrap();
 
+    let test_pic_path = tmp_dir.join("test_art.jpg");
+    let fake_jpg = vec![0xFF, 0xD8, 0xFF, 0xC0, 0x00, 0x08, 0x08, 0x01, 0x00, 0x01, 0x00, 0x03, 0xFF, 0xD9];
+    std::fs::write(&test_pic_path, &fake_jpg).unwrap();
+
     let mut flac_meta = TrackMetadata::default();
     flac_meta.title = Some("Preserved Audio Track".to_string());
     flac_meta.artist = Some("Lossless Hero".to_string());
     flac_meta.bpm = Some(128.0);
     flac_meta.replaygain_track_gain_db = Some(-4.5);
+    flac_meta.picture_path = Some(test_pic_path.to_string_lossy().to_string());
 
     write_track_metadata(&flac_path, &flac_meta).expect("write flac metadata should succeed");
 
     let updated_flac_bytes = std::fs::read(&flac_path).unwrap();
     // Verify audio frame bytes at the end of the file are 100% bit-for-bit identical
     assert!(updated_flac_bytes.ends_with(&original_flac_audio_frames));
+    // Verify PICTURE block (type 6) is present in metadata blocks
+    assert!(updated_flac_bytes[4..].windows(4).any(|w| (w[0] & 0x7F) == 6));
 
     // 2. Test MP3 byte-for-byte audio stream preservation
     let mp3_path = tmp_dir.join("attune_test_untouched.mp3");
@@ -380,15 +387,18 @@ fn test_flac_and_mp3_metadata_untouched_audio() {
     mp3_meta.title = Some("MP3 Untouched Audio".to_string());
     mp3_meta.artist = Some("Bit Accurate".to_string());
     mp3_meta.year = Some(2026);
+    mp3_meta.picture_path = Some(test_pic_path.to_string_lossy().to_string());
 
     write_track_metadata(&mp3_path, &mp3_meta).expect("write mp3 metadata should succeed");
 
     let updated_mp3_bytes = std::fs::read(&mp3_path).unwrap();
     assert!(updated_mp3_bytes.ends_with(&original_mp3_audio_frames));
+    assert!(updated_mp3_bytes.windows(4).any(|w| w == b"APIC"));
 
     // Clean up
     let _ = std::fs::remove_file(flac_path);
     let _ = std::fs::remove_file(mp3_path);
+    let _ = std::fs::remove_file(test_pic_path);
 }
 
 #[test]
