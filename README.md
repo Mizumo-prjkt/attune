@@ -8,6 +8,7 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Rust](https://img.shields.io/badge/Rust-2021_Edition-orange.svg?logo=rust)](https://www.rust-lang.org/)
+[![Dioxus](https://img.shields.io/badge/Dioxus-0.6_Desktop-00B4D8.svg)](https://dioxuslabs.com/)
 [![Flutter](https://img.shields.io/badge/Flutter-3.47+-02569B.svg?logo=flutter)](https://flutter.dev/)
 [![Platforms](https://img.shields.io/badge/Platforms-Linux%20%7C%20Windows%20%7C%20Android-informational.svg)]()
 [![Build & Release](https://github.com/Mizumo-prjkt/attune/actions/workflows/build_and_release.yml/badge.svg)](https://github.com/Mizumo-prjkt/attune/actions/workflows/build_and_release.yml)
@@ -21,11 +22,11 @@
 
 ## Overview
 
-**Attune** is a modern, open-source local music player engineered for seamless listening. Instead of relying solely on static metadata tags or primitive crossfaders, Attune couples a native Rust digital signal processing (DSP) core with a responsive Flutter user interface. 
+**Attune** is a modern, open-source local music player engineered for seamless listening. Instead of relying solely on static metadata tags or primitive crossfaders, Attune couples a native Rust digital signal processing (DSP) core with a **Native Rust Dioxus 0.6 Desktop application** (`attune-desktop` for Linux and Windows) and a **Flutter Mobile application** (`apps/attune_app` for Android).
 
 The player continuously analyzes incoming and outgoing audio tracks across five acoustic profiling dimensions—pitch sustain contours, local harmonic chroma, phrase grids, frequency-split spectral dynamics, and an aggression index—to automatically synthesize harmonic, beat-aligned transitions between consecutive songs.
 
-Attune includes an integrated 10-band master equalizer, audio focus ducking, syllable-synchronized karaoke lyrics, and a unified cross-platform build studio supporting Linux AppImages, Windows Inno Setup installers, and Android APKs.
+Attune includes an integrated 10-band Studio Master FX equalizer, 32-bit float PCM hardware stream negotiation, GPU-composited syllable-synchronized karaoke lyrics with custom CSS theming, standalone Artist and Lyrics Finder windows, a 6-step first-run Setup Wizard, anti-tamper signed modular C-ABI shared libraries, and a unified cross-platform build studio supporting Linux AppImages, Windows Inno Setup installers, and Android APKs.
 
 ---
 
@@ -86,15 +87,31 @@ Attune's headless Rust analysis crate (`attune-core`) extracts multi-dimensional
 - **Vocal Morph & Drop Cut**: Exploits vocal sustain tails and drum breakdown cue points for instantaneous transitions.
 - **Smart Shuffle with Rationale Verdict**: Evaluates queue candidates against the currently playing track and surfaces an interactive rationale modal explaining why a specific song won and listing viable alternatives.
 
-### 3. Attune Studio Master FX Rack
-- **10-Band Biquad Graphic Equalizer**: Zero-latency peaking and shelving filters (31 Hz, 62 Hz, 125 Hz, 250 Hz, 500 Hz, 1 kHz, 2 kHz, 4 kHz, 8 kHz, 16 kHz) with ±12 dB gain adjustment.
+### 3. Attune Studio Master FX Rack & 32-Bit Hardware Audio Driver
+- **10-Band Biquad Graphic Equalizer**: Zero-latency peaking and shelving filters (31 Hz, 62 Hz, 125 Hz, 250 Hz, 500 Hz, 1 kHz, 2 kHz, 4 kHz, 8 kHz, 16 kHz) with ±12 dB gain adjustment and one-click Reset.
 - **Dynamic Factory Presets**: Flat, Bass Boost, Vocal Enhance, Treble Boost, Rock/Metal, Electronic/EDM, Acoustic/Classical, and Speech/Podcast.
 - **Master Effects**: Pure Bass+ sub-harmonic enhancer, Vocal Clarity exciter, Stereo Width field expander, and lookahead soft limiter to prevent output clipping.
+- **32-Bit Float PCM Negotiation**: Hardware output driver negotiates native 32-bit float (`f32`) / 32-bit integer PCM streams with zero-reflow hot-reconfiguration and live hardware diagnostics.
 
-### 4. Cross-Platform Standalone Build Studio (`tools/builder.py`)
-- **Simultaneous Dual-Mode Builds (`--mode both`)**: Packages both `release` (optimized production binaries) and `debug` (unstripped binaries with full symbol logging) simultaneously, enabling contributors to inspect logs, submit stack traces, and test features.
-- **Interactive Tkinter Desktop GUI**: Graphical control panel to assess host toolchains, etch compiler metadata, generate patch notes, and package standalone targets.
-- **In-App GitHub Release Update Checker**: Built-in `UpdateService` queries the GitHub Releases API, checks semantic version tags, displays changelogs, and offers direct asset downloads for host platforms.
+### 4. Syllable-Synchronized Lyrics Engine, Custom CSS & Online Providers
+- **Multi-Format Sidecar & Embedded Waterfall**: Resolves Apple Music `.ttml`, Enhanced LRC (`.elrc`), NetEase `.yrc`, standard `.lrc`, embedded FLAC Vorbis / ID3v2 tags, and plain `.txt` sheets with configurable priority ordering.
+- **Online Lyrics Providers**:
+  - **LRCLIB**: Open community-driven synchronized lyrics database.
+  - **BiniLyrics (`<am-lyrics>`)**: Apple Music TTML syllable parser integration (MPL-2.0).
+  - **Musixmatch v1.1 API (`[EXPERIMENTAL]`)**: Full catalog integration using canonical `commontrack_id` + `track_id` resolution, `matcher.track.get`, `track.search` with `g_commontrack=1` compilation deduplication, `track.richsync.get` automatic conversion into word-by-word `.elrc` syllable format, `track.subtitle.get` `.lrc` synchronization with duration deviation filtering, content restriction checks, and zero-hardcoded `music.genres.get` connectivity verification.
+- **Better Lyrics Inspired GPU Animation & Custom CSS**: Silky-smooth GPU-composited `cubic-bezier(0.22, 1, 0.36, 1)` scaling and `requestAnimationFrame` cubic ease-out scrolling, independent sidebar/fullscreen alignment, grouped system & bundled font pickers, and a Fullscreen Custom CSS theme injector with built-in presets (*Spotlight Depth Blur*, *Apple Music Spring Pop*, *Cyberpunk Neon Glow*, *Karaoke Golden Bounce*). See [`docs/LYRICS_MANUAL.md`](docs/LYRICS_MANUAL.md).
+- **Standalone Lyrics Live Animation Preview Window**: Dedicated secondary OS window to test word-by-word and line sync in real time across 5 original multilingual `Attune` sample tracks (English `Ready`, Japanese `準備完了`, Chinese `准备就绪`, Korean `준비 완료`, and Filipino `Handa Na`).
+
+### 5. Standalone Artist Profile Finder, Metadata Tagging & 6-Step Setup Wizard
+- **Standalone Artist Profile Finder Window**: Multi-provider artist matcher querying **YouTube Music Innertube**, **Wikipedia (English & Japanese)**, and **Musixmatch (`artist.search`)** with empty-session gating, portrait/banner previews, and custom biography authoring.
+- **Non-Destructive Artwork & Metadata Tagging**: Fetches 1024px HD YouTube Music artwork and embeds cover art directly into FLAC `METADATA_BLOCK_PICTURE` (RFC 9636) and MP3 ID3v2.4 `APIC` frames while preserving audio streams bit-for-bit.
+- **6-Step First-Run Setup Wizard & Legacy Flutter Guard**: Interactive onboarding covering `1. Library`, `2. Audio`, `3. Lyrics`, `4. APIs`, `5. Fonts`, and `6. Profile & Launch`, with automatic detection and 1-click cleanup of incompatible legacy Flutter desktop data.
+
+### 6. Anti-Tamper Signed Shared Libraries & Cross-Platform Build Studio (`tools/builder.py`)
+- **Cryptographic Anti-Tamper DLL/SO Verification**: Generates `attune_integrity.json` (`--sign-dlls`) containing SHA-256 and BLAKE3 digests, file sizes, and PE Authenticode / ELF build-ID metadata for `libattune_procmgr`, `libattune_watchguard`, and `libattune_music_metadata_changer`, verified by `attune-desktop` prior to `dlopen` / `LoadLibraryW`.
+- **Dynamic Versioning & Multi-Resolution Windows Icons**: Synchronizes version strings dynamically from Git tags/commit counts (`--sync-version`) and generates 7-resolution Windows-compliant `.ico` files (`16x16` to `256x256`, `--generate-icons`).
+- **Windows Inno Setup Upgrade Enforcement**: Unconditionally upgrades all `.dll` and `.exe` binaries (`replacesameversion comparetimestamp overwritereadonly restartreplace`) and warns users if a previous incompatible Flutter installation is detected.
+- **In-App GitHub Release Update Checker**: SemVer 2.0.0 update checker in the `About Attune` stage queries the GitHub Releases API, compares pre-release/stable tags, and surfaces host-OS download packages alongside sortable Contributors & AI Assistants and a searchable Third-Party Open-Source Licenses viewer.
 
 ---
 
@@ -103,24 +120,34 @@ Attune's headless Rust analysis crate (`attune-core`) extracts multi-dimensional
 ```
 attune/
 ├── apps/
-│   └── attune_app/               # Flutter desktop & mobile application
-│       ├── lib/                  # UI stages, services, and liquid glass theme
-│       ├── test/                 # Comprehensive unit & widget test suite
-│       └── android/              # Native Android wrapper and JNI bindings
+│   └── attune_app/                        # Flutter Android mobile application
+│       ├── lib/                           # UI stages, services, and Liquid Glass theme
+│       ├── test/                          # Unit & widget test suite
+│       └── android/                       # Native Android wrapper and JNI bindings
 ├── crates/
-│   ├── attune-core/              # Audio profiling, DSP math, chroma, and cue zones
-│   └── attune-ffi/               # C-ABI export layer linking Rust to Flutter
-├── ledger/                       # Strict Knowledge Ledger & ADR repository
-│   ├── 00_MASTER_LEDGER.md       # Phase roadmap, active tasks, and status
-│   ├── 01_ADR_LOG.md             # Architecture Decision Records (ADR 001–035)
-│   ├── 02_DSP_ALGORITHM_SPEC.md  # Detailed transition mathematics and cue math
-│   └── 04_TRANSITION_LAB_LOG.md  # Empirical audio transition tuning benchmarks
+│   ├── attune-core/                       # 5-layer audio profiling, DualDeckMixer, MasterFxRack & cpal driver
+│   ├── attune-desktop/                    # Native Rust Dioxus 0.6 desktop client (Linux WebKitGTK & Windows WebView2)
+│   ├── attune-procmgr/                    # Dynamic C-ABI hardware telemetry & kernel ALSA/DRM sampler (.so / .dll)
+│   ├── attune-watchguard/                 # Dynamic C-ABI real-time audio underrun & stability guardrail (.so / .dll)
+│   ├── attune-music-metadata-changer/     # Dynamic C-ABI tag reader/writer, FLAC/ID3 artwork embedder & YT HQ fetcher
+│   ├── attune-ffi/                        # C-ABI export layer linking Rust to Flutter Android
+│   ├── attune-dsp-ffi/                    # Low-level DSP FFI bindings
+│   └── attune-cli/                        # Headless CLI profiler and transition renderer
+├── docs/
+│   └── LYRICS_MANUAL.md                   # Comprehensive Lyrics Engine & Custom CSS styling manual
+├── ledger/                                # Strict Knowledge Ledger & ADR repository
+│   ├── 00_MASTER_LEDGER.md                # Phase roadmap, active tasks, and locked status
+│   ├── 01_ADR_LOG.md                      # Architecture Decision Records (ADR-001 through ADR-141)
+│   ├── 02_DSP_ALGORITHM_SPEC.md           # Detailed transition mathematics and cue math
+│   ├── 03_SCHEMA_AND_PROTOCOL.md          # Cache formats (.tap, .ptr) & external compute protocol
+│   ├── 04_TRANSITION_LAB_LOG.md           # Empirical audio transition tuning benchmarks
+│   └── 05_UI_DESIGN_SPEC.md               # Liquid Material Glass UI & typography specification
 ├── packaging/
-│   ├── linux/                    # Linux AppImage assembly scripts & AppDir template
-│   └── windows/                  # Inno Setup (.iss) installer scripts
-├── screenshot_showcase/          # Showcase screenshots of the application
+│   ├── linux/                             # Linux AppImage assembly scripts & AppDir template
+│   └── windows/                           # Inno Setup (.iss) installer with DLL upgrade & legacy Flutter guard
+├── screenshot_showcase/                   # Showcase screenshots of the application
 └── tools/
-    └── builder.py                # Unified Python build & packaging orchestrator
+    └── builder.py                         # Unified Python build, icon generator, DLL signer & packaging studio
 ```
 
 ---
@@ -173,10 +200,13 @@ cd attune
 # 1. Assess host toolchains
 python3 tools/builder.py --no-gui --step assess
 
-# 2. Build for Linux (Release + Debug simultaneous packaging)
-python3 tools/builder.py --no-gui --target linux --mode both --step all
+# 2. Synchronize dynamic version, generate multi-resolution icons & sign DLL/SO manifests
+python3 tools/builder.py --no-gui --sync-version --generate-icons --sign-dlls
 
-# 3. Build for Android APK (Release)
+# 3. Build Native Rust Desktop for Linux (Release + Debug simultaneous packaging)
+python3 tools/builder.py --no-gui --target linux --mode both --generate-icons --sign-dlls --step all
+
+# 4. Build for Android APK (Release)
 python3 tools/builder.py --no-gui --target android --mode release --step all
 ```
 
@@ -199,15 +229,17 @@ From the studio interface, you can select target operating systems, choose compi
 To maintain context and architectural integrity across developer and AI sessions, this project adheres to the **Attune Knowledge Ledger Protocol** under `ledger/`:
 
 - [`ledger/00_MASTER_LEDGER.md`](ledger/00_MASTER_LEDGER.md): Master phase tracking, locked architectural decisions, and current priorities.
-- [`ledger/01_ADR_LOG.md`](ledger/01_ADR_LOG.md): Architectural Decision Records (ADRs 001–035) covering DSP crates, FFI bridges, packaging formats, zero-hardcoding mandates, and update APIs.
+- [`ledger/01_ADR_LOG.md`](ledger/01_ADR_LOG.md): Architectural Decision Records (ADRs 001–141) covering DSP crates, Dioxus desktop architecture, dynamic C-ABI component signing, synchronized lyrics engines, packaging formats, zero-hardcoding mandates, and update APIs.
 - [`ledger/02_DSP_ALGORITHM_SPEC.md`](ledger/02_DSP_ALGORITHM_SPEC.md): Algorithmic formulas for 5-layer audio profiling, Hermite interpolation, and beat alignment.
+- [`ledger/03_SCHEMA_AND_PROTOCOL.md`](ledger/03_SCHEMA_AND_PROTOCOL.md): Portable cache schemas (`.tap`, `.ptr`) and external compute offloading protocol.
 - [`ledger/04_TRANSITION_LAB_LOG.md`](ledger/04_TRANSITION_LAB_LOG.md): Empirical test logs evaluating real audio transitions across genres.
+- [`ledger/05_UI_DESIGN_SPEC.md`](ledger/05_UI_DESIGN_SPEC.md): Liquid Material Glass theme, typography, and responsive layout specifications.
 
 ---
 
 ## AI Collaboration Disclosure
 
-Attune is developed by **Mizumo-prjkt** in open, transparent pair programming with Google DeepMind’s **Gemini 3.8 Flash** (via Google Antigravity) alongside **Claude**.
+Attune is developed by **Mizumo-prjkt** in open, transparent pair programming with Google DeepMind’s **Gemini** (via Google Antigravity) alongside **Claude** (Anthropic).
 
 All mathematical formulas, memory bounds, DSP routines, and UI implementations are designed with a strict **Zero-Hardcoding Mandate**—ensuring that dynamic system metrics, real audio analysis, and operating system attributes govern behavior rather than arbitrary static heuristics.
 
@@ -215,14 +247,18 @@ All mathematical formulas, memory bounds, DSP routines, and UI implementations a
 
 ## Credits & Upstream Open Source
 
-Attune builds upon foundational work from the open-source audio and systems programming community:
+Attune builds upon foundational work from the open-source audio, UI, and lyrics community:
 
+- **[Dioxus](https://github.com/DioxusLabs/dioxus)**: Cross-platform declarative Rust UI framework powering Attune Desktop (`dioxus-desktop`, `tao`, `wry`).
+- **[Better Lyrics](https://github.com/better-lyrics/better-lyrics)**: Lyrics animation techniques, fluid cubic-bezier easing curves, and custom CSS theme architecture.
+- **[BiniLyrics (`<am-lyrics>`)](https://github.com/binimum/am-lyrics)**: Apple Music TTML syllable parser and rich sync components (MPL-2.0).
+- **[LRCLIB](https://lrclib.net)**: Community-driven synchronized lyrics database and open REST API.
 - **[Signalsmith Stretch](https://github.com/Signalsmith-Audio/signalsmith-stretch)**: Pitch-shift and time-stretch DSP engine.
 - **[Symphonia](https://github.com/pdeljanov/Symphonia)**: Pure Rust audio decoding and multimedia demuxing.
 - **[cpal](https://github.com/RustAudio/cpal)**: Cross-platform native audio hardware I/O.
-- **[rubato](https://github.com/HEnquist/rubato)**: High-performance sample rate converter.
+- **[RealFFT](https://github.com/HEnquist/realfft) & [rubato](https://github.com/HEnquist/rubato)**: Real-to-complex FFT spectral extraction and high-performance sample rate conversion.
 - **[Hound](https://github.com/ruuda/hound)**: WAV encoding and decoding.
-- **[Flutter](https://flutter.dev/) & [Dart](https://dart.dev/)**: Multi-platform user interface framework.
+- **[Flutter](https://flutter.dev/) & [Dart](https://dart.dev/)**: Mobile user interface framework powering the Android application.
 
 ---
 
