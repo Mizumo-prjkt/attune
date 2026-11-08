@@ -230,7 +230,7 @@ To inspect lyrics styles, alignments, and syllable animations without playing mu
   * **Line Sync (LRC)**: Tests whole-line animation transitions.
   * **Word Sync (TTML/ELRC)**: Simulates millisecond syllable progression (`.word-upcoming` $\rightarrow$ `.word-active` $\rightarrow$ `.word-sung`).
 * **Viewport Switcher**: Toggle between **Fullscreen View** (edge-to-edge split) and **Docked Sidebar** (360px drawer).
-* **Sample Songs**: Switch between Attune's built-in multilingual reference tracks: English (`Ready — Attune`), Japanese (`準備完了 (Ready JP) — Attune`), and Filipino (`Handa Na (Ready FIL) — Attune`).
+* **Sample Songs**: Switch between Attune's built-in multilingual reference tracks: English (`Ready — Attune`), Japanese (`準備完了 (Ready JP) — Attune`), Chinese (`准备就绪 (Ready ZH) — Attune`), Korean (`준비 완료 (Ready KO) — Attune`), and Filipino (`Handa Na (Ready FIL) — Attune`).
 * **Interactive Controls**:
   * Step to next / previous lines.
   * Adjust playback simulation speed (`0.5x`, `1.0x`, `2.0x`).

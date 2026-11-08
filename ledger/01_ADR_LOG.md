@@ -4932,6 +4932,37 @@ This file records all major architectural decisions for **Attune**, including co
   - Complete first-run onboarding covering Library, Audio, Lyrics, APIs, Fonts, and DSP Profiling.
   - All 113 desktop unit tests pass cleanly.
 
+---
+
+## ADR-140: Original Multilingual Lyric Samples (EN/JP/ZH/KO/FIL), About Stage Overhaul (GitHub Releases Update Checker, Sortable Contributors & AI Assistants, Community Sponsorship Card, Dioxus Credits & Third-Party License Viewer)
+
+- **Date**: 2026-11-09
+- **Status**: LOCKED
+- **Context**:
+  1. **Original Multilingual Lyric Samples (`crates/attune-desktop/src/stages/lyrics_preview.rs`)**: The user requested replacing all sample lyrics that referenced third-party musicians' real songs with original `Attune` tracks across 5 languages: English (`Ready — Attune`), Japanese (`準備完了 (Ready JP) — Attune`), Chinese (`准备就绪 (Ready ZH) — Attune`), Korean (`준비 완료 (Ready KO) — Attune`), and Filipino (`Handa Na (Ready FIL) — Attune`).
+  2. **About Stage Overhaul (`crates/attune-desktop/src/stages/about.rs`)**:
+     - Remove the `Architecture & Technology` card.
+     - Add an in-app **GitHub Releases Update Checker** (matching Flutter's `UpdateService` SemVer 2.0.0 engine and OS asset categorization).
+     - Add a **Contributors & AI Assistants** section listing the project author/contributors and AI pair-programming assistants (`Mizumo-prjkt`, `Gemini (Google DeepMind Antigravity)`, `Claude (Anthropic)`) with interactive sorting (`Role / Default`, `Name A → Z`, `Name Z → A`, `Contributors First`, `AI Assistants First`) and filtering (`All`, `Contributors`, `AI Assistants`), plus the Knowledge Ledger Protocol disclosure.
+     - Add the **Support & Donations** card using the exact copy from the Flutter `AboutStage` (`Community Sponsorship` + `COMING SOON` badge).
+     - Add explicit credits for **Dioxus (`DioxusLabs/dioxus`)** alongside Better Lyrics, BiniLyrics, LRCLIB, and the Rust audio crates.
+     - Add the **MIT License & Third-Party Legal Notices** card with an interactive **`View Complete Open-Source Licenses`** modal listing all 18 bundled third-party crates/components, their licenses, usage descriptions, copyright notices, and upstream links.
+- **Decision**:
+  1. **5-Language Original Attune Sample Tracks (`lyrics_preview.rs`, `settings.rs`, `setup.rs`, `docs/LYRICS_MANUAL.md`)**:
+     - Replaced all third-party song references with 5 original syllable-timed (`PreviewTimedWord`) Attune tracks: `Ready` (EN), `準備完了 (Ready JP)` (JP), `准备就绪 (Ready ZH)` (ZH), `준비 완료 (Ready KO)` (KO), and `Handa Na (Ready FIL)` (FIL).
+  2. **About Stage Overhaul (`crates/attune-desktop/src/stages/about.rs`)**:
+     - Purged the `Architecture & Technology` card.
+     - Implemented `compare_semantic_versions` (SemVer 2.0.0 with natural pre-release token precedence) and `check_for_updates` (querying `/releases/latest` with automatic fallback to `/releases?per_page=5` for pre-release-only tags, plus host-OS asset filtering).
+     - Built the interactive `Contributors & AI Assistants` card backed by `CONTRIBUTORS_AND_AI_ASSISTANTS` and `sorted_and_filtered_contributors(sort_order, filter)`.
+     - Added the `Support & Donations` card matching Flutter's `Community Sponsorship` (`COMING SOON`) text verbatim.
+     - Added `Dioxus` (`https://github.com/DioxusLabs/dioxus`) to `Special Thanks & Open Source Credits`.
+     - Added the `MIT License (Attune Player & Core) & Third-Party Notices` card and the searchable `Third-Party Open-Source Licenses` modal (`THIRD_PARTY_LICENSES`).
+- **Consequences**:
+  - Zero third-party copyrighted song lyrics or artist names in preview stages.
+  - Full feature parity between Desktop `About` and Flutter `AboutStage`, with interactive contributor/AI sorting and searchable third-party license inspection.
+  - All 115 desktop unit tests pass cleanly.
+
+
 
 
 
