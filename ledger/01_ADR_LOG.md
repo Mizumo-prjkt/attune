@@ -4996,6 +4996,31 @@ This file records all major architectural decisions for **Attune**, including co
   - Tracks on Musixmatch with `has_richsync == 1` now render with full word-by-word syllable animations in Attune.
   - All 118 unit tests in `attune-desktop` pass cleanly.
 
+---
+
+## ADR-142: Windows MSVC `kernel32` Linker Fix (`K32EmptyWorkingSet` in `attune-procmgr`), Windows Warning Elimination & Post-Compilation Test/DLL-Signing Pipeline Ordering
+
+- **Date**: 2026-11-09
+- **Status**: LOCKED
+- **Context**:
+  1. **Windows MSVC `link.exe` Unresolved External (`LNK2019: EmptyWorkingSet`)**:
+     - On the GitHub Actions Windows runner (`x86_64-pc-windows-msvc`), linking `attune_procmgr.dll` failed with `error LNK2019: unresolved external symbol EmptyWorkingSet referenced in function ... windows_clean_working_set`.
+     - Under the Windows 7+ PSAPI v2 ABI, `kernel32.dll` (`kernel32.lib`) exports `K32EmptyWorkingSet` (matching `K32GetProcessMemoryInfo` already used on line 550), whereas `EmptyWorkingSet` requires linking `psapi.lib`.
+  2. **Windows Compiler Warnings in `crates/attune-procmgr/src/lib.rs`**:
+     - `SamplerState`, `SAMPLER_STATE`, and `let now = Instant::now();` were used only inside `#[cfg(target_os = "linux")]` blocks, emitting 3 dead-code/unused-variable warnings when compiling for Windows.
+  3. **Build Pipeline Step Ordering in `tools/builder.py`**:
+     - When `tools/builder.py` was invoked with `--test --sign-dlls` alongside `--package` on a fresh CI runner, `args.sign_dlls` and `args.test` executed *before* `compile_rust` and `sync_all_version_metadata`, running `cargo test` and manifest generation before the `.dll`/`.so` targets were built into `target/{debug,release}`.
+- **Decision**:
+  1. **`K32EmptyWorkingSet` Linker Fix & Warning Elimination (`crates/attune-procmgr/src/lib.rs`)**:
+     - Replaced `fn EmptyWorkingSet(hProcess: *mut std::ffi::c_void) -> i32;` with `fn K32EmptyWorkingSet(hProcess: *mut std::ffi::c_void) -> i32;` inside `#[link(name = "kernel32")] extern "system"`.
+     - Gated `Mutex`, `Instant`, `SamplerState`, `SAMPLER_STATE`, and `let now = Instant::now();` with `#[cfg(target_os = "linux")]`.
+     - Set `version.workspace = true` in `crates/attune-procmgr/Cargo.toml` and `crates/watchguard/Cargo.toml`.
+  2. **Pipeline Ordering in `tools/builder.py`**:
+     - Moved `if args.test:` and `if args.sign_dlls:` (when combined with a build/package run) to execute *after* the `compile_rust` and `package_bundle` loop so all `.dll` and `.so` artifacts exist in `target/` and `dist/` prior to verification and signing.
+- **Consequences**:
+  - `cargo build --target x86_64-pc-windows-gnu -p attune-procmgr -p attune-watchguard -p attune-music-metadata` compiles and links cleanly with 0 warnings and 0 errors.
+  - CI test and DLL-signing phases execute deterministically after compilation.
+
 
 
 

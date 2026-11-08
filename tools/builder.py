@@ -1890,7 +1890,10 @@ def main():
         if len(sys.argv) == 2 or (len(sys.argv) == 3 and "--no-gui" in sys.argv):
             return
 
-    if args.sign_dlls:
+    is_standalone_sign_dlls = args.sign_dlls and (
+        len(sys.argv) == 2 or (len(sys.argv) == 3 and "--no-gui" in sys.argv)
+    )
+    if is_standalone_sign_dlls:
         print("\n--- [Step: Sign DLLs & Generate Anti-Tamper Integrity Manifest] ---")
         dist_win = REPO_ROOT / "dist" / "windows"
         dist_win.mkdir(parents=True, exist_ok=True)
@@ -1903,8 +1906,7 @@ def main():
                     sign_dll_file(so)
         manifest = generate_integrity_manifest(dist_win)
         print(f"  [OK] Anti-tamper manifest and checksums generated: {manifest}")
-        if len(sys.argv) == 2 or (len(sys.argv) == 3 and "--no-gui" in sys.argv):
-            return
+        return
 
     # Determine whether to launch GUI:
     # If explicitly requested with --gui, or if no CLI step flags were passed AND DISPLAY is present and not --no-gui
@@ -1968,20 +1970,6 @@ def main():
         except Exception as e:
             print(f"  [X] Keystore generation failed: {e}")
         return
-
-    # Run verification tests if --test is requested
-    if args.test:
-        print("\n--- [Step: Verification Test Suite] ---")
-        try:
-            print("[Test] Running Rust test suite...")
-            subprocess.check_call(["cargo", "test"], cwd=REPO_ROOT, shell=IS_WINDOWS)
-            if target_os == "android" and shutil.which("flutter"):
-                print("[Test] Running Flutter widget & algorithm test suite...")
-                subprocess.check_call(["flutter", "test"], cwd=REPO_ROOT / "apps" / "attune_app", shell=IS_WINDOWS)
-            print("  [OK] All test suites passed successfully.")
-        except Exception as e:
-            print(f"  [X] Test execution note: {e}")
-
 
     # CLI Pipeline Execution
     pub_ver, pub_build = get_pubspec_version()
@@ -2068,6 +2056,33 @@ def main():
                 sign=args.sign,
             )
             all_artifacts.extend(artifacts)
+
+    # Run verification tests after compilation so all dynamic .dll/.so components exist in target/
+    if args.test:
+        print("\n--- [Step: Verification Test Suite] ---")
+        try:
+            print("[Test] Running Rust test suite...")
+            subprocess.check_call(["cargo", "test"], cwd=REPO_ROOT, shell=IS_WINDOWS)
+            if target_os == "android" and shutil.which("flutter"):
+                print("[Test] Running Flutter widget & algorithm test suite...")
+                subprocess.check_call(["flutter", "test"], cwd=REPO_ROOT / "apps" / "attune_app", shell=IS_WINDOWS)
+            print("  [OK] All test suites passed successfully.")
+        except Exception as e:
+            print(f"  [X] Test execution note: {e}")
+
+    if args.sign_dlls:
+        print("\n--- [Step: Sign DLLs & Generate Anti-Tamper Integrity Manifest] ---")
+        dist_target = REPO_ROOT / "dist" / target_os
+        dist_target.mkdir(parents=True, exist_ok=True)
+        for m in ("release", "debug"):
+            t_dir = REPO_ROOT / "target" / m
+            if t_dir.exists():
+                for dll in t_dir.glob("*.dll"):
+                    sign_dll_file(dll)
+                for so in t_dir.glob("*.so"):
+                    sign_dll_file(so)
+        manifest = generate_integrity_manifest(dist_target)
+        print(f"  [OK] Anti-tamper manifest and checksums generated: {manifest}")
 
     if step in ("all", "package"):
         print(f"\nSuccessfully generated {len(all_artifacts)} build artifact(s):")

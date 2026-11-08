@@ -13,7 +13,9 @@
 
 use std::ffi::CString;
 use std::os::raw::c_char;
+#[cfg(target_os = "linux")]
 use std::sync::Mutex;
+#[cfg(target_os = "linux")]
 use std::time::Instant;
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -74,6 +76,7 @@ impl ProcessMetrics {
     }
 }
 
+#[cfg(target_os = "linux")]
 struct SamplerState {
     last_cpu_time: Instant,
     last_proc_ticks: u64,
@@ -84,15 +87,16 @@ struct SamplerState {
     last_irq_rate: f32,
 }
 
+#[cfg(target_os = "linux")]
 static SAMPLER_STATE: Mutex<Option<SamplerState>> = Mutex::new(None);
 
 /// Collects live process metrics from OS kernel interfaces.
 pub fn sample_metrics() -> ProcessMetrics {
     let mut metrics = ProcessMetrics::new_unprobed();
-    let now = Instant::now();
 
     #[cfg(target_os = "linux")]
     {
+        let now = Instant::now();
         parse_proc_status(&mut metrics);
         parse_proc_stat_cpu(&mut metrics, now);
         parse_audio_irqs(&mut metrics, now);
@@ -545,6 +549,7 @@ struct ProcessMemoryCounters {
 }
 
 #[cfg(target_os = "windows")]
+#[link(name = "kernel32")]
 extern "system" {
     fn GetCurrentProcess() -> *mut std::ffi::c_void;
     fn K32GetProcessMemoryInfo(
@@ -552,7 +557,7 @@ extern "system" {
         pmc: *mut ProcessMemoryCounters,
         cb: u32,
     ) -> i32;
-    fn EmptyWorkingSet(hProcess: *mut std::ffi::c_void) -> i32;
+    fn K32EmptyWorkingSet(hProcess: *mut std::ffi::c_void) -> i32;
     fn SetProcessWorkingSetSize(
         hProcess: *mut std::ffi::c_void,
         dwMinimumWorkingSetSize: usize,
@@ -586,7 +591,7 @@ fn sample_windows_metrics(metrics: &mut ProcessMetrics) {
 #[cfg(target_os = "windows")]
 unsafe fn windows_clean_working_set() {
     let proc = GetCurrentProcess();
-    if EmptyWorkingSet(proc) == 0 {
+    if K32EmptyWorkingSet(proc) == 0 {
         let neg_one = !0usize;
         let _ = SetProcessWorkingSetSize(proc, neg_one, neg_one);
     }
