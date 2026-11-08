@@ -1195,6 +1195,8 @@ pub fn App() -> Element {
         (track.title.clone(), format!("{} • {}", track.artist, track.album), art_src)
     });
 
+    let app_font_css = crate::system_fonts::resolve_font_family_css(&app_config.read().app_font_family);
+
     rsx! {
         div {
             class: if app_config.read().auto_scroll_long_text {
@@ -1202,6 +1204,7 @@ pub fn App() -> Element {
             } else {
                 "app-container text-moving-disabled"
             },
+            style: "--font-family: {app_font_css}; font-family: var(--font-family);",
             tabindex: "0",
             onkeydown: move |e| {
                 if e.key() == Key::Escape {
@@ -1911,43 +1914,6 @@ pub fn App() -> Element {
                                         } else {
                                             span { class: "material-icons md-14", "lock_open" }
                                             span { "Free-Scroll" }
-                                        }
-                                    }
-                                    // In-View Text Resizing Stepper (A- / A+)
-                                    div {
-                                        class: "lyrics-size-pill",
-                                        title: "{strings.lyrics_text_size}: {app_config.read().dock_lyrics_font_size}px",
-                                        button {
-                                            class: "lyrics-size-btn",
-                                            title: "{strings.decrease_lyrics_size}",
-                                            disabled: app_config.read().dock_lyrics_font_size <= 12,
-                                            onclick: move |_| {
-                                                let curr_size = app_config.read().dock_lyrics_font_size;
-                                                let target = (curr_size.saturating_sub(2)).max(12);
-                                                let mut new_cfg = app_config.read().clone();
-                                                new_cfg.dock_lyrics_font_size = target;
-                                                app_config.set(new_cfg.clone());
-                                                let _ = crate::config::save_config(&new_cfg);
-                                            },
-                                            "A-"
-                                        }
-                                        span {
-                                            class: "lyrics-size-val",
-                                            "{app_config.read().dock_lyrics_font_size}px"
-                                        }
-                                        button {
-                                            class: "lyrics-size-btn",
-                                            title: "{strings.increase_lyrics_size}",
-                                            disabled: app_config.read().dock_lyrics_font_size >= 32,
-                                            onclick: move |_| {
-                                                let curr_size = app_config.read().dock_lyrics_font_size;
-                                                let target = (curr_size.saturating_add(2)).min(32);
-                                                let mut new_cfg = app_config.read().clone();
-                                                new_cfg.dock_lyrics_font_size = target;
-                                                app_config.set(new_cfg.clone());
-                                                let _ = crate::config::save_config(&new_cfg);
-                                            },
-                                            "A+"
                                         }
                                     }
                                     button {

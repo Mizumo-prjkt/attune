@@ -165,7 +165,7 @@ pub fn ProcessManager() -> Element {
                                     }
                                     metrics_res.set(new_m);
                                     let freed = before.saturating_sub(after);
-                                    trim_status.set(Some((true, format!("✓ Memory Cleaned (Freed {})", format_bytes(freed)))));
+                                    trim_status.set(Some((true, format!("{} freed.", format_bytes(freed)))));
                                 }
                                 Err(err) => {
                                     trim_status.set(Some((false, format!("✗ Memory Cleanup Failed: {err}"))));

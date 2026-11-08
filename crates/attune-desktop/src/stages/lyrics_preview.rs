@@ -415,6 +415,7 @@ pub fn LyricsPreviewStandaloneWindow() -> Element {
 
     let curr_cfg = config_sig.read().clone();
     let preview_font_css = crate::system_fonts::resolve_font_family_css(&curr_cfg.lyric_font_family);
+    let app_font_css = crate::system_fonts::resolve_font_family_css(&curr_cfg.app_font_family);
     let strings = crate::i18n::get_strings(crate::i18n::Language::from_code(&curr_cfg.language));
     let track = &SAMPLE_TRACKS[*selected_track_idx.read() % SAMPLE_TRACKS.len()];
     let total_lines = track.lines.len();
@@ -453,7 +454,7 @@ pub fn LyricsPreviewStandaloneWindow() -> Element {
     rsx! {
         div {
             class: "lyrics-preview-container",
-            style: "width: 100vw; height: 100vh; display: flex; flex-direction: column; background: #06090e; color: #ffffff; overflow: hidden; position: relative; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;",
+            style: "width: 100vw; height: 100vh; display: flex; flex-direction: column; background: #06090e; color: #ffffff; overflow: hidden; position: relative; --font-family: {app_font_css}; font-family: var(--font-family);",
 
             // Inject custom CSS dynamically when enabled
             if curr_cfg.enable_lyrics_custom_css && !curr_cfg.lyrics_custom_css.trim().is_empty() {

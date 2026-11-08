@@ -119,6 +119,10 @@ pub fn default_lyrics_custom_css() -> String {
     PRESET_SPOTLIGHT_BLUR.to_string()
 }
 
+pub fn default_app_font() -> String {
+    "system".to_string()
+}
+
 /// Persistent user configuration for Attune Desktop.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AppConfig {
@@ -134,6 +138,8 @@ pub struct AppConfig {
     // General
     #[serde(default)]
     pub home_subtext: Option<String>,
+    #[serde(default = "default_app_font")]
+    pub app_font_family: String,
     #[serde(default = "default_true")]
     pub enable_shortcuts: bool,
     #[serde(default = "default_true")]
@@ -222,6 +228,7 @@ impl Default for AppConfig {
             extra_music_dirs: Vec::new(),
             song_exclusions: Vec::new(),
             home_subtext: None,
+            app_font_family: default_app_font(),
             enable_shortcuts: true,
             system_media_toast: true,
             auto_scroll_long_text: true,
@@ -737,6 +744,7 @@ mod tests {
         assert!(loaded.auto_scroll_long_text);
         assert_eq!(loaded.dock_lyrics_font_size, 16);
         assert_eq!(loaded.fullscreen_lyrics_font_size, 28);
+        assert_eq!(loaded.app_font_family, "system");
 
         cfg.auto_scroll_long_text = false;
         let json2 = serde_json::to_string(&cfg).unwrap();

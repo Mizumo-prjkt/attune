@@ -4653,6 +4653,43 @@ This file records all major architectural decisions for **Attune**, including co
   - Zero accidental triggers when typing in text fields or search bars.
   - All 102 desktop unit tests and 100% of workspace tests pass cleanly.
 
+---
+
+## ADR-132: Application Font Family Configuration, Purge of Cramped Dock Lyrics Stepper, Minimalist Memory Cleaned Badge & Redundant Close Button Elimination
+
+- **Date**: 2026-11-09
+- **Status**: `LOCKED`
+- **Context**:
+  1. The user requested four specific refinements:
+     - "for general, add font configuration to allow changing the app's font at least"
+     - "but remove the font scaling on the syncronized lyrics part because its now getting too tight"
+     - "also for memory cleaning, can you just make it say <size> freed. instead"
+     - "and for artist finder, the Close window button is redundant"
+  2. Analysis:
+     - App font configuration: While lyrics typography was customizable via ADR-128, the core desktop UI (navigation, menus, tables, cards) lacked typeface options.
+     - Dock lyrics header: Embedding `.lyrics-size-pill` inside the right-dock drawer header crammed against `Synchronized Lyrics`, `Find`, and `Auto-Scroll` within the ~360px drawer column.
+     - Process Manager: The cleanup status text was unnecessarily verbose (`✓ Memory Cleaned (Freed 23.2 MB)`).
+     - Artist Profile Finder: Secondary window had both the native OS title bar close button and an internal `[ ✕ Close Window ]` button in the card header.
+- **Decision**:
+  1. **Application Font Family Configuration (`crates/attune-desktop/src/config.rs`, `settings.rs`, `app.rs`, `i18n.rs`)**:
+     - Added `app_font_family: String` (default `"system"`) to `AppConfig` with serde default `default_app_font()`.
+     - Built an "Application Typography & Font Family" card in Settings > General with grouped dropdown (`Default & Attune Fonts` and `System Installed Fonts`) and live UI typography preview card.
+     - Bound `--font-family: {app_font_css}; font-family: var(--font-family);` to `.app-container`, `.settings-container-layout`, `.artist-finder-container`, `.lyrics-finder-container`, and `.lyrics-preview-container`.
+     - Localized all labels and previews in English and Filipino (Mandate 4).
+  2. **Purged Cramped Stepper from Docked Sidebar Lyrics Header (`crates/attune-desktop/src/app.rs`)**:
+     - Removed `.lyrics-size-pill` from the docked sidebar lyrics header, eliminating layout crowding and restoring comfortable spacing.
+     - Lyrics font sizing remains fully configurable in Settings > Lyrics (`dock_lyrics_font_size` and `fullscreen_lyrics_font_size`) and in Fullscreen Now Playing.
+  3. **Minimalist Memory Cleanup Badge (`crates/attune-desktop/src/stages/process_manager.rs`)**:
+     - Formatted cleanup status to directly display `{size} freed.` (e.g. `23.2 MB freed.`).
+  4. **Eliminated Redundant Close Button (`crates/attune-desktop/src/stages/artist_finder.rs`)**:
+     - Removed redundant `[ ✕ Close Window ]` button from the Artist Profile Finder header, deferring to the standard OS titlebar controls.
+- **Consequences**:
+  - The entire application's UI font can now be customized with live preview and system font discovery.
+  - Docked sidebar lyrics header is clean and uncrowded.
+  - Process Manager memory cleanup reporting is concise and elegant.
+  - All 102 desktop unit tests and 100% of workspace tests pass cleanly.
+
+
 
 
 

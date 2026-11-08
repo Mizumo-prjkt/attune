@@ -442,6 +442,7 @@ pub fn SettingsContent(
     let current_tab = *active_tab.read();
     let curr_cfg = config_sig.read().clone();
     let strings = crate::i18n::get_strings(crate::i18n::Language::from_code(&curr_cfg.language));
+    let app_font_css = crate::system_fonts::resolve_font_family_css(&curr_cfg.app_font_family);
 
     // Helper closure to save updated config
     let mut update_cfg = move |mut modifier: Box<dyn FnMut(&mut AppConfig)>| {
@@ -467,7 +468,7 @@ pub fn SettingsContent(
     rsx! {
         div {
             class: "settings-container-layout",
-            style: "display: flex; width: 100%; height: 100%; overflow: hidden; background: rgba(10, 14, 23, 0.75);",
+            style: "display: flex; width: 100%; height: 100%; overflow: hidden; background: rgba(10, 14, 23, 0.75); --font-family: {app_font_css}; font-family: var(--font-family);",
 
             // =========================================================================
             // LEFT COLUMN: Categorized Navigation Sidebar (~230px)
@@ -585,6 +586,82 @@ pub fn SettingsContent(
                                         let val = e.value();
                                         home_subtext_input.set(val.clone());
                                         update_cfg(Box::new(move |c| c.home_subtext = Some(val.clone())));
+                                    }
+                                }
+                            }
+                        }
+
+                        // Card: Application Typography & Font Family
+                        div { class: "settings-card",
+                            h3 { class: "settings-card-title", "{strings.app_font_family}" }
+                            p { class: "settings-card-desc", "{strings.app_font_family_desc}" }
+
+                            div { style: "margin-top: 12px;",
+                                {
+                                    let current_app_font = curr_cfg.app_font_family.clone();
+                                    let preview_app_font_css = crate::system_fonts::resolve_font_family_css(&current_app_font);
+                                    let system_fonts = crate::system_fonts::get_available_system_fonts();
+
+                                    rsx! {
+                                        select {
+                                            class: "form-select",
+                                            style: "width: 100%; max-width: 480px; font-size: 13.5px;",
+                                            value: "{current_app_font}",
+                                            onchange: move |e| {
+                                                let val = e.value();
+                                                update_cfg(Box::new(move |c| c.app_font_family = val.clone()));
+                                            },
+                                            oninput: move |e| {
+                                                let val = e.value();
+                                                update_cfg(Box::new(move |c| c.app_font_family = val.clone()));
+                                            },
+                                            optgroup {
+                                                label: "{strings.font_group_default}",
+                                                for opt in crate::system_fonts::ATTUNE_DEFAULT_FONTS {
+                                                    option {
+                                                        key: "{opt.id}",
+                                                        value: "{opt.id}",
+                                                        selected: current_app_font == opt.id,
+                                                        "{opt.label}"
+                                                    }
+                                                }
+                                            }
+                                            optgroup {
+                                                label: "{strings.font_group_system} ({system_fonts.len()})",
+                                                for sys_font in system_fonts.iter() {
+                                                    option {
+                                                        key: "{sys_font}",
+                                                        value: "{sys_font}",
+                                                        selected: current_app_font == sys_font.as_str(),
+                                                        "{sys_font}"
+                                                    }
+                                                }
+                                            }
+                                        }
+
+                                        // Live Application Typography Preview Card
+                                        div {
+                                            style: "margin-top: 14px; padding: 14px 18px; border-radius: 12px; background: rgba(0,0,0,0.30); border: 1px solid var(--border-glass); max-width: 580px;",
+                                            div {
+                                                style: "display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;",
+                                                span {
+                                                    style: "font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-muted); font-weight: 700;",
+                                                    "{strings.app_font_preview_sample}"
+                                                }
+                                                span {
+                                                    style: "font-size: 11px; color: var(--accent-mint); font-family: monospace; background: rgba(45,212,191,0.08); padding: 2px 8px; border-radius: 4px;",
+                                                    "{preview_app_font_css}"
+                                                }
+                                            }
+                                            div {
+                                                style: "font-family: {preview_app_font_css}; font-size: 16px; font-weight: 700; color: #ffffff; line-height: 1.4; margin-bottom: 4px; transition: all 0.2s ease;",
+                                                "ATTUNE • Intelligent Music Player & DJ Engine"
+                                            }
+                                            div {
+                                                style: "font-family: {preview_app_font_css}; font-size: 13px; color: rgba(255,255,255,0.70); line-height: 1.4; transition: all 0.2s ease;",
+                                                "DECO*27 feat. Hatsune Miku • (Not) A Devil • 149 BPM • C Major"
+                                            }
+                                        }
                                     }
                                 }
                             }

@@ -359,11 +359,13 @@ pub fn LyricsFinderStandaloneWindow() -> Element {
     let current_tab = *active_tab.read();
     let candidate_list = candidates.read().clone();
     let current_selected = selected_idx.read().and_then(|idx| candidate_list.get(idx).cloned());
+    let cfg = crate::config::load_config();
+    let app_font_css = crate::system_fonts::resolve_font_family_css(&cfg.app_font_family);
 
     rsx! {
         div {
             class: "lyrics-finder-container",
-            style: "display: flex; width: 100%; height: 100vh; overflow: hidden; background: rgba(10, 14, 23, 0.96); color: #ffffff; font-family: var(--font-sans, sans-serif);",
+            style: "display: flex; width: 100%; height: 100vh; overflow: hidden; background: rgba(10, 14, 23, 0.96); color: #ffffff; --font-family: {app_font_css}; font-family: var(--font-family);",
 
             // =========================================================================
             // LEFT SIDEBAR: Active Song Card & Menu Tabs (~310px)

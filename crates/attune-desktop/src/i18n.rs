@@ -230,6 +230,9 @@ pub struct Strings {
     pub font_group_default: &'static str,
     pub font_group_system: &'static str,
     pub font_preview_sample: &'static str,
+    pub app_font_family: &'static str,
+    pub app_font_family_desc: &'static str,
+    pub app_font_preview_sample: &'static str,
     pub lyrics_text_size: &'static str,
     pub sidebar_lyrics_size: &'static str,
     pub fullscreen_lyrics_size: &'static str,
@@ -444,6 +447,9 @@ pub fn get_strings(lang: Language) -> Strings {
             font_group_default: "Default & Attune Fonts",
             font_group_system: "System Installed Fonts",
             font_preview_sample: "Live Typography Preview",
+            app_font_family: "Application Font Family",
+            app_font_family_desc: "Choose the primary typeface for navigation, menus, library tables, and buttons across Attune.",
+            app_font_preview_sample: "Application UI Typography Preview",
             lyrics_text_size: "Lyrics Text Size",
             sidebar_lyrics_size: "Sidebar Lyrics Text Size",
             fullscreen_lyrics_size: "Fullscreen Lyrics Text Size",
@@ -655,6 +661,9 @@ pub fn get_strings(lang: Language) -> Strings {
             font_group_default: "Mga Default at Font ng Attune",
             font_group_system: "Mga Naka-install na Font ng Sistema",
             font_preview_sample: "Live na Preview ng Typograpiya",
+            app_font_family: "Pamilya ng Font ng Aplikasyon",
+            app_font_family_desc: "Pumili ng pangunahing font para sa nabigasyon, mga menu, talahanayan ng kanta, at mga kontrol sa Attune.",
+            app_font_preview_sample: "Paunang Tingin sa UI Typography",
             lyrics_text_size: "Laki ng Titik ng Kanta",
             sidebar_lyrics_size: "Laki ng Titik sa Sidebar",
             fullscreen_lyrics_size: "Laki ng Titik sa Fullscreen",
@@ -869,6 +878,9 @@ pub fn export_language_template_json() -> String {
     map.insert("font_group_default", s.font_group_default);
     map.insert("font_group_system", s.font_group_system);
     map.insert("font_preview_sample", s.font_preview_sample);
+    map.insert("app_font_family", s.app_font_family);
+    map.insert("app_font_family_desc", s.app_font_family_desc);
+    map.insert("app_font_preview_sample", s.app_font_preview_sample);
     map.insert("lyrics_text_size", s.lyrics_text_size);
     map.insert("sidebar_lyrics_size", s.sidebar_lyrics_size);
     map.insert("fullscreen_lyrics_size", s.fullscreen_lyrics_size);

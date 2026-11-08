@@ -78,6 +78,7 @@ pub fn ArtistFinderStandaloneWindow() -> Element {
     let config_sig = use_signal(load_config);
     let curr_cfg = config_sig.read().clone();
     let strings = crate::i18n::get_strings(crate::i18n::Language::from_code(&curr_cfg.language));
+    let app_font_css = crate::system_fonts::resolve_font_family_css(&curr_cfg.app_font_family);
 
     let artist_opt = TARGET_FINDER_ARTIST.lock().unwrap().clone();
     let is_artist_valid = artist_opt.as_ref().map_or(false, |a| {
@@ -199,7 +200,7 @@ pub fn ArtistFinderStandaloneWindow() -> Element {
     rsx! {
         div {
             class: "artist-finder-container",
-            style: "display: flex; flex-direction: column; width: 100%; height: 100vh; overflow: hidden; background: rgba(10, 14, 23, 0.98); color: #ffffff; font-family: var(--font-sans, sans-serif); box-sizing: border-box;",
+            style: "display: flex; flex-direction: column; width: 100%; height: 100vh; overflow: hidden; background: rgba(10, 14, 23, 0.98); color: #ffffff; --font-family: {app_font_css}; font-family: var(--font-family); box-sizing: border-box;",
 
             // Header Row
             div {
@@ -218,18 +219,6 @@ pub fn ArtistFinderStandaloneWindow() -> Element {
                             span { "{strings.editing_profile_for_artist}:" }
                             span { style: "color: var(--accent-mint); font-weight: 700;", "{target_artist}" }
                         }
-                    }
-                }
-
-                div { style: "display: flex; align-items: center; gap: 10px;",
-                    button {
-                        class: "btn-glass",
-                        style: "padding: 8px 16px; font-size: 13px; font-weight: 600; cursor: pointer; border-radius: 9999px; display: inline-flex; align-items: center; gap: 6px;",
-                        onclick: move |_| {
-                            dioxus::desktop::window().close();
-                        },
-                        span { class: "material-icons md-16", "close" }
-                        "{strings.close}"
                     }
                 }
             }
