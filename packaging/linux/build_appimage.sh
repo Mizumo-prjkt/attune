@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Attune Linux AppImage Packaging Script
-# Assembles AppDir with relative lib resolution and produces standalone AppImage
+# Assembles AppDir with Native Rust attune-desktop, signed dynamic C-ABI components,
+# and anti-tamper integrity manifest to produce a standalone AppImage.
 
 set -euo pipefail
 
@@ -47,10 +48,12 @@ echo "=========================================================="
 echo " Packaging Attune AppImage: v${FULL_VERSION} (${MODE})"
 echo "=========================================================="
 
+NATIVE_BIN="target/${MODE}/attune-desktop"
 BUNDLE_DIR="apps/attune_app/build/linux/x64/${MODE}/bundle"
-if [ ! -d "$BUNDLE_DIR" ]; then
-    echo "ERROR: Flutter Linux bundle not found at: $BUNDLE_DIR"
-    echo "Please build the Flutter Linux app first: flutter build linux --${MODE}"
+
+if [ ! -f "$NATIVE_BIN" ] && [ ! -d "$BUNDLE_DIR" ]; then
+    echo "ERROR: Neither Native Rust binary ($NATIVE_BIN) nor Flutter bundle ($BUNDLE_DIR) found."
+    echo "Please compile Attune Desktop first: cargo build -p attune-desktop $([ "$MODE" == "release" ] && echo "--release")"
     exit 1
 fi
 
@@ -64,26 +67,41 @@ fi
 APPDIR="build/AppDir"
 rm -rf "$APPDIR"
 mkdir -p "$APPDIR/usr/bin"
+mkdir -p "$APPDIR/usr/bin/lib"
 mkdir -p "$APPDIR/usr/lib"
 mkdir -p "$APPDIR/lib"
 mkdir -p "$APPDIR/usr/share/applications"
 mkdir -p "$APPDIR/usr/share/icons/hicolor/256x256/apps"
 mkdir -p "$OUTPUT_DIR"
 
-# 1. Copy Flutter Bundle Executable & Data
-echo "-> Copying Flutter bundle assets..."
-cp -r "${BUNDLE_DIR}/"* "$APPDIR/usr/bin/"
+# 1. Copy Native Rust Desktop Executable (primary) or legacy bundle
+if [ -f "$NATIVE_BIN" ]; then
+    echo "-> Packaging Native Rust Desktop executable ($NATIVE_BIN)..."
+    cp "$NATIVE_BIN" "$APPDIR/usr/bin/attune-desktop"
+    chmod +x "$APPDIR/usr/bin/attune-desktop"
+elif [ -d "$BUNDLE_DIR" ]; then
+    echo "-> Copying legacy Flutter bundle assets..."
+    cp -r "${BUNDLE_DIR}/"* "$APPDIR/usr/bin/"
+    chmod +x "$APPDIR/usr/bin/attune_app" 2>/dev/null || true
+fi
 
-# 2. Bundle native engine library into relative lib dirs
-echo "-> Packaging native Rust DSP engine (relative lib)..."
-cp "$RUST_LIB" "$APPDIR/usr/lib/libattune_engine.so"
-cp "$RUST_LIB" "$APPDIR/lib/libattune_engine.so"
-mkdir -p "$APPDIR/usr/bin/lib"
-cp "$RUST_LIB" "$APPDIR/usr/bin/lib/libattune_engine.so"
+# 2. Bundle all dynamic C-ABI components (.so) & anti-tamper manifest
+echo "-> Packaging native Rust DSP engine and dynamic C-ABI components..."
+for SO_NAME in libattune_engine.so libattune_watchguard.so libattune_procmgr.so libattune_music_metadata.so libattune_music_metadata_changer.so; do
+    SO_SRC="target/${MODE}/${SO_NAME}"
+    if [ -f "$SO_SRC" ]; then
+        cp "$SO_SRC" "$APPDIR/usr/lib/${SO_NAME}"
+        cp "$SO_SRC" "$APPDIR/lib/${SO_NAME}"
+        cp "$SO_SRC" "$APPDIR/usr/bin/lib/${SO_NAME}"
+        echo "   + Bundled ${SO_NAME}"
+    fi
+done
 
-# Also copy Flutter runtime libraries to usr/lib
-if [ -d "${BUNDLE_DIR}/lib" ]; then
-    cp -r "${BUNDLE_DIR}/lib/"* "$APPDIR/usr/lib/" 2>/dev/null || true
+if [ -f "target/${MODE}/attune_integrity.json" ]; then
+    cp "target/${MODE}/attune_integrity.json" "$APPDIR/usr/bin/attune_integrity.json"
+    cp "target/${MODE}/attune_integrity.json" "$APPDIR/usr/bin/lib/attune_integrity.json"
+    cp "target/${MODE}/attune_integrity.json" "$APPDIR/usr/lib/attune_integrity.json"
+    echo "   + Bundled attune_integrity.json anti-tamper manifest"
 fi
 
 # 3. Desktop Entry and Icons
@@ -94,12 +112,10 @@ cp packaging/linux/attune.png "$APPDIR/attune.png"
 cp packaging/linux/attune.png "$APPDIR/usr/share/icons/hicolor/256x256/apps/attune.png"
 cp packaging/linux/AppRun "$APPDIR/AppRun"
 chmod +x "$APPDIR/AppRun"
-chmod +x "$APPDIR/usr/bin/attune_app"
 
 # 4. Create AppImage using appimagetool
 APPIMAGE_BIN="${OUTPUT_DIR}/Attune-${FULL_VERSION}-x86_64-${MODE}.AppImage"
 
-# Check for appimagetool in PATH or local cache
 TOOL="appimagetool"
 if ! command -v appimagetool &> /dev/null; then
     TOOL_PATH="/tmp/appimagetool-x86_64.AppImage"

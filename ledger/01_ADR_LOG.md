@@ -4896,6 +4896,42 @@ This file records all major architectural decisions for **Attune**, including co
   - Cryptographic verification guarantees shared libraries loaded at runtime are untampered and intact.
   - All 110 desktop unit tests pass cleanly.
 
+---
+
+## ADR-139: CI/CD Workflow Dynamic Versioning & Native Desktop Packaging, Inno Setup Unconditional DLL Upgrade & Legacy Flutter Data Incompatibility Check, and 6-Step Comprehensive First-Run Setup Wizard
+
+- **Date**: 2026-11-09
+- **Status**: LOCKED
+- **Context**:
+  1. **CI/CD Workflow YAML Synchronization (`.github/workflows/build_and_release.yml`)**: The GitHub Actions workflow needed to integrate the dynamic Git versioning engine (`dynamic_version` and commit-count `build_number`), install WebKitGTK and ImageMagick dependencies for Linux native desktop builds, generate multi-resolution Windows `.ico` files, sign all dynamic `.dll` and `.so` libraries, and stage `attune_integrity.json` and `SHA256SUMS.txt` into GitHub Releases.
+  2. **Inno Setup Unconditional DLL Upgrade Policy (`packaging/windows/attune_installer.iss`)**: Previously, `attune_installer.iss` used bare `Flags: ignoreversion` without pre-upgrade `[InstallDelete]` cleanup or `replacesameversion comparetimestamp overwritereadonly restartreplace`, and still pointed to the legacy `attune_app.exe` binary. Upgrades needed to unconditionally replace all dynamic `.dll` components (`attune_engine.dll`, `attune_watchguard.dll`, `attune_procmgr.dll`, `attune_music_metadata.dll`, `attune_music_metadata_changer.dll`) and `attune-desktop.exe`.
+  3. **Legacy Flutter Installation & Data Incompatibility Check**: Because Attune Desktop transitioned from the legacy Flutter prototype to the Native Rust Desktop engine (`attune-desktop`), application data, preferences, and caches from previous Flutter installations are incompatible with the Rust engine. Users upgrading from a previous Flutter installation must be warned and given a clean path to purge legacy Flutter data.
+  4. **Comprehensive First-Run Setup Wizard (`crates/attune-desktop/src/stages/setup.rs`)**: The first-run setup page previously only selected a music folder and ran indexing. Users requested expanding the Setup Wizard to configure Lyrics, APIs, Fonts, and Audio settings prior to launching the player.
+- **Decision**:
+  1. **Updated `.github/workflows/build_and_release.yml` & `tools/builder.py`**:
+     - Updated `meta` job in `build_and_release.yml` to resolve `version`, `dynamic_version`, and `build_number` dynamically from Git tags and commit counts (`git rev-list --count HEAD`).
+     - Scoped `subosito/flutter-action@v2` exclusively to the `android` target, added `libwebkit2gtk-4.1-dev libxdo-dev librsvg2-dev imagemagick` to Linux build dependencies, and added `--generate-icons --sign-dlls` to the CI packaging steps.
+     - Updated `packaging/linux/build_appimage.sh`, `AppRun`, `attune.desktop`, and `tools/builder.py` to package the native Rust `attune-desktop` binary alongside all signed `.so`/`.dll` components and `attune_integrity.json`.
+  2. **Upgraded `packaging/windows/attune_installer.iss`**:
+     - Set `#define MyAppExeName "attune-desktop.exe"`, enabled `CloseApplications=force` and `RestartApplications=yes`, and added `[InstallDelete]` rules to remove stale `.dll` files, manifests, and legacy Flutter runtime files (`flutter_windows.dll`, `attune_app.exe`, `data\flutter_assets`) before unpacking.
+     - Applied `#define DllUpgradeFlags "replacesameversion comparetimestamp overwritereadonly restartreplace uninsremovereadonly ignoreversion"` across all `.dll` and `.exe` entries.
+     - Implemented Pascal Script `DetectPreviousFlutterInstall` in `[Code]` (`NextButtonClick(wpSelectDir)` and `CurStepChanged(ssInstall)`), alerting the user if a previous Flutter installation or Flutter `shared_preferences.json` data is detected and offering automatic cleanup via the `cleanflutterdata` task.
+  3. **In-App Legacy Flutter Detection (`crates/attune-desktop/src/config.rs`)**:
+     - Added `detect_legacy_flutter_in_roots`, `detect_legacy_flutter_install`, and `purge_legacy_flutter_paths` in `config.rs`, surfacing a prominent warning banner with a 1-click **"Purge Incompatible Legacy Flutter Data"** button at the top of `SetupStage`.
+  4. **6-Step Comprehensive First-Run Setup Wizard (`crates/attune-desktop/src/stages/setup.rs`)**:
+     - Expanded `SetupStage` into 6 interactive steps with clickable navigation pills:
+       * `1. Library`: Primary music folder, additional music folders (`extra_music_dirs`), and minimum song duration filter (`min_song_duration_sec`). Removed all hardcoded fallback paths.
+       * `2. Audio`: Playback Codec Engine (`Attune Hybrid Codec Engine` vs `System Default`), `[EXPERIMENTAL]` Force 32-bit PCM Float Output with live hot-reconfiguration, Skip Silence, and live Hardware Output Driver Diagnostics.
+       * `3. Lyrics`: Default Lyrics Priority dropdown with live Fallback Chain pills, Online Provider (`LRCLIB`, `BiniLyrics` with MPL-2.0 agreement, `Musixmatch [Exp]`), alignment, text glow, and Fullscreen CSS animation presets.
+       * `4. APIs`: YouTube Music Innertube API, YouTube 1024px HD Artwork, Wikipedia & MusicBrainz REST API, and `[EXPERIMENTAL]` Musixmatch API key input with live **Test Query** button.
+       * `5. Fonts`: Application UI Font Family (`app_font_family`) and Synchronized Lyrics Font Family (`lyric_font_family`) with grouped `<select>` dropdowns, font size slider, live typography preview cards, long-text marquee toggle, and 1024px HD thumbnail toggle.
+       * `6. Profile & Launch`: 5-layer CQT Camelot key & BPM audio profiling with live neon progress bar, quick-launch JIT option, summary statistics, and synchronization into `App` state on completion.
+- **Consequences**:
+  - Seamless CI/CD builds and upgrades across Linux, Windows, and Android with guaranteed DLL replacement and anti-tamper verification.
+  - Transparent warning and cleanup when migrating from legacy Flutter builds to Native Rust Desktop.
+  - Complete first-run onboarding covering Library, Audio, Lyrics, APIs, Fonts, and DSP Profiling.
+  - All 113 desktop unit tests pass cleanly.
+
 
 
 

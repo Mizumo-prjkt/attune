@@ -1775,6 +1775,11 @@ pub fn App() -> Element {
                             SetupStage {
                                 initial_dir: music_dir.read().clone(),
                                 on_complete: move |scanned_tracks: Vec<TrackEntry>| {
+                                    let latest_cfg = crate::config::load_config();
+                                    if let Some(ref d) = latest_cfg.music_dir {
+                                        music_dir.set(Some(d.clone()));
+                                    }
+                                    app_config.set(latest_cfg);
                                     tracks.set(scanned_tracks.clone());
                                     if queue.read().is_empty() {
                                         queue.set(scanned_tracks);

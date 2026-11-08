@@ -442,6 +442,87 @@ pub fn set_setup_completed(completed: bool, music_dir: Option<PathBuf>) {
     save_config(&cfg);
 }
 
+/// Scans the given candidate base directories for artifacts from a previous Flutter-based
+/// Attune installation (`com.example.attune_app`, `shared_preferences.json`, `flutter_assets`,
+/// `flutter_windows.dll`, `libflutter_linux_gtk.so`, or `attune_app.exe`).
+pub fn detect_legacy_flutter_in_roots(roots: &[PathBuf]) -> Vec<PathBuf> {
+    let mut found = Vec::new();
+    for root in roots {
+        if !root.exists() {
+            continue;
+        }
+        let candidates = [
+            root.join("com.example.attune_app"),
+            root.join("com.example").join("attune_app"),
+            root.join("attune_app").join("shared_preferences.json"),
+            root.join("shared_preferences.json"),
+            root.join("flutter_windows.dll"),
+            root.join("libflutter_linux_gtk.so"),
+            root.join("attune_app.exe"),
+            root.join("data").join("flutter_assets"),
+        ];
+        for cand in candidates {
+            if cand.exists() && !found.contains(&cand) {
+                found.push(cand);
+            }
+        }
+    }
+    found
+}
+
+/// Inspects standard OS application data, local data, config, and executable directories
+/// for legacy Flutter installation data or binaries that are incompatible with Native Rust.
+pub fn detect_legacy_flutter_install() -> Vec<PathBuf> {
+    let mut roots = Vec::new();
+    if let Some(d) = dirs::data_dir() {
+        roots.push(d);
+    }
+    if let Some(d) = dirs::data_local_dir() {
+        if !roots.contains(&d) {
+            roots.push(d);
+        }
+    }
+    if let Some(d) = dirs::config_dir() {
+        if !roots.contains(&d) {
+            roots.push(d);
+        }
+    }
+    if let Some(d) = dirs::cache_dir() {
+        if !roots.contains(&d) {
+            roots.push(d);
+        }
+    }
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(parent) = exe.parent() {
+            let p = parent.to_path_buf();
+            if !roots.contains(&p) {
+                roots.push(p);
+            }
+        }
+    }
+    detect_legacy_flutter_in_roots(&roots)
+}
+
+/// Safely purges detected legacy Flutter application data/artifacts and returns the count of removed items.
+pub fn purge_legacy_flutter_paths(paths: &[PathBuf]) -> Result<usize, String> {
+    let mut removed = 0usize;
+    for p in paths {
+        if !p.exists() {
+            continue;
+        }
+        let res = if p.is_dir() {
+            std::fs::remove_dir_all(p)
+        } else {
+            std::fs::remove_file(p)
+        };
+        match res {
+            Ok(_) => removed += 1,
+            Err(e) => return Err(format!("Failed to remove {}: {e}", p.display())),
+        }
+    }
+    Ok(removed)
+}
+
 /// Resolve the music directory in priority order: env → persisted arg → saved config → OS default.
 pub fn resolve_music_dir(persisted: Option<PathBuf>) -> (Option<PathBuf>, MusicDirSource) {
     if let Some(dir) = std::env::var_os("ATTUNE_MUSIC_DIR").map(PathBuf::from) {
@@ -838,5 +919,40 @@ mod tests {
         assert_eq!(loaded.dock_lyrics_align, "center");
         assert_eq!(loaded.fullscreen_lyrics_align, "right");
         assert_eq!(loaded.fullscreen_layout_side, "right");
+    }
+
+    #[test]
+    fn test_detect_and_purge_legacy_flutter_install() {
+        let temp_dir = std::env::temp_dir().join(format!(
+            "attune_test_flutter_detect_{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let _ = std::fs::create_dir_all(&temp_dir);
+
+        // Initially clean
+        assert!(detect_legacy_flutter_in_roots(&[temp_dir.clone()]).is_empty());
+
+        // Simulate legacy Flutter artifacts
+        let flutter_dll = temp_dir.join("flutter_windows.dll");
+        let flutter_prefs_dir = temp_dir.join("attune_app");
+        let _ = std::fs::create_dir_all(&flutter_prefs_dir);
+        let flutter_prefs = flutter_prefs_dir.join("shared_preferences.json");
+        let _ = std::fs::write(&flutter_dll, b"dummy_flutter_dll");
+        let _ = std::fs::write(&flutter_prefs, b"{}");
+
+        let detected = detect_legacy_flutter_in_roots(&[temp_dir.clone()]);
+        assert_eq!(detected.len(), 2);
+        assert!(detected.contains(&flutter_dll));
+        assert!(detected.contains(&flutter_prefs));
+
+        // Purge detected paths
+        let purged_count = purge_legacy_flutter_paths(&detected).unwrap();
+        assert_eq!(purged_count, 2);
+        assert!(detect_legacy_flutter_in_roots(&[temp_dir.clone()]).is_empty());
+
+        let _ = std::fs::remove_dir_all(&temp_dir);
     }
 }

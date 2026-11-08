@@ -2,11 +2,11 @@
 Name=Attune
 GenericName=Intelligent Music Player
 Comment=Intelligent Audio-Profile Aware Transition Engine & Music Player
-Exec=attune_app %u
+Exec=attune-desktop %u
 Icon=attune
 Terminal=false
 Type=Application
 Categories=AudioVideo;Audio;Player;Music;
 MimeType=audio/mpeg;audio/flac;audio/x-wav;audio/ogg;audio/aac;audio/m4a;
-StartupWMClass=attune_app
+StartupWMClass=attune-desktop
 Keywords=music;player;dj;audio;transition;remix;dsp;

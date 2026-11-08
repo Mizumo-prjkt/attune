@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
     inputs:
       version_id:
-        description: "Version for release (e.g. 0.1.1, defaults to pubspec.yaml version)"
+        description: "Version for release (e.g. 0.1.1-rc1, defaults to dynamic git/pubspec version)"
         required: false
         type: string
         default: ""
@@ -18,7 +18,7 @@ on:
         type: string
         default: ""
       build_number:
-        description: "Integer build code / versionCode (e.g. 2, defaults to pubspec.yaml code)"
+        description: "Integer build code / versionCode (defaults to dynamic git commit count)"
         required: false
         type: string
         default: ""
@@ -50,10 +50,11 @@ permissions:
 
 jobs:
   meta:
-    name: "Resolve Release Metadata"
+    name: "Resolve Dynamic Release Metadata"
     runs-on: ubuntu-24.04
     outputs:
       version: ${{ steps.resolve.outputs.version }}
+      dynamic_version: ${{ steps.resolve.outputs.dynamic_version }}
       tag_name: ${{ steps.resolve.outputs.tag_name }}
       build_number: ${{ steps.resolve.outputs.build_number }}
     steps:
@@ -62,7 +63,7 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Resolve Version and Tag
+      - name: Resolve Dynamic Version, Commit Count and Tag
         id: resolve
         run: |
           if [ -n "${{ inputs.version_id }}" ]; then
@@ -70,7 +71,10 @@ jobs:
           elif [ "${{ github.ref_type }}" = "tag" ]; then
             RAW_VER="${{ github.ref_name }}"
           else
-            RAW_VER=$(grep -m1 '^version:' apps/attune_app/pubspec.yaml | sed -E 's/^version:\s*([^+]+).*/\1/')
+            RAW_VER=$(grep -m1 '^version:' apps/attune_app/pubspec.yaml | sed -E 's/^version:\s*([^+]+).*/\1/' || true)
+            if [ -z "$RAW_VER" ]; then
+              RAW_VER=$(git describe --tags --abbrev=0 2>/dev/null || echo "0.1.1")
+            fi
           fi
 
           # Strip leading 'v' for semantic versioning
@@ -82,16 +86,30 @@ jobs:
           FINAL_VER="${CLEAN_VER}${SUFFIX}"
           TAG_NAME="v${FINAL_VER}"
 
+          # Dynamic build number derived from git commit count unless overridden
           BUILD_NUM="${{ inputs.build_number || '' }}"
           if [ -z "$BUILD_NUM" ]; then
-            BUILD_NUM=$(grep -m1 '^version:' apps/attune_app/pubspec.yaml | sed -nE 's/.*\+([0-9]+)/\1/p')
-            BUILD_NUM="${BUILD_NUM:-2}"
+            GIT_COUNT=$(git rev-list --count HEAD 2>/dev/null || echo "")
+            PUB_BUILD=$(grep -m1 '^version:' apps/attune_app/pubspec.yaml | sed -nE 's/.*\+([0-9]+)/\1/p' || echo "")
+            if [ -n "$GIT_COUNT" ] && [ -n "$PUB_BUILD" ]; then
+              if [ "$GIT_COUNT" -gt "$PUB_BUILD" ]; then
+                BUILD_NUM="$GIT_COUNT"
+              else
+                BUILD_NUM="$PUB_BUILD"
+              fi
+            else
+              BUILD_NUM="${GIT_COUNT:-${PUB_BUILD:-1}}"
+            fi
           fi
 
+          DYN_VER=$(git describe --tags --always 2>/dev/null || echo "${FINAL_VER}")
+          DYN_VER="${DYN_VER#v}"
+
           echo "version=${FINAL_VER}" >> $GITHUB_OUTPUT
+          echo "dynamic_version=${DYN_VER}" >> $GITHUB_OUTPUT
           echo "tag_name=${TAG_NAME}" >> $GITHUB_OUTPUT
           echo "build_number=${BUILD_NUM}" >> $GITHUB_OUTPUT
-          echo "### 📦 Release Version: \`${FINAL_VER}+${BUILD_NUM}\` (Tag: \`${TAG_NAME}\`)" >> $GITHUB_STEP_SUMMARY
+          echo "### 📦 Release Version: \`${FINAL_VER}+${BUILD_NUM}\` (Dynamic ID: \`${DYN_VER}\`, Tag: \`${TAG_NAME}\`)" >> $GITHUB_STEP_SUMMARY
 
   build:
     name: ${{ matrix.name }}
@@ -171,9 +189,8 @@ jobs:
         with:
           targets: ${{ matrix.target == 'android' && 'aarch64-linux-android,armv7-linux-androideabi,x86_64-linux-android' || '' }}
 
-
-      - name: Setup Flutter SDK
-        if: steps.check_variant.outputs.should_run == 'true'
+      - name: Setup Flutter SDK (Android Target)
+        if: steps.check_variant.outputs.should_run == 'true' && matrix.target == 'android'
         uses: subosito/flutter-action@v2
         with:
           channel: 'stable'
@@ -198,7 +215,10 @@ jobs:
         if: steps.check_variant.outputs.should_run == 'true' && runner.os == 'Linux' && (matrix.target == 'linux' || matrix.target == 'appimage')
         run: |
           sudo apt-get update
-          sudo apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev liblzma-dev libasound2-dev libpulse-dev libayatana-appindicator3-dev file
+          sudo apt-get install -y clang cmake ninja-build pkg-config \
+            libgtk-3-dev libwebkit2gtk-4.1-dev libxdo-dev librsvg2-dev \
+            liblzma-dev libasound2-dev libpulse-dev libayatana-appindicator3-dev \
+            imagemagick file
           sudo apt-get install -y libfuse2t64 || sudo apt-get install -y libfuse2 || true
 
       - name: Setup appimagetool (Linux AppImage)
@@ -208,14 +228,15 @@ jobs:
           sudo chmod +x /usr/local/bin/appimagetool
 
       # ---------------- Windows specific setup ----------------
-      - name: Install Inno Setup (Windows)
+      - name: Install Inno Setup & ImageMagick (Windows)
         if: steps.check_variant.outputs.should_run == 'true' && runner.os == 'Windows'
         shell: pwsh
         run: |
           choco install innosetup -y --no-progress
+          pip install Pillow
 
-      - name: Install Cosign (Sigstore for Windows Signing)
-        if: steps.check_variant.outputs.should_run == 'true' && runner.os == 'Windows'
+      - name: Install Cosign (Sigstore for Component & Installer Signing)
+        if: steps.check_variant.outputs.should_run == 'true'
         uses: sigstore/cosign-installer@v3.8.1
 
       # ---------------- Android Keystore setup ----------------
@@ -246,23 +267,28 @@ jobs:
           fi
 
       # ---------------- Build & Test & Package ----------------
-      - name: Build, Test & Package (Linux AppImage)
+      - name: Build, Sign & Package (Linux AppImage)
         if: steps.check_variant.outputs.should_run == 'true' && runner.os == 'Linux' && matrix.target == 'appimage'
         env:
           APPIMAGE_EXTRACT_AND_RUN: 1
+          ATTUNE_VERSION: ${{ needs.meta.outputs.version }}
         run: |
-          python3 tools/builder.py --target appimage --build-type "${{ matrix.build_type }}" --version-id "${{ needs.meta.outputs.version }}" --build-number "${{ needs.meta.outputs.build_number }}" --download-tools --test
+          python3 tools/builder.py --target appimage --build-type "${{ matrix.build_type }}" --version-id "${{ needs.meta.outputs.version }}" --build-number "${{ needs.meta.outputs.build_number }}" --download-tools --sign-dlls --test
 
-      - name: Build, Test & Package (Linux Tarball)
+      - name: Build, Sign & Package (Linux Tarball)
         if: steps.check_variant.outputs.should_run == 'true' && runner.os == 'Linux' && matrix.target == 'linux'
+        env:
+          ATTUNE_VERSION: ${{ needs.meta.outputs.version }}
         run: |
-          python3 tools/builder.py --target linux --bundle zip --build-type "${{ matrix.build_type }}" --version-id "${{ needs.meta.outputs.version }}" --build-number "${{ needs.meta.outputs.build_number }}" --package --test
+          python3 tools/builder.py --target linux --bundle zip --build-type "${{ matrix.build_type }}" --version-id "${{ needs.meta.outputs.version }}" --build-number "${{ needs.meta.outputs.build_number }}" --sign-dlls --package --test
 
-      - name: Build, Test & Package (Windows)
+      - name: Build, Generate Windows Icons, Sign DLLs & Package (Windows)
         if: steps.check_variant.outputs.should_run == 'true' && runner.os == 'Windows'
         shell: pwsh
+        env:
+          ATTUNE_VERSION: ${{ needs.meta.outputs.version }}
         run: |
-          python tools/builder.py --target windows --build-type "${{ matrix.build_type }}" --version-id "${{ needs.meta.outputs.version }}" --build-number "${{ needs.meta.outputs.build_number }}" --package --installer --sign --test
+          python tools/builder.py --target windows --build-type "${{ matrix.build_type }}" --version-id "${{ needs.meta.outputs.version }}" --build-number "${{ needs.meta.outputs.build_number }}" --generate-icons --sign-dlls --package --installer --sign --test
 
       - name: Build, Test & Package (Android)
         if: steps.check_variant.outputs.should_run == 'true' && matrix.target == 'android'
@@ -278,6 +304,8 @@ jobs:
             cp -f dist/linux/Attune-*.AppImage artifacts_out/ 2>/dev/null || true
           elif [ "${{ matrix.target }}" = "linux" ]; then
             cp -f dist/linux/Attune-*-Linux-*.tar.gz artifacts_out/ 2>/dev/null || true
+            cp -f dist/linux/Attune-Desktop-* artifacts_out/ 2>/dev/null || true
+            cp -f dist/linux/attune_integrity.json artifacts_out/attune_integrity-linux-${{ matrix.build_type }}.json 2>/dev/null || true
           elif [ "${{ matrix.target }}" = "android" ]; then
             cp -f dist/android/Attune-*-Android-*.apk artifacts_out/ 2>/dev/null || true
           fi
@@ -290,6 +318,9 @@ jobs:
           mkdir -p artifacts_out
           cp -f dist/windows/Attune-*-Windows-*.zip artifacts_out/ 2>/dev/null || true
           cp -f dist/windows/Attune-*-Windows-*-Setup.exe artifacts_out/ 2>/dev/null || true
+          cp -f dist/windows/Attune-Desktop-*.exe artifacts_out/ 2>/dev/null || true
+          cp -f dist/windows/attune_integrity.json artifacts_out/ 2>/dev/null || true
+          cp -f dist/windows/SHA256SUMS.txt artifacts_out/SHA256SUMS-windows-${{ matrix.build_type }}.txt 2>/dev/null || true
           cp -f dist/windows/*.bundle artifacts_out/ 2>/dev/null || true
           ls -la artifacts_out/
 
@@ -358,6 +389,8 @@ jobs:
           GITHUB_REPO: ${{ github.repository }}
           TAG_NAME: ${{ needs.meta.outputs.tag_name }}
           VER: ${{ needs.meta.outputs.version }}
+          DYN_VER: ${{ needs.meta.outputs.dynamic_version }}
+          BUILD_NUM: ${{ needs.meta.outputs.build_number }}
           REF_NAME: ${{ github.ref_name }}
           TARGET_SHA: ${{ github.sha }}
         run: |
@@ -377,7 +410,7 @@ jobs:
             TAG_MSG=$(git log -1 --pretty=%B | sed -e :a -e '/^\n*$/{$d;N;};/\n$/ba')
           fi
           if [ -z "$TAG_MSG" ]; then
-            TAG_MSG="Attune Release ${VER}"
+            TAG_MSG="Attune Release ${VER} (Build ${BUILD_NUM})"
           fi
 
           # Determine target ref and previous tag for patch list
@@ -425,8 +458,11 @@ jobs:
           cat << 'EOF' > release_body.md
           ## Release Notes
           EOF
+          printf "**Version**: \`%s\` | **Build**: \`%s\` | **Dynamic Revision**: \`%s\`\n\n" "$VER" "$BUILD_NUM" "$DYN_VER" >> release_body.md
           printf "%s\n\n" "$TAG_MSG" >> release_body.md
           cat << 'EOF' >> release_body.md
+          > ⚠️ **Upgrade Notice (Flutter → Native Rust Engine)**: Data and caches from legacy Flutter desktop installations are incompatible with the Native Rust Desktop engine (`attune-desktop`). If upgrading from an older Flutter desktop build, the installer will alert you and clean up legacy Flutter runtime binaries.
+
           ---
 
           ### 📝 Applied Patches & Commits
@@ -451,12 +487,15 @@ jobs:
               DESC="Release Asset"
               case "$FNAME" in
                 *.AppImage) DESC="Linux AppImage (Standalone Executable)" ;;
-                *Linux*.tar.gz|*linux*.tar.gz) DESC="Linux Portable Archive" ;;
-                *Windows*.zip|*windows*.zip) DESC="Windows Portable Archive" ;;
-                *Setup*.exe|*setup*.exe) DESC="Windows Installer (Inno Setup)" ;;
+                *Linux*.tar.gz|*linux*.tar.gz) DESC="Linux Portable Archive (Native Rust + C-ABI Shared Libraries)" ;;
+                *Windows*.zip|*windows*.zip) DESC="Windows Portable Archive (Native Rust + Signed DLLs)" ;;
+                *Setup*.exe|*setup*.exe) DESC="Windows Installer (Inno Setup with Anti-Tamper Manifest)" ;;
+                Attune-Desktop-*.exe) DESC="Windows Standalone Native Rust Desktop Executable" ;;
+                Attune-Desktop-*) DESC="Linux Standalone Native Rust Desktop Executable" ;;
+                *attune_integrity*.json) DESC="Anti-Tamper Cryptographic Component Manifest (SHA-256 & BLAKE3)" ;;
                 *.bundle) DESC="Sigstore Cosign Verification Bundle (Cryptographic Signature)" ;;
                 *Android*.apk|*.apk) DESC="Android APK" ;;
-                SHA256SUMS) DESC="Verification Checksums" ;;
+                SHA256SUMS*) DESC="Verification Checksums" ;;
               esac
               echo "| $DESC | \`$FNAME\` | $FSIZE |" >> release_body.md
             fi

@@ -1,4 +1,4 @@
-; Script generated for Attune Music Player
+; Script generated for Attune Music Player (Native Rust Engine & Desktop Suite)
 ; Inno Setup 6.x Installer Script for Windows 64-bit
 
 #ifndef MyAppVersion
@@ -16,7 +16,12 @@
 #define MyAppName "Attune"
 #define MyAppPublisher "Mizumo-prjkt"
 #define MyAppURL "https://github.com/mizproject/attune"
-#define MyAppExeName "attune_app.exe"
+#define MyAppExeName "attune-desktop.exe"
+#define LegacyFlutterExeName "attune_app.exe"
+
+; Force unconditional upgrade of all native DLLs and executables, even if read-only,
+; lacking PE VERSIONINFO headers, or locked by a running background process.
+#define DllUpgradeFlags "replacesameversion comparetimestamp overwritereadonly restartreplace uninsremovereadonly ignoreversion"
 
 [Setup]
 ; NOTE: The value of AppId uniquely identifies this application. Do not use the same AppId value in installers for other applications.
@@ -31,6 +36,10 @@ AppUpdatesURL={#MyAppURL}
 DefaultDirName={autopf}\{#MyAppName}
 DefaultGroupName={#MyAppName}
 AllowNoIcons=yes
+; Automatically close running instances so locked .dll components are cleanly upgraded
+CloseApplications=force
+CloseApplicationsFilter=*.exe,*.dll
+RestartApplications=yes
 ; Display Patch Notes from commit log before install
 #if FileExists("..\..\patch_notes.txt")
 InfoBeforeFile=..\..\patch_notes.txt
@@ -56,71 +65,223 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 
 [Tasks]
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked
+Name: "cleanflutterdata"; Description: "Purge incompatible legacy Flutter cache && preferences data (Recommended when upgrading from Flutter version)"; GroupDescription: "Migration & Upgrade:"; Flags: checkedonce
+
+[InstallDelete]
+; Explicitly remove previous DLLs and manifests before unpacking to guarantee 100% fresh signed binaries on upgrade
+Type: files; Name: "{app}\attune_engine.dll"
+Type: files; Name: "{app}\attune_watchguard.dll"
+Type: files; Name: "{app}\attune_procmgr.dll"
+Type: files; Name: "{app}\attune_music_metadata.dll"
+Type: files; Name: "{app}\attune_music_metadata_changer.dll"
+Type: files; Name: "{app}\attune_integrity.json"
+Type: files; Name: "{app}\SHA256SUMS.txt"
+Type: files; Name: "{app}\lib\attune_engine.dll"
+Type: files; Name: "{app}\lib\attune_watchguard.dll"
+Type: files; Name: "{app}\lib\attune_procmgr.dll"
+Type: files; Name: "{app}\lib\attune_music_metadata.dll"
+Type: files; Name: "{app}\lib\attune_music_metadata_changer.dll"
+Type: files; Name: "{app}\lib\attune_integrity.json"
+Type: files; Name: "{app}\lib\SHA256SUMS.txt"
+; Remove legacy Flutter desktop runner binaries when upgrading to Native Rust Desktop
+Type: files; Name: "{app}\flutter_windows.dll"
+Type: files; Name: "{app}\{#LegacyFlutterExeName}"
+Type: filesandordirs; Name: "{app}\data"
 
 [Files]
-; Main Flutter Windows Runner Bundle
-Source: "..\..\apps\attune_app\build\windows\x64\runner\{#BuildMode}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
-; Attune Native Rust DSP Engine DLL bundled relative to application in lib\ and app root
+; ============================================================================
+; 1. Native Rust Desktop Executable & Signed Dynamic C-ABI Components (Release)
+; ============================================================================
 #if BuildMode == "Release"
-Source: "..\..\target\release\attune_engine.dll"; DestDir: "{app}\lib"; Flags: ignoreversion; DestName: "attune_engine.dll"
-Source: "..\..\target\release\attune_engine.dll"; DestDir: "{app}"; Flags: ignoreversion; DestName: "attune_engine.dll"
+#if FileExists("..\..\target\release\attune-desktop.exe")
+Source: "..\..\target\release\attune-desktop.exe"; DestDir: "{app}"; DestName: "{#MyAppExeName}"; Flags: {#DllUpgradeFlags}
+#endif
+Source: "..\..\target\release\attune_engine.dll"; DestDir: "{app}\lib"; DestName: "attune_engine.dll"; Flags: {#DllUpgradeFlags}
+Source: "..\..\target\release\attune_engine.dll"; DestDir: "{app}"; DestName: "attune_engine.dll"; Flags: {#DllUpgradeFlags}
 #if FileExists("..\..\target\release\attune_watchguard.dll")
-Source: "..\..\target\release\attune_watchguard.dll"; DestDir: "{app}\lib"; Flags: ignoreversion
-Source: "..\..\target\release\attune_watchguard.dll"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\..\target\release\attune_watchguard.dll"; DestDir: "{app}\lib"; Flags: {#DllUpgradeFlags}
+Source: "..\..\target\release\attune_watchguard.dll"; DestDir: "{app}"; Flags: {#DllUpgradeFlags}
 #endif
 #if FileExists("..\..\target\release\attune_procmgr.dll")
-Source: "..\..\target\release\attune_procmgr.dll"; DestDir: "{app}\lib"; Flags: ignoreversion
-Source: "..\..\target\release\attune_procmgr.dll"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\..\target\release\attune_procmgr.dll"; DestDir: "{app}\lib"; Flags: {#DllUpgradeFlags}
+Source: "..\..\target\release\attune_procmgr.dll"; DestDir: "{app}"; Flags: {#DllUpgradeFlags}
 #endif
 #if FileExists("..\..\target\release\attune_music_metadata.dll")
-Source: "..\..\target\release\attune_music_metadata.dll"; DestDir: "{app}\lib"; Flags: ignoreversion
-Source: "..\..\target\release\attune_music_metadata.dll"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\..\target\release\attune_music_metadata.dll"; DestDir: "{app}\lib"; Flags: {#DllUpgradeFlags}
+Source: "..\..\target\release\attune_music_metadata.dll"; DestDir: "{app}"; Flags: {#DllUpgradeFlags}
 #endif
 #if FileExists("..\..\target\release\attune_music_metadata_changer.dll")
-Source: "..\..\target\release\attune_music_metadata_changer.dll"; DestDir: "{app}\lib"; Flags: ignoreversion
-Source: "..\..\target\release\attune_music_metadata_changer.dll"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\..\target\release\attune_music_metadata_changer.dll"; DestDir: "{app}\lib"; Flags: {#DllUpgradeFlags}
+Source: "..\..\target\release\attune_music_metadata_changer.dll"; DestDir: "{app}"; Flags: {#DllUpgradeFlags}
 #endif
 #if FileExists("..\..\target\release\attune_integrity.json")
-Source: "..\..\target\release\attune_integrity.json"; DestDir: "{app}\lib"; Flags: ignoreversion
-Source: "..\..\target\release\attune_integrity.json"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\..\target\release\attune_integrity.json"; DestDir: "{app}\lib"; Flags: {#DllUpgradeFlags}
+Source: "..\..\target\release\attune_integrity.json"; DestDir: "{app}"; Flags: {#DllUpgradeFlags}
 #endif
 #else
-Source: "..\..\target\debug\attune_engine.dll"; DestDir: "{app}\lib"; Flags: ignoreversion; DestName: "attune_engine.dll"
-Source: "..\..\target\debug\attune_engine.dll"; DestDir: "{app}"; Flags: ignoreversion; DestName: "attune_engine.dll"
+; ============================================================================
+; 2. Native Rust Desktop Executable & Signed Dynamic C-ABI Components (Debug)
+; ============================================================================
+#if FileExists("..\..\target\debug\attune-desktop.exe")
+Source: "..\..\target\debug\attune-desktop.exe"; DestDir: "{app}"; DestName: "{#MyAppExeName}"; Flags: {#DllUpgradeFlags}
+#endif
+Source: "..\..\target\debug\attune_engine.dll"; DestDir: "{app}\lib"; DestName: "attune_engine.dll"; Flags: {#DllUpgradeFlags}
+Source: "..\..\target\debug\attune_engine.dll"; DestDir: "{app}"; DestName: "attune_engine.dll"; Flags: {#DllUpgradeFlags}
 #if FileExists("..\..\target\debug\attune_watchguard.dll")
-Source: "..\..\target\debug\attune_watchguard.dll"; DestDir: "{app}\lib"; Flags: ignoreversion
-Source: "..\..\target\debug\attune_watchguard.dll"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\..\target\debug\attune_watchguard.dll"; DestDir: "{app}\lib"; Flags: {#DllUpgradeFlags}
+Source: "..\..\target\debug\attune_watchguard.dll"; DestDir: "{app}"; Flags: {#DllUpgradeFlags}
 #endif
 #if FileExists("..\..\target\debug\attune_procmgr.dll")
-Source: "..\..\target\debug\attune_procmgr.dll"; DestDir: "{app}\lib"; Flags: ignoreversion
-Source: "..\..\target\debug\attune_procmgr.dll"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\..\target\debug\attune_procmgr.dll"; DestDir: "{app}\lib"; Flags: {#DllUpgradeFlags}
+Source: "..\..\target\debug\attune_procmgr.dll"; DestDir: "{app}"; Flags: {#DllUpgradeFlags}
 #endif
 #if FileExists("..\..\target\debug\attune_music_metadata.dll")
-Source: "..\..\target\debug\attune_music_metadata.dll"; DestDir: "{app}\lib"; Flags: ignoreversion
-Source: "..\..\target\debug\attune_music_metadata.dll"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\..\target\debug\attune_music_metadata.dll"; DestDir: "{app}\lib"; Flags: {#DllUpgradeFlags}
+Source: "..\..\target\debug\attune_music_metadata.dll"; DestDir: "{app}"; Flags: {#DllUpgradeFlags}
 #endif
 #if FileExists("..\..\target\debug\attune_music_metadata_changer.dll")
-Source: "..\..\target\debug\attune_music_metadata_changer.dll"; DestDir: "{app}\lib"; Flags: ignoreversion
-Source: "..\..\target\debug\attune_music_metadata_changer.dll"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\..\target\debug\attune_music_metadata_changer.dll"; DestDir: "{app}\lib"; Flags: {#DllUpgradeFlags}
+Source: "..\..\target\debug\attune_music_metadata_changer.dll"; DestDir: "{app}"; Flags: {#DllUpgradeFlags}
 #endif
 #if FileExists("..\..\target\debug\attune_integrity.json")
-Source: "..\..\target\debug\attune_integrity.json"; DestDir: "{app}\lib"; Flags: ignoreversion
-Source: "..\..\target\debug\attune_integrity.json"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\..\target\debug\attune_integrity.json"; DestDir: "{app}\lib"; Flags: {#DllUpgradeFlags}
+Source: "..\..\target\debug\attune_integrity.json"; DestDir: "{app}"; Flags: {#DllUpgradeFlags}
 #endif
+#endif
+
+#if FileExists("..\..\dist\windows\attune_integrity.json")
+Source: "..\..\dist\windows\attune_integrity.json"; DestDir: "{app}\lib"; Flags: {#DllUpgradeFlags}
+Source: "..\..\dist\windows\attune_integrity.json"; DestDir: "{app}"; Flags: {#DllUpgradeFlags}
+#endif
+
+#if FileExists("..\..\dist\windows\SHA256SUMS.txt")
+Source: "..\..\dist\windows\SHA256SUMS.txt"; DestDir: "{app}"; Flags: {#DllUpgradeFlags}
 #endif
 
 #if FileExists("..\..\packaging\windows\app_icon.ico")
-Source: "..\..\packaging\windows\app_icon.ico"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\..\packaging\windows\app_icon.ico"; DestDir: "{app}"; Flags: {#DllUpgradeFlags}
 #endif
 
 #if FileExists("..\..\apps\attune_app\assets\build_info.json")
-Source: "..\..\apps\attune_app\assets\build_info.json"; DestDir: "{app}\data\flutter_assets\assets"; Flags: ignoreversion
+Source: "..\..\apps\attune_app\assets\build_info.json"; DestDir: "{app}"; Flags: {#DllUpgradeFlags}
 #endif
 
 [Icons]
-Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"
+Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; IconFilename: "{app}\app_icon.ico"
 Name: "{group}\{cm:UninstallProgram,{#MyAppName}}"; Filename: "{uninstallexe}"
-Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: desktopicon
+Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; IconFilename: "{app}\app_icon.ico"; Tasks: desktopicon
 
 [Run]
 Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#StringChange(MyAppName, '&', '&&')}}"; Flags: nowait postinstall skipifsilent
+
+[Code]
+var
+  FlutterInstallWarned: Boolean;
+
+function DetectPreviousFlutterInstall(TargetDir: String; var DetectedLocations: String): Boolean;
+var
+  CleanDir: String;
+  AppDataExampleDir: String;
+  AppDataFlutterPrefs: String;
+  LocalAppDataFlutterPrefs: String;
+begin
+  Result := False;
+  DetectedLocations := '';
+  CleanDir := RemoveBackslashUnlessRoot(TargetDir);
+
+  if FileExists(CleanDir + '\flutter_windows.dll') then
+  begin
+    Result := True;
+    DetectedLocations := DetectedLocations + '  • ' + CleanDir + '\flutter_windows.dll' + #13#10;
+  end;
+
+  if FileExists(CleanDir + '\{#LegacyFlutterExeName}') then
+  begin
+    Result := True;
+    DetectedLocations := DetectedLocations + '  • ' + CleanDir + '\{#LegacyFlutterExeName}' + #13#10;
+  end;
+
+  if DirExists(CleanDir + '\data\flutter_assets') then
+  begin
+    Result := True;
+    DetectedLocations := DetectedLocations + '  • ' + CleanDir + '\data\flutter_assets' + #13#10;
+  end;
+
+  AppDataExampleDir := ExpandConstant('{userappdata}\com.example\attune_app');
+  if DirExists(AppDataExampleDir) then
+  begin
+    Result := True;
+    DetectedLocations := DetectedLocations + '  • ' + AppDataExampleDir + #13#10;
+  end;
+
+  AppDataFlutterPrefs := ExpandConstant('{userappdata}\attune_app\shared_preferences.json');
+  if FileExists(AppDataFlutterPrefs) then
+  begin
+    Result := True;
+    DetectedLocations := DetectedLocations + '  • ' + AppDataFlutterPrefs + #13#10;
+  end;
+
+  LocalAppDataFlutterPrefs := ExpandConstant('{localappdata}\attune_app\shared_preferences.json');
+  if FileExists(LocalAppDataFlutterPrefs) then
+  begin
+    Result := True;
+    DetectedLocations := DetectedLocations + '  • ' + LocalAppDataFlutterPrefs + #13#10;
+  end;
+end;
+
+function NextButtonClick(CurPageID: Integer): Boolean;
+var
+  DetectedLocations: String;
+  MsgText: String;
+begin
+  Result := True;
+
+  if (CurPageID = wpSelectDir) and (not FlutterInstallWarned) then
+  begin
+    if DetectPreviousFlutterInstall(WizardDirValue, DetectedLocations) then
+    begin
+      MsgText :=
+        'WARNING: Previous Flutter-Based Attune Installation Detected!' + #13#10 + #13#10 +
+        'The installer detected artifacts from an older Flutter version of Attune:' + #13#10 +
+        DetectedLocations + #13#10 +
+        'IMPORTANT COMPATIBILITY NOTICE:' + #13#10 +
+        'Application data, preferences, and database caches from the legacy Flutter version ' +
+        'are NOT compatible with the new Native Rust version of Attune (attune-desktop).' + #13#10 + #13#10 +
+        'Continuing will replace the legacy Flutter runtime binaries with the signed Native Rust engine. ' +
+        'Do you wish to proceed with the installation?';
+
+      if SuppressibleMsgBox(MsgText, mbConfirmation, MB_YESNO or MB_DEFBUTTON1, IDYES) = IDNO then
+      begin
+        Result := False;
+        Exit;
+      end;
+
+      FlutterInstallWarned := True;
+    end;
+  end;
+end;
+
+procedure CurStepChanged(CurStep: TSetupStep);
+var
+  AppDataExampleDir: String;
+  AppDataFlutterDir: String;
+  LocalAppDataFlutterDir: String;
+begin
+  if CurStep = ssInstall then
+  begin
+    if WizardIsTaskSelected('cleanflutterdata') then
+    begin
+      AppDataExampleDir := ExpandConstant('{userappdata}\com.example\attune_app');
+      if DirExists(AppDataExampleDir) then
+        DelTree(AppDataExampleDir, True, True, True);
+
+      AppDataFlutterDir := ExpandConstant('{userappdata}\attune_app');
+      if FileExists(AppDataFlutterDir + '\shared_preferences.json') then
+        DelTree(AppDataFlutterDir, True, True, True);
+
+      LocalAppDataFlutterDir := ExpandConstant('{localappdata}\attune_app');
+      if FileExists(LocalAppDataFlutterDir + '\shared_preferences.json') then
+        DelTree(LocalAppDataFlutterDir, True, True, True);
+    end;
+  end;
+end;

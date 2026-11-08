@@ -1,5 +1,5 @@
 #!/bin/sh
-# Portable AppRun for Attune Linux AppImage
+# Portable AppRun for Attune Linux AppImage (Native Rust Desktop Engine)
 # Ensures relative .so dynamic library resolution without binding to host paths
 
 set -e
@@ -17,5 +17,9 @@ if [ ! -d "$(pwd 2>/dev/null)" ]; then
     cd "${HOME:-/tmp}" 2>/dev/null || true
 fi
 
-# Launch application
-exec "${APPDIR}/usr/bin/attune_app" "$@"
+# Prefer Native Rust Desktop executable (attune-desktop), fallback to legacy attune_app
+if [ -x "${APPDIR}/usr/bin/attune-desktop" ]; then
+    exec "${APPDIR}/usr/bin/attune-desktop" "$@"
+else
+    exec "${APPDIR}/usr/bin/attune_app" "$@"
+fi

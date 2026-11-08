@@ -1129,18 +1129,59 @@ def package_bundle(target_os="linux", mode="release", localversion="", bundle_ty
     artifacts = []
 
     if target_os.lower() == "linux":
+        # 0. Standalone Native Rust Desktop Executable + Required Shared Libraries (.so) + Anti-Tamper Manifest
+        native_desktop_bin = REPO_ROOT / "target" / mode.lower() / "attune-desktop"
+        dist_lib_dir = dist_dir / "lib"
+        dist_lib_dir.mkdir(parents=True, exist_ok=True)
+        for so_name in ("libattune_engine.so", "libattune_procmgr.so", "libattune_watchguard.so", "libattune_music_metadata.so", "libattune_music_metadata_changer.so"):
+            so_src = REPO_ROOT / "target" / mode.lower() / so_name
+            if so_src.exists():
+                shutil.copy2(so_src, dist_lib_dir / so_name)
+                shutil.copy2(so_src, dist_dir / so_name)
+                log(f"[Package] Bundled dynamic component {so_name} -> {dist_lib_dir / so_name}")
+                sign_dll_file(dist_lib_dir / so_name, log_func=log)
+
+        generate_integrity_manifest(dist_dir, version=version, log_func=log)
+
+        if native_desktop_bin.exists():
+            dest_native = dist_dir / f"Attune-Desktop-{full_ver}-Linux-x86_64"
+            shutil.copy2(native_desktop_bin, dest_native)
+            os.chmod(dest_native, 0o755)
+            log(f"[Package] Packaged standalone native desktop binary: {dest_native}")
+            if dest_native not in artifacts:
+                artifacts.append(dest_native)
+
         # 1. Portable .tar.gz bundle
         if "all" in bundle_types or "zip" in bundle_types or "tar" in bundle_types:
             tar_name = f"Attune-{full_ver}-Linux-x86_64-{mode.capitalize()}.tar.gz"
             tar_path = dist_dir / tar_name
-            bundle_dir = REPO_ROOT / "apps" / "attune_app" / "build" / "linux" / "x64" / mode.lower() / "bundle"
-            if bundle_dir.exists():
-                log(f"[Package] Creating portable tarball {tar_path}...")
-                subprocess.check_call(
-                    ["tar", "-czf", str(tar_path), "-C", str(bundle_dir.parent), "bundle"],
-                    cwd=REPO_ROOT,
-                )
-                artifacts.append(tar_path)
+            stage_tar_dir = REPO_ROOT / "build" / f"linux-portable-{mode.lower()}" / "Attune"
+            if stage_tar_dir.exists():
+                shutil.rmtree(stage_tar_dir)
+            stage_tar_dir.mkdir(parents=True, exist_ok=True)
+            stage_lib_dir = stage_tar_dir / "lib"
+            stage_lib_dir.mkdir(parents=True, exist_ok=True)
+
+            if native_desktop_bin.exists():
+                shutil.copy2(native_desktop_bin, stage_tar_dir / "attune-desktop")
+                os.chmod(stage_tar_dir / "attune-desktop", 0o755)
+            for so_name in ("libattune_engine.so", "libattune_procmgr.so", "libattune_watchguard.so", "libattune_music_metadata.so", "libattune_music_metadata_changer.so"):
+                so_src = dist_lib_dir / so_name
+                if so_src.exists():
+                    shutil.copy2(so_src, stage_lib_dir / so_name)
+                    shutil.copy2(so_src, stage_tar_dir / so_name)
+            for meta_file in ("attune_integrity.json", "SHA256SUMS.txt"):
+                m_src = dist_dir / meta_file
+                if m_src.exists():
+                    shutil.copy2(m_src, stage_tar_dir / meta_file)
+                    shutil.copy2(m_src, stage_lib_dir / meta_file)
+
+            log(f"[Package] Creating portable tarball {tar_path}...")
+            subprocess.check_call(
+                ["tar", "-czf", str(tar_path), "-C", str(stage_tar_dir.parent), "Attune"],
+                cwd=REPO_ROOT,
+            )
+            artifacts.append(tar_path)
 
         # 2. Linux AppImage
         if "all" in bundle_types or "appimage" in bundle_types:
@@ -1169,23 +1210,6 @@ def package_bundle(target_os="linux", mode="release", localversion="", bundle_ty
                 expected_appimage = dist_dir / f"Attune-{full_ver}-x86_64-{mode.lower()}.AppImage"
                 if expected_appimage.exists():
                     artifacts.append(expected_appimage)
-
-        # 3. Standalone Native Rust Desktop Executable + Required Shared Libraries (.so)
-        native_desktop_bin = REPO_ROOT / "target" / mode.lower() / "attune-desktop"
-        if native_desktop_bin.exists():
-            dest_native = dist_dir / f"Attune-Desktop-{full_ver}-Linux-x86_64"
-            shutil.copy2(native_desktop_bin, dest_native)
-            os.chmod(dest_native, 0o755)
-            dist_lib_dir = dist_dir / "lib"
-            dist_lib_dir.mkdir(parents=True, exist_ok=True)
-            for so_name in ("libattune_procmgr.so", "libattune_watchguard.so", "libattune_music_metadata.so", "libattune_music_metadata_changer.so"):
-                so_src = REPO_ROOT / "target" / mode.lower() / so_name
-                if so_src.exists():
-                    shutil.copy2(so_src, dist_lib_dir / so_name)
-                    log(f"[Package] Bundled dynamic component {so_name} -> {dist_lib_dir / so_name}")
-            log(f"[Package] Packaged standalone native desktop binary: {dest_native}")
-            if dest_native not in artifacts:
-                artifacts.append(dest_native)
 
     elif target_os.lower() == "windows":
         # -1. Windows-compliant Icon Generation & Distribution
@@ -1219,14 +1243,37 @@ def package_bundle(target_os="linux", mode="release", localversion="", bundle_ty
         # Generate anti-tamper integrity manifest for all dynamic DLLs
         generate_integrity_manifest(dist_dir, version=version, log_func=log)
 
-        # 1. Portable .zip bundle
-        runner_dir = REPO_ROOT / "apps" / "attune_app" / "build" / "windows" / "x64" / "runner" / mode.capitalize()
-        if runner_dir.exists() and ("all" in bundle_types or "zip" in bundle_types):
-            zip_name = f"Attune-{full_ver}-Windows-x86_64-{mode.capitalize()}.zip"
-            zip_path = dist_dir / zip_name
+        # 1. Portable .zip bundle (Native Rust Desktop + Signed DLLs + Integrity Manifest)
+        if "all" in bundle_types or "zip" in bundle_types:
+            zip_base = dist_dir / f"Attune-{full_ver}-Windows-x86_64-{mode.capitalize()}"
+            zip_path = dist_dir / f"Attune-{full_ver}-Windows-x86_64-{mode.capitalize()}.zip"
+            stage_win_dir = REPO_ROOT / "build" / f"windows-portable-{mode.lower()}"
+            if stage_win_dir.exists():
+                shutil.rmtree(stage_win_dir)
+            stage_win_dir.mkdir(parents=True, exist_ok=True)
+            stage_win_lib = stage_win_dir / "lib"
+            stage_win_lib.mkdir(parents=True, exist_ok=True)
+
+            if native_desktop_exe.exists():
+                shutil.copy2(native_desktop_exe, stage_win_dir / "attune-desktop.exe")
+            for dll_name in ("attune_engine.dll", "attune_procmgr.dll", "attune_watchguard.dll", "attune_music_metadata.dll", "attune_music_metadata_changer.dll"):
+                dll_src = dist_lib_dir / dll_name
+                if dll_src.exists():
+                    shutil.copy2(dll_src, stage_win_lib / dll_name)
+                    shutil.copy2(dll_src, stage_win_dir / dll_name)
+            for meta_file in ("attune_integrity.json", "SHA256SUMS.txt"):
+                m_src = dist_dir / meta_file
+                if m_src.exists():
+                    shutil.copy2(m_src, stage_win_dir / meta_file)
+                    shutil.copy2(m_src, stage_win_lib / meta_file)
+            ico_src = REPO_ROOT / "packaging" / "windows" / "app_icon.ico"
+            if ico_src.exists():
+                shutil.copy2(ico_src, stage_win_dir / "app_icon.ico")
+
             log(f"[Package] Creating portable zip {zip_path}...")
-            shutil.make_archive(str(dist_dir / f"Attune-{full_ver}-Windows-x86_64-{mode.capitalize()}"), "zip", runner_dir)
-            artifacts.append(zip_path)
+            shutil.make_archive(str(zip_base), "zip", stage_win_dir)
+            if zip_path.exists():
+                artifacts.append(zip_path)
 
         # 2. Inno Setup Installer
         if "all" in bundle_types or "innosetup" in bundle_types:
@@ -1928,8 +1975,9 @@ def main():
         try:
             print("[Test] Running Rust test suite...")
             subprocess.check_call(["cargo", "test"], cwd=REPO_ROOT, shell=IS_WINDOWS)
-            print("[Test] Running Flutter widget & algorithm test suite...")
-            subprocess.check_call(["flutter", "test"], cwd=REPO_ROOT / "apps" / "attune_app", shell=IS_WINDOWS)
+            if target_os == "android" and shutil.which("flutter"):
+                print("[Test] Running Flutter widget & algorithm test suite...")
+                subprocess.check_call(["flutter", "test"], cwd=REPO_ROOT / "apps" / "attune_app", shell=IS_WINDOWS)
             print("  [OK] All test suites passed successfully.")
         except Exception as e:
             print(f"  [X] Test execution note: {e}")
@@ -1944,8 +1992,8 @@ def main():
     build_num = args.build_number if args.build_number else pub_build
     full_ver = f"{effective_ver}{local_sfx}"
 
-    # Sync pubspec.yaml and local.properties early with version input
-    sync_pubspec_version(full_ver, build_num)
+    # Sync all workspace version metadata early with version input
+    sync_all_version_metadata(full_ver, build_num)
 
     print("==============================================================================")
     print(" Attune Build & Packaging Orchestrator (Headless CLI)")
@@ -1995,10 +2043,10 @@ def main():
             )
 
         if step in ("all", "rust"):
-            print(f"\n--- [Step: Compile Native Rust DSP Engine ({cur_mode})] ---")
+            print(f"\n--- [Step: Compile Native Rust Engine & Desktop Suite ({cur_mode})] ---")
             compile_rust(mode=cur_mode, target_os=target_os)
 
-        if step in ("all", "flutter"):
+        if step == "flutter" or (step == "all" and target_os == "android"):
             print(f"\n--- [Step: Compile Flutter Application ({cur_mode})] ---")
             compile_flutter(
                 target_os=target_os,
