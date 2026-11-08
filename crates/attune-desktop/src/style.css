@@ -291,38 +291,32 @@ body, html {
 }
 
 .lyric-line {
-  font-size: 15px;
+  font-size: 16px;
   line-height: 1.45;
   color: var(--text-muted);
   cursor: pointer;
   transform-origin: left center;
-  transition: all 0.3s cubic-bezier(0.22, 1, 0.36, 1);
+  will-change: transform, opacity;
+  transition: transform 0.4s cubic-bezier(0.22, 1, 0.36, 1),
+              opacity 0.4s cubic-bezier(0.22, 1, 0.36, 1),
+              color 0.35s ease,
+              text-shadow 0.35s ease;
+  transform: scale(0.94);
+  opacity: 0.50;
 }
 
 .lyric-line:hover {
   color: var(--text-secondary);
-  transform: translateX(2px);
+  opacity: 0.85;
+  transform: scale(0.98) translateX(2px);
 }
 
 .lyric-line.active {
   color: var(--lyrics-active);
-  font-size: 22px;
   font-weight: 700;
   text-shadow: 0 0 16px var(--lyrics-glow);
-  transform: scale(1.03) translateX(4px);
-  animation: lyricLineSpringEnterDock 0.35s cubic-bezier(0.22, 1, 0.36, 1) both;
-}
-
-@keyframes lyricLineSpringEnterDock {
-  0% {
-    transform: scale(1.0) translateX(0);
-  }
-  65% {
-    transform: scale(1.04) translateX(5px);
-  }
-  100% {
-    transform: scale(1.03) translateX(4px);
-  }
+  transform: scale(1.08) translateX(6px);
+  opacity: 1.0;
 }
 
 /* Bottom Player Transport Bar */
@@ -2751,9 +2745,9 @@ body, html {
   }
 }
 
-/* Fullscreen Synchronized Lyrics Line Typography */
+/* Fullscreen Synchronized Lyrics Line Typography & GPU Composited Animation */
 .fullscreen-lyrics-scroll {
-  scroll-behavior: smooth;
+  scroll-behavior: auto !important; /* Programmatic requestAnimationFrame easing handles smooth scrolling */
 }
 
 .fullscreen-lyrics-scroll::-webkit-scrollbar {
@@ -2770,58 +2764,37 @@ body, html {
   background: rgba(255, 255, 255, 0.28);
 }
 
-/* Better Lyrics-inspired fluid cubic-bezier line transitions */
+/* Better Lyrics fluid GPU composited typography: zero layout reflow */
 .fullscreen-lyric-line {
+  font-size: 28px;
+  line-height: 1.45;
+  font-weight: 700;
   cursor: pointer;
   user-select: none;
   transform-origin: left center;
-  transition: font-size 0.4s cubic-bezier(0.22, 1, 0.36, 1),
-              color 0.4s ease,
-              opacity 0.4s cubic-bezier(0.22, 1, 0.36, 1),
-              transform 0.4s cubic-bezier(0.22, 1, 0.36, 1),
-              text-shadow 0.4s ease,
-              filter 0.4s cubic-bezier(0.22, 1, 0.36, 1);
   will-change: transform, opacity;
+  transition: transform 0.5s cubic-bezier(0.22, 1, 0.36, 1),
+              opacity 0.5s cubic-bezier(0.22, 1, 0.36, 1),
+              color 0.4s ease,
+              text-shadow 0.4s ease;
 }
 
 .fullscreen-lyric-inactive {
-  font-size: 22px;
-  font-weight: 500;
-  color: rgba(255, 255, 255, 0.38);
-  line-height: 1.45;
-  transform: scale(0.985);
-  letter-spacing: -0.01em;
+  color: rgba(255, 255, 255, 0.40);
+  opacity: 0.35;
+  transform: scale(0.92) translateX(0);
 }
 
 .fullscreen-lyric-inactive:hover {
   color: rgba(255, 255, 255, 0.85);
-  transform: scale(1.0) translateX(4px);
-  opacity: 0.85;
+  opacity: 0.75;
+  transform: scale(0.96) translateX(4px);
 }
 
 .fullscreen-lyric-active {
-  font-size: 33px;
-  font-weight: 800;
   color: #FFFDD0;
-  line-height: 1.35;
-  transform: scale(1.035) translateX(6px);
-  opacity: 1;
-  letter-spacing: -0.015em;
-  animation: lyricLineSpringEnter 0.45s cubic-bezier(0.22, 1, 0.36, 1) both;
-}
-
-@keyframes lyricLineSpringEnter {
-  0% {
-    transform: scale(0.98) translateY(3px) translateX(0px);
-    opacity: 0.65;
-  }
-  60% {
-    transform: scale(1.045) translateY(-1px) translateX(8px);
-  }
-  100% {
-    transform: scale(1.035) translateY(0) translateX(6px);
-    opacity: 1;
-  }
+  opacity: 1.0;
+  transform: scale(1.08) translateX(8px);
 }
 
 .fullscreen-lyric-active.glow {

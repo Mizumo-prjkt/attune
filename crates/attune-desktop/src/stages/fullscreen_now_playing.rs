@@ -358,7 +358,7 @@ pub fn FullscreenNowPlaying(
                     div {
                         class: "fullscreen-lyrics-scroll",
                         "data-locked": if *is_locked_to_active.read() { "true" } else { "false" },
-                        style: "overflow-y: auto; max-height: 85vh; padding: 140px 32px; display: flex; flex-direction: column; gap: 28px; scroll-behavior: smooth; mask-image: linear-gradient(to bottom, transparent 0%, black 15%, black 85%, transparent 100%); -webkit-mask-image: linear-gradient(to bottom, transparent 0%, black 15%, black 85%, transparent 100%);",
+                        style: "overflow-y: auto; max-height: 85vh; padding: 38vh 32px; display: flex; flex-direction: column; gap: 28px; scroll-behavior: auto; mask-image: linear-gradient(to bottom, transparent 0%, black 15%, black 85%, transparent 100%); -webkit-mask-image: linear-gradient(to bottom, transparent 0%, black 15%, black 85%, transparent 100%);",
                         onwheel: move |_| {
                             if *is_locked_to_active.read() {
                                 is_locked_to_active.set(false);
@@ -485,5 +485,7 @@ pub mod tests {
         assert!(script.contains("data-line-idx"));
         assert!(script.contains("MutationObserver"));
         assert!(script.contains("Escape"));
+        assert!(script.contains("smoothScrollTo"));
+        assert!(script.contains("requestAnimationFrame"));
     }
 }

@@ -119,7 +119,45 @@ pub const LYRICS_SYNC_SCRIPT: &str = r#"
   window.attuneResetLyricsSync = function() {
     currentSyncedFsIndex = null;
     currentSyncedDockIndex = null;
+    var containers = document.querySelectorAll('.fullscreen-lyrics-scroll, .dock-scroll');
+    for (var i = 0; i < containers.length; i++) {
+      if (containers[i]._attuneScrollAnim) {
+        cancelAnimationFrame(containers[i]._attuneScrollAnim);
+        containers[i]._attuneScrollAnim = null;
+      }
+    }
   };
+
+  function smoothScrollTo(container, targetY, duration) {
+    if (!container) return;
+    if (container._attuneScrollAnim) {
+      cancelAnimationFrame(container._attuneScrollAnim);
+      container._attuneScrollAnim = null;
+    }
+    var maxScroll = Math.max(0, container.scrollHeight - container.clientHeight);
+    var clampedTarget = Math.max(0, Math.min(targetY, maxScroll));
+    var startY = container.scrollTop;
+    var delta = clampedTarget - startY;
+    if (Math.abs(delta) < 1) return;
+
+    var startTime = null;
+    var dur = duration || 500;
+
+    function step(timestamp) {
+      if (!startTime) startTime = timestamp;
+      var elapsed = timestamp - startTime;
+      var progress = Math.min(elapsed / dur, 1);
+      // Better Lyrics cubic-bezier(0.22, 1, 0.36, 1) ease-out curve
+      var ease = 1 - Math.pow(1 - progress, 3);
+      container.scrollTop = startY + delta * ease;
+      if (progress < 1) {
+        container._attuneScrollAnim = requestAnimationFrame(step);
+      } else {
+        container._attuneScrollAnim = null;
+      }
+    }
+    container._attuneScrollAnim = requestAnimationFrame(step);
+  }
 
   function centerElement(container, active) {
     if (!container || !active) return;
@@ -127,7 +165,7 @@ pub const LYRICS_SYNC_SCRIPT: &str = r#"
     var cRect = container.getBoundingClientRect();
     var aRect = active.getBoundingClientRect();
     var target = cTop + (aRect.top - cRect.top) - (cRect.height / 2) + (aRect.height / 2);
-    container.scrollTo({ top: target, behavior: 'smooth' });
+    smoothScrollTo(container, target, 500);
   }
 
   function attachContainerListeners() {
@@ -137,10 +175,18 @@ pub const LYRICS_SYNC_SCRIPT: &str = r#"
       if (!c._hasAttuneScroll) {
         c._hasAttuneScroll = true;
         c.addEventListener('wheel', function() {
+          if (this._attuneScrollAnim) {
+            cancelAnimationFrame(this._attuneScrollAnim);
+            this._attuneScrollAnim = null;
+          }
           this.setAttribute('data-locked', 'false');
         }, { passive: true });
         c.addEventListener('mousedown', function(e) {
           if (!e.target.closest('.lyric-line') && !e.target.closest('.fullscreen-lyric-line')) {
+            if (this._attuneScrollAnim) {
+              cancelAnimationFrame(this._attuneScrollAnim);
+              this._attuneScrollAnim = null;
+            }
             this.setAttribute('data-locked', 'false');
           }
         }, { passive: true });

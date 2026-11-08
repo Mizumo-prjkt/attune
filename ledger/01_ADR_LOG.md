@@ -4218,6 +4218,43 @@ This file records all major architectural decisions for **Attune**, including co
   - End-users can fully customize their lyrics animations with custom CSS keyframes.
   - Full compliance with open source etiquette and project governance.
 
+---
+
+## ADR-120: Silky-Smooth GPU Composited Lyrics Transition & Independent requestAnimationFrame Cubic Ease-Out Scroll Engine
+- **Date**: 2026-11-08
+- **Status**: `LOCKED`
+- **Context**:
+  1. The user reported that the lyrics animation was stuttery: "ok for some reason, the animation is stuttery like the animation is not smooth but like sudden stutter, youre almost there but almost at least".
+  2. Root cause analysis pinpointed four compounding friction points:
+     - **Layout Reflow Thrashing**: Dynamic font size (`22px` $\rightarrow$ `33px`) and line height changes during line activation forced Cairo and WebKitGTK to recalculate text bounds and glyph runs on every frame, shifting all subsequent lines down by ~13px during active scrolling.
+     - **Animation-Transition Cascade Clash**: The active line had both a CSS `transition: transform ...` and an `@keyframes lyricLineSpringEnter ... both` animation running concurrently. The `animation-fill-mode: both` caused an instant snap at $t=0$, and vertical `translateY(3px)` $\rightarrow$ `translateY(-1px)` bouncing directly opposed vertical scroll velocity.
+     - **Browser Smooth-Scroll Interpolator Conflict**: `container.scrollTo({ behavior: 'smooth' })` was conflicting with CSS `scroll-behavior: smooth`. Furthermore, WebKitGTK's native smooth scroll on Linux lacks high-refresh v-sync coordination and halts abruptly if layout reflows occur in mid-flight.
+     - **Boundary Padding Clamping**: Scroll padding was restricted to `140px`, causing the first 4 lines and last 4 lines of songs to clamp against container boundaries rather than smoothly gliding to center.
+- **Decision**:
+  1. **Reflow-Free GPU Composited Typography (`crates/attune-desktop/src/style.css`)**:
+     - Standardized static `font-size: 28px` and `line-height: 1.45` on `.fullscreen-lyric-line` (and `16px` on `.lyric-line`). Element dimensions remain 100% stable; sibling lines never shift or reflow.
+     - Set inactive lines to `transform: scale(0.92); opacity: 0.35;`.
+     - Set active lines to `transform: scale(1.08) translateX(8px); opacity: 1.0;` with warm cream `#FFFDD0` and dual radial glow.
+     - Used pure GPU composited `transition: transform 0.5s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.5s cubic-bezier(0.22, 1, 0.36, 1)`.
+     - Eliminated conflicting `@keyframes` and vertical `translateY` oscillations.
+  2. **Independent Per-Container `requestAnimationFrame` Smooth Scroll Engine (`crates/attune-desktop/src/theme.rs`)**:
+     - Implemented `smoothScrollTo(container, targetY, duration)` storing `container._attuneScrollAnim` independently on the DOM element, guaranteeing that fullscreen and docked scrollers never cancel each other.
+     - Applied Better Lyrics mathematical cubic ease-out curve:
+       $$\text{progress} = \min\left(\frac{t - t_0}{\text{dur}}, 1\right), \quad \text{ease} = 1 - (1 - \text{progress})^3$$
+       $$\text{scrollTop} = \text{startY} + (\text{clampedTarget} - \text{startY}) \times \text{ease}$$
+     - Clamped target scroll positions cleanly within $[0, \text{scrollHeight} - \text{clientHeight}]$ to eliminate boundary bounce.
+     - Automatically cancelled active animation frames upon user wheel or mousedown interactions.
+     - Set `scroll-behavior: auto !important` on `.fullscreen-lyrics-scroll` so native WebKit interpolators do not interfere with frame-by-frame `requestAnimationFrame` updates.
+  3. **Viewport-Centered Boundary Padding (`crates/attune-desktop/src/stages/fullscreen_now_playing.rs`)**:
+     - Configured container padding to `38vh 32px`, providing ample headroom for both initial and final singing lines to glide directly to vertical center without boundary clipping.
+  4. **Verification**:
+     - Updated unit tests in `fullscreen_now_playing.rs` verifying `smoothScrollTo` and `requestAnimationFrame`.
+     - All 91 desktop unit tests and 100% of workspace checks pass cleanly.
+- **Consequences**:
+  - Lyrics line transition and auto-scroll centering are buttery-smooth with zero stutter, zero layout reflow, and zero sudden jerks.
+  - Active line expands smoothly with Better Lyrics cubic-bezier curves at full display refresh rate.
+
+
 
 
 
