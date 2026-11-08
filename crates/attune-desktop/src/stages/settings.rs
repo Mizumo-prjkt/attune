@@ -420,6 +420,8 @@ pub fn SettingsContent(
     let mut benchmark_feedback = use_signal(|| None::<String>);
     let mut trim_feedback = use_signal(|| None::<(bool, String)>);
     let mut show_am_lyrics_modal = use_signal(|| false);
+    let mut mxm_test_loading = use_signal(|| false);
+    let mut mxm_test_status = use_signal(|| None::<(bool, String)>);
 
     let mut driver_diag = use_signal(crate::player::get_driver_diagnostics);
     use_future(move || async move {
@@ -1062,25 +1064,88 @@ pub fn SettingsContent(
                                     },
                                     "BiniLyrics by Binimum (<am-lyrics>)"
                                 }
-                                button {
-                                    class: if curr_cfg.lyric_provider == "musixmatch" { "btn-pill active" } else { "btn-pill" },
-                                    onclick: move |_| update_cfg(Box::new(|c| c.lyric_provider = "musixmatch".to_string())),
-                                    "Musixmatch (API Key Required)"
+                                if curr_cfg.api_musixmatch_enabled {
+                                    button {
+                                        class: if curr_cfg.lyric_provider == "musixmatch" { "btn-pill active" } else { "btn-pill" },
+                                        onclick: move |_| update_cfg(Box::new(|c| c.lyric_provider = "musixmatch".to_string())),
+                                        "Musixmatch [Exp] (API Key Required)"
+                                    }
                                 }
                             }
 
-                            if curr_cfg.lyric_provider == "musixmatch" {
-                                div { style: "margin-top: 14px;",
-                                    label { style: "font-size: 11.5px; font-weight: 700; color: var(--text-muted); text-transform: uppercase;", "Musixmatch User API Key" }
-                                    input {
-                                        r#type: "password",
-                                        class: "search-bar",
-                                        style: "width: 100%; max-width: 440px; margin-top: 6px; padding: 8px 12px; border-radius: 8px; background: rgba(255,255,255,0.06); border: 1px solid var(--border-glass); color: #fff;",
-                                        placeholder: "Enter Musixmatch API Key...",
-                                        value: "{curr_cfg.musixmatch_api_key}",
-                                        oninput: move |e| {
-                                            let key = e.value();
-                                            update_cfg(Box::new(move |c| c.musixmatch_api_key = key.clone()));
+                            if curr_cfg.api_musixmatch_enabled && curr_cfg.lyric_provider == "musixmatch" {
+                                div { style: "margin-top: 14px; padding: 14px; background: rgba(255, 255, 255, 0.03); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 10px;",
+                                    div { style: "display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px;",
+                                        div { style: "display: flex; align-items: center; gap: 8px;",
+                                            label { style: "font-size: 11.5px; font-weight: 700; color: var(--text-muted); text-transform: uppercase;", "Musixmatch User API Key" }
+                                            span {
+                                                class: "badge-pill",
+                                                style: "font-size: 10px; padding: 1px 6px; background: rgba(234, 179, 8, 0.2); color: #eab308; border-color: rgba(234, 179, 8, 0.4);",
+                                                "Experimental"
+                                            }
+                                        }
+                                        if !curr_cfg.musixmatch_api_key.trim().is_empty() {
+                                            span {
+                                                class: "badge-pill",
+                                                style: "background: rgba(100, 255, 218, 0.15); color: var(--accent-mint); border-color: rgba(100, 255, 218, 0.3); font-size: 10.5px;",
+                                                span { class: "material-icons md-12", "check_circle" }
+                                                "Key Configured"
+                                            }
+                                        }
+                                    }
+                                    div { style: "display: flex; gap: 10px; align-items: center; flex-wrap: wrap;",
+                                        input {
+                                            r#type: "password",
+                                            class: "search-bar",
+                                            style: "flex: 1; min-width: 240px; max-width: 440px; padding: 8px 12px; border-radius: 8px; background: rgba(255,255,255,0.06); border: 1px solid var(--border-glass); color: #fff;",
+                                            placeholder: "Enter Musixmatch API Key...",
+                                            value: "{curr_cfg.musixmatch_api_key}",
+                                            oninput: move |e| {
+                                                let key = e.value();
+                                                update_cfg(Box::new(move |c| c.musixmatch_api_key = key.clone()));
+                                            }
+                                        }
+                                        button {
+                                            class: "btn-pill",
+                                            disabled: *mxm_test_loading.read(),
+                                            onclick: {
+                                                let key = curr_cfg.musixmatch_api_key.clone();
+                                                move |_| {
+                                                    let key_to_test = key.clone();
+                                                    mxm_test_loading.set(true);
+                                                    mxm_test_status.set(None);
+                                                    dioxus::prelude::spawn(async move {
+                                                        let res = tokio::task::spawn_blocking(move || {
+                                                            crate::stages::lyrics_finder::test_musixmatch_api(&key_to_test)
+                                                        })
+                                                        .await
+                                                        .unwrap_or_else(|e| Err(format!("Task execution error: {e}")));
+                                                        mxm_test_loading.set(false);
+                                                        match res {
+                                                            Ok(msg) => mxm_test_status.set(Some((true, msg))),
+                                                            Err(err) => mxm_test_status.set(Some((false, err))),
+                                                        }
+                                                    });
+                                                }
+                                            },
+                                            if *mxm_test_loading.read() {
+                                                span { class: "material-icons md-14 spinning", "sync" }
+                                                span { "Testing Key..." }
+                                            } else {
+                                                span { class: "material-icons md-14", "speed" }
+                                                span { "Test Query" }
+                                            }
+                                        }
+                                    }
+                                    if let Some((is_ok, ref msg)) = *mxm_test_status.read() {
+                                        div {
+                                            style: if is_ok {
+                                                "margin-top: 10px; padding: 8px 12px; border-radius: 8px; font-size: 12px; display: flex; align-items: center; gap: 8px; background: rgba(100, 255, 218, 0.12); color: var(--accent-mint); border: 1px solid rgba(100, 255, 218, 0.3);"
+                                            } else {
+                                                "margin-top: 10px; padding: 8px 12px; border-radius: 8px; font-size: 12px; display: flex; align-items: center; gap: 8px; background: rgba(244, 63, 94, 0.12); color: var(--accent-rose); border: 1px solid rgba(244, 63, 94, 0.3);"
+                                            },
+                                            span { class: "material-icons md-16", if is_ok { "check_circle" } else { "error_outline" } }
+                                            span { "{msg}" }
                                         }
                                     }
                                 }
@@ -1703,8 +1768,15 @@ pub fn SettingsContent(
 
                             div { style: "display: flex; justify-content: space-between; align-items: center; margin-top: 8px; padding: 8px 0;",
                                 div {
-                                    div { style: "font-weight: 500; font-size: 13.5px;", "Musixmatch API" }
-                                    div { style: "font-size: 12px; color: var(--text-muted);", "Commercial synced lyrics catalog (requires API key)." }
+                                    div { style: "display: flex; align-items: center; gap: 8px;",
+                                        div { style: "font-weight: 500; font-size: 13.5px;", "[EXPERIMENTAL] Musixmatch API" }
+                                        span {
+                                            class: "badge-pill",
+                                            style: "background: rgba(234, 179, 8, 0.2); color: #eab308; border-color: rgba(234, 179, 8, 0.4); font-size: 10px; padding: 2px 7px;",
+                                            "Experimental"
+                                        }
+                                    }
+                                    div { style: "font-size: 12px; color: var(--text-muted); margin-top: 2px;", "Commercial synced lyrics catalog (requires API key). Experimental third-party integration." }
                                 }
                                 SwitchToggle {
                                     active: curr_cfg.api_musixmatch_enabled,
@@ -1719,7 +1791,7 @@ pub fn SettingsContent(
                                         input {
                                             r#type: "password",
                                             class: "search-bar",
-                                            style: "flex: 1; min-width: 260px; max-width: 440px; padding: 8px 12px; border-radius: 8px; background: rgba(255,255,255,0.06); border: 1px solid var(--border-glass); color: #fff; font-size: 13px;",
+                                            style: "flex: 1; min-width: 240px; max-width: 440px; padding: 8px 12px; border-radius: 8px; background: rgba(255,255,255,0.06); border: 1px solid var(--border-glass); color: #fff; font-size: 13px;",
                                             placeholder: "Enter Musixmatch API Key...",
                                             value: "{curr_cfg.musixmatch_api_key}",
                                             oninput: move |e| {
@@ -1732,6 +1804,48 @@ pub fn SettingsContent(
                                                 span { class: "material-icons md-14", "check_circle" }
                                                 "Key Configured"
                                             }
+                                        }
+                                        button {
+                                            class: "btn-pill",
+                                            disabled: *mxm_test_loading.read(),
+                                            onclick: {
+                                                let key = curr_cfg.musixmatch_api_key.clone();
+                                                move |_| {
+                                                    let key_to_test = key.clone();
+                                                    mxm_test_loading.set(true);
+                                                    mxm_test_status.set(None);
+                                                    dioxus::prelude::spawn(async move {
+                                                        let res = tokio::task::spawn_blocking(move || {
+                                                            crate::stages::lyrics_finder::test_musixmatch_api(&key_to_test)
+                                                        })
+                                                        .await
+                                                        .unwrap_or_else(|e| Err(format!("Task execution error: {e}")));
+                                                        mxm_test_loading.set(false);
+                                                        match res {
+                                                            Ok(msg) => mxm_test_status.set(Some((true, msg))),
+                                                            Err(err) => mxm_test_status.set(Some((false, err))),
+                                                        }
+                                                    });
+                                                }
+                                            },
+                                            if *mxm_test_loading.read() {
+                                                span { class: "material-icons md-14 spinning", "sync" }
+                                                span { "Testing Key..." }
+                                            } else {
+                                                span { class: "material-icons md-14", "speed" }
+                                                span { "Test Query" }
+                                            }
+                                        }
+                                    }
+                                    if let Some((is_ok, ref msg)) = *mxm_test_status.read() {
+                                        div {
+                                            style: if is_ok {
+                                                "margin-top: 10px; padding: 8px 12px; border-radius: 8px; font-size: 12px; display: flex; align-items: center; gap: 8px; background: rgba(100, 255, 218, 0.12); color: var(--accent-mint); border: 1px solid rgba(100, 255, 218, 0.3);"
+                                            } else {
+                                                "margin-top: 10px; padding: 8px 12px; border-radius: 8px; font-size: 12px; display: flex; align-items: center; gap: 8px; background: rgba(244, 63, 94, 0.12); color: var(--accent-rose); border: 1px solid rgba(244, 63, 94, 0.3);"
+                                            },
+                                            span { class: "material-icons md-16", if is_ok { "check_circle" } else { "error_outline" } }
+                                            span { "{msg}" }
                                         }
                                     }
                                 }

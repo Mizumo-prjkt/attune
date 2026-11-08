@@ -2,7 +2,7 @@
 
 - **Project Name**: Attune
 - **Current Phase**: `Phase 6 IN PROGRESS -> Multi-Platform Packaging, Installer Scripting & Distribution Orchestration`
-- **Active Coding Status**: Completed ADR-136: Music Library Row Action Consolidation (Heart + Popover Menu) and Unified Track Information Modal. Squeezed 3-button library row actions into a sleek Favorite Heart button and a `...` More Options menu (Play Now, Add to Queue, Change Song Artwork, Song Information). Adjusted grid columns and padded the Time column to completely eliminate the crowded "TIME ACTIONS" header overlap. Extracted a reusable `TrackInfoModal` displaying album artwork thumbnail, creative credits, DSP audio fidelity metrics, and 1-click path copying with feedback, refactoring duplicate modals out of `albums.rs` and `artists.rs`. All 107 desktop unit tests and 100% of workspace tests pass cleanly.
+- **Active Coding Status**: Completed ADR-138: Dynamic CI/CD Versioning Engine, Windows-Compliant Multi-Resolution Icon Pipeline & Anti-Tamper DLL Integrity Manifest. Integrated dynamic continuous integration versioning in `tools/builder.py` and `build.rs` derived from git tags/commits and synchronized across `pubspec.yaml`, root `Cargo.toml`, `android/local.properties`, and Inno Setup installer. Added multi-resolution 7-layer `.ico` generation (16 to 256 @ 32bpp) via `tools/generate_windows_icons.py`. Engineered cryptographic anti-tamper signing and verification generating `attune_integrity.json` and `SHA256SUMS.txt`, with preflight runtime SHA-256 and BLAKE3 verification in `dynamic_components.rs` before `os_dlopen`. All 110 desktop unit tests pass cleanly.
 
 
 ---

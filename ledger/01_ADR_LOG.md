@@ -4836,6 +4836,66 @@ This file records all major architectural decisions for **Attune**, including co
   - Instant access to track favorites and contextual secondary actions with unified information modal across Library, Albums, and Artists views.
   - All 107 desktop tests and 100% of workspace tests pass cleanly.
 
+---
+
+## ADR-137: Musixmatch Synchronized Lyric Fetching Engine, Experimental API Providers Isolation & Real-Time Test Query Suite
+- **Date**: 2026-11-09
+- **Status**: LOCKED
+- **Context**:
+  - The lyrics subsystem in Attune supports multiple upstream lyric providers: local companion files (.lrc, .elrc, .ttml, .yrc, .txt), LRCLIB (public, open-source database), and BiniLyrics (`<am-lyrics>`, requiring license agreement).
+  - Users requested integration with the commercial Musixmatch API for synchronized (LRC) lyrics fetching, along with strict architectural boundaries:
+    1. Musixmatch lyric querying and tab controls must strictly remain hidden unless the user has explicitly toggled on `api_musixmatch_enabled` in Settings.
+    2. The Musixmatch API settings card must be clearly marked as `[EXPERIMENTAL]` with an amber badge pill to indicate non-default third-party status.
+    3. An interactive **Test Query** button must be added to Settings (under both API Providers and Lyrics tabs) to verify API key validity with real-time feedback (success, 401 unauthorized, 402 quota exceeded, 403 forbidden, etc.).
+- **Decision**:
+  1. **Core Fetching & Sanitization Engine (`crates/attune-desktop/src/stages/lyrics_finder.rs`)**:
+     - Added `FinderTab::Musixmatch` variant to `FinderTab`.
+     - Implemented `clean_musixmatch_lyrics(text: &str) -> String` to strip Musixmatch commercial notices and copyright disclaimers (`******* This Lyrics is NOT for Commercial use *******` and `/* Commercial use of this lyric is prohibited */`).
+     - Implemented `parse_musixmatch_status(status_code: i64, track_name: Option<&str>) -> Result<String, String>` mapping HTTP and JSON header status codes to transparent messages.
+     - Implemented `test_musixmatch_api(api_key: &str) -> Result<String, String>` performing a lightweight test query (`track.search?q_artist=Queen&q_track=Bohemian%20Rhapsody&page_size=1`) and checking status codes.
+     - Implemented `fetch_musixmatch_candidates(query, track_title, artist, dur_ms, api_key) -> Vec<LyricCandidate>` querying `track.search`, prioritizing synchronized LRC subtitles (`track.subtitle.get?subtitle_format=lrc`), and falling back to plain lyrics and `matcher.subtitle.get` / `matcher.lyrics.get`.
+  2. **Strict UI Isolation**:
+     - In `LyricsFinderStandaloneWindow`, Tab 4 ("Musixmatch") only renders when `curr_cfg.api_musixmatch_enabled` is true, decorated with an amber `Exp` badge pill.
+     - In Settings Tab 4 ("Lyrics"), the Musixmatch provider button is only visible when `curr_cfg.api_musixmatch_enabled` is true. When selected, it renders the API Key password field, an `[EXPERIMENTAL]` badge, and a **Test Query** button with live spinner and status feedback banner.
+     - In Settings Tab 5 ("API Providers"), the Musixmatch section is prominently labeled `[EXPERIMENTAL] Musixmatch API` with an `Experimental` badge pill, and features an interactive **Test Query** button.
+  3. **Non-`Copy` Closure Refactoring**:
+     - Decoupled search orchestration into a standalone function `execute_search` that receives signals by value and loads configuration within spawned asynchronous tasks, avoiding `non-Copy` closure capturing issues.
+- **Consequences**:
+  - Secure, opt-in integration of Musixmatch synchronized lyrics that remains completely invisible when disabled.
+  - Zero hardcoding (Mandate 4) with instant user validation of credentials before attempting playback lookups.
+  - All 110 desktop unit tests and 100% of workspace tests pass cleanly.
+
+---
+
+## ADR-138: Dynamic CI/CD Versioning Engine, Windows-Compliant Multi-Resolution Icon Pipeline & Anti-Tamper DLL Integrity Manifest
+
+- **Date**: 2026-11-09
+- **Status**: LOCKED
+- **Context**:
+  - The user requested builder preparation, cryptographic DLL signing / integrity manifests to prevent file tampering, a mechanism to generate Windows-compliant icons, and a dynamically changing Attune version ID for pushing updates.
+  - Previous packaging scripts used static versions scattered across `pubspec.yaml`, `Cargo.toml`, `local.properties`, `attune_installer.iss`, and `build.rs`, violating Mandate 4 (Avoid hardcoded values).
+  - Standard Windows `.ico` files require 7 specific resolutions (16x16, 24x24, 32x32, 48x48, 64x64, 128x128, 256x256 @ 32bpp) for crisp rendering across high-DPI scaling, Taskbar, Start menu, and Alt-Tab displays.
+  - Attune loads modular external dynamic components (`attune_engine.dll`, `attune_watchguard.dll`, `attune_procmgr.dll`, `attune_music_metadata.dll`, `attune_music_metadata_changer.dll`). Tampered or corrupted DLLs could induce segmentation faults or security hazards.
+- **Decision**:
+  1. **Dynamic Versioning Engine (`tools/builder.py` and `build.rs`)**:
+     - Dynamically derives continuous integration version IDs from Git metadata (`git describe --tags --always --dirty` and total commit count `git rev-list --count HEAD`).
+     - Added `--bump [patch|minor|major]` and `--dynamic-version` CLI flags, plus GUI buttons in `tools/builder.py`, synchronizing `pubspec.yaml`, root `Cargo.toml` (`[workspace.package] version`), `android/local.properties`, and `packaging/windows/attune_installer.iss`.
+     - In `crates/attune-desktop/build.rs`, dynamically resolves `ATTUNE_VERSION` from `ATTUNE_VERSION` env var, Git describe, or `pubspec.yaml`, falling back transparently to `CARGO_PKG_VERSION`.
+  2. **Windows-Compliant Multi-Resolution Icon Pipeline (`tools/generate_windows_icons.py`)**:
+     - Engineered a cascade pipeline supporting ImageMagick (`magick`/`convert`), Pillow (`PIL.Image`), and a pure-Python binary ICO packer with Vista+ PNG embedding.
+     - Produces compliant `.ico` files with all 7 standard resolutions (16x16, 24x24, 32x32, 48x48, 64x64, 128x128, 256x256 @ 32bpp).
+     - Automatically targets and synchronizes `packaging/windows/app_icon.ico`, `apps/attune_app/windows/runner/resources/app_icon.ico`, and `crates/attune-desktop/resources/app_icon.ico`.
+     - Validates ICO headers and directory entries via `validate_ico_file`.
+  3. **Cryptographic Anti-Tamper Verification & DLL Signing**:
+     - Engineered `generate_integrity_manifest()` and `sign_dll_file()` in `tools/builder.py`, generating `attune_integrity.json` (SHA-256 and BLAKE3 hashes, file size, version, build number, ISO timestamp, git commit) and `SHA256SUMS.txt`.
+     - In `crates/attune-desktop/src/dynamic_components.rs`, implemented `verify_component_integrity(path, base_name)`: validates target DLL/SO files against `attune_integrity.json` before `os_dlopen`. Tampered files fail gracefully with explicit descriptive errors (Mandate 4).
+     - Configured Inno Setup `packaging/windows/attune_installer.iss` to package all dynamic component DLLs and `attune_integrity.json` in both `{app}` and `{app}\lib`, using `SetupIconFile=..\..\packaging\windows\app_icon.ico`.
+- **Consequences**:
+  - Continuous integration and release builds dynamically inherit Git tags and revision counts without manual edits.
+  - Perfect icon fidelity on all Windows display scaling levels (100%, 125%, 150%, 200%).
+  - Cryptographic verification guarantees shared libraries loaded at runtime are untampered and intact.
+  - All 110 desktop unit tests pass cleanly.
+
 
 
 
