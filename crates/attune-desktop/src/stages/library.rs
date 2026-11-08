@@ -13,9 +13,12 @@ pub fn Library(
     on_queue_track: EventHandler<TrackEntry>,
     on_toggle_favorite: EventHandler<PathBuf>,
     on_search_change: EventHandler<String>,
+    #[props(default)]
+    on_artwork_updated: EventHandler<(Option<PathBuf>, PathBuf, String)>,
 ) -> Element {
     let mut sort_by = use_signal(|| "title");
     let mut sort_asc = use_signal(|| true);
+    let selected_track_for_art = use_signal(|| None::<TrackEntry>);
 
     let query_lower = search_query.to_lowercase();
     let mut filtered_tracks: Vec<TrackEntry> = tracks
@@ -217,7 +220,7 @@ pub fn Library(
                                         "{dur_str}"
                                     }
 
-                                    // Actions: Queue / Favorite
+                                    // Actions: Queue / Artwork / Favorite
                                     div { style: "display: flex; gap: 8px; justify-content: center; align-items: center;",
                                         button {
                                             style: "background: transparent; border: none; cursor: pointer; color: var(--text-muted); padding: 2px;",
@@ -227,6 +230,16 @@ pub fn Library(
                                                 move |_| on_queue_track.call(t_clone.clone())
                                             },
                                             span { class: "material-icons md-16", "playlist_add" }
+                                        }
+                                        button {
+                                            style: "background: transparent; border: none; cursor: pointer; color: var(--text-muted); padding: 2px;",
+                                            title: "Change Song Artwork (YouTube HQ / File)...",
+                                            onclick: {
+                                                let t_clone = t.clone();
+                                                let mut sel = selected_track_for_art;
+                                                move |_| sel.set(Some(t_clone.clone()))
+                                            },
+                                            span { class: "material-icons md-16", "image_search" }
                                         }
                                         button {
                                             style: "background: transparent; border: none; cursor: pointer; color: if is_fav { \"#fb7185\" } else { \"var(--text-muted)\" }; padding: 2px;",
@@ -243,6 +256,29 @@ pub fn Library(
                             }
                         }
                     }
+                }
+            }
+
+            if let Some(ref t) = *selected_track_for_art.read() {
+                crate::components::artwork_selector::ArtworkSelectorModal {
+                    title: t.title.clone(),
+                    artist: t.artist.clone(),
+                    album: t.album.clone(),
+                    track_path: Some(t.path.clone()),
+                    current_artwork_url: t.artwork_data_url.clone(),
+                    is_album_level: false,
+                    on_close: {
+                        let mut sel = selected_track_for_art;
+                        move |_| sel.set(None)
+                    },
+                    on_artwork_applied: {
+                        let t_p = t.path.clone();
+                        let mut sel = selected_track_for_art;
+                        move |(path, data_url)| {
+                            sel.set(None);
+                            on_artwork_updated.call((Some(t_p.clone()), path, data_url));
+                        }
+                    },
                 }
             }
         }

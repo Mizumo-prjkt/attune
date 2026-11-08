@@ -31,8 +31,11 @@ pub fn FullscreenNowPlaying(
     on_cycle_shuffle: EventHandler<()>,
     on_cycle_repeat: EventHandler<()>,
     on_exit: EventHandler<()>,
+    #[props(default)]
+    on_artwork_updated: EventHandler<(Option<std::path::PathBuf>, std::path::PathBuf, String)>,
 ) -> Element {
     let strings = crate::i18n::current_strings();
+    let show_artwork_modal = use_signal(|| false);
 
     // Default to locked follow mode (Flutter equivalent: _isLockedToActive = true)
     let mut is_locked_to_active = use_signal(|| true);
@@ -230,7 +233,11 @@ pub fn FullscreenNowPlaying(
             // Main Content: Pure Edge-to-Edge 2-Column Split
             div {
                 class: "fullscreen-body",
-                style: "display: flex; flex: 1; padding: 48px 64px; gap: 72px; align-items: center; z-index: 10; height: 100vh; max-height: 100vh; box-sizing: border-box;",
+                style: if config.fullscreen_layout_side == "right" {
+                    "display: flex; flex-direction: row-reverse; flex: 1; padding: 48px 64px; gap: 72px; align-items: center; z-index: 10; height: 100vh; max-height: 100vh; box-sizing: border-box;"
+                } else {
+                    "display: flex; flex-direction: row; flex: 1; padding: 48px 64px; gap: 72px; align-items: center; z-index: 10; height: 100vh; max-height: 100vh; box-sizing: border-box;"
+                },
 
                 // Left Column: Artwork + Track Info + Scrubber + Full Transport Controls
                 div {
@@ -239,11 +246,22 @@ pub fn FullscreenNowPlaying(
 
                     // Album Art
                     div {
-                        style: "width: 100%; aspect-ratio: 1/1; border-radius: 18px; overflow: hidden; box-shadow: 0 24px 60px rgba(0, 0, 0, 0.65); border: 1px solid rgba(255, 255, 255, 0.12); position: relative;",
+                        class: "album-cover-box",
+                        style: "width: 100%; aspect-ratio: 1/1; border-radius: 18px; overflow: hidden; box-shadow: 0 24px 60px rgba(0, 0, 0, 0.65); border: 1px solid rgba(255, 255, 255, 0.12); position: relative; cursor: pointer;",
+                        title: "Click to select or change album artwork (YouTube HQ / Local File)",
+                        onclick: {
+                            let mut show_m = show_artwork_modal;
+                            move |_| show_m.set(true)
+                        },
                         img {
                             src: "{artwork_url}",
                             alt: "{track.title}",
                             style: "width: 100%; height: 100%; object-fit: cover; display: block;"
+                        }
+                        div {
+                            class: "album-cover-hover-overlay",
+                            span { class: "material-icons md-24", "edit" }
+                            span { style: "font-size: 11px; font-weight: 600;", "Change Art" }
                         }
                     }
 
@@ -391,14 +409,23 @@ pub fn FullscreenNowPlaying(
                                     let is_active = active_lyric_index == Some(idx);
                                     let line_ts = line.timestamp_ms;
                                     let text = line.text.clone();
-                                    let line_class = if is_active {
-                                        if config.fullscreen_text_glow {
-                                            "fullscreen-lyric-line fullscreen-lyric-active glow"
-                                        } else {
-                                            "fullscreen-lyric-line fullscreen-lyric-active"
+                                    let align_class = if !config.enable_lyrics_custom_css {
+                                        match config.fullscreen_lyrics_align.as_str() {
+                                            "center" => " align-center",
+                                            "right" => " align-right",
+                                            _ => " align-left",
                                         }
                                     } else {
-                                        "fullscreen-lyric-line fullscreen-lyric-inactive"
+                                        ""
+                                    };
+                                    let line_class = if is_active {
+                                        if config.fullscreen_text_glow {
+                                            format!("fullscreen-lyric-line fullscreen-lyric-active glow{}", align_class)
+                                        } else {
+                                            format!("fullscreen-lyric-line fullscreen-lyric-active{}", align_class)
+                                        }
+                                    } else {
+                                        format!("fullscreen-lyric-line fullscreen-lyric-inactive{}", align_class)
                                     };
 
                                     rsx! {
@@ -430,6 +457,31 @@ pub fn FullscreenNowPlaying(
                             span { class: "material-icons md-18", "vertical_align_center" }
                             span { "Sync to Current Line" }
                         }
+                    }
+                }
+            }
+
+            if *show_artwork_modal.read() {
+                if let Some(ref track) = current_track {
+                    crate::components::artwork_selector::ArtworkSelectorModal {
+                        title: track.title.clone(),
+                        artist: track.artist.clone(),
+                        album: track.album.clone(),
+                        track_path: Some(track.path.clone()),
+                        current_artwork_url: Some(artwork_url.clone()),
+                        is_album_level: false,
+                        on_close: {
+                            let mut show_m = show_artwork_modal;
+                            move |_| show_m.set(false)
+                        },
+                        on_artwork_applied: {
+                            let t_p = track.path.clone();
+                            let mut show_m = show_artwork_modal;
+                            move |(path, data_url)| {
+                                show_m.set(false);
+                                on_artwork_updated.call((Some(t_p.clone()), path, data_url));
+                            }
+                        },
                     }
                 }
             }

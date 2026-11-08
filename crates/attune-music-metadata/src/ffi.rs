@@ -437,3 +437,118 @@ pub extern "C" fn attune_metadata_changer_fetch_artist_online(artist_name: *cons
     attune_metadata_fetch_artist_online(artist_name)
 }
 
+/// Searches YouTube and YouTube Music for candidate high quality thumbnails.
+/// Returns a JSON array of `Vec<YouTubeThumbnailCandidate>`.
+/// Caller must free returned pointer using `attune_track_tweaks_free_string`.
+#[no_mangle]
+pub extern "C" fn attune_metadata_search_youtube_thumbnails(query: *const c_char) -> *mut c_char {
+    let res = catch_unwind(|| {
+        let q = match parse_cstr(query) {
+            Ok(s) => s,
+            Err(_) => return std::ptr::null_mut(),
+        };
+        match crate::youtube_thumbs::search_youtube_thumbnails(q) {
+            Ok(cands) => match serde_json::to_string(&cands) {
+                Ok(json_str) => match CString::new(json_str) {
+                    Ok(c) => c.into_raw(),
+                    Err(_) => std::ptr::null_mut(),
+                },
+                Err(_) => std::ptr::null_mut(),
+            },
+            Err(_) => std::ptr::null_mut(),
+        }
+    });
+
+    res.unwrap_or(std::ptr::null_mut())
+}
+
+#[no_mangle]
+pub extern "C" fn attune_metadata_changer_search_youtube_thumbnails(query: *const c_char) -> *mut c_char {
+    attune_metadata_search_youtube_thumbnails(query)
+}
+
+/// Downloads a thumbnail from `url` and writes the image bytes directly to `dest_path`.
+/// Returns 0 on success, or negative error code.
+#[no_mangle]
+pub extern "C" fn attune_metadata_download_youtube_thumbnail(
+    url: *const c_char,
+    dest_path: *const c_char,
+) -> i32 {
+    let res = catch_unwind(|| {
+        let u = match parse_cstr(url) {
+            Ok(s) => s,
+            Err(e) => return e,
+        };
+        let p = match parse_cstr(dest_path) {
+            Ok(s) => s,
+            Err(e) => return e,
+        };
+
+        match crate::youtube_thumbs::download_thumbnail_to_file(u, std::path::Path::new(p)) {
+            Ok(_) => ERR_SUCCESS,
+            Err(e) => {
+                log::error!("Failed downloading YouTube thumbnail: {e}");
+                ERR_WRITE_FAILED
+            }
+        }
+    });
+
+    res.unwrap_or(ERR_PANIC)
+}
+
+#[no_mangle]
+pub extern "C" fn attune_metadata_changer_download_youtube_thumbnail(
+    url: *const c_char,
+    dest_path: *const c_char,
+) -> i32 {
+    attune_metadata_download_youtube_thumbnail(url, dest_path)
+}
+
+/// Automatically searches for top HQ thumbnail for a given track and downloads it to `dest_path`.
+/// Returns a JSON string of `{ id, title, author, thumbnail_url, width, height, source }`.
+/// Caller must free returned pointer using `attune_track_tweaks_free_string`.
+#[no_mangle]
+pub extern "C" fn attune_metadata_fetch_hq_thumbnail(
+    title: *const c_char,
+    artist: *const c_char,
+    dest_path: *const c_char,
+) -> *mut c_char {
+    let res = catch_unwind(|| {
+        let t = match parse_cstr(title) {
+            Ok(s) => s,
+            Err(_) => return std::ptr::null_mut(),
+        };
+        let a = match parse_cstr(artist) {
+            Ok(s) => s,
+            Err(_) => return std::ptr::null_mut(),
+        };
+        let p = match parse_cstr(dest_path) {
+            Ok(s) => s,
+            Err(_) => return std::ptr::null_mut(),
+        };
+
+        match crate::youtube_thumbs::fetch_and_save_hq_thumbnail(t, a, std::path::Path::new(p)) {
+            Ok(cand) => match serde_json::to_string(&cand) {
+                Ok(json_str) => match CString::new(json_str) {
+                    Ok(c) => c.into_raw(),
+                    Err(_) => std::ptr::null_mut(),
+                },
+                Err(_) => std::ptr::null_mut(),
+            },
+            Err(_) => std::ptr::null_mut(),
+        }
+    });
+
+    res.unwrap_or(std::ptr::null_mut())
+}
+
+#[no_mangle]
+pub extern "C" fn attune_metadata_changer_fetch_hq_thumbnail(
+    title: *const c_char,
+    artist: *const c_char,
+    dest_path: *const c_char,
+) -> *mut c_char {
+    attune_metadata_fetch_hq_thumbnail(title, artist, dest_path)
+}
+
+

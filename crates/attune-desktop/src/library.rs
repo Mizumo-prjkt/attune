@@ -24,18 +24,20 @@ pub fn clear_thumbnail_cache() {
     }
 }
 
-/// Resolves or downsamples an album cover to a lightweight (~160x160 JPEG, ~4-8 KB) Base64 Data URL.
+/// Resolves an album cover to a Base64 Data URL, supporting both high-quality mode (up to 1024x1024 HD)
+/// and lightweight mode (~160x160 JPEG).
 /// Deduplicates across tracks in the same album to eliminate memory bloat on library scan.
-pub fn resolve_thumbnail_data_url(art_p: &Path) -> Option<String> {
+pub fn resolve_thumbnail_data_url_with_quality(art_p: &Path, high_quality: bool) -> Option<String> {
     if !art_p.is_file() {
         return None;
     }
 
     // 1. Fast path: check in-memory deduplication cache
+    let mem_cache_key = format!("{}:{}", art_p.to_string_lossy(), if high_quality { "hq" } else { "lq" });
     {
         let mut guard = THUMBNAIL_CACHE.lock().unwrap();
         let cache = guard.get_or_insert_with(HashMap::new);
-        if let Some(existing) = cache.get(art_p) {
+        if let Some(existing) = cache.get(Path::new(&mem_cache_key)) {
             return Some(existing.clone());
         }
     }
@@ -54,48 +56,80 @@ pub fn resolve_thumbnail_data_url(art_p: &Path) -> Option<String> {
         .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
         .map(|d| d.as_secs())
         .unwrap_or(0);
-    let key = format!("{}-{}-{}", art_p.to_string_lossy(), art_meta.len(), mod_time);
+    let key = format!("{}-{}-{}-{}", art_p.to_string_lossy(), art_meta.len(), mod_time, if high_quality { "hq" } else { "lq" });
 
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
     key.hash(&mut hasher);
     let hash_hex = format!("{:016x}", hasher.finish());
-    let cached_file = cache_dir.join(format!("{hash_hex}.jpg"));
+    let cached_file = cache_dir.join(format!("{hash_hex}_{}.jpg", if high_quality { "hq" } else { "lq" }));
 
-    let jpeg_bytes = if cached_file.is_file() {
-        std::fs::read(&cached_file).ok()?
+    let (image_bytes, mime_type) = if cached_file.is_file() {
+        (std::fs::read(&cached_file).ok()?, "image/jpeg")
     } else {
         let raw_bytes = std::fs::read(art_p).ok()?;
-        // If image is already tiny (<= 16 KB), keep directly
-        if raw_bytes.len() <= 16 * 1024 {
-            raw_bytes
-        } else if let Ok(img) = image::load_from_memory(&raw_bytes) {
-            let thumb = img.thumbnail(160, 160);
-            let mut out = Vec::new();
-            let mut cursor = std::io::Cursor::new(&mut out);
-            if thumb.write_to(&mut cursor, image::ImageFormat::Jpeg).is_ok() {
-                let _ = std::fs::write(&cached_file, &out);
-                out
+        let is_png = raw_bytes.starts_with(b"\x89PNG\r\n\x1a\n");
+        let is_webp = raw_bytes.len() >= 12 && &raw_bytes[0..4] == b"RIFF" && &raw_bytes[8..12] == b"WEBP";
+
+        if high_quality {
+            // High quality mode: If original image is <= 512 KB, preserve original bytes directly
+            if raw_bytes.len() <= 512 * 1024 {
+                let mime = if is_png { "image/png" } else if is_webp { "image/webp" } else { "image/jpeg" };
+                (raw_bytes, mime)
+            } else if let Ok(img) = image::load_from_memory(&raw_bytes) {
+                // Downscale gracefully to max 1024x1024 HD
+                let thumb = img.thumbnail(1024, 1024);
+                let mut out = Vec::new();
+                let mut cursor = std::io::Cursor::new(&mut out);
+                if thumb.write_to(&mut cursor, image::ImageFormat::Jpeg).is_ok() {
+                    let _ = std::fs::write(&cached_file, &out);
+                    (out, "image/jpeg")
+                } else {
+                    (raw_bytes, "image/jpeg")
+                }
             } else {
-                raw_bytes
+                (raw_bytes, "image/jpeg")
             }
         } else {
-            raw_bytes
+            // Standard mode: lightweight 160x160 thumbnail
+            if raw_bytes.len() <= 16 * 1024 {
+                let mime = if is_png { "image/png" } else if is_webp { "image/webp" } else { "image/jpeg" };
+                (raw_bytes, mime)
+            } else if let Ok(img) = image::load_from_memory(&raw_bytes) {
+                let thumb = img.thumbnail(160, 160);
+                let mut out = Vec::new();
+                let mut cursor = std::io::Cursor::new(&mut out);
+                if thumb.write_to(&mut cursor, image::ImageFormat::Jpeg).is_ok() {
+                    let _ = std::fs::write(&cached_file, &out);
+                    (out, "image/jpeg")
+                } else {
+                    (raw_bytes, "image/jpeg")
+                }
+            } else {
+                (raw_bytes, "image/jpeg")
+            }
         }
     };
 
     use base64::Engine;
-    let b64 = base64::engine::general_purpose::STANDARD.encode(&jpeg_bytes);
-    let data_url = format!("data:image/jpeg;base64,{b64}");
+    let b64 = base64::engine::general_purpose::STANDARD.encode(&image_bytes);
+    let data_url = format!("data:{mime_type};base64,{b64}");
 
     // Store in in-memory cache
     {
         let mut guard = THUMBNAIL_CACHE.lock().unwrap();
         if let Some(ref mut cache) = *guard {
+            cache.insert(PathBuf::from(mem_cache_key), data_url.clone());
             cache.insert(art_p.to_path_buf(), data_url.clone());
         }
     }
 
     Some(data_url)
+}
+
+/// Resolves an album cover to a Base64 Data URL using the active configuration's thumbnail quality setting.
+pub fn resolve_thumbnail_data_url(art_p: &Path) -> Option<String> {
+    let hq = crate::config::load_config().high_quality_thumbnails;
+    resolve_thumbnail_data_url_with_quality(art_p, hq)
 }
 
 /// A single playable track in the desktop library.

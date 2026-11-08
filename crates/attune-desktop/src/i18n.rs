@@ -193,6 +193,41 @@ pub struct Strings {
     pub special_thanks_and_credits: &'static str,
     pub custom_lyrics_css: &'static str,
     pub custom_lyrics_css_desc: &'static str,
+
+    // Lyrics Layout & Alignment
+    pub sidebar_lyrics_align: &'static str,
+    pub sidebar_lyrics_align_desc: &'static str,
+    pub fullscreen_layout_placement: &'static str,
+    pub fullscreen_layout_placement_desc: &'static str,
+    pub fullscreen_lyrics_align: &'static str,
+    pub fullscreen_lyrics_align_desc: &'static str,
+    pub controls_left_lyrics_right: &'static str,
+    pub controls_right_lyrics_left: &'static str,
+    pub align_left: &'static str,
+    pub align_center: &'static str,
+    pub align_right: &'static str,
+    pub custom_css_precedence_notice: &'static str,
+    pub karaoke_preset_label: &'static str,
+    pub css_reference_guide_title: &'static str,
+    pub css_scope_note: &'static str,
+
+    // Artist Profile Finder & Matcher Stage
+    pub select_artist_to_find_profile: &'static str,
+    pub select_artist_to_find_profile_desc: &'static str,
+    pub artist_profile_finder: &'static str,
+    pub editing_profile_for_artist: &'static str,
+    pub find_artist_manually: &'static str,
+    pub artist_profile_not_found: &'static str,
+    pub artist_profile_not_found_desc: &'static str,
+    pub search_artist_placeholder: &'static str,
+    pub apply_and_link_artist: &'static str,
+    pub linked_profile_success: &'static str,
+    pub custom_profile: &'static str,
+    pub image_url: &'static str,
+    pub banner_url: &'static str,
+    pub bio_description: &'static str,
+    pub no_artist_candidates_found: &'static str,
+    pub no_artist_candidates_guide: &'static str,
 }
 
 pub fn get_strings(lang: Language) -> Strings {
@@ -345,6 +380,41 @@ pub fn get_strings(lang: Language) -> Strings {
             special_thanks_and_credits: "Special Thanks & Open Source Credits",
             custom_lyrics_css: "Custom Fullscreen Lyrics CSS Animation",
             custom_lyrics_css_desc: "Inject custom CSS keyframe animations, typography, and styling into the fullscreen lyrics stage (inspired by Better Lyrics).",
+
+            // Lyrics Layout & Alignment
+            sidebar_lyrics_align: "Sidebar Lyrics Alignment",
+            sidebar_lyrics_align_desc: "Text alignment for singing lines in the docked right sidebar.",
+            fullscreen_layout_placement: "Fullscreen Layout Placement",
+            fullscreen_layout_placement_desc: "Choose which side album artwork and player controls appear on in fullscreen mode.",
+            fullscreen_lyrics_align: "Fullscreen Lyrics Alignment",
+            fullscreen_lyrics_align_desc: "Text alignment for singing lines in the edge-to-edge fullscreen window.",
+            controls_left_lyrics_right: "Controls Left, Lyrics Right",
+            controls_right_lyrics_left: "Controls Right, Lyrics Left",
+            align_left: "Left",
+            align_center: "Center",
+            align_right: "Right",
+            custom_css_precedence_notice: "Custom CSS is active: Fullscreen lyrics styling and text alignment are governed by your custom CSS rules below. Sidebar lyrics remain governed by sidebar settings.",
+            karaoke_preset_label: "Karaoke Golden Bounce",
+            css_reference_guide_title: "Custom CSS Guide & Class Reference",
+            css_scope_note: "Custom CSS applies exclusively to the Fullscreen Lyrics stage and does not alter the sidebar or main player.",
+
+            // Artist Profile Finder & Matcher Stage
+            select_artist_to_find_profile: "Select an artist to find their profile",
+            select_artist_to_find_profile_desc: "No valid artist is selected. Please choose an artist from your library or player to find, link, or edit their profile.",
+            artist_profile_finder: "Artist Profile Finder & Matcher",
+            editing_profile_for_artist: "Target Artist",
+            find_artist_manually: "Find Artist Profile Manually...",
+            artist_profile_not_found: "Artist profile not found automatically",
+            artist_profile_not_found_desc: "This artist doesn't have an online portrait or bio yet. You can search online or link a custom profile manually.",
+            search_artist_placeholder: "Search artist name or alternative spelling...",
+            apply_and_link_artist: "Apply & Link Profile",
+            linked_profile_success: "Successfully linked artist profile!",
+            custom_profile: "Custom / Manual Entry",
+            image_url: "Portrait Image URL",
+            banner_url: "Banner Image URL",
+            bio_description: "Biography & Notes",
+            no_artist_candidates_found: "No matching artist profiles found.",
+            no_artist_candidates_guide: "Try searching with alternative spelling, romanization, or Japanese characters, or enter a custom portrait URL in Custom Entry.",
         },
         Language::Filipino => Strings {
             app_name: "Attune",
@@ -494,6 +564,41 @@ pub fn get_strings(lang: Language) -> Strings {
             special_thanks_and_credits: "Espesyal na Pasasalamat at Kredito sa Open Source",
             custom_lyrics_css: "Pasadyang CSS Animation para sa Fullscreen Lyrics",
             custom_lyrics_css_desc: "Maglagay ng pasadyang CSS keyframe animation at estilo sa fullscreen lyrics (hango sa Better Lyrics).",
+
+            // Lyrics Layout & Alignment
+            sidebar_lyrics_align: "Pagkakapantay ng Lyrics sa Sidebar",
+            sidebar_lyrics_align_desc: "Pagkakapantay ng teksto ng lyrics sa kanang nakadaong na sidebar.",
+            fullscreen_layout_placement: "Posisyon ng Layout sa Fullscreen",
+            fullscreen_layout_placement_desc: "Piliin kung saang bahagi lalabas ang album art at mga kontrol sa fullscreen mode.",
+            fullscreen_lyrics_align: "Pagkakapantay ng Fullscreen Lyrics",
+            fullscreen_lyrics_align_desc: "Pagkakapantay ng teksto ng mga linya sa edge-to-edge na fullscreen window.",
+            controls_left_lyrics_right: "Controls sa Kaliwa, Lyrics sa Kanan",
+            controls_right_lyrics_left: "Controls sa Kanan, Lyrics sa Kaliwa",
+            align_left: "Kaliwa",
+            align_center: "Gitna",
+            align_right: "Kanan",
+            custom_css_precedence_notice: "Aktibo ang Custom CSS: Ang estilo at pagkakapantay ng fullscreen lyrics ay pinamamahalaan ng iyong CSS sa ibaba. Ang sidebar lyrics ay patuloy na sinusunod ang mga setting ng sidebar.",
+            karaoke_preset_label: "Karaoke Golden Bounce",
+            css_reference_guide_title: "Gabay sa Custom CSS at Sanggunian ng Klase",
+            css_scope_note: "Ang Custom CSS ay nailalapat lamang sa Fullscreen Lyrics stage at hindi binabago ang sidebar o ang pangunahing player.",
+
+            // Artist Profile Finder & Matcher Stage
+            select_artist_to_find_profile: "Pumili ng artista upang hanapin ang kanilang profile",
+            select_artist_to_find_profile_desc: "Walang wastong artistang napili. Mangyaring pumili ng artista mula sa iyong koleksyon upang hanapin o i-link ang kanilang profile.",
+            artist_profile_finder: "Panghanap at Pagtutugma ng Profile ng Artista",
+            editing_profile_for_artist: "Target na Artista",
+            find_artist_manually: "Manu-manong Hanapin ang Profile ng Artista...",
+            artist_profile_not_found: "Hindi awtomatikong nahanap ang profile ng artista",
+            artist_profile_not_found_desc: "Ang artistang ito ay wala pang online portrait o talambuhay. Maaari kang maghanap online o mag-link ng profile nang manu-mano.",
+            search_artist_placeholder: "Maghanap ng pangalan ng artista o ibang baybay...",
+            apply_and_link_artist: "Ilapat at I-link ang Profile",
+            linked_profile_success: "Matagumpay na nai-link ang profile ng artista!",
+            custom_profile: "Manu-manong Entri",
+            image_url: "URL ng Larawan ng Portrait",
+            banner_url: "URL ng Larawan ng Banner",
+            bio_description: "Talambuhay at Mga Tala",
+            no_artist_candidates_found: "Walang nahanap na tugmang profile ng artista.",
+            no_artist_candidates_guide: "Subukang maghanap gamit ang ibang baybay, romanization, o mga karakter sa Hapon, o maglagay ng sariling URL sa Manu-manong Entri.",
         },
     }
 }
@@ -647,6 +752,39 @@ pub fn export_language_template_json() -> String {
     map.insert("special_thanks_and_credits", s.special_thanks_and_credits);
     map.insert("custom_lyrics_css", s.custom_lyrics_css);
     map.insert("custom_lyrics_css_desc", s.custom_lyrics_css_desc);
+
+    map.insert("sidebar_lyrics_align", s.sidebar_lyrics_align);
+    map.insert("sidebar_lyrics_align_desc", s.sidebar_lyrics_align_desc);
+    map.insert("fullscreen_layout_placement", s.fullscreen_layout_placement);
+    map.insert("fullscreen_layout_placement_desc", s.fullscreen_layout_placement_desc);
+    map.insert("fullscreen_lyrics_align", s.fullscreen_lyrics_align);
+    map.insert("fullscreen_lyrics_align_desc", s.fullscreen_lyrics_align_desc);
+    map.insert("controls_left_lyrics_right", s.controls_left_lyrics_right);
+    map.insert("controls_right_lyrics_left", s.controls_right_lyrics_left);
+    map.insert("align_left", s.align_left);
+    map.insert("align_center", s.align_center);
+    map.insert("align_right", s.align_right);
+    map.insert("custom_css_precedence_notice", s.custom_css_precedence_notice);
+    map.insert("karaoke_preset_label", s.karaoke_preset_label);
+    map.insert("css_reference_guide_title", s.css_reference_guide_title);
+    map.insert("css_scope_note", s.css_scope_note);
+
+    map.insert("select_artist_to_find_profile", s.select_artist_to_find_profile);
+    map.insert("select_artist_to_find_profile_desc", s.select_artist_to_find_profile_desc);
+    map.insert("artist_profile_finder", s.artist_profile_finder);
+    map.insert("editing_profile_for_artist", s.editing_profile_for_artist);
+    map.insert("find_artist_manually", s.find_artist_manually);
+    map.insert("artist_profile_not_found", s.artist_profile_not_found);
+    map.insert("artist_profile_not_found_desc", s.artist_profile_not_found_desc);
+    map.insert("search_artist_placeholder", s.search_artist_placeholder);
+    map.insert("apply_and_link_artist", s.apply_and_link_artist);
+    map.insert("linked_profile_success", s.linked_profile_success);
+    map.insert("custom_profile", s.custom_profile);
+    map.insert("image_url", s.image_url);
+    map.insert("banner_url", s.banner_url);
+    map.insert("bio_description", s.bio_description);
+    map.insert("no_artist_candidates_found", s.no_artist_candidates_found);
+    map.insert("no_artist_candidates_guide", s.no_artist_candidates_guide);
 
     serde_json::to_string_pretty(&map).unwrap_or_else(|_| "{}".to_string())
 }

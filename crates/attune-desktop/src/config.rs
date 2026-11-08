@@ -43,6 +43,8 @@ fn default_lyric_priority() -> Vec<String> {
 fn default_api_priority() -> Vec<String> {
     vec!["youtube".into(), "wikipedia_musicbrainz".into(), "musixmatch".into()]
 }
+fn default_align_left() -> String { "left".to_string() }
+fn default_layout_side() -> String { "left".to_string() }
 
 pub const PRESET_SPOTLIGHT_BLUR: &str = r#"/* Spotlight Depth Blur (Better Lyrics Inspired) */
 .fullscreen-lyric-inactive {
@@ -85,6 +87,32 @@ pub const PRESET_CYBERPUNK_NEON: &str = r#"/* Cyberpunk Neon Pulse Glow */
   50% { opacity: 0.92; }
 }"#;
 
+pub const PRESET_KARAOKE_BOUNCE: &str = r#"/* Karaoke Golden Glow & Tactile Bounce */
+.fullscreen-lyric-inactive {
+  color: rgba(255, 255, 255, 0.42);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.7);
+  transition: all 0.35s ease;
+}
+
+.fullscreen-lyric-inactive:hover {
+  color: #fff275;
+  opacity: 0.85;
+}
+
+.fullscreen-lyric-active {
+  color: #FFDF00; /* Vivid Karaoke Gold */
+  font-weight: 800;
+  letter-spacing: 0.5px;
+  text-shadow: 0 0 12px rgba(255, 223, 0, 0.95), 0 0 28px rgba(255, 170, 0, 0.65), 0 2px 4px rgba(0, 0, 0, 0.9);
+  animation: karaokeBounce 0.45s cubic-bezier(0.175, 0.885, 0.32, 1.275) both;
+}
+
+@keyframes karaokeBounce {
+  0% { transform: scale(0.96) translateY(3px); }
+  65% { transform: scale(1.08) translateY(-2px); }
+  100% { transform: scale(1.06) translateY(0); }
+}"#;
+
 pub fn default_lyrics_custom_css() -> String {
     PRESET_SPOTLIGHT_BLUR.to_string()
 }
@@ -112,6 +140,10 @@ pub struct AppConfig {
     pub system_media_toast: bool,
     #[serde(default = "default_true")]
     pub auto_scroll_long_text: bool,
+    #[serde(default = "default_true")]
+    pub high_quality_thumbnails: bool,
+    #[serde(default = "default_true")]
+    pub fetch_youtube_thumbnails: bool,
 
     // Audio
     #[serde(default)]
@@ -138,6 +170,8 @@ pub struct AppConfig {
     pub lyric_font_family: String,
     #[serde(default)]
     pub sidebar_text_glow: bool,
+    #[serde(default = "default_align_left")]
+    pub dock_lyrics_align: String,
 
     // Fullscreen View
     #[serde(default = "default_true")]
@@ -146,6 +180,10 @@ pub struct AppConfig {
     pub fullscreen_gradient_bg: bool,
     #[serde(default = "default_true")]
     pub fullscreen_visualizer_effects: bool,
+    #[serde(default = "default_align_left")]
+    pub fullscreen_lyrics_align: String,
+    #[serde(default = "default_layout_side")]
+    pub fullscreen_layout_side: String,
     #[serde(default)]
     pub enable_lyrics_custom_css: bool,
     #[serde(default = "default_lyrics_custom_css")]
@@ -184,6 +222,8 @@ impl Default for AppConfig {
             enable_shortcuts: true,
             system_media_toast: true,
             auto_scroll_long_text: true,
+            high_quality_thumbnails: true,
+            fetch_youtube_thumbnails: true,
             force_32bit_float: false,
             skip_silence: false,
             engine_choice: default_engine(),
@@ -194,9 +234,12 @@ impl Default for AppConfig {
             musixmatch_api_key: String::new(),
             lyric_font_family: default_lyric_font(),
             sidebar_text_glow: false,
+            dock_lyrics_align: default_align_left(),
             fullscreen_text_glow: true,
             fullscreen_gradient_bg: true,
             fullscreen_visualizer_effects: true,
+            fullscreen_lyrics_align: default_align_left(),
+            fullscreen_layout_side: default_layout_side(),
             enable_lyrics_custom_css: false,
             lyrics_custom_css: default_lyrics_custom_css(),
             api_priority: default_api_priority(),
@@ -758,16 +801,27 @@ mod tests {
         assert!(PRESET_SPOTLIGHT_BLUR.contains("filter: blur"));
         assert!(PRESET_SPRING_POP.contains("appleSpringPop"));
         assert!(PRESET_CYBERPUNK_NEON.contains("neonFlicker"));
+        assert!(PRESET_KARAOKE_BOUNCE.contains("karaokeBounce"));
+        assert!(PRESET_KARAOKE_BOUNCE.contains("#FFDF00"));
 
         let mut cfg = AppConfig::default();
+        assert_eq!(cfg.dock_lyrics_align, "left");
+        assert_eq!(cfg.fullscreen_lyrics_align, "left");
+        assert_eq!(cfg.fullscreen_layout_side, "left");
         assert!(!cfg.enable_lyrics_custom_css);
         assert!(!cfg.lyrics_custom_css.is_empty());
 
         cfg.enable_lyrics_custom_css = true;
-        cfg.lyrics_custom_css = PRESET_SPRING_POP.to_string();
+        cfg.lyrics_custom_css = PRESET_KARAOKE_BOUNCE.to_string();
+        cfg.dock_lyrics_align = "center".to_string();
+        cfg.fullscreen_lyrics_align = "right".to_string();
+        cfg.fullscreen_layout_side = "right".to_string();
         let json = serde_json::to_string(&cfg).unwrap();
         let loaded: AppConfig = serde_json::from_str(&json).unwrap();
         assert!(loaded.enable_lyrics_custom_css);
-        assert_eq!(loaded.lyrics_custom_css, PRESET_SPRING_POP);
+        assert_eq!(loaded.lyrics_custom_css, PRESET_KARAOKE_BOUNCE);
+        assert_eq!(loaded.dock_lyrics_align, "center");
+        assert_eq!(loaded.fullscreen_lyrics_align, "right");
+        assert_eq!(loaded.fullscreen_layout_side, "right");
     }
 }

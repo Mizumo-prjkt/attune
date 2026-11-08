@@ -80,6 +80,9 @@ type FnMetadataReadMetadata = unsafe extern "C" fn(*const c_char) -> *mut c_char
 type FnMetadataWriteMetadata = unsafe extern "C" fn(*const c_char, *const c_char) -> i32;
 type FnMetadataUpdateTag = unsafe extern "C" fn(*const c_char, *const c_char, *const c_char) -> i32;
 type FnMetadataFetchArtistOnline = unsafe extern "C" fn(*const c_char) -> *mut c_char;
+type FnMetadataSearchYoutubeThumbnails = unsafe extern "C" fn(*const c_char) -> *mut c_char;
+type FnMetadataDownloadYoutubeThumbnail = unsafe extern "C" fn(*const c_char, *const c_char) -> i32;
+type FnMetadataFetchHqThumbnail = unsafe extern "C" fn(*const c_char, *const c_char, *const c_char) -> *mut c_char;
 
 struct MetadataModule {
     _handle: *mut std::ffi::c_void,
@@ -90,6 +93,9 @@ struct MetadataModule {
     fn_write_metadata: FnMetadataWriteMetadata,
     fn_update_tag: FnMetadataUpdateTag,
     fn_fetch_artist_online: Option<FnMetadataFetchArtistOnline>,
+    fn_search_youtube_thumbnails: Option<FnMetadataSearchYoutubeThumbnails>,
+    fn_download_youtube_thumbnail: Option<FnMetadataDownloadYoutubeThumbnail>,
+    fn_fetch_hq_thumbnail: Option<FnMetadataFetchHqThumbnail>,
 }
 unsafe impl Send for MetadataModule {}
 unsafe impl Sync for MetadataModule {}
@@ -510,6 +516,12 @@ fn load_metadata_changer() -> Result<(), MissingComponentError> {
                     let u_sym = os_dlsym(handle, "attune_track_tweaks_update_tag");
                     let fetch_sym = os_dlsym(handle, "attune_metadata_fetch_artist_online")
                         .or_else(|_| os_dlsym(handle, "attune_metadata_changer_fetch_artist_online"));
+                    let search_yt_sym = os_dlsym(handle, "attune_metadata_search_youtube_thumbnails")
+                        .or_else(|_| os_dlsym(handle, "attune_metadata_changer_search_youtube_thumbnails"));
+                    let dl_yt_sym = os_dlsym(handle, "attune_metadata_download_youtube_thumbnail")
+                        .or_else(|_| os_dlsym(handle, "attune_metadata_changer_download_youtube_thumbnail"));
+                    let fetch_hq_sym = os_dlsym(handle, "attune_metadata_fetch_hq_thumbnail")
+                        .or_else(|_| os_dlsym(handle, "attune_metadata_changer_fetch_hq_thumbnail"));
 
                     match (v_sym, f_sym, r_sym, w_sym, u_sym) {
                         (Ok(v), Ok(f), Ok(r), Ok(w), Ok(u)) => {
@@ -522,6 +534,9 @@ fn load_metadata_changer() -> Result<(), MissingComponentError> {
                                 fn_write_metadata: std::mem::transmute(w),
                                 fn_update_tag: std::mem::transmute(u),
                                 fn_fetch_artist_online: fetch_sym.ok().map(|s| std::mem::transmute(s)),
+                                fn_search_youtube_thumbnails: search_yt_sym.ok().map(|s| std::mem::transmute(s)),
+                                fn_download_youtube_thumbnail: dl_yt_sym.ok().map(|s| std::mem::transmute(s)),
+                                fn_fetch_hq_thumbnail: fetch_hq_sym.ok().map(|s| std::mem::transmute(s)),
                             };
                             let ver_ptr = (module.fn_version)();
                             let ver_str = if !ver_ptr.is_null() {
@@ -968,6 +983,103 @@ pub mod music_metadata_changer {
             let json_str = c_str.to_string_lossy().into_owned();
             (module.fn_free_string)(ptr);
             Ok(json_str)
+        }
+    }
+
+    #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+    pub struct YouTubeThumbnailCandidate {
+        pub id: String,
+        pub title: String,
+        pub author: String,
+        pub thumbnail_url: String,
+        pub preview_url: String,
+        pub width: u32,
+        pub height: u32,
+        pub source: String,
+    }
+
+    /// Searches YouTube & YouTube Music for candidate high quality artwork thumbnails.
+    pub fn search_youtube_thumbnails(query: &str) -> Result<Vec<YouTubeThumbnailCandidate>, String> {
+        let guard = METADATA
+            .lock()
+            .map_err(|e| format!("metadata mutex poisoned: {e}"))?;
+        let module = guard
+            .as_ref()
+            .ok_or_else(|| "libattune_music_metadata is not loaded".to_string())?;
+
+        let fn_search = module
+            .fn_search_youtube_thumbnails
+            .ok_or_else(|| "attune_metadata_search_youtube_thumbnails symbol not available".to_string())?;
+
+        let c_query = CString::new(query).map_err(|e| e.to_string())?;
+        unsafe {
+            let ptr = (fn_search)(c_query.as_ptr());
+            if ptr.is_null() {
+                return Err("attune_metadata_search_youtube_thumbnails returned null pointer".to_string());
+            }
+            let c_str = CStr::from_ptr(ptr);
+            let json_str = c_str.to_string_lossy().into_owned();
+            (module.fn_free_string)(ptr);
+
+            let cands: Vec<YouTubeThumbnailCandidate> = serde_json::from_str(&json_str)
+                .map_err(|e| format!("Failed parsing YouTube thumbnail candidates JSON: {e}"))?;
+            Ok(cands)
+        }
+    }
+
+    /// Downloads a thumbnail from `url` and saves it to `dest_path`.
+    pub fn download_youtube_thumbnail(url: &str, dest_path: &Path) -> Result<(), String> {
+        let guard = METADATA
+            .lock()
+            .map_err(|e| format!("metadata mutex poisoned: {e}"))?;
+        let module = guard
+            .as_ref()
+            .ok_or_else(|| "libattune_music_metadata is not loaded".to_string())?;
+
+        let fn_download = module
+            .fn_download_youtube_thumbnail
+            .ok_or_else(|| "attune_metadata_download_youtube_thumbnail symbol not available".to_string())?;
+
+        let c_url = CString::new(url).map_err(|e| e.to_string())?;
+        let c_dest = CString::new(dest_path.to_string_lossy().as_bytes()).map_err(|e| e.to_string())?;
+        unsafe {
+            let code = (fn_download)(c_url.as_ptr(), c_dest.as_ptr());
+            if code == 0 {
+                Ok(())
+            } else {
+                Err(format!("attune_metadata_download_youtube_thumbnail failed with error code: {code}"))
+            }
+        }
+    }
+
+    /// Automatically searches for the top HQ thumbnail for a song and downloads it to `dest_path`.
+    pub fn fetch_hq_thumbnail(title: &str, artist: &str, dest_path: &Path) -> Result<YouTubeThumbnailCandidate, String> {
+        let guard = METADATA
+            .lock()
+            .map_err(|e| format!("metadata mutex poisoned: {e}"))?;
+        let module = guard
+            .as_ref()
+            .ok_or_else(|| "libattune_music_metadata is not loaded".to_string())?;
+
+        let fn_fetch = module
+            .fn_fetch_hq_thumbnail
+            .ok_or_else(|| "attune_metadata_fetch_hq_thumbnail symbol not available".to_string())?;
+
+        let c_title = CString::new(title).map_err(|e| e.to_string())?;
+        let c_artist = CString::new(artist).map_err(|e| e.to_string())?;
+        let c_dest = CString::new(dest_path.to_string_lossy().as_bytes()).map_err(|e| e.to_string())?;
+        unsafe {
+            let ptr = (fn_fetch)(c_title.as_ptr(), c_artist.as_ptr(), c_dest.as_ptr());
+            if ptr.is_null() {
+                return Err("attune_metadata_fetch_hq_thumbnail returned null pointer".to_string());
+            }
+            let c_str = CStr::from_ptr(ptr);
+            let json_str = c_str.to_string_lossy().into_owned();
+            (module.fn_free_string)(ptr);
+
+            let cand: YouTubeThumbnailCandidate = serde_json::from_str(&json_str)
+                .map_err(|e| format!("Failed parsing HQ thumbnail result JSON: {e}"))?;
+            Ok(cand)
         }
     }
 }

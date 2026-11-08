@@ -19,6 +19,7 @@ pub mod error;
 pub mod ffi;
 pub mod innertube;
 pub mod metadata;
+pub mod youtube_thumbs;
 
 // Re-exports
 pub use audio::{decode_audio_file, write_wav_file, AudioData};
@@ -34,3 +35,7 @@ pub use innertube::{
     search_artist_innertube, InnertubeArtistProfile,
 };
 pub use metadata::{read_track_metadata, write_track_metadata, TrackMetadata};
+pub use youtube_thumbs::{
+    download_thumbnail_to_file, extract_video_id_from_url, fetch_and_save_hq_thumbnail,
+    resize_google_thumbnail_url, search_youtube_thumbnails, YouTubeThumbnailCandidate,
+};

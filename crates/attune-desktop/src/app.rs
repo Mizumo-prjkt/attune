@@ -643,6 +643,68 @@ pub fn App() -> Element {
         }
     };
 
+    // Helper: Update artwork across library, current track, queue, and persist cache
+    let handle_artwork_updated = {
+        let mut tracks = tracks.clone();
+        let mut current_track = current_track.clone();
+        let mut queue = queue.clone();
+        let music_dir = music_dir.clone();
+        move |(track_path_opt, new_art_path, new_art_url): (Option<PathBuf>, PathBuf, String)| {
+            crate::library::clear_thumbnail_cache();
+            let mut all_tracks = tracks.read().clone();
+            let mut modified = false;
+
+            if let Some(target_path) = track_path_opt {
+                for t in &mut all_tracks {
+                    if t.path == target_path {
+                        t.artwork_path = Some(new_art_path.clone());
+                        t.artwork_data_url = Some(new_art_url.clone());
+                        modified = true;
+                    }
+                }
+            } else {
+                // Album-level update: match all tracks in the same parent directory
+                if let Some(parent) = new_art_path.parent() {
+                    for t in &mut all_tracks {
+                        if t.path.starts_with(parent) {
+                            t.artwork_path = Some(new_art_path.clone());
+                            t.artwork_data_url = Some(new_art_url.clone());
+                            modified = true;
+                        }
+                    }
+                }
+            }
+
+            if modified {
+                tracks.set(all_tracks.clone());
+
+                let curr_path_opt = current_track.read().as_ref().map(|t| t.path.clone());
+                if let Some(ref curr_path) = curr_path_opt {
+                    if let Some(updated_curr) = all_tracks.iter().find(|t| &t.path == curr_path) {
+                        current_track.set(Some(updated_curr.clone()));
+                    }
+                }
+
+                let mut q = queue.read().clone();
+                let mut q_changed = false;
+                for qt in &mut q {
+                    if let Some(updated) = all_tracks.iter().find(|t| t.path == qt.path) {
+                        qt.artwork_path = updated.artwork_path.clone();
+                        qt.artwork_data_url = updated.artwork_data_url.clone();
+                        q_changed = true;
+                    }
+                }
+                if q_changed {
+                    queue.set(q);
+                }
+
+                if let Some(ref dir) = *music_dir.read() {
+                    let _ = crate::library::save_library_cache(dir, &all_tracks);
+                }
+            }
+        }
+    };
+
     // Background Async Poller (50ms Interval): Updates playback, auto-transitions, scan events, lyrics, Watchguard telemetry, and OS media controls (MPRIS / SMTC)
     let play_next_track_poller = play_next_track.clone();
     let play_prev_track_poller = play_prev_track.clone();
@@ -1441,6 +1503,7 @@ pub fn App() -> Element {
                                 });
                                 },
                                 on_search_change: move |val| search_query.set(val),
+                                on_artwork_updated: handle_artwork_updated.clone(),
                             }
                         },
                         StageView::Albums => rsx! {
@@ -1472,6 +1535,7 @@ pub fn App() -> Element {
                                     if *is_playing.read() { p.pause(); } else { p.play(); }
                                 },
                                 on_edit_album: move |group| navigate_to(StageView::AlbumEditor(group)),
+                                on_artwork_updated: handle_artwork_updated.clone(),
                             }
                         },
                         StageView::AlbumDetail(name) => rsx! {
@@ -1503,6 +1567,7 @@ pub fn App() -> Element {
                                     if *is_playing.read() { p.pause(); } else { p.play(); }
                                 },
                                 on_edit_album: move |group| navigate_to(StageView::AlbumEditor(group)),
+                                on_artwork_updated: handle_artwork_updated.clone(),
                             }
                         },
                         StageView::Artists => rsx! {
@@ -1783,6 +1848,7 @@ pub fn App() -> Element {
                                         dioxus::desktop::window().set_fullscreen(false);
                                         nav_state.write().back();
                                     },
+                                    on_artwork_updated: handle_artwork_updated.clone(),
                                 }
                             }
                         },
@@ -1880,20 +1946,26 @@ pub fn App() -> Element {
                                                 let ts = line.timestamp_ms;
                                                 let text = line.text.clone();
                                                 let player = player.clone();
+                                                let dock_align_class = match app_config.read().dock_lyrics_align.as_str() {
+                                                    "center" => " align-center",
+                                                    "right" => " align-right",
+                                                    _ => " align-left",
+                                                };
+                                                let line_class = if is_active {
+                                                    if app_config.read().sidebar_text_glow {
+                                                        format!("lyric-line active sidebar-text-glow{}", dock_align_class)
+                                                    } else {
+                                                        format!("lyric-line active{}", dock_align_class)
+                                                    }
+                                                } else {
+                                                    format!("lyric-line{}", dock_align_class)
+                                                };
 
                                                 rsx! {
                                                     div {
                                                         key: "{idx}",
                                                         "data-line-idx": "{idx}",
-                                                        class: if is_active {
-                                                            if app_config.read().sidebar_text_glow {
-                                                                "lyric-line active sidebar-text-glow"
-                                                            } else {
-                                                                "lyric-line active"
-                                                            }
-                                                        } else {
-                                                            "lyric-line"
-                                                        },
+                                                        class: "{line_class}",
                                                         onclick: move |_| {
                                                             player.read().seek_ms(ts);
                                                             auto_scroll_lyrics.set(true);

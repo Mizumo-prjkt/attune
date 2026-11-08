@@ -264,10 +264,15 @@ pub fn ArtistDetail(
     let mut show_artist_options = use_signal(|| false);
     let mut is_refreshing_profile = use_signal(|| false);
     let mut copy_feedback = use_signal(|| None::<String>);
+    let mut last_seen_rev = use_signal(crate::artist_profile::artist_profile_revision);
     let artist_for_fetch = artist_name.clone();
 
     use_effect(move || {
         let a = artist_for_fetch.clone();
+        let current_rev = crate::artist_profile::artist_profile_revision();
+        if current_rev != *last_seen_rev.read() {
+            last_seen_rev.set(current_rev);
+        }
         spawn(async move {
             let info = tokio::task::spawn_blocking(move || {
                 fetch_online_artist_profile(&a, false)
@@ -361,7 +366,16 @@ pub fn ArtistDetail(
 
             // 1. Hero Header: 232px Artist Avatar on left + Big Metadata on right
             div { class: "album-detail-hero",
-                div { class: "artist-avatar-box",
+                div {
+                    class: "artist-avatar-box",
+                    style: "cursor: pointer; position: relative;",
+                    title: "{strings.find_artist_manually}",
+                    onclick: {
+                        let a_name = artist_name.clone();
+                        move |_| {
+                            crate::stages::artist_finder::open_artist_finder_window(Some(a_name.clone()));
+                        }
+                    },
                     // Base layer: Silhouette person icon
                     div { class: "album-cover-fallback",
                         span { class: "material-icons md-64", "person" }
@@ -572,6 +586,20 @@ pub fn ArtistDetail(
                                 }
                             }
 
+                            // 3b. Search & Link Artist Profile Manually
+                            button {
+                                class: "track-menu-item",
+                                onclick: {
+                                    let a_name = artist_name.clone();
+                                    move |_| {
+                                        show_artist_options.set(false);
+                                        crate::stages::artist_finder::open_artist_finder_window(Some(a_name.clone()));
+                                    }
+                                },
+                                span { class: "material-icons md-16", "manage_search" }
+                                span { "{strings.find_artist_manually}" }
+                            }
+
                             // 4. Copy Artist Name
                             button {
                                 class: "track-menu-item",
@@ -631,6 +659,39 @@ pub fn ArtistDetail(
                                 span { style: "color: #fb7185;", "Exclude Artist from Library" }
                             }
                         }
+                    }
+                }
+            }
+
+            // Unmatched / Missing Artist Profile Banner Prompt
+            if !profile.is_verified() && profile.image_url.is_none() && profile.bio.is_none() {
+                div {
+                    style: "margin: 8px 32px 18px; padding: 18px 24px; background: rgba(22, 28, 45, 0.70); border: 1px dashed var(--border-glass); border-radius: 14px; display: flex; align-items: center; justify-content: space-between; gap: 20px; backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);",
+                    div { style: "display: flex; align-items: center; gap: 14px;",
+                        div {
+                            style: "width: 42px; height: 42px; border-radius: 50%; background: rgba(100, 255, 218, 0.12); border: 1px solid rgba(100, 255, 218, 0.30); display: flex; align-items: center; justify-content: center; color: var(--accent-mint); flex-shrink: 0;",
+                            span { class: "material-icons md-22", "manage_search" }
+                        }
+                        div {
+                            h4 { style: "font-size: 14.5px; font-weight: 700; color: #ffffff; margin: 0 0 3px 0;",
+                                "{strings.artist_profile_not_found}"
+                            }
+                            p { style: "font-size: 12.5px; color: var(--text-muted); margin: 0; line-height: 1.4;",
+                                "{strings.artist_profile_not_found_desc}"
+                            }
+                        }
+                    }
+                    button {
+                        class: "btn-pill active",
+                        style: "padding: 8px 18px; font-size: 13px; font-weight: 700; border-radius: 9999px; cursor: pointer; white-space: nowrap; display: inline-flex; align-items: center; gap: 6px; flex-shrink: 0;",
+                        onclick: {
+                            let a_name = artist_name.clone();
+                            move |_| {
+                                crate::stages::artist_finder::open_artist_finder_window(Some(a_name.clone()));
+                            }
+                        },
+                        span { class: "material-icons md-16", "search" }
+                        "{strings.find_artist_manually}"
                     }
                 }
             }
@@ -994,9 +1055,24 @@ pub fn ArtistDetail(
                 // 6. About Artist (YouTube Music Innertube / Wikipedia Bio & Description)
                 if let Some(ref bio) = profile.bio {
                     div { class: "artist-bio-card",
-                        h3 { style: "font-size: 16px; font-weight: 700; margin-bottom: 10px; display: flex; align-items: center; gap: 8px;",
-                            span { class: "material-icons md-20", style: "color: var(--accent-mint);", "menu_book" }
-                            "About {artist_name}"
+                        div { style: "display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px;",
+                            h3 { style: "font-size: 16px; font-weight: 700; margin: 0; display: flex; align-items: center; gap: 8px;",
+                                span { class: "material-icons md-20", style: "color: var(--accent-mint);", "menu_book" }
+                                "About {artist_name}"
+                            }
+                            button {
+                                class: "btn-glass",
+                                style: "padding: 4px 10px; font-size: 12px; border-radius: 9999px; cursor: pointer; display: inline-flex; align-items: center; gap: 4px;",
+                                title: "{strings.find_artist_manually}",
+                                onclick: {
+                                    let a_name = artist_name.clone();
+                                    move |_| {
+                                        crate::stages::artist_finder::open_artist_finder_window(Some(a_name.clone()));
+                                    }
+                                },
+                                span { class: "material-icons md-14", "edit" }
+                                "Edit / Match"
+                            }
                         }
                         if let Some(ref desc) = profile.description {
                             p { style: "color: var(--accent-mint); font-size: 13.5px; font-weight: 600; margin-bottom: 8px;", "{desc}" }

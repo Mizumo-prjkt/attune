@@ -4310,6 +4310,47 @@ This file records all major architectural decisions for **Attune**, including co
   - Hovering artist cards and album cards no longer clips against the top container boundary.
   - Rounded corners, top borders, and hover elevation glows remain fully intact and visually seamless.
 
+---
+
+## ADR-123: Dedicated Standalone Artist Profile Finder, Multi-Provider Matcher, Empty-Session Gated Architecture & YouTube HQ Artwork Engine
+- **Date**: 2026-11-08
+- **Status**: `LOCKED`
+- **Context**:
+  1. The user requested: "on the fetching artist info, can you add a feature where if it cant properly find the artist, the user can just manually find it on a new window, or allow them find it themselves manually via the option, but remember no hardcoding, and make sure that the window thats responsible for manual searching to index the artist knows what artist to edit to have it, at the previous similar instance of bug there was a moment that a window session would let you try find a lyrics without the song for some reason and thats bad already."
+  2. Previously, artist profiles relied exclusively on automatic background resolution via YouTube Music Innertube or Wikipedia summary API. If an artist name had differing romanizations, aliases (e.g. `KuwagataP` vs. `クワガタP`), or lacked an exact automatic match, the UI had no manual lookup or override mechanism.
+  3. Furthermore, past experience with standalone helper windows (such as the lyrics finder in ADR-112) revealed that opening a window without a guaranteed active target resulted in broken "phantom" sessions or cache poisoning. Strict empty-context gating is required to prevent any search or profile association without an active target artist.
+  4. In addition, users needed the ability to browse and select high-resolution artwork from YouTube / YouTube Music, local album folder images, or local file pickers for albums and individual songs across Album Editor, Album Detail, Music Library, and Fullscreen Now Playing.
+- **Decision**:
+  1. **Multi-Provider Artist Profile Search Engine (`crates/attune-desktop/src/artist_profile.rs`)**:
+     - Implemented `search_online_artist_candidates(query: &str) -> Vec<ArtistCandidate>` querying:
+       - **YouTube Music Innertube**: Official artist portraits, subscriber counts, and verified status.
+       - **Wikipedia (English)**: OpenSearch and REST summary for English artist discographies and bios.
+       - **Wikipedia (Japanese)**: OpenSearch and REST summary (`ja.wikipedia.org`) essential for Vocaloid, J-Pop, and Anime producers.
+     - Added `ARTIST_PROFILE_REVISION: AtomicU64` and `bump_artist_profile_revision()` to trigger reactive re-renders across all active artist detail views whenever a profile is linked or updated.
+  2. **Dedicated Standalone Finder Window & Session Gating (`crates/attune-desktop/src/stages/artist_finder.rs`)**:
+     - Implemented `open_artist_finder_window(artist: Option<String>)` via Dioxus `new_window` with window lifecycle guard `FinderWindowGuard`.
+     - **Empty-Context Gate**: If launched with `None`, `""`, `"Unknown Artist"`, or `"—"`, the window gates immediately to an error screen with `person_off` icon, clear guidance message, and a `[ Close Window ]` button, completely preventing orphaned searches or cache poisoning.
+     - **Target Artist Binding**: The UI prominently highlights `Target Artist: {target_artist}` in the header and candidate linking buttons (`Apply & Link Profile to {target_artist}`), guaranteeing exact cache attribution under the canonical artist name.
+     - Provided search provider tabs (`All Providers`, `YouTube Music`, `Wikipedia (EN)`, `Wikipedia (JA)`, and `Custom Entry` for manual image and bio URLs).
+  3. **Artist Detail Stage Integration (`crates/attune-desktop/src/stages/artists.rs`)**:
+     - Added clickable avatar trigger (`title="{strings.find_artist_manually}"`) to open the finder window directly.
+     - Added `Find Artist Profile Manually...` to the artist three-dot option menu.
+     - Injected an unmatched artist prompt banner in `ArtistDetail` when no portrait or bio is available, guiding users to match the artist with one click.
+     - Added an `Edit / Match` button on the About Artist bio card.
+     - Connected `ArtistDetail` to `artist_profile_revision()` to auto-refresh metadata immediately upon candidate application.
+  4. **YouTube HQ Artwork Engine & Selector Modal (`crates/attune-music-metadata`, `crates/attune-ffi`, `crates/attune-desktop`)**:
+     - Created `crates/attune-music-metadata/src/youtube_thumbs.rs` supporting up to 1024x1024 HD album artwork from YouTube Music and YouTube video thumbnails (`maxresdefault.jpg` with fallbacks).
+     - Exported C-ABI functions in `attune-music-metadata::ffi` and `attune-ffi`.
+     - Built `ArtworkSelectorModal` in `crates/attune-desktop/src/components/artwork_selector.rs` featuring 3 tabs: YouTube & YouTube Music (HQ), Local Folder Images, and Browse Local File.
+     - Integrated artwork selection into `AlbumEditor`, `Albums` hero cover hover overlay and track menus, `Library` song action buttons, and `FullscreenNowPlaying`.
+  5. **Mandate 4 Compliance (Zero Hardcoding) & Full Localization (`crates/attune-desktop/src/i18n.rs`)**:
+     - Added 16 localized strings across English and Wikang Filipino for artist finder, status messages, and candidate prompts, plus updated `export_language_template_json()`.
+- **Consequences**:
+  - Unmatched artists can be effortlessly linked to online profiles across multiple services with immediate reactive UI refresh.
+  - Empty-session gating completely prevents phantom window states and cache attribution errors.
+  - High quality album and track artwork can be retrieved, previewed, and applied directly within Attune without external browser searches.
+
+
 
 
 

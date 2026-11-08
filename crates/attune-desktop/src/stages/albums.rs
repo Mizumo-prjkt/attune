@@ -38,6 +38,8 @@ pub fn Albums(
     #[props(default)]
     on_toggle_play: EventHandler<()>,
     on_edit_album: EventHandler<AlbumGroup>,
+    #[props(default)]
+    on_artwork_updated: EventHandler<(Option<PathBuf>, PathBuf, String)>,
 ) -> Element {
     let strings = crate::i18n::current_strings();
 
@@ -65,11 +67,14 @@ pub fn Albums(
 
     let selected_name = selected_album_name.as_ref();
     let selected_group = selected_name.and_then(|name| album_list.iter().find(|a| &a.name == name).cloned());
+    let current_group_for_modal = selected_group.clone();
 
     let mut active_menu_track = use_signal(|| None::<TrackEntry>);
     let mut show_credits_track = use_signal(|| None::<TrackEntry>);
     let mut show_album_options = use_signal(|| false);
     let mut copy_album_feedback = use_signal(|| None::<String>);
+    let mut show_album_art_modal = use_signal(|| false);
+    let mut selected_track_for_art = use_signal(|| None::<TrackEntry>);
 
     rsx! {
         div { class: "albums-stage",
@@ -135,7 +140,14 @@ pub fn Albums(
 
                             // Hero Header: 232px Cover Artwork on left + Big Metadata on right
                             div { class: "album-detail-hero",
-                                div { class: "album-cover-box",
+                                div {
+                                    class: "album-cover-box",
+                                    style: "cursor: pointer;",
+                                    title: "Click to select or change album artwork (YouTube HQ / Local File)",
+                                    onclick: move |e: MouseEvent| {
+                                        e.stop_propagation();
+                                        show_album_art_modal.set(true);
+                                    },
                                     if let Some(art) = art_data_url.as_ref() {
                                         img {
                                             class: "album-cover-img",
@@ -146,6 +158,11 @@ pub fn Albums(
                                         div { class: "album-cover-fallback",
                                             span { class: "material-icons md-64", "album" }
                                         }
+                                    }
+                                    div {
+                                        class: "album-cover-hover-overlay",
+                                        span { class: "material-icons md-24", "edit" }
+                                        span { style: "font-size: 11px; font-weight: 600;", "Change Art" }
                                     }
                                 }
 
@@ -379,6 +396,17 @@ pub fn Albums(
                                                 },
                                                 span { class: "material-icons md-16", "edit" }
                                                 span { "Edit Album Metadata & Artwork" }
+                                            }
+
+                                            // 5b. Change Album Artwork via YouTube HQ or File
+                                            button {
+                                                class: "track-menu-item",
+                                                onclick: move |_| {
+                                                    show_album_options.set(false);
+                                                    show_album_art_modal.set(true);
+                                                },
+                                                span { class: "material-icons md-16", "image_search" }
+                                                span { "Change Album Artwork (YouTube HQ / File)..." }
                                             }
 
                                             // 6. Copy Album Title
@@ -711,6 +739,19 @@ pub fn Albums(
 
                                                                 button {
                                                                     class: "track-menu-item",
+                                                                    onclick: {
+                                                                        let t_art = t.clone();
+                                                                        move |_| {
+                                                                            active_menu_track.set(None);
+                                                                            selected_track_for_art.set(Some(t_art.clone()));
+                                                                        }
+                                                                    },
+                                                                    span { class: "material-icons md-16", "image_search" }
+                                                                    span { "Change Song Artwork (YouTube HQ / File)..." }
+                                                                }
+
+                                                                button {
+                                                                    class: "track-menu-item",
                                                                     style: "color: #fb7185;",
                                                                     onclick: {
                                                                         let t_p = t.path.to_string_lossy().to_string();
@@ -1022,6 +1063,43 @@ pub fn Albums(
                             }
                         }
                     }
+                }
+            }
+
+            if *show_album_art_modal.read() {
+                if let Some(ref group) = current_group_for_modal {
+                    crate::components::artwork_selector::ArtworkSelectorModal {
+                        title: group.name.clone(),
+                        artist: group.artist.clone(),
+                        album: group.name.clone(),
+                        track_path: group.tracks.first().map(|t| t.path.clone()),
+                        current_artwork_url: group.artwork_data_url.clone(),
+                        is_album_level: true,
+                        on_close: move |_| show_album_art_modal.set(false),
+                        on_artwork_applied: move |(path, data_url)| {
+                            show_album_art_modal.set(false);
+                            on_artwork_updated.call((None, path, data_url));
+                        },
+                    }
+                }
+            }
+
+            if let Some(ref t) = *selected_track_for_art.read() {
+                crate::components::artwork_selector::ArtworkSelectorModal {
+                    title: t.title.clone(),
+                    artist: t.artist.clone(),
+                    album: t.album.clone(),
+                    track_path: Some(t.path.clone()),
+                    current_artwork_url: t.artwork_data_url.clone(),
+                    is_album_level: false,
+                    on_close: move |_| selected_track_for_art.set(None),
+                    on_artwork_applied: {
+                        let t_p = t.path.clone();
+                        move |(path, data_url)| {
+                            selected_track_for_art.set(None);
+                            on_artwork_updated.call((Some(t_p.clone()), path, data_url));
+                        }
+                    },
                 }
             }
         }

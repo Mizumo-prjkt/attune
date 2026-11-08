@@ -22,6 +22,7 @@ pub fn AlbumEditor(
     });
     let mut custom_splash_path = use_signal(|| None::<PathBuf>);
     let mut custom_splash_data_url = use_signal(|| group.artwork_data_url.clone());
+    let mut show_artwork_modal = use_signal(|| false);
 
     // Online & Catalog fields
     let mut record_label = use_signal(String::new);
@@ -257,7 +258,15 @@ pub fn AlbumEditor(
                             }
                         },
                         span { class: "material-icons md-16", "image" }
-                        "Pick Splash Art..."
+                        "Browse Device File..."
+                    }
+
+                    button {
+                        class: "btn-pill active",
+                        style: "font-size: 12px; width: 100%; display: inline-flex; align-items: center; justify-content: center; gap: 6px;",
+                        onclick: move |_| show_artwork_modal.set(true),
+                        span { class: "material-icons md-16", "image_search" }
+                        "Fetch HQ Cover / YouTube..."
                     }
                 }
 
@@ -403,6 +412,23 @@ pub fn AlbumEditor(
                             span { style: "font-size: 12px; color: var(--text-muted); font-family: monospace;", "{t.format}" }
                         }
                     }
+                }
+            }
+
+            if *show_artwork_modal.read() {
+                crate::components::artwork_selector::ArtworkSelectorModal {
+                    title: album_name.read().clone(),
+                    artist: primary_artist.read().clone(),
+                    album: album_name.read().clone(),
+                    track_path: group.tracks.first().map(|t| t.path.clone()),
+                    current_artwork_url: custom_splash_data_url.read().clone(),
+                    is_album_level: true,
+                    on_close: move |_| show_artwork_modal.set(false),
+                    on_artwork_applied: move |(path, data_url)| {
+                        custom_splash_path.set(Some(path));
+                        custom_splash_data_url.set(Some(data_url));
+                        show_artwork_modal.set(false);
+                    },
                 }
             }
         }

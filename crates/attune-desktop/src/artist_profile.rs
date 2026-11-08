@@ -1,7 +1,19 @@
 use dioxus::prelude::*;
 use crate::library::{fmt_ms, TrackEntry};
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{LazyLock, RwLock};
+
+/// Monotonically increasing revision counter bumped whenever an artist profile is updated or saved.
+pub static ARTIST_PROFILE_REVISION: AtomicU64 = AtomicU64::new(0);
+
+pub fn bump_artist_profile_revision() {
+    ARTIST_PROFILE_REVISION.fetch_add(1, Ordering::SeqCst);
+}
+
+pub fn artist_profile_revision() -> u64 {
+    ARTIST_PROFILE_REVISION.load(Ordering::SeqCst)
+}
 
 /// Cached artist full profile info from Wikipedia REST API / local resolution.
 static ARTIST_PROFILE_CACHE: LazyLock<RwLock<HashMap<String, OnlineArtistInfo>>> =
@@ -234,6 +246,149 @@ pub fn save_cached_artist_profile(artist_name: &str, info: &OnlineArtistInfo) {
             let _ = std::fs::write(path, json_str);
         }
     }
+
+    bump_artist_profile_revision();
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct ArtistCandidate {
+    pub name: String,
+    pub provider: String,
+    pub description: Option<String>,
+    pub bio: Option<String>,
+    pub image_url: Option<String>,
+    pub banner_url: Option<String>,
+    pub subscribers: Option<String>,
+    pub views: Option<String>,
+    pub browse_id: Option<String>,
+}
+
+impl ArtistCandidate {
+    pub fn to_online_info(&self) -> OnlineArtistInfo {
+        OnlineArtistInfo {
+            name: Some(self.name.clone()),
+            description: self.description.clone(),
+            bio: self.bio.clone(),
+            image_url: self.image_url.clone(),
+            banner_url: self.banner_url.clone(),
+            subscribers: self.subscribers.clone(),
+            views: self.views.clone(),
+            browse_id: self.browse_id.clone(),
+        }
+    }
+}
+
+/// Queries online providers (YouTube Music Innertube, Wikipedia EN, Wikipedia JA) for artist profile candidates matching a search query.
+pub fn search_online_artist_candidates(query: &str) -> Vec<ArtistCandidate> {
+    let clean = clean_primary_artist(query);
+    if clean.trim().is_empty() {
+        return Vec::new();
+    }
+
+    let mut candidates: Vec<ArtistCandidate> = Vec::new();
+
+    // 1. YouTube Music Innertube direct query
+    let yt_info = query_innertube_artist_profile(&clean);
+    if yt_info.is_verified() || yt_info.name.is_some() || yt_info.image_url.is_some() {
+        candidates.push(ArtistCandidate {
+            name: yt_info.name.clone().unwrap_or_else(|| clean.clone()),
+            provider: "YouTube Music Innertube".to_string(),
+            description: yt_info.description.clone(),
+            bio: yt_info.bio.clone(),
+            image_url: yt_info.image_url.clone(),
+            banner_url: yt_info.banner_url.clone(),
+            subscribers: yt_info.subscribers.clone(),
+            views: yt_info.views.clone(),
+            browse_id: yt_info.browse_id.clone(),
+        });
+    }
+
+    // 2. English Wikipedia OpenSearch
+    let en_encoded = urlencoding(&clean);
+    let en_search_url = format!(
+        "https://en.wikipedia.org/w/api.php?action=opensearch&search={}&limit=4&namespace=0&format=json",
+        en_encoded
+    );
+    if let Ok(resp) = ureq::get(&en_search_url)
+        .set("User-Agent", "Attune/0.1.0 (https://github.com/Mizumo-prjkt/attune)")
+        .set("Accept", "application/json")
+        .timeout(std::time::Duration::from_millis(3000))
+        .call()
+    {
+        if let Ok(arr) = resp.into_json::<serde_json::Value>() {
+            if let Some(titles) = arr.get(1).and_then(|v| v.as_array()) {
+                for title_val in titles {
+                    if let Some(title) = title_val.as_str() {
+                        let sum_url = format!(
+                            "https://en.wikipedia.org/api/rest_v1/page/summary/{}",
+                            urlencoding(title)
+                        );
+                        let wiki_info = query_wikipedia_summary(&sum_url);
+                        if wiki_info.description.is_some() || wiki_info.bio.is_some() || wiki_info.image_url.is_some() {
+                            let already_exists = candidates.iter().any(|c| c.name.eq_ignore_ascii_case(title));
+                            if !already_exists {
+                                candidates.push(ArtistCandidate {
+                                    name: title.to_string(),
+                                    provider: "Wikipedia (English)".to_string(),
+                                    description: wiki_info.description,
+                                    bio: wiki_info.bio,
+                                    image_url: wiki_info.image_url,
+                                    banner_url: None,
+                                    subscribers: None,
+                                    views: None,
+                                    browse_id: None,
+                                });
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // 3. Japanese Wikipedia OpenSearch (crucial for Vocaloid / J-Pop / Anime artists)
+    let ja_search_url = format!(
+        "https://ja.wikipedia.org/w/api.php?action=opensearch&search={}&limit=4&namespace=0&format=json",
+        en_encoded
+    );
+    if let Ok(resp) = ureq::get(&ja_search_url)
+        .set("User-Agent", "Attune/0.1.0 (https://github.com/Mizumo-prjkt/attune)")
+        .set("Accept", "application/json")
+        .timeout(std::time::Duration::from_millis(3000))
+        .call()
+    {
+        if let Ok(arr) = resp.into_json::<serde_json::Value>() {
+            if let Some(titles) = arr.get(1).and_then(|v| v.as_array()) {
+                for title_val in titles {
+                    if let Some(title) = title_val.as_str() {
+                        let sum_url = format!(
+                            "https://ja.wikipedia.org/api/rest_v1/page/summary/{}",
+                            urlencoding(title)
+                        );
+                        let wiki_info = query_wikipedia_summary(&sum_url);
+                        if wiki_info.description.is_some() || wiki_info.bio.is_some() || wiki_info.image_url.is_some() {
+                            let already_exists = candidates.iter().any(|c| c.name == title);
+                            if !already_exists {
+                                candidates.push(ArtistCandidate {
+                                    name: title.to_string(),
+                                    provider: "Wikipedia (Japanese)".to_string(),
+                                    description: wiki_info.description,
+                                    bio: wiki_info.bio,
+                                    image_url: wiki_info.image_url,
+                                    banner_url: None,
+                                    subscribers: None,
+                                    views: None,
+                                    browse_id: None,
+                                });
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    candidates
 }
 
 #[derive(Debug, Clone, PartialEq)]

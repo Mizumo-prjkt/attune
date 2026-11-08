@@ -651,6 +651,30 @@ pub fn SettingsContent(
                                 }
                             }
                         }
+
+                        // Card: Album Artwork & Thumbnail Quality
+                        div { class: "settings-card",
+                            h3 { class: "settings-card-title", "Album Artwork & Thumbnail Quality" }
+                            p { class: "settings-card-desc",
+                                "Configure thumbnail downsampling quality. High Quality preserves original artwork resolution and renders crisp HD covers up to 1024x1024."
+                            }
+
+                            div { style: "display: flex; justify-content: space-between; align-items: center; margin-top: 12px; padding: 8px 0;",
+                                div {
+                                    div { style: "font-weight: 500; font-size: 13.5px;", "Render High Quality Thumbnails" }
+                                    div { style: "font-size: 12px; color: var(--text-muted);",
+                                        "Render crisp 1024x1024 HD album art instead of 160x160 compressed thumbnails. Preserves lossless fidelity for album views and now playing."
+                                    }
+                                }
+                                SwitchToggle {
+                                    active: curr_cfg.high_quality_thumbnails,
+                                    on_toggle: move |_| update_cfg(Box::new(|c| {
+                                        c.high_quality_thumbnails = !c.high_quality_thumbnails;
+                                        crate::library::clear_thumbnail_cache();
+                                    })),
+                                }
+                            }
+                        }
                     },
 
                     // -----------------------------------------------------------------
@@ -968,6 +992,37 @@ pub fn SettingsContent(
                                     on_toggle: move |_| update_cfg(Box::new(|c| c.sidebar_text_glow = !c.sidebar_text_glow)),
                                 }
                             }
+
+                            // Sidebar Lyrics Text Alignment
+                            div { style: "display: flex; justify-content: space-between; align-items: center; margin-top: 14px; padding-top: 12px; border-top: 1px solid rgba(255,255,255,0.05);",
+                                div {
+                                    div { style: "font-weight: 500; font-size: 13.5px;", "{strings.sidebar_lyrics_align}" }
+                                    div { style: "font-size: 12px; color: var(--text-muted);", "{strings.sidebar_lyrics_align_desc}" }
+                                }
+                                div { style: "display: flex; gap: 6px;",
+                                    button {
+                                        class: if curr_cfg.dock_lyrics_align == "left" { "btn-pill active" } else { "btn-pill" },
+                                        style: "font-size: 12px; padding: 4px 12px; display: inline-flex; align-items: center; gap: 4px;",
+                                        onclick: move |_| update_cfg(Box::new(|c| c.dock_lyrics_align = "left".to_string())),
+                                        span { class: "material-icons md-14", "format_align_left" }
+                                        "{strings.align_left}"
+                                    }
+                                    button {
+                                        class: if curr_cfg.dock_lyrics_align == "center" { "btn-pill active" } else { "btn-pill" },
+                                        style: "font-size: 12px; padding: 4px 12px; display: inline-flex; align-items: center; gap: 4px;",
+                                        onclick: move |_| update_cfg(Box::new(|c| c.dock_lyrics_align = "center".to_string())),
+                                        span { class: "material-icons md-14", "format_align_center" }
+                                        "{strings.align_center}"
+                                    }
+                                    button {
+                                        class: if curr_cfg.dock_lyrics_align == "right" { "btn-pill active" } else { "btn-pill" },
+                                        style: "font-size: 12px; padding: 4px 12px; display: inline-flex; align-items: center; gap: 4px;",
+                                        onclick: move |_| update_cfg(Box::new(|c| c.dock_lyrics_align = "right".to_string())),
+                                        span { class: "material-icons md-14", "format_align_right" }
+                                        "{strings.align_right}"
+                                    }
+                                }
+                            }
                         }
 
                         // Card: Fullscreen Now Playing Options
@@ -1007,6 +1062,72 @@ pub fn SettingsContent(
                                     on_toggle: move |_| update_cfg(Box::new(|c| c.fullscreen_visualizer_effects = !c.fullscreen_visualizer_effects)),
                                 }
                             }
+
+                            // Fullscreen Layout Placement (Controls Left vs Controls Right)
+                            div { style: "display: flex; justify-content: space-between; align-items: center; margin-top: 14px; padding-top: 12px; border-top: 1px solid rgba(255,255,255,0.05);",
+                                div {
+                                    div { style: "font-weight: 500; font-size: 13.5px;", "{strings.fullscreen_layout_placement}" }
+                                    div { style: "font-size: 12px; color: var(--text-muted);", "{strings.fullscreen_layout_placement_desc}" }
+                                }
+                                div { style: "display: flex; gap: 6px;",
+                                    button {
+                                        class: if curr_cfg.fullscreen_layout_side == "left" { "btn-pill active" } else { "btn-pill" },
+                                        style: "font-size: 12px; padding: 5px 12px; display: inline-flex; align-items: center; gap: 6px;",
+                                        onclick: move |_| update_cfg(Box::new(|c| c.fullscreen_layout_side = "left".to_string())),
+                                        span { class: "material-icons md-14", "view_sidebar" }
+                                        "{strings.controls_left_lyrics_right}"
+                                    }
+                                    button {
+                                        class: if curr_cfg.fullscreen_layout_side == "right" { "btn-pill active" } else { "btn-pill" },
+                                        style: "font-size: 12px; padding: 5px 12px; display: inline-flex; align-items: center; gap: 6px;",
+                                        onclick: move |_| update_cfg(Box::new(|c| c.fullscreen_layout_side = "right".to_string())),
+                                        span { class: "material-icons md-14", "chrome_reader_mode" }
+                                        "{strings.controls_right_lyrics_left}"
+                                    }
+                                }
+                            }
+
+                            // Fullscreen Lyrics Text Alignment
+                            div { style: "display: flex; justify-content: space-between; align-items: center; margin-top: 12px; padding-top: 12px; border-top: 1px solid rgba(255,255,255,0.05);",
+                                div {
+                                    div { style: "display: flex; align-items: center; gap: 8px;",
+                                        div { style: "font-weight: 500; font-size: 13.5px;", "{strings.fullscreen_lyrics_align}" }
+                                        if curr_cfg.enable_lyrics_custom_css {
+                                            span {
+                                                style: "font-size: 10.5px; padding: 2px 7px; border-radius: 4px; background: rgba(255, 170, 0, 0.15); color: #ffa726; border: 1px solid rgba(255, 170, 0, 0.35); font-weight: 600;",
+                                                "Overridden by Custom CSS"
+                                            }
+                                        }
+                                    }
+                                    div { style: "font-size: 12px; color: var(--text-muted);", "{strings.fullscreen_lyrics_align_desc}" }
+                                }
+                                div { style: "display: flex; gap: 6px;",
+                                    button {
+                                        class: if curr_cfg.fullscreen_lyrics_align == "left" { "btn-pill active" } else { "btn-pill" },
+                                        style: "font-size: 12px; padding: 4px 12px; display: inline-flex; align-items: center; gap: 4px;",
+                                        disabled: curr_cfg.enable_lyrics_custom_css,
+                                        onclick: move |_| update_cfg(Box::new(|c| c.fullscreen_lyrics_align = "left".to_string())),
+                                        span { class: "material-icons md-14", "format_align_left" }
+                                        "{strings.align_left}"
+                                    }
+                                    button {
+                                        class: if curr_cfg.fullscreen_lyrics_align == "center" { "btn-pill active" } else { "btn-pill" },
+                                        style: "font-size: 12px; padding: 4px 12px; display: inline-flex; align-items: center; gap: 4px;",
+                                        disabled: curr_cfg.enable_lyrics_custom_css,
+                                        onclick: move |_| update_cfg(Box::new(|c| c.fullscreen_lyrics_align = "center".to_string())),
+                                        span { class: "material-icons md-14", "format_align_center" }
+                                        "{strings.align_center}"
+                                    }
+                                    button {
+                                        class: if curr_cfg.fullscreen_lyrics_align == "right" { "btn-pill active" } else { "btn-pill" },
+                                        style: "font-size: 12px; padding: 4px 12px; display: inline-flex; align-items: center; gap: 4px;",
+                                        disabled: curr_cfg.enable_lyrics_custom_css,
+                                        onclick: move |_| update_cfg(Box::new(|c| c.fullscreen_lyrics_align = "right".to_string())),
+                                        span { class: "material-icons md-14", "format_align_right" }
+                                        "{strings.align_right}"
+                                    }
+                                }
+                            }
                         }
 
                         // Card: Custom Fullscreen Lyrics CSS Animation (Inspired by Better Lyrics)
@@ -1023,7 +1144,17 @@ pub fn SettingsContent(
                             }
 
                             if curr_cfg.enable_lyrics_custom_css {
-                                div { style: "margin-top: 14px; display: flex; flex-direction: column; gap: 10px;",
+                                div { style: "margin-top: 14px; display: flex; flex-direction: column; gap: 12px;",
+                                    // Custom CSS Override & Scope Callout Note
+                                    div {
+                                        style: "padding: 10px 14px; border-radius: 8px; background: rgba(255, 170, 0, 0.08); border: 1px solid rgba(255, 170, 0, 0.28); display: flex; align-items: flex-start; gap: 10px;",
+                                        span { class: "material-icons md-18", style: "color: #ffa726; flex-shrink: 0; margin-top: 2px;", "info" }
+                                        div { style: "display: flex; flex-direction: column; gap: 4px; font-size: 12px; line-height: 1.45;",
+                                            span { style: "font-weight: 600; color: #ffb74d;", "{strings.custom_css_precedence_notice}" }
+                                            span { style: "color: var(--text-muted);", "{strings.css_scope_note}" }
+                                        }
+                                    }
+
                                     // Presets bar
                                     div { style: "display: flex; gap: 8px; flex-wrap: wrap; align-items: center;",
                                         span { style: "font-size: 11.5px; color: var(--text-muted); font-weight: 600;", "Animation Presets:" }
@@ -1059,6 +1190,17 @@ pub fn SettingsContent(
                                         }
                                         button {
                                             class: "btn-pill",
+                                            style: "font-size: 11px; padding: 4px 10px; border-color: rgba(255, 223, 0, 0.40); color: #FFDF00; display: inline-flex; align-items: center; gap: 4px;",
+                                            onclick: move |_| {
+                                                update_cfg(Box::new(|c| {
+                                                    c.lyrics_custom_css = crate::config::PRESET_KARAOKE_BOUNCE.to_string();
+                                                }));
+                                            },
+                                            span { class: "material-icons md-14", style: "color: #FFDF00;", "mic" }
+                                            "{strings.karaoke_preset_label}"
+                                        }
+                                        button {
+                                            class: "btn-pill",
                                             style: "font-size: 11px; padding: 4px 10px;",
                                             onclick: move |_| {
                                                 update_cfg(Box::new(|c| {
@@ -1071,7 +1213,7 @@ pub fn SettingsContent(
 
                                     // CSS Code Editor Textarea
                                     textarea {
-                                        style: "width: 100%; min-height: 180px; font-family: var(--font-mono, monospace); font-size: 12px; line-height: 1.45; background: rgba(0, 0, 0, 0.45); color: #64ffda; border: 1px solid var(--border-glass); border-radius: 10px; padding: 12px; box-sizing: border-box; resize: vertical;",
+                                        style: "width: 100%; min-height: 190px; font-family: var(--font-mono, monospace); font-size: 12px; line-height: 1.45; background: rgba(0, 0, 0, 0.45); color: #64ffda; border: 1px solid var(--border-glass); border-radius: 10px; padding: 12px; box-sizing: border-box; resize: vertical;",
                                         value: "{curr_cfg.lyrics_custom_css}",
                                         placeholder: "Enter custom CSS rules targeting .fullscreen-lyric-active, .fullscreen-lyric-inactive, .fullscreen-lyrics-scroll...",
                                         oninput: move |e| {
@@ -1082,10 +1224,59 @@ pub fn SettingsContent(
 
                                     div { style: "display: flex; justify-content: space-between; align-items: center;",
                                         span { style: "font-size: 11px; color: var(--text-muted);",
-                                            "Target classes: .fullscreen-lyric-active, .fullscreen-lyric-inactive, .fullscreen-lyrics-scroll, .lyric-line"
+                                            "Target classes: .fullscreen-lyric-active, .fullscreen-lyric-inactive, .fullscreen-lyric-line, .fullscreen-lyrics-scroll"
                                         }
                                         span { style: "font-size: 11.5px; color: var(--accent-mint); font-weight: 500;",
                                             "✓ Auto-persisted to disk"
+                                        }
+                                    }
+
+                                    // Guide & Class Reference Panel
+                                    div {
+                                        style: "margin-top: 6px; border-radius: 8px; background: rgba(255, 255, 255, 0.03); border: 1px solid rgba(255, 255, 255, 0.08); padding: 14px 16px; display: flex; flex-direction: column; gap: 8px;",
+                                        div { style: "font-weight: 600; font-size: 13px; color: #ffffff; display: flex; align-items: center; gap: 6px;",
+                                            span { class: "material-icons md-16", style: "color: var(--accent-mint);", "code" }
+                                            "{strings.css_reference_guide_title}"
+                                        }
+                                        div { style: "display: flex; flex-direction: column; gap: 6px; font-size: 12px; line-height: 1.5; color: var(--text-secondary);",
+                                            div {
+                                                code { style: "color: var(--accent-mint); font-family: monospace; font-size: 11.5px; background: rgba(100, 255, 218, 0.08); padding: 2px 6px; border-radius: 4px;", ".fullscreen-lyric-active" }
+                                                " — Currently singing line. Customize "
+                                                code { style: "color: #fff; font-family: monospace;", "color" }
+                                                ", "
+                                                code { style: "color: #fff; font-family: monospace;", "text-shadow" }
+                                                ", "
+                                                code { style: "color: #fff; font-family: monospace;", "font-weight" }
+                                                ", or keyframe animations (like "
+                                                code { style: "color: #FFDF00; font-family: monospace;", "karaokeBounce" }
+                                                ")."
+                                            }
+                                            div {
+                                                code { style: "color: var(--accent-mint); font-family: monospace; font-size: 11.5px; background: rgba(100, 255, 218, 0.08); padding: 2px 6px; border-radius: 4px;", ".fullscreen-lyric-inactive" }
+                                                " — Inactive, past, and upcoming lines. Target for "
+                                                code { style: "color: #fff; font-family: monospace;", "opacity" }
+                                                ", "
+                                                code { style: "color: #fff; font-family: monospace;", "filter: blur(...)" }
+                                                ", or scale transforms."
+                                            }
+                                            div {
+                                                code { style: "color: var(--accent-mint); font-family: monospace; font-size: 11.5px; background: rgba(100, 255, 218, 0.08); padding: 2px 6px; border-radius: 4px;", ".fullscreen-lyric-line" }
+                                                " — Base line styling: "
+                                                code { style: "color: #fff; font-family: monospace;", "text-align" }
+                                                ", "
+                                                code { style: "color: #fff; font-family: monospace;", "transform-origin" }
+                                                ", "
+                                                code { style: "color: #fff; font-family: monospace;", "line-height" }
+                                                ", and transitions."
+                                            }
+                                            div {
+                                                code { style: "color: var(--accent-mint); font-family: monospace; font-size: 11.5px; background: rgba(100, 255, 218, 0.08); padding: 2px 6px; border-radius: 4px;", ".fullscreen-lyrics-scroll" }
+                                                " — Scroll container: padding, gradient mask, and scroll behavior."
+                                            }
+                                            div {
+                                                code { style: "color: var(--accent-mint); font-family: monospace; font-size: 11.5px; background: rgba(100, 255, 218, 0.08); padding: 2px 6px; border-radius: 4px;", "[data-line-idx=\"0\"]" }
+                                                " — Attribute selector to style specific line indexes individually."
+                                            }
                                         }
                                     }
                                 }
@@ -1116,6 +1307,17 @@ pub fn SettingsContent(
                                 SwitchToggle {
                                     active: curr_cfg.api_youtube_enabled,
                                     on_toggle: move |_| update_cfg(Box::new(|c| c.api_youtube_enabled = !c.api_youtube_enabled)),
+                                }
+                            }
+
+                            div { style: "display: flex; justify-content: space-between; align-items: center; margin-top: 8px; padding: 8px 0; border-bottom: 1px solid rgba(255,255,255,0.05);",
+                                div {
+                                    div { style: "font-weight: 500; font-size: 13.5px;", "YouTube Music High-Resolution Artwork" }
+                                    div { style: "font-size: 12px; color: var(--text-muted);", "Fetch authentic high-resolution square album covers (up to 1024x1024) and HD thumbnails from YouTube Music and YouTube." }
+                                }
+                                SwitchToggle {
+                                    active: curr_cfg.fetch_youtube_thumbnails,
+                                    on_toggle: move |_| update_cfg(Box::new(|c| c.fetch_youtube_thumbnails = !c.fetch_youtube_thumbnails)),
                                 }
                             }
 
@@ -1990,6 +2192,10 @@ pub fn SettingsContent(
                                 }
                                 div { style: "display: flex; flex-direction: column; gap: 6px; margin-top: 4px; font-size: 12px;",
                                     div { "• " span { style: "color: #fff; font-weight: 600;", "Better Lyrics: " } "Fluid easing curves, tactile spring animations, and custom CSS theme architecture inspired by better-lyrics/better-lyrics." }
+                                    div { "• " span { style: "color: #fff; font-weight: 600;", "Alignment Controls: " } "Independent text alignment (Left, Center, Right) for both docked sidebar and fullscreen stage." }
+                                    div { "• " span { style: "color: #fff; font-weight: 600;", "Layout Placement: " } "Swap fullscreen layout between Controls-Left and Controls-Right edge-to-edge columns." }
+                                    div { "• " span { style: "color: #fff; font-weight: 600;", "Custom CSS Scope: " } "Applies exclusively to fullscreen lyrics. Overrides declarative fullscreen alignment when active." }
+                                    div { "• " span { style: "color: #fff; font-weight: 600;", "Karaoke Preset: " } "Vivid golden glow (#FFDF00) with tactile spring bounce animation." }
                                     div { "• " span { style: "color: #fff; font-weight: 600;", "40ms Lookahead: " } "Offsets hardware DAC latency for instantaneous word-by-word highlights." }
                                     div { "• " span { style: "color: #fff; font-weight: 600;", "MPL-2.0 License: " } "BiniLyrics utilizes <am-lyrics> under Mozilla Public License v2.0." }
                                     div { "• " span { style: "color: #fff; font-weight: 600;", "Providers: " } "LRCLIB, BiniLyrics, and embedded Vorbis/ID3 tag streams." }

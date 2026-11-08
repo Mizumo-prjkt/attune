@@ -911,6 +911,37 @@ pub extern "C" fn attune_probe_external_dsp() -> *mut c_char {
     res.unwrap_or(std::ptr::null_mut())
 }
 
+/// Searches YouTube & YouTube Music for candidate high quality thumbnails.
+/// Returns a JSON string array of `Vec<YouTubeThumbnailCandidate>`.
+/// Caller must free returned pointer with `attune_free_string`.
+#[no_mangle]
+pub extern "C" fn attune_search_youtube_thumbnails(query_ptr: *const c_char) -> *mut c_char {
+    attune_music_metadata::ffi::attune_metadata_search_youtube_thumbnails(query_ptr)
+}
+
+/// Downloads a thumbnail from `url_ptr` and writes it to `dest_path_ptr`.
+/// Returns 0 on success, or negative error code.
+#[no_mangle]
+pub extern "C" fn attune_download_youtube_thumbnail(
+    url_ptr: *const c_char,
+    dest_path_ptr: *const c_char,
+) -> i32 {
+    attune_music_metadata::ffi::attune_metadata_download_youtube_thumbnail(url_ptr, dest_path_ptr)
+}
+
+/// Automatically searches for top HQ thumbnail for a given track and downloads it to `dest_path_ptr`.
+/// Returns a JSON string of `{ id, title, author, thumbnail_url, width, height, source }`.
+/// Caller must free returned pointer with `attune_free_string`.
+#[no_mangle]
+pub extern "C" fn attune_fetch_hq_thumbnail(
+    title_ptr: *const c_char,
+    artist_ptr: *const c_char,
+    dest_path_ptr: *const c_char,
+) -> *mut c_char {
+    attune_music_metadata::ffi::attune_metadata_fetch_hq_thumbnail(title_ptr, artist_ptr, dest_path_ptr)
+}
+
+
 #[cfg(test)]
 mod tests {
     use super::*;
