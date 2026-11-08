@@ -4423,6 +4423,40 @@ This file records all major architectural decisions for **Attune**, including co
   - Process Manager provides instant visual feedback on CPU spikes and memory trimming without having to manually deduce trends from single numeric values.
   - Shared library diagnostic clutter is replaced by valuable operational performance insight.
 
+---
+
+## ADR-126: Dedicated Standalone Lyrics Live Animation & Style Preview Window, Real-Time Config Synchronizer & Preset State Introspection
+- **Date**: 2026-11-08
+- **Status**: `LOCKED`
+- **Context**:
+  1. The user reported difficulty verifying whether settings options (layout side, alignment, custom CSS keyframes, atmospheric gradients) were properly applied, and requested a dedicated preview window to inspect animations, looks, and sample lyrics in real time:
+     *"ok for some reason with this setup on the settings, i cant tell if i have selected the UI properly or what. i was imagining a new window to at least give a preview of animation, the looks and the sample of things, you know?"*
+  2. Previously, previewing lyrics animations required initiating track playback, waiting for companion `.lrc` lyrics to load, and toggling fullscreen view.
+  3. In the Settings UI, preset buttons were identical with no active state indicator, and disabled alignment options lacked visual clarity when overridden by custom CSS.
+- **Decision**:
+  1. **Dedicated Standalone Preview Window (`crates/attune-desktop/src/stages/lyrics_preview.rs`)**:
+     - Created `open_lyrics_preview_window()` with atomic latch `LYRICS_PREVIEW_WINDOW_OPEN` and RAII drop guard `PreviewWindowGuard`.
+     - Window size: 1120x720 (min 820x520) with Attune app icon and injected glass theme stylesheet.
+     - Implemented real-time two-way synchronization polling `load_config()` every 500ms so that typing custom CSS or toggling options in Settings immediately updates the preview window with zero latency.
+     - Provided 3 authentic sample tracks: `(Not) A Devil` (DECO*27 & PinocchioP), `Ready` (Attune), and `YUMEYUME` (DECO*27 feat. Hatsune Miku) spanning Japanese, English, upbeat, and ballad tempos.
+     - Added simulated singing line advancement timer with adjustable speed (`0.5x`, `1.0x`, `2.0x`), Play/Pause toggle, Next/Prev line stepping, and 1-click line jumping.
+     - Dual-mode viewport toggle:
+       - **Fullscreen Mode**: Renders split 2-column layout respecting `fullscreen_layout_side` (left vs right), atmospheric cover art gradients, breathing visualizer pulse orbs, `.fullscreen-lyric-active` glow shadows, alignment classes, and dynamic `<style>` injection of `lyrics_custom_css`.
+       - **Sidebar Mode**: Renders right-docked 360px drawer mockup displaying `.lyric-line`, `.align-{dock_lyrics_align}`, and sidebar font styles.
+  2. **Settings UI Enhancements (`crates/attune-desktop/src/stages/settings.rs`)**:
+     - Added prominent `[Preview Animations & Looks]` action buttons to both the Fullscreen Stage and Custom CSS cards.
+     - Added active checkmark indicators (`span { class: "material-icons md-14", "check" }`) to selected layout and alignment pills.
+     - Added preset state introspection (`is_spotlight`, `is_spring`, `is_cyberpunk`, `is_karaoke`) so that the active preset button displays `btn-pill active` with a `✓` checkmark.
+     - Visually dimmed disabled fullscreen alignment pills with `opacity: 0.45; cursor: not-allowed;` and an explanatory caption when overridden by Custom CSS.
+  3. **Mandate 4 (Zero Hardcoding) & Full Localization (`crates/attune-desktop/src/i18n.rs`)**:
+     - Added 8 localized string keys (`launch_lyrics_preview`, `preview_lyrics_window_title`, `preview_fullscreen_mode`, `preview_sidebar_mode`, `preview_simulating_line`, `preview_speed`, `preview_track_sample`, `preview_notice_realtime`) across English and Wikang Filipino, and updated `export_language_template_json()`.
+  4. **Unit Testing & Verification**:
+     - Added unit tests `test_sample_tracks_non_empty_and_valid` and `test_sample_track_cycling` in `lyrics_preview.rs`. All 98 desktop tests pass cleanly.
+- **Consequences**:
+  - Users can immediately test, iterate, and verify custom CSS animations and layout choices in real time without interrupting live playback or needing active track lyrics.
+  - Active preset selection is visually unambiguous with crisp checkmark indicators.
+
+
 
 
 

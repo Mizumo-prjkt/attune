@@ -858,7 +858,14 @@ pub fn SettingsContent(
                     // -----------------------------------------------------------------
                     // TAB 4: LYRICS
                     // -----------------------------------------------------------------
-                    SettingsTab::Lyrics => rsx! {
+                    SettingsTab::Lyrics => {
+                        let trimmed_css = curr_cfg.lyrics_custom_css.trim();
+                        let is_spotlight = trimmed_css == crate::config::PRESET_SPOTLIGHT_BLUR.trim() || trimmed_css.starts_with("/* Spotlight Depth Blur");
+                        let is_spring = trimmed_css == crate::config::PRESET_SPRING_POP.trim() || trimmed_css.starts_with("/* Apple Music Spring Pop");
+                        let is_cyberpunk = trimmed_css == crate::config::PRESET_CYBERPUNK_NEON.trim() || trimmed_css.starts_with("/* Cyberpunk Neon");
+                        let is_karaoke = trimmed_css == crate::config::PRESET_KARAOKE_BOUNCE.trim() || trimmed_css.starts_with("/* Karaoke Golden Glow");
+
+                        rsx! {
                         div { class: "settings-section-header",
                             h1 { style: "font-size: 24px; font-weight: 700; margin: 0 0 4px 0;", "{strings.lyrics}" }
                             p { style: "color: var(--text-secondary); font-size: 13px; margin: 0;",
@@ -1004,21 +1011,33 @@ pub fn SettingsContent(
                                         class: if curr_cfg.dock_lyrics_align == "left" { "btn-pill active" } else { "btn-pill" },
                                         style: "font-size: 12px; padding: 4px 12px; display: inline-flex; align-items: center; gap: 4px;",
                                         onclick: move |_| update_cfg(Box::new(|c| c.dock_lyrics_align = "left".to_string())),
-                                        span { class: "material-icons md-14", "format_align_left" }
+                                        if curr_cfg.dock_lyrics_align == "left" {
+                                            span { class: "material-icons md-14", "check" }
+                                        } else {
+                                            span { class: "material-icons md-14", "format_align_left" }
+                                        }
                                         "{strings.align_left}"
                                     }
                                     button {
                                         class: if curr_cfg.dock_lyrics_align == "center" { "btn-pill active" } else { "btn-pill" },
                                         style: "font-size: 12px; padding: 4px 12px; display: inline-flex; align-items: center; gap: 4px;",
                                         onclick: move |_| update_cfg(Box::new(|c| c.dock_lyrics_align = "center".to_string())),
-                                        span { class: "material-icons md-14", "format_align_center" }
+                                        if curr_cfg.dock_lyrics_align == "center" {
+                                            span { class: "material-icons md-14", "check" }
+                                        } else {
+                                            span { class: "material-icons md-14", "format_align_center" }
+                                        }
                                         "{strings.align_center}"
                                     }
                                     button {
                                         class: if curr_cfg.dock_lyrics_align == "right" { "btn-pill active" } else { "btn-pill" },
                                         style: "font-size: 12px; padding: 4px 12px; display: inline-flex; align-items: center; gap: 4px;",
                                         onclick: move |_| update_cfg(Box::new(|c| c.dock_lyrics_align = "right".to_string())),
-                                        span { class: "material-icons md-14", "format_align_right" }
+                                        if curr_cfg.dock_lyrics_align == "right" {
+                                            span { class: "material-icons md-14", "check" }
+                                        } else {
+                                            span { class: "material-icons md-14", "format_align_right" }
+                                        }
                                         "{strings.align_right}"
                                     }
                                 }
@@ -1027,8 +1046,21 @@ pub fn SettingsContent(
 
                         // Card: Fullscreen Now Playing Options
                         div { class: "settings-card",
-                            h3 { class: "settings-card-title", "Fullscreen Now Playing Stage" }
-                            p { class: "settings-card-desc", "Configure visual effects for the edge-to-edge immersive full-window mode." }
+                            div { style: "display: flex; justify-content: space-between; align-items: center;",
+                                div {
+                                    h3 { class: "settings-card-title", "Fullscreen Now Playing Stage" }
+                                    p { class: "settings-card-desc", "Configure visual effects for the edge-to-edge immersive full-window mode." }
+                                }
+                                button {
+                                    class: "btn-pill",
+                                    style: "font-size: 11.5px; padding: 5px 12px; display: inline-flex; align-items: center; gap: 6px; border-color: rgba(45, 212, 191, 0.45); color: var(--accent-mint); font-weight: 600;",
+                                    onclick: move |_| {
+                                        crate::stages::lyrics_preview::open_lyrics_preview_window();
+                                    },
+                                    span { class: "material-icons md-16", "smart_display" }
+                                    "{strings.launch_lyrics_preview}"
+                                }
+                            }
 
                             div { style: "display: flex; justify-content: space-between; align-items: center; margin-top: 12px; padding: 6px 0;",
                                 div {
@@ -1074,14 +1106,22 @@ pub fn SettingsContent(
                                         class: if curr_cfg.fullscreen_layout_side == "left" { "btn-pill active" } else { "btn-pill" },
                                         style: "font-size: 12px; padding: 5px 12px; display: inline-flex; align-items: center; gap: 6px;",
                                         onclick: move |_| update_cfg(Box::new(|c| c.fullscreen_layout_side = "left".to_string())),
-                                        span { class: "material-icons md-14", "view_sidebar" }
+                                        if curr_cfg.fullscreen_layout_side == "left" {
+                                            span { class: "material-icons md-14", "check" }
+                                        } else {
+                                            span { class: "material-icons md-14", "view_sidebar" }
+                                        }
                                         "{strings.controls_left_lyrics_right}"
                                     }
                                     button {
                                         class: if curr_cfg.fullscreen_layout_side == "right" { "btn-pill active" } else { "btn-pill" },
                                         style: "font-size: 12px; padding: 5px 12px; display: inline-flex; align-items: center; gap: 6px;",
                                         onclick: move |_| update_cfg(Box::new(|c| c.fullscreen_layout_side = "right".to_string())),
-                                        span { class: "material-icons md-14", "chrome_reader_mode" }
+                                        if curr_cfg.fullscreen_layout_side == "right" {
+                                            span { class: "material-icons md-14", "check" }
+                                        } else {
+                                            span { class: "material-icons md-14", "chrome_reader_mode" }
+                                        }
                                         "{strings.controls_right_lyrics_left}"
                                     }
                                 }
@@ -1101,30 +1141,66 @@ pub fn SettingsContent(
                                     }
                                     div { style: "font-size: 12px; color: var(--text-muted);", "{strings.fullscreen_lyrics_align_desc}" }
                                 }
-                                div { style: "display: flex; gap: 6px;",
-                                    button {
-                                        class: if curr_cfg.fullscreen_lyrics_align == "left" { "btn-pill active" } else { "btn-pill" },
-                                        style: "font-size: 12px; padding: 4px 12px; display: inline-flex; align-items: center; gap: 4px;",
-                                        disabled: curr_cfg.enable_lyrics_custom_css,
-                                        onclick: move |_| update_cfg(Box::new(|c| c.fullscreen_lyrics_align = "left".to_string())),
-                                        span { class: "material-icons md-14", "format_align_left" }
-                                        "{strings.align_left}"
+                                div { style: "display: flex; flex-direction: column; align-items: flex-end; gap: 4px;",
+                                    div {
+                                        style: if curr_cfg.enable_lyrics_custom_css {
+                                            "display: flex; gap: 6px; opacity: 0.45;"
+                                        } else {
+                                            "display: flex; gap: 6px;"
+                                        },
+                                        button {
+                                            class: if curr_cfg.fullscreen_lyrics_align == "left" && !curr_cfg.enable_lyrics_custom_css { "btn-pill active" } else { "btn-pill" },
+                                            style: if curr_cfg.enable_lyrics_custom_css {
+                                                "font-size: 12px; padding: 4px 12px; display: inline-flex; align-items: center; gap: 4px; cursor: not-allowed;"
+                                            } else {
+                                                "font-size: 12px; padding: 4px 12px; display: inline-flex; align-items: center; gap: 4px;"
+                                            },
+                                            disabled: curr_cfg.enable_lyrics_custom_css,
+                                            onclick: move |_| update_cfg(Box::new(|c| c.fullscreen_lyrics_align = "left".to_string())),
+                                            if curr_cfg.fullscreen_lyrics_align == "left" && !curr_cfg.enable_lyrics_custom_css {
+                                                span { class: "material-icons md-14", "check" }
+                                            } else {
+                                                span { class: "material-icons md-14", "format_align_left" }
+                                            }
+                                            "{strings.align_left}"
+                                        }
+                                        button {
+                                            class: if curr_cfg.fullscreen_lyrics_align == "center" && !curr_cfg.enable_lyrics_custom_css { "btn-pill active" } else { "btn-pill" },
+                                            style: if curr_cfg.enable_lyrics_custom_css {
+                                                "font-size: 12px; padding: 4px 12px; display: inline-flex; align-items: center; gap: 4px; cursor: not-allowed;"
+                                            } else {
+                                                "font-size: 12px; padding: 4px 12px; display: inline-flex; align-items: center; gap: 4px;"
+                                            },
+                                            disabled: curr_cfg.enable_lyrics_custom_css,
+                                            onclick: move |_| update_cfg(Box::new(|c| c.fullscreen_lyrics_align = "center".to_string())),
+                                            if curr_cfg.fullscreen_lyrics_align == "center" && !curr_cfg.enable_lyrics_custom_css {
+                                                span { class: "material-icons md-14", "check" }
+                                            } else {
+                                                span { class: "material-icons md-14", "format_align_center" }
+                                            }
+                                            "{strings.align_center}"
+                                        }
+                                        button {
+                                            class: if curr_cfg.fullscreen_lyrics_align == "right" && !curr_cfg.enable_lyrics_custom_css { "btn-pill active" } else { "btn-pill" },
+                                            style: if curr_cfg.enable_lyrics_custom_css {
+                                                "font-size: 12px; padding: 4px 12px; display: inline-flex; align-items: center; gap: 4px; cursor: not-allowed;"
+                                            } else {
+                                                "font-size: 12px; padding: 4px 12px; display: inline-flex; align-items: center; gap: 4px;"
+                                            },
+                                            disabled: curr_cfg.enable_lyrics_custom_css,
+                                            onclick: move |_| update_cfg(Box::new(|c| c.fullscreen_lyrics_align = "right".to_string())),
+                                            if curr_cfg.fullscreen_lyrics_align == "right" && !curr_cfg.enable_lyrics_custom_css {
+                                                span { class: "material-icons md-14", "check" }
+                                            } else {
+                                                span { class: "material-icons md-14", "format_align_right" }
+                                            }
+                                            "{strings.align_right}"
+                                        }
                                     }
-                                    button {
-                                        class: if curr_cfg.fullscreen_lyrics_align == "center" { "btn-pill active" } else { "btn-pill" },
-                                        style: "font-size: 12px; padding: 4px 12px; display: inline-flex; align-items: center; gap: 4px;",
-                                        disabled: curr_cfg.enable_lyrics_custom_css,
-                                        onclick: move |_| update_cfg(Box::new(|c| c.fullscreen_lyrics_align = "center".to_string())),
-                                        span { class: "material-icons md-14", "format_align_center" }
-                                        "{strings.align_center}"
-                                    }
-                                    button {
-                                        class: if curr_cfg.fullscreen_lyrics_align == "right" { "btn-pill active" } else { "btn-pill" },
-                                        style: "font-size: 12px; padding: 4px 12px; display: inline-flex; align-items: center; gap: 4px;",
-                                        disabled: curr_cfg.enable_lyrics_custom_css,
-                                        onclick: move |_| update_cfg(Box::new(|c| c.fullscreen_lyrics_align = "right".to_string())),
-                                        span { class: "material-icons md-14", "format_align_right" }
-                                        "{strings.align_right}"
+                                    if curr_cfg.enable_lyrics_custom_css {
+                                        span { style: "font-size: 11px; color: #ffa726;",
+                                            "Controlled via custom CSS rules (.fullscreen-lyric-line)"
+                                        }
                                     }
                                 }
                             }
@@ -1137,79 +1213,97 @@ pub fn SettingsContent(
                                     h3 { class: "settings-card-title", "{strings.custom_lyrics_css}" }
                                     p { class: "settings-card-desc", "{strings.custom_lyrics_css_desc}" }
                                 }
-                                SwitchToggle {
-                                    active: curr_cfg.enable_lyrics_custom_css,
-                                    on_toggle: move |_| update_cfg(Box::new(|c| c.enable_lyrics_custom_css = !c.enable_lyrics_custom_css)),
+                                div { style: "display: flex; align-items: center; gap: 12px;",
+                                    button {
+                                        class: "btn-pill",
+                                        style: "font-size: 11.5px; padding: 5px 12px; display: inline-flex; align-items: center; gap: 5px; border-color: rgba(45, 212, 191, 0.45); color: var(--accent-mint); font-weight: 600;",
+                                        onclick: move |_| {
+                                            crate::stages::lyrics_preview::open_lyrics_preview_window();
+                                        },
+                                        span { class: "material-icons md-14", "smart_display" }
+                                        "{strings.launch_lyrics_preview}"
+                                    }
+                                    SwitchToggle {
+                                        active: curr_cfg.enable_lyrics_custom_css,
+                                        on_toggle: move |_| update_cfg(Box::new(|c| c.enable_lyrics_custom_css = !c.enable_lyrics_custom_css)),
+                                    }
                                 }
                             }
 
                             if curr_cfg.enable_lyrics_custom_css {
                                 div { style: "margin-top: 14px; display: flex; flex-direction: column; gap: 12px;",
-                                    // Custom CSS Override & Scope Callout Note
-                                    div {
-                                        style: "padding: 10px 14px; border-radius: 8px; background: rgba(255, 170, 0, 0.08); border: 1px solid rgba(255, 170, 0, 0.28); display: flex; align-items: flex-start; gap: 10px;",
-                                        span { class: "material-icons md-18", style: "color: #ffa726; flex-shrink: 0; margin-top: 2px;", "info" }
-                                        div { style: "display: flex; flex-direction: column; gap: 4px; font-size: 12px; line-height: 1.45;",
-                                            span { style: "font-weight: 600; color: #ffb74d;", "{strings.custom_css_precedence_notice}" }
-                                            span { style: "color: var(--text-muted);", "{strings.css_scope_note}" }
-                                        }
-                                    }
+                                            // Custom CSS Override & Scope Callout Note
+                                            div {
+                                                style: "padding: 10px 14px; border-radius: 8px; background: rgba(255, 170, 0, 0.08); border: 1px solid rgba(255, 170, 0, 0.28); display: flex; align-items: flex-start; gap: 10px;",
+                                                span { class: "material-icons md-18", style: "color: #ffa726; flex-shrink: 0; margin-top: 2px;", "info" }
+                                                div { style: "display: flex; flex-direction: column; gap: 4px; font-size: 12px; line-height: 1.45;",
+                                                    span { style: "font-weight: 600; color: #ffb74d;", "{strings.custom_css_precedence_notice}" }
+                                                    span { style: "color: var(--text-muted);", "{strings.css_scope_note}" }
+                                                }
+                                            }
 
-                                    // Presets bar
-                                    div { style: "display: flex; gap: 8px; flex-wrap: wrap; align-items: center;",
-                                        span { style: "font-size: 11.5px; color: var(--text-muted); font-weight: 600;", "Animation Presets:" }
-                                        button {
-                                            class: "btn-pill",
-                                            style: "font-size: 11px; padding: 4px 10px;",
-                                            onclick: move |_| {
-                                                update_cfg(Box::new(|c| {
-                                                    c.lyrics_custom_css = crate::config::PRESET_SPOTLIGHT_BLUR.to_string();
-                                                }));
-                                            },
-                                            "Spotlight Depth Blur"
-                                        }
-                                        button {
-                                            class: "btn-pill",
-                                            style: "font-size: 11px; padding: 4px 10px;",
-                                            onclick: move |_| {
-                                                update_cfg(Box::new(|c| {
-                                                    c.lyrics_custom_css = crate::config::PRESET_SPRING_POP.to_string();
-                                                }));
-                                            },
-                                            "Apple Music Spring Pop"
-                                        }
-                                        button {
-                                            class: "btn-pill",
-                                            style: "font-size: 11px; padding: 4px 10px;",
-                                            onclick: move |_| {
-                                                update_cfg(Box::new(|c| {
-                                                    c.lyrics_custom_css = crate::config::PRESET_CYBERPUNK_NEON.to_string();
-                                                }));
-                                            },
-                                            "Cyberpunk Neon Glow"
-                                        }
-                                        button {
-                                            class: "btn-pill",
-                                            style: "font-size: 11px; padding: 4px 10px; border-color: rgba(255, 223, 0, 0.40); color: #FFDF00; display: inline-flex; align-items: center; gap: 4px;",
-                                            onclick: move |_| {
-                                                update_cfg(Box::new(|c| {
-                                                    c.lyrics_custom_css = crate::config::PRESET_KARAOKE_BOUNCE.to_string();
-                                                }));
-                                            },
-                                            span { class: "material-icons md-14", style: "color: #FFDF00;", "mic" }
-                                            "{strings.karaoke_preset_label}"
-                                        }
-                                        button {
-                                            class: "btn-pill",
-                                            style: "font-size: 11px; padding: 4px 10px;",
-                                            onclick: move |_| {
-                                                update_cfg(Box::new(|c| {
-                                                    c.lyrics_custom_css = crate::config::default_lyrics_custom_css();
-                                                }));
-                                            },
-                                            "Reset Template"
-                                        }
-                                    }
+                                            // Presets bar with active detection
+                                            div { style: "display: flex; gap: 8px; flex-wrap: wrap; align-items: center;",
+                                                span { style: "font-size: 11.5px; color: var(--text-muted); font-weight: 600;", "Animation Presets:" }
+                                                button {
+                                                    class: if is_spotlight { "btn-pill active" } else { "btn-pill" },
+                                                    style: "font-size: 11px; padding: 4px 10px; display: inline-flex; align-items: center; gap: 4px;",
+                                                    onclick: move |_| {
+                                                        update_cfg(Box::new(|c| {
+                                                            c.lyrics_custom_css = crate::config::PRESET_SPOTLIGHT_BLUR.to_string();
+                                                        }));
+                                                    },
+                                                    if is_spotlight { span { class: "material-icons md-14", "check" } }
+                                                    "Spotlight Depth Blur"
+                                                }
+                                                button {
+                                                    class: if is_spring { "btn-pill active" } else { "btn-pill" },
+                                                    style: "font-size: 11px; padding: 4px 10px; display: inline-flex; align-items: center; gap: 4px;",
+                                                    onclick: move |_| {
+                                                        update_cfg(Box::new(|c| {
+                                                            c.lyrics_custom_css = crate::config::PRESET_SPRING_POP.to_string();
+                                                        }));
+                                                    },
+                                                    if is_spring { span { class: "material-icons md-14", "check" } }
+                                                    "Apple Music Spring Pop"
+                                                }
+                                                button {
+                                                    class: if is_cyberpunk { "btn-pill active" } else { "btn-pill" },
+                                                    style: "font-size: 11px; padding: 4px 10px; display: inline-flex; align-items: center; gap: 4px;",
+                                                    onclick: move |_| {
+                                                        update_cfg(Box::new(|c| {
+                                                            c.lyrics_custom_css = crate::config::PRESET_CYBERPUNK_NEON.to_string();
+                                                        }));
+                                                    },
+                                                    if is_cyberpunk { span { class: "material-icons md-14", "check" } }
+                                                    "Cyberpunk Neon Glow"
+                                                }
+                                                button {
+                                                    class: if is_karaoke { "btn-pill active" } else { "btn-pill" },
+                                                    style: "font-size: 11px; padding: 4px 10px; border-color: rgba(255, 223, 0, 0.40); color: #FFDF00; display: inline-flex; align-items: center; gap: 4px;",
+                                                    onclick: move |_| {
+                                                        update_cfg(Box::new(|c| {
+                                                            c.lyrics_custom_css = crate::config::PRESET_KARAOKE_BOUNCE.to_string();
+                                                        }));
+                                                    },
+                                                    if is_karaoke {
+                                                        span { class: "material-icons md-14", "check" }
+                                                    } else {
+                                                        span { class: "material-icons md-14", style: "color: #FFDF00;", "mic" }
+                                                    }
+                                                    "{strings.karaoke_preset_label}"
+                                                }
+                                                button {
+                                                    class: "btn-pill",
+                                                    style: "font-size: 11px; padding: 4px 10px;",
+                                                    onclick: move |_| {
+                                                        update_cfg(Box::new(|c| {
+                                                            c.lyrics_custom_css = crate::config::default_lyrics_custom_css();
+                                                        }));
+                                                    },
+                                                    "Reset Template"
+                                                }
+                                            }
 
                                     // CSS Code Editor Textarea
                                     textarea {
@@ -1282,7 +1376,8 @@ pub fn SettingsContent(
                                 }
                             }
                         }
-                    },
+                    }
+                },
 
                     // -----------------------------------------------------------------
                     // TAB 5: API PROVIDERS

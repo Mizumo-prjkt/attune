@@ -12,6 +12,7 @@ pub mod fullscreen_now_playing;
 pub mod home;
 pub mod library;
 pub mod lyrics_finder;
+pub mod lyrics_preview;
 pub mod process_manager;
 pub mod settings;
 pub mod setup;

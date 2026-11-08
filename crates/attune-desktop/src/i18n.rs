@@ -213,6 +213,14 @@ pub struct Strings {
     pub karaoke_preset_label: &'static str,
     pub css_reference_guide_title: &'static str,
     pub css_scope_note: &'static str,
+    pub launch_lyrics_preview: &'static str,
+    pub preview_lyrics_window_title: &'static str,
+    pub preview_fullscreen_mode: &'static str,
+    pub preview_sidebar_mode: &'static str,
+    pub preview_simulating_line: &'static str,
+    pub preview_speed: &'static str,
+    pub preview_track_sample: &'static str,
+    pub preview_notice_realtime: &'static str,
 
     // Artist Profile Finder & Matcher Stage
     pub select_artist_to_find_profile: &'static str,
@@ -403,6 +411,14 @@ pub fn get_strings(lang: Language) -> Strings {
             karaoke_preset_label: "Karaoke Golden Bounce",
             css_reference_guide_title: "Custom CSS Guide & Class Reference",
             css_scope_note: "Custom CSS applies exclusively to the Fullscreen Lyrics stage and does not alter the sidebar or main player.",
+            launch_lyrics_preview: "Preview Animations & Looks",
+            preview_lyrics_window_title: "Attune — Lyrics Live Animation Preview",
+            preview_fullscreen_mode: "Fullscreen View",
+            preview_sidebar_mode: "Docked Sidebar",
+            preview_simulating_line: "Simulating Line",
+            preview_speed: "Speed",
+            preview_track_sample: "Sample Track",
+            preview_notice_realtime: "Live sync active: changes in Settings reflect here in real-time.",
 
             // Artist Profile Finder & Matcher Stage
             select_artist_to_find_profile: "Select an artist to find their profile",
@@ -590,6 +606,14 @@ pub fn get_strings(lang: Language) -> Strings {
             karaoke_preset_label: "Karaoke Golden Bounce",
             css_reference_guide_title: "Gabay sa Custom CSS at Sanggunian ng Klase",
             css_scope_note: "Ang Custom CSS ay nailalapat lamang sa Fullscreen Lyrics stage at hindi binabago ang sidebar o ang pangunahing player.",
+            launch_lyrics_preview: "I-preview ang Animasyon at Anyo",
+            preview_lyrics_window_title: "Attune — Live na Preview ng Animasyon ng Liriko",
+            preview_fullscreen_mode: "Buong Screen na Anyo",
+            preview_sidebar_mode: "Naka-dock na Sidebar",
+            preview_simulating_line: "Pinasisiglang Linya",
+            preview_speed: "Bilis",
+            preview_track_sample: "Halimbawang Kanta",
+            preview_notice_realtime: "Aktibo ang live sync: agad makikita ang mga pagbabago sa Settings dito.",
 
             // Artist Profile Finder & Matcher Stage
             select_artist_to_find_profile: "Pumili ng artista upang hanapin ang kanilang profile",
@@ -780,6 +804,14 @@ pub fn export_language_template_json() -> String {
     map.insert("karaoke_preset_label", s.karaoke_preset_label);
     map.insert("css_reference_guide_title", s.css_reference_guide_title);
     map.insert("css_scope_note", s.css_scope_note);
+    map.insert("launch_lyrics_preview", s.launch_lyrics_preview);
+    map.insert("preview_lyrics_window_title", s.preview_lyrics_window_title);
+    map.insert("preview_fullscreen_mode", s.preview_fullscreen_mode);
+    map.insert("preview_sidebar_mode", s.preview_sidebar_mode);
+    map.insert("preview_simulating_line", s.preview_simulating_line);
+    map.insert("preview_speed", s.preview_speed);
+    map.insert("preview_track_sample", s.preview_track_sample);
+    map.insert("preview_notice_realtime", s.preview_notice_realtime);
 
     map.insert("select_artist_to_find_profile", s.select_artist_to_find_profile);
     map.insert("select_artist_to_find_profile_desc", s.select_artist_to_find_profile_desc);
