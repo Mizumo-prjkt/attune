@@ -878,111 +878,12 @@ pub fn Albums(
 
                             // Track Credits & Metadata Modal
                             if let Some(track) = show_credits_track.read().clone() {
-                                {
-                                    let dur_str = fmt_ms(track.duration_ms);
-                                    let vocalist_str = track.vocalist.clone().unwrap_or_else(|| {
-                                        if track.artist.contains("feat.") || track.artist.contains("ft.") {
-                                            crate::artist_profile::clean_primary_artist(&track.artist)
-                                        } else {
-                                            "—".to_string()
-                                        }
-                                    });
-                                    let writer_str = track.writer.clone().or(track.composer.clone()).unwrap_or_else(|| "—".to_string());
-                                    let producer_str = track.producer.clone().unwrap_or_else(|| "—".to_string());
-                                    let sample_rate_str = format!("{} Hz ({:.1} kHz)", track.sample_rate, track.sample_rate as f32 / 1000.0);
-                                    let bpm_str = track.bpm.map(|b| format!("{:.1} BPM", b)).unwrap_or_else(|| "—".to_string());
-                                    let key_str = track.key.clone().unwrap_or_else(|| "—".to_string());
-                                    let genre_str = track.genre.clone().unwrap_or_else(|| "—".to_string());
-
-                                    rsx! {
-                                        div {
-                                            class: "credits-modal-backdrop",
-                                            onclick: move |_| show_credits_track.set(None),
-
-                                            div {
-                                                class: "credits-modal-dialog",
-                                                onclick: move |e: MouseEvent| e.stop_propagation(),
-
-                                                div { class: "credits-modal-header",
-                                                    div {
-                                                        h2 { style: "font-size: 18px; font-weight: 700; margin: 0;", "Track Credits & Metadata" }
-                                                        p { style: "font-size: 12px; color: var(--text-muted); margin: 4px 0 0 0;", "{track.title}" }
-                                                    }
-                                                    button {
-                                                        class: "modal-close-btn",
-                                                        onclick: move |_| show_credits_track.set(None),
-                                                        span { class: "material-icons md-20", "close" }
-                                                    }
-                                                }
-
-                                                div { class: "credits-modal-body",
-                                                    // Creative Roles
-                                                    div { class: "credits-section",
-                                                        h3 { class: "credits-section-title", "Creative Credits" }
-                                                        div { class: "credits-grid",
-                                                            div { class: "credits-cell",
-                                                                span { class: "credits-label", "Performed By / Artist" }
-                                                                span { class: "credits-value", "{track.artist}" }
-                                                            }
-                                                            div { class: "credits-cell",
-                                                                span { class: "credits-label", "Vocals" }
-                                                                span { class: "credits-value", "{vocalist_str}" }
-                                                            }
-                                                            div { class: "credits-cell",
-                                                                span { class: "credits-label", "Writers & Composers" }
-                                                                span { class: "credits-value", "{writer_str}" }
-                                                            }
-                                                            div { class: "credits-cell",
-                                                                span { class: "credits-label", "Producer / Arranger" }
-                                                                span { class: "credits-value", "{producer_str}" }
-                                                            }
-                                                        }
-                                                    }
-
-                                                    // Audio & Acoustic DSP Profile
-                                                    div { class: "credits-section",
-                                                        h3 { class: "credits-section-title", "Audio Fidelity & Profile" }
-                                                        div { class: "credits-grid",
-                                                            div { class: "credits-cell",
-                                                                span { class: "credits-label", "Format & Codec" }
-                                                                span { class: "credits-value", "{track.format}" }
-                                                            }
-                                                            div { class: "credits-cell",
-                                                                span { class: "credits-label", "Sample Rate" }
-                                                                span { class: "credits-value", "{sample_rate_str}" }
-                                                            }
-                                                            div { class: "credits-cell",
-                                                                span { class: "credits-label", "Duration" }
-                                                                span { class: "credits-value", "{dur_str}" }
-                                                            }
-                                                            div { class: "credits-cell",
-                                                                span { class: "credits-label", "Tempo (BPM)" }
-                                                                span { class: "credits-value", "{bpm_str}" }
-                                                            }
-                                                            div { class: "credits-cell",
-                                                                span { class: "credits-label", "Harmonic Key (Camelot)" }
-                                                                span { class: "credits-value", "{key_str}" }
-                                                            }
-                                                            div { class: "credits-cell",
-                                                                span { class: "credits-label", "Genre" }
-                                                                span { class: "credits-value", "{genre_str}" }
-                                                            }
-                                                        }
-                                                    }
-
-                                                    // Disk Location
-                                                    div { class: "credits-section",
-                                                        h3 { class: "credits-section-title", "File Source" }
-                                                        div { class: "credits-path-box",
-                                                            span { style: "font-family: monospace; font-size: 11.5px; color: var(--text-muted); word-break: break-all;",
-                                                                "{track.path.display()}"
-                                                            }
-                                                        }
-                                                    }
-                                                }
-                                            }
-                                        }
-                                    }
+                                crate::components::track_info_modal::TrackInfoModal {
+                                    track,
+                                    on_close: {
+                                        let mut sc = show_credits_track;
+                                        move |_| sc.set(None)
+                                    },
                                 }
                             }
 

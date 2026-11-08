@@ -2,7 +2,7 @@
 
 - **Project Name**: Attune
 - **Current Phase**: `Phase 6 IN PROGRESS -> Multi-Platform Packaging, Installer Scripting & Distribution Orchestration`
-- **Active Coding Status**: Completed ADR-135: Fullscreen Lyrics Dynamic 16:9 vs 1:1 Artwork Aspect Ratio Detection & Strict Component-Level 1:1 Lock. Fullscreen Now Playing dynamically detects whether the active track's artwork is 16:9 widescreen or 1:1 square via sub-5µs image header sniffing (`is_artwork_widescreen`) and client-side WebKit DOM mutation observers (`window.attuneCheckArtworkAspect`), dynamically toggling `.aspect-16-9` and `.aspect-1-1` with `height: auto` and zero layout shift. Strictly reinforced 1:1 square locks across all album lists, album detail headers, match cards, and the bottom playerbar. All 104 desktop unit tests and 100% of workspace tests pass cleanly.
+- **Active Coding Status**: Completed ADR-136: Music Library Row Action Consolidation (Heart + Popover Menu) and Unified Track Information Modal. Squeezed 3-button library row actions into a sleek Favorite Heart button and a `...` More Options menu (Play Now, Add to Queue, Change Song Artwork, Song Information). Adjusted grid columns and padded the Time column to completely eliminate the crowded "TIME ACTIONS" header overlap. Extracted a reusable `TrackInfoModal` displaying album artwork thumbnail, creative credits, DSP audio fidelity metrics, and 1-click path copying with feedback, refactoring duplicate modals out of `albums.rs` and `artists.rs`. All 107 desktop unit tests and 100% of workspace tests pass cleanly.
 
 
 ---

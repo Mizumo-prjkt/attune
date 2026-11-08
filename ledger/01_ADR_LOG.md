@@ -4801,6 +4801,41 @@ This file records all major architectural decisions for **Attune**, including co
   - Album lists, detail views, and playerbar below remain strictly locked to 1:1 square.
   - All 104 desktop tests and 100% of workspace tests pass cleanly.
 
+---
+
+## ADR-136: Music Library Row Action Consolidation (Heart + Popover Menu) and Unified Track Information Modal
+- **Date**: 2026-11-09
+- **Status**: `LOCKED`
+- **Context**:
+  - In the Music Library table (`crates/attune-desktop/src/stages/library.rs`), each track row previously displayed three separate action icon buttons (`playlist_add`, `image_search`, `favorite`) crowded into a narrow 60px column.
+  - Furthermore, the column header for duration ("Time", 70px) and actions ("Actions", 60px) were squeezed without proper cell alignment or right padding, causing the header text to run together into an illegible "TIME ACTIONS".
+  - Seeing three icon buttons per row produced visual clutter across large libraries. Users requested consolidating row actions into a dedicated Favorite Heart icon and a `...` (`more_horiz`) more options button, while expanding the menu to include Add to Queue, Change Song Artwork, and a detailed Track Information view.
+- **Decision**:
+  1. **Consolidated Row Action Layout**:
+     - Adjusted library table grid layout from `44px 2fr 1.5fr 1.5fr 70px 70px 70px 60px` to `44px 2fr 1.5fr 1.5fr 68px 68px 80px 84px`.
+     - Padded and right-aligned the Time column (`text-align: right; padding-right: 14px;`) and centered the Actions column, completely eliminating header text collision.
+     - Reduced row action icons from 3 to 2:
+       * **Favorite Heart Button**: Toggles favorite status directly on click (`favorite` in pink when active, `favorite_border` in muted grey when inactive).
+       * **More Options Button (`...`)**: Opens a floating Liquid Glass context menu (`.track-context-menu`).
+  2. **Popover Menu Capabilities**:
+     - Contains:
+       * **Play Now** (`play_arrow`) — Immediately starts playback of the selected track.
+       * **Add to Queue** (`playlist_add`) — Appends the song to the playback queue.
+       * **Change Song Artwork** (`image_search`) — Launches the YouTube HQ & local file artwork picker modal.
+       * Divider (`.track-menu-divider`).
+       * **Song Information** (`info`) — Opens the comprehensive track credits and DSP fidelity modal.
+     - Automatically adapts popover placement: if the track is among the last 4 items in the list (`is_near_bottom`), the popover anchors above the button (`bottom: 100%; top: auto; margin-bottom: 4px;`) to prevent clipping.
+     - Clicking anywhere outside the menu on the library stage dismisses open popovers (`onclick: move |_| active_menu_track.set(None)`).
+  3. **Unified Track Information Modal (`TrackInfoModal`)**:
+     - Extracted track metadata inspection into a reusable component in `crates/attune-desktop/src/components/track_info_modal.rs` and re-exported it from `components/mod.rs`.
+     - Displays album artwork thumbnail preview, title, artist, album, full creative roles (vocals, composers/writers, producers, genre), audio fidelity & DSP metrics (format, bit depth, sample rate, duration, tempo in BPM, Camelot harmonic key, vibe & drive percentage), and exact file system path with a 1-click clipboard copy button (`Copy Path` / `Copied!`).
+     - Refactored `crates/attune-desktop/src/stages/albums.rs` and `crates/attune-desktop/src/stages/artists.rs` to replace duplicate inline modal code with `TrackInfoModal`, eliminating over 200 lines of repetitive boilerplate across the desktop codebase.
+- **Consequences**:
+  - Clean, modern, uncluttered music library table with clear visual breathing room.
+  - Zero header collision between Time and Actions.
+  - Instant access to track favorites and contextual secondary actions with unified information modal across Library, Albums, and Artists views.
+  - All 107 desktop tests and 100% of workspace tests pass cleanly.
+
 
 
 

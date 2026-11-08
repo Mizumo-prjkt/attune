@@ -19,6 +19,8 @@ pub fn Library(
     let mut sort_by = use_signal(|| "title");
     let mut sort_asc = use_signal(|| true);
     let selected_track_for_art = use_signal(|| None::<TrackEntry>);
+    let active_menu_track = use_signal(|| None::<TrackEntry>);
+    let show_info_track = use_signal(|| None::<TrackEntry>);
 
     let query_lower = search_query.to_lowercase();
     let mut filtered_tracks: Vec<TrackEntry> = tracks
@@ -49,6 +51,10 @@ pub fn Library(
     rsx! {
         div { class: "library-stage",
             style: "display: flex; flex-direction: column; height: 100%;",
+            onclick: {
+                let mut active_menu = active_menu_track;
+                move |_| active_menu.set(None)
+            },
 
             // Library Top Header
             div { style: "display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;",
@@ -71,7 +77,7 @@ pub fn Library(
             }
 
             // Track Table Header
-            div { style: "display: grid; grid-template-columns: 44px 2fr 1.5fr 1.5fr 70px 70px 70px 60px; padding: 8px 12px; border-bottom: 1px solid var(--border-glass); color: var(--text-muted); font-size: 11.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em;",
+            div { style: "display: grid; grid-template-columns: 44px 2fr 1.5fr 1.5fr 68px 68px 80px 84px; padding: 8px 12px; border-bottom: 1px solid var(--border-glass); color: var(--text-muted); font-size: 11.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; align-items: center;",
                 span { "#" }
                 span {
                     style: "cursor: pointer;",
@@ -127,7 +133,7 @@ pub fn Library(
                 }
                 span { "Key" }
                 span {
-                    style: "cursor: pointer; text-align: right;",
+                    style: "cursor: pointer; text-align: right; padding-right: 14px;",
                     onclick: move |_| {
                         if *sort_by.read() == "duration" {
                             let curr = *sort_asc.read();
@@ -162,12 +168,14 @@ pub fn Library(
                             let key_label = t.key.as_deref().unwrap_or("—");
                             let bpm_label = t.bpm.map(|b| format!("{:.0}", b)).unwrap_or_else(|| "—".to_string());
                             let path_clone = t.path.clone();
+                            let is_menu_open = active_menu_track.read().as_ref().map(|c| c.path == t.path).unwrap_or(false);
+                            let is_near_bottom = idx >= total_count.saturating_sub(4) && total_count > 4;
 
                             rsx! {
                                 div {
                                     key: "{t.path.display()}",
                                     class: if is_current { "track-row playing" } else { "track-row" },
-                                    style: "display: grid; grid-template-columns: 44px 2fr 1.5fr 1.5fr 70px 70px 70px 60px; align-items: center; padding: 7px 12px; font-size: 13px;",
+                                    style: "display: grid; grid-template-columns: 44px 2fr 1.5fr 1.5fr 68px 68px 80px 84px; align-items: center; padding: 7px 12px; font-size: 13px; position: relative;",
                                     ondoubleclick: {
                                         let t_clone = t.clone();
                                         move |_| on_play_track.call(t_clone.clone())
@@ -216,39 +224,128 @@ pub fn Library(
 
                                     // Duration
                                     span {
-                                        style: "text-align: right; color: var(--text-muted); font-family: monospace; font-size: 12px;",
+                                        style: "text-align: right; padding-right: 14px; color: var(--text-muted); font-family: monospace; font-size: 12px;",
                                         "{dur_str}"
                                     }
 
-                                    // Actions: Queue / Artwork / Favorite
-                                    div { style: "display: flex; gap: 8px; justify-content: center; align-items: center;",
+                                    // Actions: Favorite Heart + More Options (...)
+                                    div {
+                                        style: "display: flex; gap: 4px; justify-content: center; align-items: center; position: relative;",
+                                        onclick: move |e: MouseEvent| e.stop_propagation(),
+
+                                        // Favorite Heart button
                                         button {
-                                            style: "background: transparent; border: none; cursor: pointer; color: var(--text-muted); padding: 2px;",
-                                            title: "{strings.add_to_queue}",
-                                            onclick: {
-                                                let t_clone = t.clone();
-                                                move |_| on_queue_track.call(t_clone.clone())
-                                            },
-                                            span { class: "material-icons md-16", "playlist_add" }
-                                        }
-                                        button {
-                                            style: "background: transparent; border: none; cursor: pointer; color: var(--text-muted); padding: 2px;",
-                                            title: "Change Song Artwork (YouTube HQ / File)...",
-                                            onclick: {
-                                                let t_clone = t.clone();
-                                                let mut sel = selected_track_for_art;
-                                                move |_| sel.set(Some(t_clone.clone()))
-                                            },
-                                            span { class: "material-icons md-16", "image_search" }
-                                        }
-                                        button {
-                                            style: "background: transparent; border: none; cursor: pointer; color: if is_fav { \"#fb7185\" } else { \"var(--text-muted)\" }; padding: 2px;",
+                                            class: if is_fav { "action-icon-btn active" } else { "action-icon-btn" },
+                                            style: if is_fav { "color: #fb7185;" } else { "" },
                                             title: if is_fav { strings.remove_favorite } else { strings.add_to_favorites },
-                                            onclick: move |_| on_toggle_favorite.call(path_clone.clone()),
+                                            onclick: {
+                                                let p = path_clone.clone();
+                                                move |e: MouseEvent| {
+                                                    e.stop_propagation();
+                                                    on_toggle_favorite.call(p.clone());
+                                                }
+                                            },
                                             if is_fav {
                                                 span { class: "material-icons md-16", "favorite" }
                                             } else {
                                                 span { class: "material-icons md-16", "favorite_border" }
+                                            }
+                                        }
+
+                                        // More Options (...) button
+                                        button {
+                                            class: if is_menu_open { "action-icon-btn active" } else { "action-icon-btn" },
+                                            title: "More options",
+                                            onclick: {
+                                                let t_m = t.clone();
+                                                let mut active_menu = active_menu_track;
+                                                move |e: MouseEvent| {
+                                                    e.stop_propagation();
+                                                    let curr = active_menu.read().clone();
+                                                    if curr.as_ref().map(|c| c.path == t_m.path).unwrap_or(false) {
+                                                        active_menu.set(None);
+                                                    } else {
+                                                        active_menu.set(Some(t_m.clone()));
+                                                    }
+                                                }
+                                            },
+                                            span { class: "material-icons md-18", "more_horiz" }
+                                        }
+
+                                        // Popover Menu for More Options
+                                        if is_menu_open {
+                                            div {
+                                                class: "track-context-menu",
+                                                style: if is_near_bottom {
+                                                    "position: absolute; bottom: 100%; top: auto; right: 0; margin-bottom: 4px; z-index: 100;"
+                                                } else {
+                                                    "position: absolute; top: 100%; right: 0; margin-top: 4px; z-index: 100;"
+                                                },
+                                                onclick: move |e: MouseEvent| e.stop_propagation(),
+
+                                                // 1. Play Now
+                                                button {
+                                                    class: "track-menu-item",
+                                                    onclick: {
+                                                        let t_play = t.clone();
+                                                        let mut active_menu = active_menu_track;
+                                                        move |_| {
+                                                            active_menu.set(None);
+                                                            on_play_track.call(t_play.clone());
+                                                        }
+                                                    },
+                                                    span { class: "material-icons md-16", "play_arrow" }
+                                                    span { "{strings.play_now}" }
+                                                }
+
+                                                // 2. Add to Queue
+                                                button {
+                                                    class: "track-menu-item",
+                                                    onclick: {
+                                                        let t_queue = t.clone();
+                                                        let mut active_menu = active_menu_track;
+                                                        move |_| {
+                                                            active_menu.set(None);
+                                                            on_queue_track.call(t_queue.clone());
+                                                        }
+                                                    },
+                                                    span { class: "material-icons md-16", "playlist_add" }
+                                                    span { "{strings.add_to_queue}" }
+                                                }
+
+                                                // 3. Change Song Artwork
+                                                button {
+                                                    class: "track-menu-item",
+                                                    onclick: {
+                                                        let t_art = t.clone();
+                                                        let mut active_menu = active_menu_track;
+                                                        let mut sel_art = selected_track_for_art;
+                                                        move |_| {
+                                                            active_menu.set(None);
+                                                            sel_art.set(Some(t_art.clone()));
+                                                        }
+                                                    },
+                                                    span { class: "material-icons md-16", "image_search" }
+                                                    span { "Change Song Artwork..." }
+                                                }
+
+                                                div { class: "track-menu-divider" }
+
+                                                // 4. Song Information & Metadata
+                                                button {
+                                                    class: "track-menu-item",
+                                                    onclick: {
+                                                        let t_info = t.clone();
+                                                        let mut active_menu = active_menu_track;
+                                                        let mut show_info = show_info_track;
+                                                        move |_| {
+                                                            active_menu.set(None);
+                                                            show_info.set(Some(t_info.clone()));
+                                                        }
+                                                    },
+                                                    span { class: "material-icons md-16", "info" }
+                                                    span { "Song Information" }
+                                                }
                                             }
                                         }
                                     }
@@ -268,16 +365,26 @@ pub fn Library(
                     current_artwork_url: t.artwork_data_url.clone(),
                     is_album_level: false,
                     on_close: {
-                        let mut sel = selected_track_for_art;
-                        move |_| sel.set(None)
+                        let mut sel_art = selected_track_for_art;
+                        move |_| sel_art.set(None)
                     },
                     on_artwork_applied: {
                         let t_p = t.path.clone();
-                        let mut sel = selected_track_for_art;
+                        let mut sel_art = selected_track_for_art;
                         move |(path, data_url)| {
-                            sel.set(None);
+                            sel_art.set(None);
                             on_artwork_updated.call((Some(t_p.clone()), path, data_url));
                         }
+                    },
+                }
+            }
+
+            if let Some(track) = show_info_track.read().clone() {
+                crate::components::track_info_modal::TrackInfoModal {
+                    track,
+                    on_close: {
+                        let mut show_info = show_info_track;
+                        move |_| show_info.set(None)
                     },
                 }
             }

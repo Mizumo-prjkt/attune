@@ -1640,6 +1640,11 @@ body, html {
   0% { transform: rotate(0deg); }
   100% { transform: rotate(360deg); }
 }
+
+.spinning {
+  animation: mystery-box-spin 1s linear infinite;
+  display: inline-block;
+}
 @keyframes mystery-q-pulse {
   0%, 100% { transform: scale(0.92) translateY(0); filter: drop-shadow(0 0 10px rgba(168, 85, 247, 0.6)); }
   50% { transform: scale(1.1) translateY(-3px); filter: drop-shadow(0 0 26px rgba(236, 72, 153, 0.95)); }
@@ -2078,6 +2083,29 @@ body, html {
 /* ==========================================================================
    Track Context Menu Popover & Action Dropdown
    ========================================================================== */
+
+.action-icon-btn {
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  color: var(--text-muted);
+  padding: 4px;
+  border-radius: 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s ease;
+}
+
+.action-icon-btn:hover {
+  color: #ffffff;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.action-icon-btn.active {
+  color: var(--accent-mint);
+  background: rgba(255, 255, 255, 0.12);
+}
 
 .track-context-menu {
   position: absolute;
