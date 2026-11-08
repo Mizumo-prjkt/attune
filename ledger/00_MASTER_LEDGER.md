@@ -2,7 +2,7 @@
 
 - **Project Name**: Attune
 - **Current Phase**: `Phase 6 IN PROGRESS -> Multi-Platform Packaging, Installer Scripting & Distribution Orchestration`
-- **Active Coding Status**: Completed ADR-113: Dedicated Contextual Settings Help Guide Pane and Elimination of Redundant Inspector Cards in Attune Desktop. Purged Card 1 ("Live Engine & Hardware") and Card 3 ("Dynamic C-ABI Modules") along with the 1.5s background polling loop from the settings inspector pane. Elevated the remaining card into a dedicated, focused "Help Guide" (`help_outline` icon, localized title via `strings.help_guide` / `Gabay sa Tulong`, and localized active tab badge) that contextually adapts to each preferences tab with accelerators, audio math, i18n instructions, lyrics format guides, and quick action launchers. All 81 desktop tests and workspace checks pass cleanly.
+- **Active Coding Status**: Completed ADR-117: WebKitGTK High-DPI Subpixel Event Coordinate Sanitization & Elimination of `pointerdown` Float Deserialization Failure in Dioxus Desktop. Purged `onpointerdown` from `.dock-scroll` and `.fullscreen-lyrics-scroll`, eliminating global `pointerdown` listeners and IPC message dispatch. Injected `EVENT_COORDINATE_SANITIZER_SCRIPT` in `<head>` to transparently round subpixel floating-point coordinates (`clientX`, `clientY`, `offsetX`, `offsetY`, `pageX`, `pageY`, `width`, `height`, etc.) into clean integers matching Serde's `i32` expectation on Linux systems with fractional display scaling (e.g. 125%, 150%). All 85 desktop tests pass cleanly.
 
 
 ---

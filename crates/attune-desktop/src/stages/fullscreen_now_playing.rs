@@ -356,11 +356,6 @@ pub fn FullscreenNowPlaying(
                                 is_locked_to_active.set(false);
                             }
                         },
-                        onpointerdown: move |_| {
-                            if *is_locked_to_active.read() {
-                                is_locked_to_active.set(false);
-                            }
-                        },
 
                         if lyrics_sheet.lines.is_empty() {
                             div {

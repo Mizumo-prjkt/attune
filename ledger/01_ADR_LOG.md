@@ -4082,4 +4082,37 @@ This file records all major architectural decisions for **Attune**, including co
   - The blocky rectangular visual artifact is 100% eliminated; the active singing line renders with a soft, glyph-conforming cream aura.
   - Fullscreen lyrics follow-mode auto-centering works reliably on every line change, seek, and track transition without freezes or stuttering.
 
+---
+
+## ADR-117: WebKitGTK High-DPI Subpixel Event Coordinate Sanitization & Elimination of `pointerdown` Float Deserialization Failure in Dioxus Desktop
+- **Date**: 2026-11-08
+- **Status**: `LOCKED`
+- **Context**:
+  1. The user encountered a Dioxus webview IPC event deserialization error on Linux:
+     ```
+     ERROR dioxus_desktop::webview: Error parsing user_event: Error("Failed to deserialize event data for event pointerdown:  Error(\"invalid type: floating point `1138.21875`, expected i32\", line: 0, column: 0)
+     ```
+  2. Investigation revealed that `onpointerdown` handlers were recently declared on `.dock-scroll` (`app.rs`) and `.fullscreen-lyrics-scroll` (`fullscreen_now_playing.rs`).
+  3. Declaring `onpointerdown` in Dioxus RSX causes Dioxus's webview interpreter (`dioxus-interpreter-js`) to attach a global `pointerdown` listener to `window`.
+  4. On Linux systems running WebKitGTK under Wayland or X11 with fractional display scaling (e.g. 125%, 150%) or precision touch input, WebKitGTK serializes `PointerEvent` coordinates as fractional numbers (e.g., `client_x: 1138.21875`, `client_y: 31.921875`, `offset_x: 14.671875`, `offset_y: 1.515625`).
+  5. In `dioxus-html` (`point_interaction.rs`), `SerializedPointInteraction` strictly expects integer `i32` for coordinates (`client_x`, `client_y`, `offset_x`, `offset_y`, `page_x`, `page_y`), and `SerializedPointerData` expects `i32` for `width`, `height`, `tilt_x`, `tilt_y`, `twist`.
+  6. When WebKitGTK passes floats, Serde fails with `invalid type: floating point ..., expected i32`, dropping the user event and filling the console with errors.
+- **Decision**:
+  1. **Purged `onpointerdown` from Rust RSX**:
+     - Removed `onpointerdown` from both `.dock-scroll` (`app.rs`) and `.fullscreen-lyrics-scroll` (`fullscreen_now_playing.rs`).
+     - Dioxus no longer registers a global `pointerdown` listener on `window`, eliminating unnecessary IPC message dispatch on every pointer down event across the window.
+  2. **Injected Transparent Event Coordinate Sanitizer (`theme::EVENT_COORDINATE_SANITIZER_SCRIPT`)**:
+     - Created a transparent WebKitGTK coordinate rounding shim injected at the very top of `<head>` in `main.rs` before Dioxus listeners bind.
+     - Dynamically wraps property getters on `MouseEvent.prototype`, `PointerEvent.prototype`, and `UIEvent.prototype` (`clientX`, `clientY`, `pageX`, `pageY`, `offsetX`, `offsetY`, `screenX`, `screenY`, `width`, `height`, `tiltX`, `tiltY`, `twist`).
+     - Any fractional float returned by WebKitGTK due to fractional DPI or subpixel scaling is transparently rounded via `Math.round(val)` before being read by Dioxus's event serializer, guaranteeing that any current or future mouse/pointer/touch event always arrives in Rust as a clean integer matching Serde's `i32` expectations.
+  3. **Client-Side Scroll & Drag Listeners in JavaScript (`theme::LYRICS_SYNC_SCRIPT`)**:
+     - Added native passive DOM listeners directly in JavaScript for `wheel` and `mousedown` on `.dock-scroll` and `.fullscreen-lyrics-scroll` to update `data-locked="false"` upon manual user scroll/drag without routing through Rust's event IPC bridge.
+  4. **Verification**:
+     - Tested coordinate rounding in Node with mock subpixel events (`1138.21875` -> `1138`).
+     - Added unit test `test_event_coordinate_sanitizer_script_content` in `theme.rs`.
+     - Verified with `cargo check -p attune-desktop` and `cargo test -p attune-desktop` (all 85 tests pass cleanly).
+- **Consequences**:
+  - The `Error parsing user_event: Failed to deserialize event data for event pointerdown` error is 100% resolved.
+  - All mouse, touch, and pointer events are impervious to fractional display scaling and subpixel coordinates.
+
 

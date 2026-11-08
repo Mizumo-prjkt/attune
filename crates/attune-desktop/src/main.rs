@@ -75,7 +75,8 @@ fn main() {
         .with_window(window)
         .with_menu(None)
         .with_custom_head(format!(
-            "<link rel=\"stylesheet\" href=\"https://fonts.googleapis.com/icon?family=Material+Icons\">\n<style>\n{icons_css}\n{css}\n</style>\n{}\n{}",
+            "<link rel=\"stylesheet\" href=\"https://fonts.googleapis.com/icon?family=Material+Icons\">\n<style>\n{icons_css}\n{css}\n</style>\n{}\n{}\n{}",
+            crate::theme::EVENT_COORDINATE_SANITIZER_SCRIPT,
             crate::theme::MARQUEE_SCRIPT,
             crate::theme::LYRICS_SYNC_SCRIPT
         ));

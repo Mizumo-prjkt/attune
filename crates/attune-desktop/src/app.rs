@@ -1763,11 +1763,6 @@ pub fn App() -> Element {
                                         auto_scroll_lyrics.set(false);
                                     }
                                 },
-                                onpointerdown: move |_| {
-                                    if *auto_scroll_lyrics.read() {
-                                        auto_scroll_lyrics.set(false);
-                                    }
-                                },
                                 if lyrics_sheet.read().lines.is_empty() {
                                     div { style: "display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; text-align: center; color: var(--text-muted); gap: 12px; padding: 40px 20px;",
                                         span { class: "material-icons md-48", style: "opacity: 0.6;", "description" }

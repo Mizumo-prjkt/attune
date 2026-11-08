@@ -64,6 +64,51 @@ pub const MARQUEE_SCRIPT: &str = r#"
 </script>
 "#;
 
+/// Injected WebKit runtime script to round subpixel float coordinates to integers.
+///
+/// On Linux systems with fractional display scaling (e.g. 125%, 150%) or high-precision
+/// touchpads, WebKitGTK produces floating point coordinates (e.g. `client_x: 1138.21875`).
+/// Dioxus's native Serde deserializer expects `i32` for coordinates in `SerializedPointInteraction`,
+/// causing `Failed to deserialize event data: invalid type: floating point ..., expected i32`.
+/// This shim transparently wraps `clientX`, `clientY`, `pageX`, `pageY`, `offsetX`, `offsetY`,
+/// `screenX`, `screenY`, etc. on `MouseEvent.prototype` and `PointerEvent.prototype` so they
+/// always return rounded integers to Dioxus's event serializer.
+pub const EVENT_COORDINATE_SANITIZER_SCRIPT: &str = r#"
+<script>
+(function() {
+  function sanitizeCoordinates(proto, props) {
+    if (!proto) return;
+    props.forEach(function(prop) {
+      try {
+        var desc = Object.getOwnPropertyDescriptor(proto, prop);
+        if (desc && desc.get) {
+          Object.defineProperty(proto, prop, {
+            get: function() {
+              var v = desc.get.call(this);
+              return typeof v === 'number' ? Math.round(v) : v;
+            },
+            configurable: true,
+            enumerable: true
+          });
+        }
+      } catch (e) {}
+    });
+  }
+
+  var coordProps = ['clientX', 'clientY', 'pageX', 'pageY', 'offsetX', 'offsetY', 'screenX', 'screenY', 'x', 'y'];
+  if (typeof MouseEvent !== 'undefined' && MouseEvent.prototype) {
+    sanitizeCoordinates(MouseEvent.prototype, coordProps);
+  }
+  if (typeof PointerEvent !== 'undefined' && PointerEvent.prototype) {
+    sanitizeCoordinates(PointerEvent.prototype, coordProps.concat(['width', 'height', 'tiltX', 'tiltY', 'twist']));
+  }
+  if (typeof UIEvent !== 'undefined' && UIEvent.prototype) {
+    sanitizeCoordinates(UIEvent.prototype, ['layerX', 'layerY', 'pageX', 'pageY']);
+  }
+})();
+</script>
+"#;
+
 /// Injected WebKit runtime script for smooth auto-centering synchronized lyrics in follow mode.
 pub const LYRICS_SYNC_SCRIPT: &str = r#"
 <script>
@@ -85,32 +130,58 @@ pub const LYRICS_SYNC_SCRIPT: &str = r#"
     container.scrollTo({ top: target, behavior: 'smooth' });
   }
 
+  function attachContainerListeners() {
+    var containers = document.querySelectorAll('.fullscreen-lyrics-scroll, .dock-scroll');
+    for (var i = 0; i < containers.length; i++) {
+      var c = containers[i];
+      if (!c._hasAttuneScroll) {
+        c._hasAttuneScroll = true;
+        c.addEventListener('wheel', function() {
+          this.setAttribute('data-locked', 'false');
+        }, { passive: true });
+        c.addEventListener('mousedown', function(e) {
+          if (!e.target.closest('.lyric-line') && !e.target.closest('.fullscreen-lyric-line')) {
+            this.setAttribute('data-locked', 'false');
+          }
+        }, { passive: true });
+      }
+    }
+  }
+
   window.attuneSyncLyrics = function(force) {
+    attachContainerListeners();
     var fsContainer = document.querySelector('.fullscreen-lyrics-scroll');
-    if (fsContainer && (force || fsContainer.getAttribute('data-locked') !== 'false')) {
-      var active = fsContainer.querySelector('.fullscreen-lyric-active');
-      if (active) {
-        var lineIdx = active.getAttribute('data-line-idx');
-        if (force || lineIdx !== currentSyncedFsIndex) {
-          currentSyncedFsIndex = lineIdx;
-          centerElement(fsContainer, active);
+    if (fsContainer) {
+      if (force) fsContainer.setAttribute('data-locked', 'true');
+      if (force || fsContainer.getAttribute('data-locked') !== 'false') {
+        var active = fsContainer.querySelector('.fullscreen-lyric-active');
+        if (active) {
+          var lineIdx = active.getAttribute('data-line-idx');
+          if (force || lineIdx !== currentSyncedFsIndex) {
+            currentSyncedFsIndex = lineIdx;
+            centerElement(fsContainer, active);
+          }
         }
       }
     }
     var dockContainer = document.querySelector('.dock-scroll');
-    if (dockContainer && (force || dockContainer.getAttribute('data-locked') !== 'false')) {
-      var activeDock = dockContainer.querySelector('.lyric-line.active');
-      if (activeDock) {
-        var dockIdx = activeDock.getAttribute('data-line-idx') || activeDock.innerText;
-        if (force || dockIdx !== currentSyncedDockIndex) {
-          currentSyncedDockIndex = dockIdx;
-          centerElement(dockContainer, activeDock);
+    if (dockContainer) {
+      if (force) dockContainer.setAttribute('data-locked', 'true');
+      if (force || dockContainer.getAttribute('data-locked') !== 'false') {
+        var activeDock = dockContainer.querySelector('.lyric-line.active');
+        if (activeDock) {
+          var dockIdx = activeDock.getAttribute('data-line-idx') || activeDock.innerText;
+          if (force || dockIdx !== currentSyncedDockIndex) {
+            currentSyncedDockIndex = dockIdx;
+            centerElement(dockContainer, activeDock);
+          }
         }
       }
     }
   };
 
   var lyricsObserver = new MutationObserver(function(mutations) {
+    attachContainerListeners();
     var shouldSync = false;
     for (var i = 0; i < mutations.length; i++) {
       var m = mutations[i];
@@ -444,5 +515,15 @@ mod tests {
         assert!(pal.primary.contains("230, "));
         // Secondary and tertiary generated harmoniously
         assert_ne!(pal.primary_rgb, pal.secondary_rgb);
+    }
+
+    #[test]
+    fn test_event_coordinate_sanitizer_script_content() {
+        assert!(EVENT_COORDINATE_SANITIZER_SCRIPT.contains("sanitizeCoordinates"));
+        assert!(EVENT_COORDINATE_SANITIZER_SCRIPT.contains("MouseEvent.prototype"));
+        assert!(EVENT_COORDINATE_SANITIZER_SCRIPT.contains("PointerEvent.prototype"));
+        assert!(EVENT_COORDINATE_SANITIZER_SCRIPT.contains("clientX"));
+        assert!(EVENT_COORDINATE_SANITIZER_SCRIPT.contains("clientY"));
+        assert!(EVENT_COORDINATE_SANITIZER_SCRIPT.contains("Math.round"));
     }
 }
