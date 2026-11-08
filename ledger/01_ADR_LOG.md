@@ -4754,6 +4754,53 @@ This file records all major architectural decisions for **Attune**, including co
   - Updating album art from local images or YouTube HQ search now reliably embeds the image into FLAC/MP3 files, saves companion `cover.jpg` without truncation, invalidates caches, and automatically refreshes all views across the player.
   - All 175 workspace tests (105 desktop, 21 core, 17 metadata, 10 broadcast, 8 watchguard, 7 dsp_ffi, 4 engine, 3 procmgr) pass with 100% success.
 
+---
+
+## ADR-135: Fullscreen Lyrics Dynamic 16:9 vs 1:1 Artwork Aspect Ratio Detection & Strict Component-Level 1:1 Lock
+
+- **Status**: LOCKED
+- **Date**: 2026-11-09
+- **Context**:
+  1. The user reported that in Fullscreen Lyrics / Fullscreen Now Playing (`crates/attune-desktop/src/stages/fullscreen_now_playing.rs`), tracks with 1:1 square album covers (e.g., standard album art like "LOL -lots of laugh-") were being stretched or squashed into a 16:9 profile box.
+  2. The user specified:
+     - "Fullscreen Lyrics has this 16:9 profile image while the album art is 1:1, at least there should be a mechanism to detect if the image is 16:9 or 1:1 then it should resize"
+     - "this should not apply to the album lists, view and the playerbar below on this change, stick to 1:1 lock"
+  3. Root cause analysis:
+     - In `crates/attune-desktop/src/style.css`, `.album-cover-box` had `height: 232px;` set for the Album Detail Hero view.
+     - In `crates/attune-desktop/src/stages/fullscreen_now_playing.rs`, the artwork container re-used `.album-cover-box` inside `.fullscreen-left-col` which had `width: 380px;`.
+     - Because `height: 232px` was specified in CSS and not overridden by `height: auto`, $380 / 232 \approx 1.638 \approx 16:9$. Every track—even square 1:1 album covers—was being squashed into an oblong ~16:9 rectangle, cropping the top and bottom of standard album art.
+- **Decision**:
+  1. **Core Rust Aspect Ratio Detection Engine (`crates/attune-desktop/src/library.rs`)**:
+     - Added `is_artwork_widescreen(artwork_path: Option<&Path>, artwork_data_url: Option<&str>) -> bool`.
+     - Inspects filesystem image headers via `image::image_dimensions(p)` in $< 5\ \mu\text{s}$ without decoding pixels. If $w / h \ge 1.35$, it returns `true` (16:9 widescreen); otherwise `false` (1:1 square).
+     - For base64 Data URLs, parses dimensions from header bytes via `image::ImageReader` with fallback to memory reader.
+     - Added thread-safe `ARTWORK_ASPECT_CACHE: Mutex<Option<HashMap<String, bool>>>` with $O(1)$ fast-path lookup, cleared upon library cache refreshes.
+     - Added `TrackEntry::is_artwork_widescreen(&self) -> bool` and unit test `test_is_artwork_widescreen_detection`.
+  2. **Dedicated Fullscreen Artwork Container & CSS Styling (`crates/attune-desktop/src/style.css`)**:
+     - Decoupled Fullscreen Now Playing from `.album-cover-box` by creating `.fullscreen-art-box`:
+       * `width: 100%; max-width: 380px; border-radius: 18px; overflow: hidden;`
+       * `.fullscreen-art-box.aspect-1-1 { aspect-ratio: 1 / 1; height: auto; }`
+       * `.fullscreen-art-box.aspect-16-9 { aspect-ratio: 16 / 9; height: auto; }`
+       * `.fullscreen-art-img { width: 100%; height: 100%; object-fit: cover; object-position: center; display: block; }`
+       * Hover overlay support: `.fullscreen-art-box:hover .album-cover-hover-overlay { opacity: 1; }`
+  3. **Strict 1:1 Component-Level Lockout**:
+     - Strictly locked all other components to `aspect-ratio: 1 / 1` and `object-fit: cover`:
+       * Bottom player bar: `.mini-art` ($44 \times 44$, `aspect-ratio: 1 / 1; flex-shrink: 0;`).
+       * Hero views: `.hero-art` ($130 \times 130$, `aspect-ratio: 1 / 1`).
+       * Album views: `.album-cover-box` in `.album-detail-hero` ($232 \times 232$, `aspect-ratio: 1 / 1; min-width: 232px; max-width: 232px;`).
+       * Album grids: `.album-grid-art` (`aspect-ratio: 1; object-fit: cover;`).
+       * Match cards: `.match-thumb` ($50 \times 50$, `aspect-ratio: 1 / 1`).
+  4. **Client-Side Live WebKit DOM Observer (`crates/attune-desktop/src/theme.rs`)**:
+     - Added `window.attuneCheckArtworkAspect(img)` to `LYRICS_SYNC_SCRIPT`. Dynamically inspects `img.naturalWidth / img.naturalHeight` upon load or DOM mutation and dynamically applies `.aspect-16-9` or `.aspect-1-1` to parent `.fullscreen-art-box`.
+     - Added automatic mutation observer trigger in `lyricsObserver` whenever `.fullscreen-art-img` is inserted or changed, preventing any layout shift (CLS = 0).
+  5. **Fullscreen Stages Integration (`fullscreen_now_playing.rs` & `lyrics_preview.rs`)**:
+     - In `fullscreen_now_playing.rs`: replaced `.album-cover-box` with `div { class: "fullscreen-art-box {aspect_class}", img { class: "fullscreen-art-img", ... } }`.
+     - In `lyrics_preview.rs`: updated mock artwork box from `.album-cover-box` to `.fullscreen-art-box.aspect-1-1`.
+- **Consequences**:
+  - Fullscreen Now Playing automatically presents widescreen (16:9) artwork for YouTube/video thumbnails and square (1:1) artwork for standard album covers with zero layout shift.
+  - Album lists, detail views, and playerbar below remain strictly locked to 1:1 square.
+  - All 104 desktop tests and 100% of workspace tests pass cleanly.
+
 
 
 
