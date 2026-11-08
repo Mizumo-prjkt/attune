@@ -57,96 +57,6 @@ pub struct PreviewSampleTrack {
 
 pub const SAMPLE_TRACKS: &[PreviewSampleTrack] = &[
     PreviewSampleTrack {
-        title: "(Not) A Devil",
-        artist: "DECO*27, PinocchioP",
-        album: "(Not) A Devil",
-        audio_format: "FLAC • 44.1 kHz • 149 BPM • C Major",
-        primary_rgb: (0, 245, 212),
-        secondary_rgb: (255, 0, 127),
-        dark_rgb: (13, 17, 23),
-        accent_hex: "#00f5d4",
-        lines: &[
-            PreviewLine {
-                text: "DECO",
-                duration_ms: 1200,
-                words: &[PreviewTimedWord { text: "DECO", start_ms: 0, duration_ms: 1100 }],
-            },
-            PreviewLine {
-                text: "PINO",
-                duration_ms: 1200,
-                words: &[PreviewTimedWord { text: "PINO", start_ms: 0, duration_ms: 1100 }],
-            },
-            PreviewLine {
-                text: "堕",
-                duration_ms: 1400,
-                words: &[PreviewTimedWord { text: "堕", start_ms: 0, duration_ms: 1300 }],
-            },
-            PreviewLine {
-                text: "ながらの優等生 今宵も自分と密会です",
-                duration_ms: 2800,
-                words: &[
-                    PreviewTimedWord { text: "ながらの", start_ms: 0, duration_ms: 450 },
-                    PreviewTimedWord { text: "優等生 ", start_ms: 450, duration_ms: 600 },
-                    PreviewTimedWord { text: "今宵も", start_ms: 1050, duration_ms: 450 },
-                    PreviewTimedWord { text: "自分と", start_ms: 1500, duration_ms: 500 },
-                    PreviewTimedWord { text: "密会です", start_ms: 2000, duration_ms: 700 },
-                ],
-            },
-            PreviewLine {
-                text: "しんどいわ しんどいわ あーつらつら合掌",
-                duration_ms: 2800,
-                words: &[
-                    PreviewTimedWord { text: "しんどいわ ", start_ms: 0, duration_ms: 700 },
-                    PreviewTimedWord { text: "しんどいわ ", start_ms: 700, duration_ms: 700 },
-                    PreviewTimedWord { text: "あー", start_ms: 1400, duration_ms: 400 },
-                    PreviewTimedWord { text: "つらつら", start_ms: 1800, duration_ms: 450 },
-                    PreviewTimedWord { text: "合掌", start_ms: 2250, duration_ms: 500 },
-                ],
-            },
-            PreviewLine {
-                text: "ほんとは劣等生 あたしはあたしに説教です",
-                duration_ms: 2800,
-                words: &[
-                    PreviewTimedWord { text: "ほんとは", start_ms: 0, duration_ms: 450 },
-                    PreviewTimedWord { text: "劣等生 ", start_ms: 450, duration_ms: 600 },
-                    PreviewTimedWord { text: "あたしは", start_ms: 1050, duration_ms: 450 },
-                    PreviewTimedWord { text: "あたしに", start_ms: 1500, duration_ms: 450 },
-                    PreviewTimedWord { text: "説教です", start_ms: 1950, duration_ms: 750 },
-                ],
-            },
-            PreviewLine {
-                text: "いいから はやく ハンコ押せや",
-                duration_ms: 2600,
-                words: &[
-                    PreviewTimedWord { text: "いいから ", start_ms: 0, duration_ms: 500 },
-                    PreviewTimedWord { text: "はやく ", start_ms: 500, duration_ms: 600 },
-                    PreviewTimedWord { text: "ハンコ", start_ms: 1100, duration_ms: 650 },
-                    PreviewTimedWord { text: "押せや", start_ms: 1750, duration_ms: 800 },
-                ],
-            },
-            PreviewLine {
-                text: "デビルじゃない デビルじゃないもん 悪魔ほどそう言うもん",
-                duration_ms: 3000,
-                words: &[
-                    PreviewTimedWord { text: "デビルじゃない ", start_ms: 0, duration_ms: 700 },
-                    PreviewTimedWord { text: "デビルじゃないもん ", start_ms: 700, duration_ms: 900 },
-                    PreviewTimedWord { text: "悪魔ほど", start_ms: 1600, duration_ms: 600 },
-                    PreviewTimedWord { text: "そう言うもん", start_ms: 2200, duration_ms: 750 },
-                ],
-            },
-            PreviewLine {
-                text: "あっけなく 散った 夢見た未来",
-                duration_ms: 2600,
-                words: &[
-                    PreviewTimedWord { text: "あっけなく ", start_ms: 0, duration_ms: 700 },
-                    PreviewTimedWord { text: "散った ", start_ms: 700, duration_ms: 600 },
-                    PreviewTimedWord { text: "夢見た", start_ms: 1300, duration_ms: 600 },
-                    PreviewTimedWord { text: "未来", start_ms: 1900, duration_ms: 650 },
-                ],
-            },
-        ],
-    },
-    PreviewSampleTrack {
         title: "Ready",
         artist: "Attune",
         album: "Attune Dynamic DJ Sessions Vol. 1",
@@ -246,80 +156,184 @@ pub const SAMPLE_TRACKS: &[PreviewSampleTrack] = &[
         ],
     },
     PreviewSampleTrack {
-        title: "YUMEYUME",
-        artist: "DECO*27 feat. Hatsune Miku",
-        album: "HATSUNE MIKU Project mirai COMPLETE",
-        audio_format: "FLAC • 44.1 kHz • 80 BPM • F Major",
+        title: "準備完了 (Ready JP)",
+        artist: "Attune",
+        album: "Attune Dynamic DJ Sessions Vol. 1",
+        audio_format: "FLAC • 96.0 kHz • 128 BPM • F Minor",
+        primary_rgb: (0, 245, 212),
+        secondary_rgb: (255, 0, 127),
+        dark_rgb: (13, 17, 23),
+        accent_hex: "#00f5d4",
+        lines: &[
+            PreviewLine {
+                text: "フロアに踏み出せば 澄み渡る周波数",
+                duration_ms: 2700,
+                words: &[
+                    PreviewTimedWord { text: "フロアに ", start_ms: 0, duration_ms: 500 },
+                    PreviewTimedWord { text: "踏み出せば ", start_ms: 500, duration_ms: 650 },
+                    PreviewTimedWord { text: "澄み渡る ", start_ms: 1150, duration_ms: 650 },
+                    PreviewTimedWord { text: "周波数", start_ms: 1800, duration_ms: 800 },
+                ],
+            },
+            PreviewLine {
+                text: "空間を揺らす 重低音の鼓動を感じて",
+                duration_ms: 2800,
+                words: &[
+                    PreviewTimedWord { text: "空間を ", start_ms: 0, duration_ms: 450 },
+                    PreviewTimedWord { text: "揺らす ", start_ms: 450, duration_ms: 500 },
+                    PreviewTimedWord { text: "重低音の ", start_ms: 950, duration_ms: 600 },
+                    PreviewTimedWord { text: "鼓動を ", start_ms: 1550, duration_ms: 500 },
+                    PreviewTimedWord { text: "感じて", start_ms: 2050, duration_ms: 650 },
+                ],
+            },
+            PreviewLine {
+                text: "テンポをロックして 和音を重ねよう",
+                duration_ms: 2600,
+                words: &[
+                    PreviewTimedWord { text: "テンポを ", start_ms: 0, duration_ms: 500 },
+                    PreviewTimedWord { text: "ロックして ", start_ms: 500, duration_ms: 650 },
+                    PreviewTimedWord { text: "和音を ", start_ms: 1150, duration_ms: 550 },
+                    PreviewTimedWord { text: "重ねよう", start_ms: 1700, duration_ms: 800 },
+                ],
+            },
+            PreviewLine {
+                text: "デジタルの風に 心をチューニングして",
+                duration_ms: 2800,
+                words: &[
+                    PreviewTimedWord { text: "デジタルの", start_ms: 0, duration_ms: 450 },
+                    PreviewTimedWord { text: "風に ", start_ms: 450, duration_ms: 600 },
+                    PreviewTimedWord { text: "心を", start_ms: 1050, duration_ms: 450 },
+                    PreviewTimedWord { text: "チューニング", start_ms: 1500, duration_ms: 500 },
+                    PreviewTimedWord { text: "して", start_ms: 2000, duration_ms: 700 },
+                ],
+            },
+            PreviewLine {
+                text: "途切れないビート シームレスな繋ぎ目",
+                duration_ms: 2700,
+                words: &[
+                    PreviewTimedWord { text: "途切れない ", start_ms: 0, duration_ms: 650 },
+                    PreviewTimedWord { text: "ビート ", start_ms: 650, duration_ms: 550 },
+                    PreviewTimedWord { text: "シームレスな ", start_ms: 1200, duration_ms: 700 },
+                    PreviewTimedWord { text: "繋ぎ目", start_ms: 1900, duration_ms: 700 },
+                ],
+            },
+            PreviewLine {
+                text: "最高潮の熱気から 黄昏の静寂まで",
+                duration_ms: 2800,
+                words: &[
+                    PreviewTimedWord { text: "最高潮の ", start_ms: 0, duration_ms: 650 },
+                    PreviewTimedWord { text: "熱気から ", start_ms: 650, duration_ms: 650 },
+                    PreviewTimedWord { text: "黄昏の ", start_ms: 1300, duration_ms: 650 },
+                    PreviewTimedWord { text: "静寂まで", start_ms: 1950, duration_ms: 750 },
+                ],
+            },
+            PreviewLine {
+                text: "純粋な共鳴 ダイナミックなフロー",
+                duration_ms: 2500,
+                words: &[
+                    PreviewTimedWord { text: "純粋な ", start_ms: 0, duration_ms: 550 },
+                    PreviewTimedWord { text: "共鳴 ", start_ms: 550, duration_ms: 550 },
+                    PreviewTimedWord { text: "ダイナミックな ", start_ms: 1100, duration_ms: 700 },
+                    PreviewTimedWord { text: "フロー", start_ms: 1800, duration_ms: 650 },
+                ],
+            },
+        ],
+    },
+    PreviewSampleTrack {
+        title: "Handa Na (Ready FIL)",
+        artist: "Attune",
+        album: "Attune Dynamic DJ Sessions Vol. 1",
+        audio_format: "FLAC • 96.0 kHz • 128 BPM • F Minor",
         primary_rgb: (57, 197, 187),
         secondary_rgb: (255, 182, 193),
         dark_rgb: (15, 20, 28),
         accent_hex: "#39c5bb",
         lines: &[
             PreviewLine {
-                text: "僕のことはさて置き",
-                duration_ms: 2200,
-                words: &[
-                    PreviewTimedWord { text: "僕の", start_ms: 0, duration_ms: 450 },
-                    PreviewTimedWord { text: "ことは", start_ms: 450, duration_ms: 500 },
-                    PreviewTimedWord { text: "さて置き", start_ms: 950, duration_ms: 1100 },
-                ],
-            },
-            PreviewLine {
-                text: "君のことが聞きたいんだ",
-                duration_ms: 2400,
-                words: &[
-                    PreviewTimedWord { text: "君の", start_ms: 0, duration_ms: 450 },
-                    PreviewTimedWord { text: "ことが", start_ms: 450, duration_ms: 550 },
-                    PreviewTimedWord { text: "聞きたいんだ", start_ms: 1000, duration_ms: 1250 },
-                ],
-            },
-            PreviewLine {
-                text: "色々あるんだホント",
-                duration_ms: 2300,
-                words: &[
-                    PreviewTimedWord { text: "色々", start_ms: 0, duration_ms: 550 },
-                    PreviewTimedWord { text: "あるんだ", start_ms: 550, duration_ms: 600 },
-                    PreviewTimedWord { text: "ホント", start_ms: 1150, duration_ms: 1050 },
-                ],
-            },
-            PreviewLine {
-                text: "それじゃあ今日はよろしくどうぞ",
-                duration_ms: 2700,
-                words: &[
-                    PreviewTimedWord { text: "それじゃあ", start_ms: 0, duration_ms: 600 },
-                    PreviewTimedWord { text: "今日は", start_ms: 600, duration_ms: 550 },
-                    PreviewTimedWord { text: "よろしく", start_ms: 1150, duration_ms: 650 },
-                    PreviewTimedWord { text: "どうぞ", start_ms: 1800, duration_ms: 800 },
-                ],
-            },
-            PreviewLine {
-                text: "いつも輝いてる 君の色はなんだったっけ？",
-                duration_ms: 3000,
-                words: &[
-                    PreviewTimedWord { text: "いつも", start_ms: 0, duration_ms: 500 },
-                    PreviewTimedWord { text: "輝いてる ", start_ms: 500, duration_ms: 700 },
-                    PreviewTimedWord { text: "君の", start_ms: 1200, duration_ms: 400 },
-                    PreviewTimedWord { text: "色は", start_ms: 1600, duration_ms: 450 },
-                    PreviewTimedWord { text: "なんだったっけ？", start_ms: 2050, duration_ms: 900 },
-                ],
-            },
-            PreviewLine {
-                text: "たくさんあったはずなのに",
-                duration_ms: 2500,
-                words: &[
-                    PreviewTimedWord { text: "たくさん", start_ms: 0, duration_ms: 600 },
-                    PreviewTimedWord { text: "あった", start_ms: 600, duration_ms: 450 },
-                    PreviewTimedWord { text: "はずなのに", start_ms: 1050, duration_ms: 1300 },
-                ],
-            },
-            PreviewLine {
-                text: "今ではもう覚えてないんだ",
+                text: "Hakbang sa entablado, malinaw ang dalas",
                 duration_ms: 2600,
                 words: &[
-                    PreviewTimedWord { text: "今では", start_ms: 0, duration_ms: 550 },
-                    PreviewTimedWord { text: "もう", start_ms: 550, duration_ms: 400 },
-                    PreviewTimedWord { text: "覚えて", start_ms: 950, duration_ms: 600 },
-                    PreviewTimedWord { text: "ないんだ", start_ms: 1550, duration_ms: 950 },
+                    PreviewTimedWord { text: "Hakbang ", start_ms: 0, duration_ms: 450 },
+                    PreviewTimedWord { text: "sa ", start_ms: 450, duration_ms: 250 },
+                    PreviewTimedWord { text: "entablado, ", start_ms: 700, duration_ms: 650 },
+                    PreviewTimedWord { text: "malinaw ", start_ms: 1350, duration_ms: 500 },
+                    PreviewTimedWord { text: "ang ", start_ms: 1850, duration_ms: 250 },
+                    PreviewTimedWord { text: "dalas", start_ms: 2100, duration_ms: 450 },
+                ],
+            },
+            PreviewLine {
+                text: "Damhin ang dagundong ng bass sa paligid",
+                duration_ms: 2700,
+                words: &[
+                    PreviewTimedWord { text: "Damhin ", start_ms: 0, duration_ms: 450 },
+                    PreviewTimedWord { text: "ang ", start_ms: 450, duration_ms: 250 },
+                    PreviewTimedWord { text: "dagundong ", start_ms: 700, duration_ms: 600 },
+                    PreviewTimedWord { text: "ng ", start_ms: 1300, duration_ms: 250 },
+                    PreviewTimedWord { text: "bass ", start_ms: 1550, duration_ms: 400 },
+                    PreviewTimedWord { text: "sa ", start_ms: 1950, duration_ms: 200 },
+                    PreviewTimedWord { text: "paligid", start_ms: 2150, duration_ms: 500 },
+                ],
+            },
+            PreviewLine {
+                text: "Itugma ang tempo, pag-isahin ang tono",
+                duration_ms: 2600,
+                words: &[
+                    PreviewTimedWord { text: "Itugma ", start_ms: 0, duration_ms: 450 },
+                    PreviewTimedWord { text: "ang ", start_ms: 450, duration_ms: 250 },
+                    PreviewTimedWord { text: "tempo, ", start_ms: 700, duration_ms: 500 },
+                    PreviewTimedWord { text: "pag-isahin ", start_ms: 1200, duration_ms: 650 },
+                    PreviewTimedWord { text: "ang ", start_ms: 1850, duration_ms: 250 },
+                    PreviewTimedWord { text: "tono", start_ms: 2100, duration_ms: 450 },
+                ],
+            },
+            PreviewLine {
+                text: "I-attune ang puso sa digital na himig",
+                duration_ms: 2700,
+                words: &[
+                    PreviewTimedWord { text: "I-attune ", start_ms: 0, duration_ms: 500 },
+                    PreviewTimedWord { text: "ang ", start_ms: 500, duration_ms: 250 },
+                    PreviewTimedWord { text: "puso ", start_ms: 750, duration_ms: 450 },
+                    PreviewTimedWord { text: "sa ", start_ms: 1200, duration_ms: 250 },
+                    PreviewTimedWord { text: "digital ", start_ms: 1450, duration_ms: 500 },
+                    PreviewTimedWord { text: "na ", start_ms: 1950, duration_ms: 200 },
+                    PreviewTimedWord { text: "himig", start_ms: 2150, duration_ms: 500 },
+                ],
+            },
+            PreviewLine {
+                text: "Walang putol na daloy sa bawat tibok",
+                duration_ms: 2600,
+                words: &[
+                    PreviewTimedWord { text: "Walang ", start_ms: 0, duration_ms: 400 },
+                    PreviewTimedWord { text: "putol ", start_ms: 400, duration_ms: 400 },
+                    PreviewTimedWord { text: "na ", start_ms: 800, duration_ms: 200 },
+                    PreviewTimedWord { text: "daloy ", start_ms: 1000, duration_ms: 450 },
+                    PreviewTimedWord { text: "sa ", start_ms: 1450, duration_ms: 250 },
+                    PreviewTimedWord { text: "bawat ", start_ms: 1700, duration_ms: 400 },
+                    PreviewTimedWord { text: "tibok", start_ms: 2100, duration_ms: 450 },
+                ],
+            },
+            PreviewLine {
+                text: "Mula sa tugatog hanggang sa takip-silim",
+                duration_ms: 2700,
+                words: &[
+                    PreviewTimedWord { text: "Mula ", start_ms: 0, duration_ms: 350 },
+                    PreviewTimedWord { text: "sa ", start_ms: 350, duration_ms: 250 },
+                    PreviewTimedWord { text: "tugatog ", start_ms: 600, duration_ms: 550 },
+                    PreviewTimedWord { text: "hanggang ", start_ms: 1150, duration_ms: 550 },
+                    PreviewTimedWord { text: "sa ", start_ms: 1700, duration_ms: 250 },
+                    PreviewTimedWord { text: "takip-silim", start_ms: 1950, duration_ms: 650 },
+                ],
+            },
+            PreviewLine {
+                text: "Dalisay na tunog, tuloy-tuloy ang tugtog",
+                duration_ms: 2600,
+                words: &[
+                    PreviewTimedWord { text: "Dalisay ", start_ms: 0, duration_ms: 500 },
+                    PreviewTimedWord { text: "na ", start_ms: 500, duration_ms: 200 },
+                    PreviewTimedWord { text: "tunog, ", start_ms: 700, duration_ms: 500 },
+                    PreviewTimedWord { text: "tuloy-tuloy ", start_ms: 1200, duration_ms: 650 },
+                    PreviewTimedWord { text: "ang ", start_ms: 1850, duration_ms: 250 },
+                    PreviewTimedWord { text: "tugtog", start_ms: 2100, duration_ms: 450 },
                 ],
             },
         ],
@@ -1060,7 +1074,8 @@ mod tests {
 
     #[test]
     fn test_ttml_elrc_timed_word_intervals() {
-        let track = &SAMPLE_TRACKS[0];
+        let track = &SAMPLE_TRACKS[1];
+        assert_eq!(track.title, "準備完了 (Ready JP)");
         let line = &track.lines[3];
         assert_eq!(line.words.len(), 5);
         assert_eq!(line.words[0].start_ms, 0);

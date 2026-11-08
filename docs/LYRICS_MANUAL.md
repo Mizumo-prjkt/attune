@@ -22,9 +22,9 @@ Attune automatically resolves and pairs lyric companion files located either in 
 To ensure automatic association, place companion files alongside the song file with identical file stems:
 ```text
 /home/user/Music/
-├── DECO*27 - (Not) A Devil.flac
-├── DECO*27 - (Not) A Devil.elrc       <-- Primary Syllable Sync
-└── DECO*27 - (Not) A Devil.lrc        <-- Fallback Line Sync
+├── Attune - Ready.flac
+├── Attune - Ready.elrc       <-- Primary Syllable Sync
+└── Attune - Ready.lrc        <-- Fallback Line Sync
 ```
 
 ### Priority Resolution Order
@@ -230,7 +230,7 @@ To inspect lyrics styles, alignments, and syllable animations without playing mu
   * **Line Sync (LRC)**: Tests whole-line animation transitions.
   * **Word Sync (TTML/ELRC)**: Simulates millisecond syllable progression (`.word-upcoming` $\rightarrow$ `.word-active` $\rightarrow$ `.word-sung`).
 * **Viewport Switcher**: Toggle between **Fullscreen View** (edge-to-edge split) and **Docked Sidebar** (360px drawer).
-* **Sample Songs**: Switch between Japanese Vocaloid J-Rock (`(Not) A Devil`), English Electronic Dance (`Ready`), and Melodic Pop (`YUMEYUME`).
+* **Sample Songs**: Switch between Attune's built-in multilingual reference tracks: English (`Ready — Attune`), Japanese (`準備完了 (Ready JP) — Attune`), and Filipino (`Handa Na (Ready FIL) — Attune`).
 * **Interactive Controls**:
   * Step to next / previous lines.
   * Adjust playback simulation speed (`0.5x`, `1.0x`, `2.0x`).

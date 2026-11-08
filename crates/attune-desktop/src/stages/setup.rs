@@ -948,7 +948,7 @@ pub fn SetupStage(
                                     "ATTUNE • Intelligent Music Player & DJ Transition Engine"
                                 }
                                 div { style: "font-family: {preview_app_font_css}; font-size: 12.5px; color: var(--text-secondary); margin-top: 2px;",
-                                    "DECO*27 feat. Hatsune Miku • 149.0 BPM • Camelot 8B"
+                                    "Attune • Ready (Attune Dynamic DJ Sessions Vol. 1) • 128.0 BPM • Camelot 4A"
                                 }
                             }
                         }
@@ -1014,7 +1014,7 @@ pub fn SetupStage(
 
                             div { style: "margin-top: 10px; padding: 10px 14px; border-radius: 10px; background: rgba(0,0,0,0.28); border: 1px solid var(--border-glass);",
                                 div { style: "font-family: {preview_lyric_font_css}; font-size: 18px; font-weight: 700; color: #FFFDD0;",
-                                    "いいから はやく ハンコ押せや • Sing along in real time"
+                                    "デジタルの風に 心をチューニングして • Attune your soul to the digital breeze"
                                 }
                             }
                         }

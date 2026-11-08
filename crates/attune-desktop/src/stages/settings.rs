@@ -672,7 +672,7 @@ pub fn SettingsContent(
                                             }
                                             div {
                                                 style: "font-family: {preview_app_font_css}; font-size: 13px; color: rgba(255,255,255,0.70); line-height: 1.4; transition: all 0.2s ease;",
-                                                "DECO*27 feat. Hatsune Miku • (Not) A Devil • 149 BPM • C Major"
+                                                "Attune • Ready (Attune Dynamic DJ Sessions Vol. 1) • 128 BPM • F Minor"
                                             }
                                         }
                                     }
@@ -1219,11 +1219,11 @@ pub fn SettingsContent(
                                         }
                                         div {
                                             style: "font-family: {preview_font_css}; font-size: {curr_cfg.fullscreen_lyrics_font_size}px; font-weight: 700; color: #FFFDD0; line-height: 1.35; margin-bottom: 6px; transition: all 0.2s ease;",
-                                            "いいから はやく ハンコ押せや"
+                                            "デジタルの風に 心をチューニングして"
                                         }
                                         div {
                                             style: "font-family: {preview_font_css}; font-size: {curr_cfg.dock_lyrics_font_size}px; color: rgba(255,255,255,0.72); line-height: 1.4; transition: all 0.2s ease;",
-                                            "The quick brown fox jumps over the lazy dog • 120.0 BPM • C Major"
+                                            "Step onto the floor, the frequency is clear • 128.0 BPM • F Minor"
                                         }
                                     }
                                 }
