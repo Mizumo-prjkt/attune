@@ -4392,6 +4392,38 @@ This file records all major architectural decisions for **Attune**, including co
   - Custom CSS authoring is clearly guided with verified class names and a one-click Karaoke preset.
   - Strict priority prevents styling collisions between declarative controls and custom stylesheets.
 
+---
+
+## ADR-125: Equalizer "Reset" Button Label & Process Manager Near-Top Real-Time Telemetry Timeline SVG Charts
+- **Date**: 2026-11-08
+- **Status**: `LOCKED`
+- **Context**:
+  1. The user requested:
+     - "the eq part, the zero bands should say reset" — rename the "Zero Bands" button in the 10-Band Graphic Equalizer card to say "Reset".
+     - "for the process manager, would appreciate to show graphs instead of the shared lib status at least, though the graph should be near top" — remove the bottom "Certified External Shared Libraries (.so / .dll)" card from the Process Manager stage and replace it with real-time telemetry time-series graphs positioned near the top of the screen (underneath the 4 metric cards).
+- **Decision**:
+  1. **Equalizer "Reset" Button Label (`crates/attune-desktop/src/stages/equalizer.rs`, `crates/attune-desktop/src/i18n.rs`)**:
+     - Added localized string key `reset_bands` to `AppStrings` (English: `"Reset"`, Filipino: `"I-reset"`, and added to `export_language_template_json()`).
+     - Updated `EqualizerStage` to display a restart icon (`restart_alt`) and `{strings.reset_bands}` instead of hardcoded `"Zero Bands"`.
+  2. **Process Manager Telemetry Time-Series Graphs (`crates/attune-desktop/src/stages/process_manager.rs`)**:
+     - Defined `TelemetrySample` (`cpu_pct: f32`, `rss_mb: f32`) and a 30-sample rolling telemetry buffer `history` updated at 1-second intervals via `use_future` and immediately post-memory cleanup.
+     - Implemented `generate_svg_chart_paths(data, max_val, width, height)` generating smooth cubic Bezier stroke curves (`C cx1 cy1, cx2 cy2, x2 y2`) and closed polygon fills for SVG gradient area shading.
+     - Positioned the dual-chart grid directly beneath the 4 primary metric stat cards near the top of the viewport:
+       - **Process CPU Utilization Timeline**: Mint accent stroke and linear gradient area (`cpuAreaGrad`), live pulsing mint dot (`.live-pulse-dot`), Current, Average, and Peak CPU badges, and 100% / 50% / 0% Y-axis labels.
+       - **Process Memory (RSS) Footprint Timeline**: Purple accent stroke and linear gradient area (`memAreaGrad`), live pulsing purple dot, Current and Peak RSS badges, and dynamic scale max / mid / 0 MB Y-axis labels.
+     - Added localized strings `cpu_timeline_title` and `memory_timeline_title` in `crates/attune-desktop/src/i18n.rs`.
+     - Added `@keyframes livePulseDot` and `.live-pulse-dot` to `crates/attune-desktop/src/style.css`.
+  3. **Removal of Dynamic Shared Libraries Card**:
+     - Removed the "Certified Dynamic Shared Libraries Card (.so / .dll)" card from the bottom of `ProcessManager`.
+     - Preserved `dynamic_components::get_loaded_components_summary()` and associated structs with `#[allow(dead_code)]` for introspection and testing.
+  4. **Unit Testing & Verification**:
+     - Added unit tests `test_generate_svg_chart_paths_empty` and `test_generate_svg_chart_paths_single_and_multi_point` in `crates/attune-desktop/src/stages/process_manager.rs`.
+- **Consequences**:
+  - The Equalizer's band reset action uses clear standard terminology aligned with Master FX reset actions.
+  - Process Manager provides instant visual feedback on CPU spikes and memory trimming without having to manually deduce trends from single numeric values.
+  - Shared library diagnostic clutter is replaced by valuable operational performance insight.
+
+
 
 
 

@@ -593,6 +593,7 @@ fn load_metadata_changer() -> Result<(), MissingComponentError> {
 // Public Diagnostic Information
 // ---------------------------------------------------------------------------
 
+#[allow(dead_code)]
 pub struct LoadedComponentSummary {
     pub name: String,
     pub filename: String,
@@ -600,6 +601,7 @@ pub struct LoadedComponentSummary {
     pub version: String,
 }
 
+#[allow(dead_code)]
 unsafe fn read_c_version(fn_ver: unsafe extern "C" fn() -> *const c_char) -> String {
     let p = fn_ver();
     if !p.is_null() {
@@ -609,6 +611,7 @@ unsafe fn read_c_version(fn_ver: unsafe extern "C" fn() -> *const c_char) -> Str
     }
 }
 
+#[allow(dead_code)]
 pub fn get_loaded_components_summary() -> Vec<LoadedComponentSummary> {
     let mut summaries = Vec::new();
 

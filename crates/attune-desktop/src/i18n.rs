@@ -180,12 +180,15 @@ pub struct Strings {
     pub pure_bass_synthesizer: &'static str,
     pub clarity_vocal_air: &'static str,
     pub stereo_soundstage: &'static str,
+    pub reset_bands: &'static str,
 
     // Process Manager & Hardware
     pub process_and_hardware_manager: &'static str,
     pub kernel_dac_status: &'static str,
     pub watchguard_stability: &'static str,
     pub certified_shared_libraries: &'static str,
+    pub cpu_timeline_title: &'static str,
+    pub memory_timeline_title: &'static str,
 
     // About Stage
     pub architecture_and_technology: &'static str,
@@ -367,12 +370,15 @@ pub fn get_strings(lang: Language) -> Strings {
             pure_bass_synthesizer: "Pure Bass+ Synthesizer",
             clarity_vocal_air: "Attune Clarity & Vocal Air",
             stereo_soundstage: "Stereo Soundstage & Brickwall Limiter",
+            reset_bands: "Reset",
 
             // Process Manager & Hardware
             process_and_hardware_manager: "Process & Hardware Resource Manager",
             kernel_dac_status: "ALSA Kernel Stream & Hardware DAC Status",
             watchguard_stability: "Watchguard Real-Time Stability & Hardware Guardrails",
             certified_shared_libraries: "Certified External Shared Libraries (.so / .dll)",
+            cpu_timeline_title: "Process CPU Utilization Timeline",
+            memory_timeline_title: "Process Memory (RSS) Footprint Timeline",
 
             // About Stage
             architecture_and_technology: "Architecture & Technology",
@@ -551,12 +557,15 @@ pub fn get_strings(lang: Language) -> Strings {
             pure_bass_synthesizer: "Pure Bass+ Synthesizer",
             clarity_vocal_air: "Attune Clarity at Vocal Air",
             stereo_soundstage: "Stereo Soundstage at Brickwall Limiter",
+            reset_bands: "I-reset",
 
             // Process Manager & Hardware
             process_and_hardware_manager: "Tagapamahala ng Proseso at Hardware",
             kernel_dac_status: "ALSA Kernel Stream at Katayuan ng Hardware DAC",
             watchguard_stability: "Watchguard Real-Time na Katatagan at Guardrails",
             certified_shared_libraries: "Mga Sertipikadong External Shared Library (.so / .dll)",
+            cpu_timeline_title: "Timeline ng Paggamit ng CPU ng Proseso",
+            memory_timeline_title: "Timeline ng Paggamit ng Memory (RSS)",
 
             // About Stage
             architecture_and_technology: "Arkitektura at Teknolohiya",
@@ -741,11 +750,14 @@ pub fn export_language_template_json() -> String {
     map.insert("pure_bass_synthesizer", s.pure_bass_synthesizer);
     map.insert("clarity_vocal_air", s.clarity_vocal_air);
     map.insert("stereo_soundstage", s.stereo_soundstage);
+    map.insert("reset_bands", s.reset_bands);
 
     map.insert("process_and_hardware_manager", s.process_and_hardware_manager);
     map.insert("kernel_dac_status", s.kernel_dac_status);
     map.insert("watchguard_stability", s.watchguard_stability);
     map.insert("certified_shared_libraries", s.certified_shared_libraries);
+    map.insert("cpu_timeline_title", s.cpu_timeline_title);
+    map.insert("memory_timeline_title", s.memory_timeline_title);
 
     map.insert("architecture_and_technology", s.architecture_and_technology);
     map.insert("open_source_distribution", s.open_source_distribution);

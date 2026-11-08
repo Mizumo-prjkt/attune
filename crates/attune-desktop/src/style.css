@@ -3050,3 +3050,19 @@ body, html {
   }
 }
 
+/* Live Telemetry Pulse Animation */
+@keyframes livePulseDot {
+  0%, 100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.40;
+    transform: scale(0.82);
+  }
+}
+
+.live-pulse-dot {
+  animation: livePulseDot 2s infinite ease-in-out;
+}
+

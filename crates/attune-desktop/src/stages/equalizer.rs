@@ -251,14 +251,15 @@ pub fn Equalizer(
                     }
                     button {
                         class: "btn-pill",
-                        style: "font-size: 11px; padding: 4px 10px;",
+                        style: "font-size: 11px; padding: 4px 10px; display: inline-flex; align-items: center; gap: 4px;",
                         onclick: move |_| {
                             let mut next = local_params.read().clone();
                             next.band_gains_db = [0.0; EQ_BANDS_COUNT];
                             local_params.set(next.clone());
                             on_change.call(next);
                         },
-                        "Zero Bands"
+                        span { class: "material-icons md-14", "restart_alt" }
+                        "{strings.reset_bands}"
                     }
                 }
 
