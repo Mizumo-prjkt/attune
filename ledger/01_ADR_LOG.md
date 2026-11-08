@@ -4456,6 +4456,45 @@ This file records all major architectural decisions for **Attune**, including co
   - Users can immediately test, iterate, and verify custom CSS animations and layout choices in real time without interrupting live playback or needing active track lyrics.
   - Active preset selection is visually unambiguous with crisp checkmark indicators.
 
+---
+
+## ADR-127: Comprehensive Lyrics Engine & CSS Manual (`docs/LYRICS_MANUAL.md`) and TTML / ELRC Syllable-by-Syllable Synchronization Simulator
+- **Date**: 2026-11-08
+- **Status**: `LOCKED`
+- **Context**:
+  1. The user requested:
+     - "at least can you add a manual for it (.md)" — a comprehensive, user and developer guide detailing the synchronized lyrics engine, supported formats, companion file resolution, priority rules, layout alignments, custom CSS keyframe authoring, selector reference, built-in presets, and preview window workflow.
+     - "and also add a simulation on TTML or ELRC based lyrics (timed words)" — syllable-level and word-by-word timing simulation in the Lyrics Live Preview Window so creators can visually test and craft micro-animations (e.g. karaoke color sweeps, spring bounces, syllable pop-ins) without waiting for real audio playback.
+- **Decision**:
+  1. **Comprehensive Documentation Manual (`docs/LYRICS_MANUAL.md`)**:
+     - Authored an exhaustive markdown manual covering:
+       - **Supported Formats**: Standard LRC (`.lrc`), Enhanced LRC (`.elrc`), NetEase (`.yrc`), Apple Music TTML (`.ttml`, `.xml`), and unsynchronized text (`.txt`).
+       - **Resolution & Priority**: Embedded tags $\rightarrow$ companion files $\rightarrow$ LRCLIB API $\rightarrow$ BiniLyrics.
+       - **Visual Settings**: Controls layout side, independent alignments, glow shadow, cover art mesh background, visualizer pulse orbs.
+       - **TTML/ELRC Syllable Architecture**: Word state machine (`.word-upcoming` $\rightarrow$ `.word-active` $\rightarrow$ `.word-sung`) and 40ms lookahead compensation.
+       - **Custom CSS Engine & Selectors**: Complete reference of `.fullscreen-lyric-line`, `.fullscreen-lyric-active`, `.fullscreen-lyric-inactive`, `.fullscreen-lyric-word`, `.fullscreen-lyric-word.word-active`, `.fullscreen-lyric-word.word-sung`, `.fullscreen-lyric-word.word-upcoming`, `.fullscreen-lyrics-scroll`, and `[data-line-idx]`.
+       - **Built-in Presets Code**: Complete, tested copy-paste CSS snippets for Spotlight Depth Blur, Apple Music Spring Pop & Float, Cyberpunk Neon Pulse Glow, and Karaoke Golden Bounce (`#FFDF00` with syllable tactile bounce).
+       - **Preview Window & Troubleshooting**: Dual viewport switching, format toggling, UTF-8 encoding requirements, and latency explanations.
+  2. **TTML / ELRC Syllable & Timed-Word Simulation (`crates/attune-desktop/src/stages/lyrics_preview.rs`)**:
+     - Extended preview data model with `PreviewTimedWord` (`text`, `start_ms`, `duration_ms`) and `PreviewLine` with `words: Vec<PreviewTimedWord>`.
+     - Annotated all 3 sample songs (`(Not) A Devil`, `Ready`, `YUMEYUME`) with realistic syllable timestamps across both Japanese and English lyrics.
+     - Added format toggle pills in the toolbar: `[Word Sync (TTML/ELRC)]` vs `[Line Sync (LRC)]`.
+     - Upgraded the 40ms simulation loop to track `line_elapsed_ms` within the active line, accurately advancing through individual syllables with smooth looping.
+     - Rendered words as interactive spans with `.fullscreen-lyric-word`, `.word-sung`, `.word-active`, and `.word-upcoming` classes. Clicking any syllable jumps the simulation to that exact millisecond.
+     - Added word progress telemetry badge and visual syllable progress bar during word sync playback.
+     - Supported syllable rendering in both Fullscreen Mode and Sidebar Mode.
+  3. **CSS Keyframe Animations for Syllables (`crates/attune-desktop/src/style.css`)**:
+     - Defined styles for `.fullscreen-lyric-word`, `.word-sung`, `.word-upcoming`, and `.word-active` with `@keyframes wordSpringBounce` tactile popping.
+     - Added docked sidebar word synchronization classes (`.lyric-word`, `.lyric-word.word-active`, `.lyric-word.word-sung`).
+  4. **Mandate 4 (Zero Hardcoding) & Full Localization (`crates/attune-desktop/src/i18n.rs`)**:
+     - Added 4 localized string keys (`preview_format_line_sync`, `preview_format_word_sync`, `preview_word_engine_active`, `preview_syllable_progress`) in English and Filipino, and added entries to `export_language_template_json()`.
+  5. **Unit Testing & Verification**:
+     - Added unit test `test_ttml_elrc_timed_word_intervals` in `lyrics_preview.rs`. All 99 desktop unit tests pass cleanly.
+- **Consequences**:
+  - Developers and users have an authoritative markdown manual to reference when styling and building custom themes.
+  - Creators can visually audition and debug syllable-level word animations (karaoke sweeps, spring pops) in real time with high-precision simulation.
+
+
 
 
 

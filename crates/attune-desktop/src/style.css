@@ -3066,3 +3066,65 @@ body, html {
   animation: livePulseDot 2s infinite ease-in-out;
 }
 
+/* ---------------------------------------------------------------------------
+ * Syllable & Timed-Word Synchronized Lyrics (TTML / ELRC / Karaoke Spans)
+ * --------------------------------------------------------------------------- */
+.fullscreen-lyric-word {
+  display: inline-block;
+  transition: all 0.22s cubic-bezier(0.22, 1, 0.36, 1);
+  margin-right: 0.26em;
+  opacity: 0.50;
+  transform-origin: center bottom;
+  vertical-align: baseline;
+}
+
+.fullscreen-lyric-word.word-sung {
+  opacity: 0.95;
+  color: #ffffff;
+}
+
+.fullscreen-lyric-word.word-active {
+  opacity: 1;
+  color: #ffffff;
+  transform: scale(1.14);
+  text-shadow: 0 0 16px var(--accent-mint), 0 0 32px rgba(45, 212, 191, 0.65);
+  animation: wordSpringBounce 0.35s cubic-bezier(0.175, 0.885, 0.32, 1.275) both;
+}
+
+@keyframes wordSpringBounce {
+  0% {
+    transform: scale(0.96) translateY(2px);
+  }
+  60% {
+    transform: scale(1.16) translateY(-3px);
+  }
+  100% {
+    transform: scale(1.12) translateY(0);
+  }
+}
+
+.fullscreen-lyric-word.word-upcoming {
+  opacity: 0.40;
+}
+
+/* Sidebar Syllable Word Sync */
+.lyric-word {
+  display: inline-block;
+  margin-right: 0.20em;
+  transition: all 0.18s ease;
+  opacity: 0.50;
+}
+
+.lyric-word.word-sung {
+  opacity: 0.90;
+  color: #ffffff;
+}
+
+.lyric-word.word-active {
+  opacity: 1;
+  color: var(--accent-mint);
+  font-weight: 700;
+  text-shadow: 0 0 12px rgba(45, 212, 191, 0.7);
+}
+
+

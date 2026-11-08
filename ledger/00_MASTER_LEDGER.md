@@ -2,7 +2,7 @@
 
 - **Project Name**: Attune
 - **Current Phase**: `Phase 6 IN PROGRESS -> Multi-Platform Packaging, Installer Scripting & Distribution Orchestration`
-- **Active Coding Status**: Completed ADR-124: Lyrics Layout Placement, Multi-Viewport Text Alignment, Karaoke Golden Bounce Preset & Custom CSS Guide. Added settings controls for independent sidebar and fullscreen text alignment (Left, Center, Right), fullscreen controls placement (Controls-Left vs. Controls-Right via flex-direction row-reverse), Karaoke Golden Bounce preset (#FFDF00 with tactile spring animation), custom CSS precedence alert notice, and selector class reference guide. All 94 desktop tests pass cleanly.
+- **Active Coding Status**: Completed ADR-127: Comprehensive Lyrics Engine & CSS Manual (`docs/LYRICS_MANUAL.md`) and TTML / ELRC Syllable-by-Syllable Synchronization Simulator. Created detailed markdown manual documenting all supported formats (.lrc, .elrc, .yrc, .ttml, .xml), companion resolution order, settings, class selectors, keyframes, and built-in animation presets. Implemented real-time TTML/ELRC syllable simulation in `lyrics_preview.rs` with 40ms high-res timer, interactive syllable clicks, word state classes (.word-upcoming, .word-active, .word-sung), word progress telemetry bar, and full i18n support. All 99 desktop unit tests pass cleanly.
 
 
 ---

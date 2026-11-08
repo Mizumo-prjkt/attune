@@ -221,6 +221,10 @@ pub struct Strings {
     pub preview_speed: &'static str,
     pub preview_track_sample: &'static str,
     pub preview_notice_realtime: &'static str,
+    pub preview_format_line_sync: &'static str,
+    pub preview_format_word_sync: &'static str,
+    pub preview_word_engine_active: &'static str,
+    pub preview_syllable_progress: &'static str,
 
     // Artist Profile Finder & Matcher Stage
     pub select_artist_to_find_profile: &'static str,
@@ -419,6 +423,10 @@ pub fn get_strings(lang: Language) -> Strings {
             preview_speed: "Speed",
             preview_track_sample: "Sample Track",
             preview_notice_realtime: "Live sync active: changes in Settings reflect here in real-time.",
+            preview_format_line_sync: "Line Sync (LRC)",
+            preview_format_word_sync: "Word Sync (TTML/ELRC)",
+            preview_word_engine_active: "TTML / ELRC Word Engine Active",
+            preview_syllable_progress: "Word Progress",
 
             // Artist Profile Finder & Matcher Stage
             select_artist_to_find_profile: "Select an artist to find their profile",
@@ -614,6 +622,10 @@ pub fn get_strings(lang: Language) -> Strings {
             preview_speed: "Bilis",
             preview_track_sample: "Halimbawang Kanta",
             preview_notice_realtime: "Aktibo ang live sync: agad makikita ang mga pagbabago sa Settings dito.",
+            preview_format_line_sync: "Sabay sa Linya (LRC)",
+            preview_format_word_sync: "Sabay sa Salita (TTML/ELRC)",
+            preview_word_engine_active: "Aktibo ang TTML / ELRC Word Engine",
+            preview_syllable_progress: "Pagsulong ng Salita",
 
             // Artist Profile Finder & Matcher Stage
             select_artist_to_find_profile: "Pumili ng artista upang hanapin ang kanilang profile",
@@ -812,6 +824,10 @@ pub fn export_language_template_json() -> String {
     map.insert("preview_speed", s.preview_speed);
     map.insert("preview_track_sample", s.preview_track_sample);
     map.insert("preview_notice_realtime", s.preview_notice_realtime);
+    map.insert("preview_format_line_sync", s.preview_format_line_sync);
+    map.insert("preview_format_word_sync", s.preview_format_word_sync);
+    map.insert("preview_word_engine_active", s.preview_word_engine_active);
+    map.insert("preview_syllable_progress", s.preview_syllable_progress);
 
     map.insert("select_artist_to_find_profile", s.select_artist_to_find_profile);
     map.insert("select_artist_to_find_profile_desc", s.select_artist_to_find_profile_desc);

@@ -2,7 +2,8 @@
 //!
 //! Provides a dedicated real-time preview window allowing users to immediately inspect
 //! and verify their lyrics animations, layout placements, text alignments, glowing shadows,
-//! and custom CSS keyframe scripts without having to start playback or toggle full screen.
+//! custom CSS keyframe scripts, and TTML / ELRC syllable word-by-word timing without having
+//! to start playback or toggle full screen.
 //!
 //! Synchronizes live with AppConfig changes every 500ms so edits made in the Settings
 //! window reflect instantly.
@@ -24,6 +25,22 @@ impl Drop for PreviewWindowGuard {
     }
 }
 
+/// Syllable / Timed-word definition within a lyric line for TTML / ELRC simulation.
+#[derive(Clone, Debug, PartialEq)]
+pub struct PreviewTimedWord {
+    pub text: &'static str,
+    pub start_ms: u64,
+    pub duration_ms: u64,
+}
+
+/// Single lyric line containing text and syllable word timing definitions.
+#[derive(Clone, Debug, PartialEq)]
+pub struct PreviewLine {
+    pub text: &'static str,
+    pub duration_ms: u64,
+    pub words: &'static [PreviewTimedWord],
+}
+
 /// Sample Track representation for the live lyrics preview.
 #[derive(Clone, Debug, PartialEq)]
 pub struct PreviewSampleTrack {
@@ -35,7 +52,7 @@ pub struct PreviewSampleTrack {
     pub secondary_rgb: (u8, u8, u8),
     pub dark_rgb: (u8, u8, u8),
     pub accent_hex: &'static str,
-    pub lyrics: &'static [&'static str],
+    pub lines: &'static [PreviewLine],
 }
 
 pub const SAMPLE_TRACKS: &[PreviewSampleTrack] = &[
@@ -48,17 +65,85 @@ pub const SAMPLE_TRACKS: &[PreviewSampleTrack] = &[
         secondary_rgb: (255, 0, 127),
         dark_rgb: (13, 17, 23),
         accent_hex: "#00f5d4",
-        lyrics: &[
-            "DECO",
-            "PINO",
-            "堕",
-            "ながらの優等生 今宵も自分と密会です",
-            "しんどいわ しんどいわ あーつらつら合掌",
-            "ほんとは劣等生 あたしはあたしに説教です",
-            "しんどいわ しんどいわ もーいやいや絶交",
-            "いいから はやく ハンコ押せや",
-            "デビルじゃない デビルじゃないもん 悪魔ほどそう言うもん",
-            "あっけなく 散った 夢見た未来",
+        lines: &[
+            PreviewLine {
+                text: "DECO",
+                duration_ms: 1200,
+                words: &[PreviewTimedWord { text: "DECO", start_ms: 0, duration_ms: 1100 }],
+            },
+            PreviewLine {
+                text: "PINO",
+                duration_ms: 1200,
+                words: &[PreviewTimedWord { text: "PINO", start_ms: 0, duration_ms: 1100 }],
+            },
+            PreviewLine {
+                text: "堕",
+                duration_ms: 1400,
+                words: &[PreviewTimedWord { text: "堕", start_ms: 0, duration_ms: 1300 }],
+            },
+            PreviewLine {
+                text: "ながらの優等生 今宵も自分と密会です",
+                duration_ms: 2800,
+                words: &[
+                    PreviewTimedWord { text: "ながらの", start_ms: 0, duration_ms: 450 },
+                    PreviewTimedWord { text: "優等生 ", start_ms: 450, duration_ms: 600 },
+                    PreviewTimedWord { text: "今宵も", start_ms: 1050, duration_ms: 450 },
+                    PreviewTimedWord { text: "自分と", start_ms: 1500, duration_ms: 500 },
+                    PreviewTimedWord { text: "密会です", start_ms: 2000, duration_ms: 700 },
+                ],
+            },
+            PreviewLine {
+                text: "しんどいわ しんどいわ あーつらつら合掌",
+                duration_ms: 2800,
+                words: &[
+                    PreviewTimedWord { text: "しんどいわ ", start_ms: 0, duration_ms: 700 },
+                    PreviewTimedWord { text: "しんどいわ ", start_ms: 700, duration_ms: 700 },
+                    PreviewTimedWord { text: "あー", start_ms: 1400, duration_ms: 400 },
+                    PreviewTimedWord { text: "つらつら", start_ms: 1800, duration_ms: 450 },
+                    PreviewTimedWord { text: "合掌", start_ms: 2250, duration_ms: 500 },
+                ],
+            },
+            PreviewLine {
+                text: "ほんとは劣等生 あたしはあたしに説教です",
+                duration_ms: 2800,
+                words: &[
+                    PreviewTimedWord { text: "ほんとは", start_ms: 0, duration_ms: 450 },
+                    PreviewTimedWord { text: "劣等生 ", start_ms: 450, duration_ms: 600 },
+                    PreviewTimedWord { text: "あたしは", start_ms: 1050, duration_ms: 450 },
+                    PreviewTimedWord { text: "あたしに", start_ms: 1500, duration_ms: 450 },
+                    PreviewTimedWord { text: "説教です", start_ms: 1950, duration_ms: 750 },
+                ],
+            },
+            PreviewLine {
+                text: "いいから はやく ハンコ押せや",
+                duration_ms: 2600,
+                words: &[
+                    PreviewTimedWord { text: "いいから ", start_ms: 0, duration_ms: 500 },
+                    PreviewTimedWord { text: "はやく ", start_ms: 500, duration_ms: 600 },
+                    PreviewTimedWord { text: "ハンコ", start_ms: 1100, duration_ms: 650 },
+                    PreviewTimedWord { text: "押せや", start_ms: 1750, duration_ms: 800 },
+                ],
+            },
+            PreviewLine {
+                text: "デビルじゃない デビルじゃないもん 悪魔ほどそう言うもん",
+                duration_ms: 3000,
+                words: &[
+                    PreviewTimedWord { text: "デビルじゃない ", start_ms: 0, duration_ms: 700 },
+                    PreviewTimedWord { text: "デビルじゃないもん ", start_ms: 700, duration_ms: 900 },
+                    PreviewTimedWord { text: "悪魔ほど", start_ms: 1600, duration_ms: 600 },
+                    PreviewTimedWord { text: "そう言うもん", start_ms: 2200, duration_ms: 750 },
+                ],
+            },
+            PreviewLine {
+                text: "あっけなく 散った 夢見た未来",
+                duration_ms: 2600,
+                words: &[
+                    PreviewTimedWord { text: "あっけなく ", start_ms: 0, duration_ms: 700 },
+                    PreviewTimedWord { text: "散った ", start_ms: 700, duration_ms: 600 },
+                    PreviewTimedWord { text: "夢見た", start_ms: 1300, duration_ms: 600 },
+                    PreviewTimedWord { text: "未来", start_ms: 1900, duration_ms: 650 },
+                ],
+            },
         ],
     },
     PreviewSampleTrack {
@@ -70,15 +155,94 @@ pub const SAMPLE_TRACKS: &[PreviewSampleTrack] = &[
         secondary_rgb: (168, 85, 247),
         dark_rgb: (10, 14, 23),
         accent_hex: "#2dd4bf",
-        lyrics: &[
-            "Step onto the floor, the frequency is clear",
-            "Feel the sub-bass rising in the atmosphere",
-            "Lock the tempo, harmonize the keys",
-            "Attune your soul to the digital breeze",
-            "Transition seamless, never skip a beat",
-            "From peak time energy to twilight retreat",
-            "Pure resonance, dynamic flow",
-            "Let the music take control",
+        lines: &[
+            PreviewLine {
+                text: "Step onto the floor, the frequency is clear",
+                duration_ms: 2700,
+                words: &[
+                    PreviewTimedWord { text: "Step ", start_ms: 0, duration_ms: 300 },
+                    PreviewTimedWord { text: "onto ", start_ms: 300, duration_ms: 350 },
+                    PreviewTimedWord { text: "the ", start_ms: 650, duration_ms: 200 },
+                    PreviewTimedWord { text: "floor, ", start_ms: 850, duration_ms: 450 },
+                    PreviewTimedWord { text: "the ", start_ms: 1300, duration_ms: 200 },
+                    PreviewTimedWord { text: "frequency ", start_ms: 1500, duration_ms: 500 },
+                    PreviewTimedWord { text: "is ", start_ms: 2000, duration_ms: 200 },
+                    PreviewTimedWord { text: "clear", start_ms: 2200, duration_ms: 450 },
+                ],
+            },
+            PreviewLine {
+                text: "Feel the sub-bass rising in the atmosphere",
+                duration_ms: 2800,
+                words: &[
+                    PreviewTimedWord { text: "Feel ", start_ms: 0, duration_ms: 300 },
+                    PreviewTimedWord { text: "the ", start_ms: 300, duration_ms: 200 },
+                    PreviewTimedWord { text: "sub-bass ", start_ms: 500, duration_ms: 500 },
+                    PreviewTimedWord { text: "rising ", start_ms: 1000, duration_ms: 450 },
+                    PreviewTimedWord { text: "in ", start_ms: 1450, duration_ms: 200 },
+                    PreviewTimedWord { text: "the ", start_ms: 1650, duration_ms: 200 },
+                    PreviewTimedWord { text: "atmosphere", start_ms: 1850, duration_ms: 850 },
+                ],
+            },
+            PreviewLine {
+                text: "Lock the tempo, harmonize the keys",
+                duration_ms: 2500,
+                words: &[
+                    PreviewTimedWord { text: "Lock ", start_ms: 0, duration_ms: 300 },
+                    PreviewTimedWord { text: "the ", start_ms: 300, duration_ms: 200 },
+                    PreviewTimedWord { text: "tempo, ", start_ms: 500, duration_ms: 450 },
+                    PreviewTimedWord { text: "harmonize ", start_ms: 950, duration_ms: 600 },
+                    PreviewTimedWord { text: "the ", start_ms: 1550, duration_ms: 200 },
+                    PreviewTimedWord { text: "keys", start_ms: 1750, duration_ms: 650 },
+                ],
+            },
+            PreviewLine {
+                text: "Attune your soul to the digital breeze",
+                duration_ms: 2600,
+                words: &[
+                    PreviewTimedWord { text: "Attune ", start_ms: 0, duration_ms: 450 },
+                    PreviewTimedWord { text: "your ", start_ms: 450, duration_ms: 250 },
+                    PreviewTimedWord { text: "soul ", start_ms: 700, duration_ms: 400 },
+                    PreviewTimedWord { text: "to ", start_ms: 1100, duration_ms: 200 },
+                    PreviewTimedWord { text: "the ", start_ms: 1300, duration_ms: 200 },
+                    PreviewTimedWord { text: "digital ", start_ms: 1500, duration_ms: 450 },
+                    PreviewTimedWord { text: "breeze", start_ms: 1950, duration_ms: 600 },
+                ],
+            },
+            PreviewLine {
+                text: "Transition seamless, never skip a beat",
+                duration_ms: 2700,
+                words: &[
+                    PreviewTimedWord { text: "Transition ", start_ms: 0, duration_ms: 550 },
+                    PreviewTimedWord { text: "seamless, ", start_ms: 550, duration_ms: 550 },
+                    PreviewTimedWord { text: "never ", start_ms: 1100, duration_ms: 350 },
+                    PreviewTimedWord { text: "skip ", start_ms: 1450, duration_ms: 300 },
+                    PreviewTimedWord { text: "a ", start_ms: 1750, duration_ms: 200 },
+                    PreviewTimedWord { text: "beat", start_ms: 1950, duration_ms: 650 },
+                ],
+            },
+            PreviewLine {
+                text: "From peak time energy to twilight retreat",
+                duration_ms: 2800,
+                words: &[
+                    PreviewTimedWord { text: "From ", start_ms: 0, duration_ms: 250 },
+                    PreviewTimedWord { text: "peak ", start_ms: 250, duration_ms: 350 },
+                    PreviewTimedWord { text: "time ", start_ms: 600, duration_ms: 350 },
+                    PreviewTimedWord { text: "energy ", start_ms: 950, duration_ms: 500 },
+                    PreviewTimedWord { text: "to ", start_ms: 1450, duration_ms: 200 },
+                    PreviewTimedWord { text: "twilight ", start_ms: 1650, duration_ms: 500 },
+                    PreviewTimedWord { text: "retreat", start_ms: 2150, duration_ms: 600 },
+                ],
+            },
+            PreviewLine {
+                text: "Pure resonance, dynamic flow",
+                duration_ms: 2400,
+                words: &[
+                    PreviewTimedWord { text: "Pure ", start_ms: 0, duration_ms: 350 },
+                    PreviewTimedWord { text: "resonance, ", start_ms: 350, duration_ms: 650 },
+                    PreviewTimedWord { text: "dynamic ", start_ms: 1000, duration_ms: 500 },
+                    PreviewTimedWord { text: "flow", start_ms: 1500, duration_ms: 800 },
+                ],
+            },
         ],
     },
     PreviewSampleTrack {
@@ -90,15 +254,74 @@ pub const SAMPLE_TRACKS: &[PreviewSampleTrack] = &[
         secondary_rgb: (255, 182, 193),
         dark_rgb: (15, 20, 28),
         accent_hex: "#39c5bb",
-        lyrics: &[
-            "僕のことはさて置き",
-            "君のことが聞きたいんだ",
-            "色々あるんだホント",
-            "それじゃあ今日はよろしくどうぞ",
-            "いつも輝いてる 君の色はなんだったっけ？",
-            "たくさんあったはずなのに",
-            "今ではもう覚えてないんだ",
-            "夢の続きを見に行こう",
+        lines: &[
+            PreviewLine {
+                text: "僕のことはさて置き",
+                duration_ms: 2200,
+                words: &[
+                    PreviewTimedWord { text: "僕の", start_ms: 0, duration_ms: 450 },
+                    PreviewTimedWord { text: "ことは", start_ms: 450, duration_ms: 500 },
+                    PreviewTimedWord { text: "さて置き", start_ms: 950, duration_ms: 1100 },
+                ],
+            },
+            PreviewLine {
+                text: "君のことが聞きたいんだ",
+                duration_ms: 2400,
+                words: &[
+                    PreviewTimedWord { text: "君の", start_ms: 0, duration_ms: 450 },
+                    PreviewTimedWord { text: "ことが", start_ms: 450, duration_ms: 550 },
+                    PreviewTimedWord { text: "聞きたいんだ", start_ms: 1000, duration_ms: 1250 },
+                ],
+            },
+            PreviewLine {
+                text: "色々あるんだホント",
+                duration_ms: 2300,
+                words: &[
+                    PreviewTimedWord { text: "色々", start_ms: 0, duration_ms: 550 },
+                    PreviewTimedWord { text: "あるんだ", start_ms: 550, duration_ms: 600 },
+                    PreviewTimedWord { text: "ホント", start_ms: 1150, duration_ms: 1050 },
+                ],
+            },
+            PreviewLine {
+                text: "それじゃあ今日はよろしくどうぞ",
+                duration_ms: 2700,
+                words: &[
+                    PreviewTimedWord { text: "それじゃあ", start_ms: 0, duration_ms: 600 },
+                    PreviewTimedWord { text: "今日は", start_ms: 600, duration_ms: 550 },
+                    PreviewTimedWord { text: "よろしく", start_ms: 1150, duration_ms: 650 },
+                    PreviewTimedWord { text: "どうぞ", start_ms: 1800, duration_ms: 800 },
+                ],
+            },
+            PreviewLine {
+                text: "いつも輝いてる 君の色はなんだったっけ？",
+                duration_ms: 3000,
+                words: &[
+                    PreviewTimedWord { text: "いつも", start_ms: 0, duration_ms: 500 },
+                    PreviewTimedWord { text: "輝いてる ", start_ms: 500, duration_ms: 700 },
+                    PreviewTimedWord { text: "君の", start_ms: 1200, duration_ms: 400 },
+                    PreviewTimedWord { text: "色は", start_ms: 1600, duration_ms: 450 },
+                    PreviewTimedWord { text: "なんだったっけ？", start_ms: 2050, duration_ms: 900 },
+                ],
+            },
+            PreviewLine {
+                text: "たくさんあったはずなのに",
+                duration_ms: 2500,
+                words: &[
+                    PreviewTimedWord { text: "たくさん", start_ms: 0, duration_ms: 600 },
+                    PreviewTimedWord { text: "あった", start_ms: 600, duration_ms: 450 },
+                    PreviewTimedWord { text: "はずなのに", start_ms: 1050, duration_ms: 1300 },
+                ],
+            },
+            PreviewLine {
+                text: "今ではもう覚えてないんだ",
+                duration_ms: 2600,
+                words: &[
+                    PreviewTimedWord { text: "今では", start_ms: 0, duration_ms: 550 },
+                    PreviewTimedWord { text: "もう", start_ms: 550, duration_ms: 400 },
+                    PreviewTimedWord { text: "覚えて", start_ms: 950, duration_ms: 600 },
+                    PreviewTimedWord { text: "ないんだ", start_ms: 1550, duration_ms: 950 },
+                ],
+            },
         ],
     },
 ];
@@ -112,8 +335,8 @@ pub fn open_lyrics_preview_window() {
         let dom = VirtualDom::new(LyricsPreviewStandaloneWindow);
         let mut window = dioxus::desktop::WindowBuilder::new()
             .with_title("Attune — Lyrics Live Animation Preview")
-            .with_inner_size(dioxus::desktop::tao::dpi::LogicalSize::new(1120.0, 720.0))
-            .with_min_inner_size(dioxus::desktop::tao::dpi::LogicalSize::new(820.0, 520.0));
+            .with_inner_size(dioxus::desktop::tao::dpi::LogicalSize::new(1140.0, 740.0))
+            .with_min_inner_size(dioxus::desktop::tao::dpi::LogicalSize::new(820.0, 540.0));
 
         if let Some(icon) = crate::app_icon::load_app_icon() {
             window = window.with_window_icon(Some(icon));
@@ -140,9 +363,11 @@ pub fn LyricsPreviewStandaloneWindow() -> Element {
     let mut config_sig = use_signal(load_config);
     let mut selected_track_idx = use_signal(|| 0usize);
     let mut active_line_idx = use_signal(|| 3usize);
+    let mut line_elapsed_ms = use_signal(|| 0u64);
     let mut is_playing = use_signal(|| true);
     let mut sim_speed = use_signal(|| 1.0f32);
     let mut preview_mode = use_signal(|| "fullscreen".to_string()); // "fullscreen" | "sidebar"
+    let mut sync_format = use_signal(|| "word".to_string()); // "word" | "line"
 
     // Live two-way config synchronization: re-reads settings from disk every 500ms
     // so edits made in the Settings window immediately reflect in this preview window.
@@ -156,19 +381,29 @@ pub fn LyricsPreviewStandaloneWindow() -> Element {
         }
     });
 
-    // Automatic timed lyric line advancement simulating singing progression
+    // High-resolution 40ms simulation loop tracking millisecond line elapsed progress
+    // and advancing word-by-word (TTML/ELRC) and line-by-line automatically.
     use_future(move || async move {
         loop {
             let speed = *sim_speed.read();
-            let interval_ms = (2600.0 / speed.max(0.2)).round() as u64;
-            tokio::time::sleep(tokio::time::Duration::from_millis(interval_ms)).await;
+            let tick_ms = 40u64;
+            tokio::time::sleep(tokio::time::Duration::from_millis(tick_ms)).await;
 
             if *is_playing.read() {
                 let track = &SAMPLE_TRACKS[*selected_track_idx.read() % SAMPLE_TRACKS.len()];
-                let total = track.lyrics.len();
+                let total = track.lines.len();
                 if total > 0 {
-                    let next = (*active_line_idx.read() + 1) % total;
-                    active_line_idx.set(next);
+                    let curr_idx = *active_line_idx.read() % total;
+                    let target_dur = track.lines[curr_idx].duration_ms;
+                    let scaled_increment = (tick_ms as f32 * speed.max(0.1)) as u64;
+                    let next_elapsed = *line_elapsed_ms.read() + scaled_increment;
+
+                    if next_elapsed >= target_dur {
+                        line_elapsed_ms.set(0);
+                        active_line_idx.set((curr_idx + 1) % total);
+                    } else {
+                        line_elapsed_ms.set(next_elapsed);
+                    }
                 }
             }
         }
@@ -177,8 +412,23 @@ pub fn LyricsPreviewStandaloneWindow() -> Element {
     let curr_cfg = config_sig.read().clone();
     let strings = crate::i18n::get_strings(crate::i18n::Language::from_code(&curr_cfg.language));
     let track = &SAMPLE_TRACKS[*selected_track_idx.read() % SAMPLE_TRACKS.len()];
-    let total_lines = track.lyrics.len();
-    let curr_line = *active_line_idx.read() % total_lines.max(1);
+    let total_lines = track.lines.len();
+    let curr_line_idx = *active_line_idx.read() % total_lines.max(1);
+    let curr_line = &track.lines[curr_line_idx];
+    let curr_elapsed = *line_elapsed_ms.read();
+
+    // Identify active word for progress diagnostics
+    let (active_word_num, active_word_text) = {
+        let mut num = 1;
+        let mut txt = "";
+        for (i, w) in curr_line.words.iter().enumerate() {
+            if curr_elapsed >= w.start_ms {
+                num = i + 1;
+                txt = w.text.trim();
+            }
+        }
+        (num, txt)
+    };
 
     // Dynamic background style matching track artwork palette
     let (r1, g1, b1) = track.primary_rgb;
@@ -209,7 +459,7 @@ pub fn LyricsPreviewStandaloneWindow() -> Element {
 
             // Top Control & Diagnostic Toolbar
             header {
-                style: "height: 64px; background: rgba(10, 14, 23, 0.88); backdrop-filter: blur(16px); border-bottom: 1px solid var(--border-glass); display: flex; justify-content: space-between; align-items: center; padding: 0 20px; z-index: 100; flex-shrink: 0;",
+                style: "height: 64px; background: rgba(10, 14, 23, 0.90); backdrop-filter: blur(16px); border-bottom: 1px solid var(--border-glass); display: flex; justify-content: space-between; align-items: center; padding: 0 20px; z-index: 100; flex-shrink: 0;",
 
                 // Left: Title + Realtime Status Indicator
                 div { style: "display: flex; align-items: center; gap: 12px;",
@@ -220,7 +470,7 @@ pub fn LyricsPreviewStandaloneWindow() -> Element {
                     }
                 }
 
-                // Center: Viewport Mode Switcher & Track Selector
+                // Center: Viewport Mode Switcher & Sync Format Toggle & Track Selector
                 div { style: "display: flex; align-items: center; gap: 10px;",
                     // Viewport Mode Pills
                     div { style: "display: flex; background: rgba(255,255,255,0.06); padding: 3px; border-radius: 20px; border: 1px solid var(--border-glass); gap: 2px;",
@@ -240,6 +490,26 @@ pub fn LyricsPreviewStandaloneWindow() -> Element {
                         }
                     }
 
+                    // Format Toggle: Line Sync (LRC) vs Syllable / Word Sync (TTML / ELRC)
+                    div { style: "display: flex; background: rgba(255,255,255,0.06); padding: 3px; border-radius: 20px; border: 1px solid var(--border-glass); gap: 2px;",
+                        button {
+                            class: if *sync_format.read() == "word" { "btn-pill active" } else { "btn-pill" },
+                            style: "font-size: 11px; padding: 4px 10px; border: none;",
+                            title: "Syllable / Word-by-word synchronization simulation (TTML / ELRC)",
+                            onclick: move |_| sync_format.set("word".to_string()),
+                            span { class: "material-icons md-14", "timer" }
+                            "{strings.preview_format_word_sync}"
+                        }
+                        button {
+                            class: if *sync_format.read() == "line" { "btn-pill active" } else { "btn-pill" },
+                            style: "font-size: 11px; padding: 4px 10px; border: none;",
+                            title: "Standard whole-line synchronization (LRC)",
+                            onclick: move |_| sync_format.set("line".to_string()),
+                            span { class: "material-icons md-14", "format_align_left" }
+                            "{strings.preview_format_line_sync}"
+                        }
+                    }
+
                     // Track Picker
                     select {
                         class: "form-select",
@@ -248,6 +518,7 @@ pub fn LyricsPreviewStandaloneWindow() -> Element {
                             if let Ok(idx) = e.value().parse::<usize>() {
                                 selected_track_idx.set(idx);
                                 active_line_idx.set(0);
+                                line_elapsed_ms.set(0);
                             }
                         },
                         for (i, t) in SAMPLE_TRACKS.iter().enumerate() {
@@ -270,6 +541,7 @@ pub fn LyricsPreviewStandaloneWindow() -> Element {
                         onclick: move |_| {
                             let curr = *active_line_idx.read();
                             active_line_idx.set((curr + total_lines - 1) % total_lines);
+                            line_elapsed_ms.set(0);
                         },
                         span { class: "material-icons md-18", "skip_previous" }
                     }
@@ -298,6 +570,7 @@ pub fn LyricsPreviewStandaloneWindow() -> Element {
                         onclick: move |_| {
                             let curr = *active_line_idx.read();
                             active_line_idx.set((curr + 1) % total_lines);
+                            line_elapsed_ms.set(0);
                         },
                         span { class: "material-icons md-18", "skip_next" }
                     }
@@ -307,14 +580,17 @@ pub fn LyricsPreviewStandaloneWindow() -> Element {
                         class: "btn-icon",
                         style: "width: 32px; height: 32px; color: var(--text-muted);",
                         title: "Restart Simulation from Line 1",
-                        onclick: move |_| active_line_idx.set(0),
+                        onclick: move |_| {
+                            active_line_idx.set(0);
+                            line_elapsed_ms.set(0);
+                        },
                         span { class: "material-icons md-18", "restart_alt" }
                     }
 
                     // Line Counter Pill
                     span {
                         style: "font-family: monospace; font-size: 11px; background: rgba(255,255,255,0.06); padding: 4px 8px; border-radius: 6px; border: 1px solid var(--border-glass); color: var(--accent-mint);",
-                        "{strings.preview_simulating_line} {curr_line + 1}/{total_lines}"
+                        "{strings.preview_simulating_line} {curr_line_idx + 1}/{total_lines}"
                     }
 
                     // Speed Toggle
@@ -334,9 +610,9 @@ pub fn LyricsPreviewStandaloneWindow() -> Element {
                 }
             }
 
-            // Secondary Status Information Subheader
+            // Secondary Status Information Subheader & Syllable Progress Bar
             div {
-                style: "height: 32px; background: rgba(0,0,0,0.40); border-bottom: 1px solid rgba(255,255,255,0.05); display: flex; align-items: center; justify-content: space-between; padding: 0 20px; font-size: 11.5px; z-index: 90; flex-shrink: 0;",
+                style: "height: 36px; background: rgba(0,0,0,0.45); border-bottom: 1px solid rgba(255,255,255,0.06); display: flex; align-items: center; justify-content: space-between; padding: 0 20px; font-size: 11.5px; z-index: 90; flex-shrink: 0;",
                 div { style: "display: flex; gap: 14px; align-items: center;",
                     span { style: "color: var(--text-muted);",
                         "Layout: "
@@ -351,17 +627,40 @@ pub fn LyricsPreviewStandaloneWindow() -> Element {
                         }
                     }
                     span { style: "color: var(--text-muted);",
-                        "Glow: "
-                        strong { style: "color: if curr_cfg.fullscreen_text_glow { \"var(--accent-mint)\" } else { \"var(--text-muted)\" };",
-                            if curr_cfg.fullscreen_text_glow { "Active" } else { "Disabled" }
+                        "Engine: "
+                        strong { style: "color: var(--accent-mint);",
+                            if *sync_format.read() == "word" { "TTML / ELRC Syllable Spans" } else { "Standard LRC Lines" }
                         }
                     }
                 }
-                div {
+
+                // Word progress indicator and mini progress bar
+                div { style: "display: flex; align-items: center; gap: 12px;",
+                    if *sync_format.read() == "word" {
+                        div { style: "display: flex; align-items: center; gap: 8px;",
+                            span { style: "font-family: monospace; font-size: 11px; color: var(--text-secondary);",
+                                "{strings.preview_syllable_progress}: "
+                                span { style: "color: #ffffff; font-weight: 700;", "{active_word_num}/{curr_line.words.len()}" }
+                                if !active_word_text.is_empty() {
+                                    span { style: "color: var(--accent-mint); margin-left: 4px; font-weight: 600;", "('{active_word_text}')" }
+                                }
+                            }
+                            // Mini line syllable timeline bar
+                            div { style: "width: 80px; height: 5px; background: rgba(255,255,255,0.12); border-radius: 3px; overflow: hidden;",
+                                div {
+                                    style: format!(
+                                        "height: 100%; width: {:.1}%; background: var(--accent-mint); border-radius: 3px; transition: width 0.05s linear;",
+                                        ((curr_elapsed as f32) / (curr_line.duration_ms.max(1) as f32) * 100.0).clamp(0.0, 100.0)
+                                    )
+                                }
+                            }
+                        }
+                    }
+
                     if curr_cfg.enable_lyrics_custom_css {
                         span {
                             style: "font-size: 10.5px; padding: 2px 8px; border-radius: 4px; background: rgba(255, 170, 0, 0.15); color: #ffa726; border: 1px solid rgba(255, 170, 0, 0.35); font-weight: 600;",
-                            "Custom CSS Active (Overriding Default Alignment)"
+                            "Custom CSS Active"
                         }
                     } else {
                         span {
@@ -406,7 +705,6 @@ pub fn LyricsPreviewStandaloneWindow() -> Element {
                             div {
                                 class: "album-cover-box",
                                 style: "width: 100%; aspect-ratio: 1/1; border-radius: 16px; overflow: hidden; box-shadow: 0 20px 50px rgba(0, 0, 0, 0.65); border: 1px solid rgba(255, 255, 255, 0.12); position: relative; background: #121722; display: flex; align-items: center; justify-content: center;",
-                                // Geometric placeholder artwork matching primary color
                                 svg {
                                     style: "width: 100%; height: 100%; display: block;",
                                     view_box: "0 0 320 320",
@@ -440,12 +738,12 @@ pub fn LyricsPreviewStandaloneWindow() -> Element {
                                     div {
                                         style: format!(
                                             "height: 100%; width: {:.1}%; background: var(--accent-mint); border-radius: 3px; transition: width 0.3s ease;",
-                                            ((curr_line as f32 + 1.0) / total_lines as f32) * 100.0
+                                            ((curr_line_idx as f32 + (curr_elapsed as f32 / curr_line.duration_ms.max(1) as f32)) / total_lines as f32) * 100.0
                                         )
                                     }
                                 }
                                 div { style: "display: flex; justify-content: space-between; font-size: 11px; font-family: monospace; color: var(--text-muted);",
-                                    span { "0:{curr_line * 20 + 12:02}" }
+                                    span { "0:{curr_line_idx * 15 + 10:02}" }
                                     span { "-2:48" }
                                 }
                             }
@@ -473,9 +771,9 @@ pub fn LyricsPreviewStandaloneWindow() -> Element {
                                 class: "fullscreen-lyrics-scroll",
                                 style: "overflow-y: auto; max-height: 80vh; padding: 25vh 24px; display: flex; flex-direction: column; gap: 24px; scroll-behavior: smooth; mask-image: linear-gradient(to bottom, transparent 0%, black 15%, black 85%, transparent 100%); -webkit-mask-image: linear-gradient(to bottom, transparent 0%, black 15%, black 85%, transparent 100%);",
 
-                                for (idx, line_text) in track.lyrics.iter().enumerate() {
+                                for (idx, line_item) in track.lines.iter().enumerate() {
                                     {
-                                        let is_active = idx == curr_line;
+                                        let is_active = idx == curr_line_idx;
                                         let align_class = if !curr_cfg.enable_lyrics_custom_css {
                                             match curr_cfg.fullscreen_lyrics_align.as_str() {
                                                 "center" => " align-center",
@@ -496,6 +794,8 @@ pub fn LyricsPreviewStandaloneWindow() -> Element {
                                             format!("fullscreen-lyric-line fullscreen-lyric-inactive{}", align_class)
                                         };
 
+                                        let is_word_mode = *sync_format.read() == "word";
+
                                         rsx! {
                                             div {
                                                 key: "{idx}",
@@ -505,8 +805,47 @@ pub fn LyricsPreviewStandaloneWindow() -> Element {
                                                 title: "Click to jump simulation to this line",
                                                 onclick: move |_| {
                                                     active_line_idx.set(idx);
+                                                    line_elapsed_ms.set(0);
                                                 },
-                                                "{line_text}"
+
+                                                if is_word_mode {
+                                                    // Syllable / Word-by-Word Synchronized Rendering (TTML / ELRC)
+                                                    for (w_idx, w) in line_item.words.iter().enumerate() {
+                                                        {
+                                                            let word_state = if !is_active {
+                                                                "word-inactive"
+                                                            } else {
+                                                                if curr_elapsed < w.start_ms {
+                                                                    "word-upcoming"
+                                                                } else if curr_elapsed < w.start_ms + w.duration_ms {
+                                                                    "word-active"
+                                                                } else {
+                                                                    "word-sung"
+                                                                }
+                                                            };
+
+                                                            rsx! {
+                                                                span {
+                                                                    key: "{w_idx}",
+                                                                    class: "fullscreen-lyric-word {word_state}",
+                                                                    title: format!("{}: {}ms - {}ms", w.text.trim(), w.start_ms, w.start_ms + w.duration_ms),
+                                                                    onclick: {
+                                                                        let start = w.start_ms;
+                                                                        move |e: Event<MouseData>| {
+                                                                            e.stop_propagation();
+                                                                            active_line_idx.set(idx);
+                                                                            line_elapsed_ms.set(start + 10);
+                                                                        }
+                                                                    },
+                                                                    "{w.text}"
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+                                                } else {
+                                                    // Standard whole-line text rendering
+                                                    "{line_item.text}"
+                                                }
                                             }
                                         }
                                     }
@@ -526,7 +865,10 @@ pub fn LyricsPreviewStandaloneWindow() -> Element {
                             div {
                                 style: "padding: 16px 20px; border-bottom: 1px solid var(--border-glass); display: flex; justify-content: space-between; align-items: center;",
                                 span { style: "font-weight: 700; font-size: 14px;", "Synchronized Lyrics" }
-                                div { style: "display: flex; gap: 6px;",
+                                div { style: "display: flex; gap: 6px; align-items: center;",
+                                    if *sync_format.read() == "word" {
+                                        span { class: "badge-pill quality-good", style: "font-size: 10px;", "TTML/ELRC" }
+                                    }
                                     span { class: "badge-pill quality-good", style: "font-size: 10px;", "Auto-Scroll" }
                                 }
                             }
@@ -535,9 +877,9 @@ pub fn LyricsPreviewStandaloneWindow() -> Element {
                             div {
                                 style: "flex: 1; overflow-y: auto; padding: 30px 20px; display: flex; flex-direction: column; gap: 18px;",
 
-                                for (idx, line_text) in track.lyrics.iter().enumerate() {
+                                for (idx, line_item) in track.lines.iter().enumerate() {
                                     {
-                                        let is_active = idx == curr_line;
+                                        let is_active = idx == curr_line_idx;
                                         let align_class = match curr_cfg.dock_lyrics_align.as_str() {
                                             "center" => "align-center",
                                             "right" => "align-right",
@@ -554,6 +896,8 @@ pub fn LyricsPreviewStandaloneWindow() -> Element {
                                             "font-size: 13.5px; font-weight: 500; color: rgba(255,255,255,0.40); cursor: pointer; transition: all 0.25s ease;"
                                         };
 
+                                        let is_word_mode = *sync_format.read() == "word";
+
                                         rsx! {
                                             div {
                                                 key: "{idx}",
@@ -561,8 +905,31 @@ pub fn LyricsPreviewStandaloneWindow() -> Element {
                                                 style: "{line_style}",
                                                 onclick: move |_| {
                                                     active_line_idx.set(idx);
+                                                    line_elapsed_ms.set(0);
                                                 },
-                                                "{line_text}"
+
+                                                if is_word_mode && is_active {
+                                                    for (w_idx, w) in line_item.words.iter().enumerate() {
+                                                        {
+                                                            let word_state = if curr_elapsed < w.start_ms {
+                                                                "word-upcoming"
+                                                            } else if curr_elapsed < w.start_ms + w.duration_ms {
+                                                                "word-active"
+                                                            } else {
+                                                                "word-sung"
+                                                            };
+                                                            rsx! {
+                                                                span {
+                                                                    key: "{w_idx}",
+                                                                    class: "lyric-word {word_state}",
+                                                                    "{w.text}"
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+                                                } else {
+                                                    "{line_item.text}"
+                                                }
                                             }
                                         }
                                     }
@@ -586,8 +953,17 @@ mod tests {
         for track in SAMPLE_TRACKS {
             assert!(!track.title.is_empty());
             assert!(!track.artist.is_empty());
-            assert!(!track.lyrics.is_empty());
-            assert!(track.lyrics.len() >= 5);
+            assert!(!track.lines.is_empty());
+            assert!(track.lines.len() >= 5);
+            for line in track.lines {
+                assert!(!line.text.is_empty());
+                assert!(line.duration_ms > 0);
+                assert!(!line.words.is_empty());
+                for w in line.words {
+                    assert!(!w.text.is_empty());
+                    assert!(w.duration_ms > 0);
+                }
+            }
         }
     }
 
@@ -597,5 +973,15 @@ mod tests {
         let idx = 4usize;
         let clamped = idx % count;
         assert!(clamped < count);
+    }
+
+    #[test]
+    fn test_ttml_elrc_timed_word_intervals() {
+        let track = &SAMPLE_TRACKS[0];
+        let line = &track.lines[3];
+        assert_eq!(line.words.len(), 5);
+        assert_eq!(line.words[0].start_ms, 0);
+        assert_eq!(line.words[1].start_ms, 450);
+        assert!(line.words[4].start_ms + line.words[4].duration_ms <= line.duration_ms);
     }
 }
