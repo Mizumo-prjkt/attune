@@ -2,7 +2,7 @@
 
 - **Project Name**: Attune
 - **Current Phase**: `Phase 6 IN PROGRESS -> Multi-Platform Packaging, Installer Scripting & Distribution Orchestration`
-- **Active Coding Status**: Completed ADR-120: Silky-Smooth GPU Composited Lyrics Transition & Independent requestAnimationFrame Cubic Ease-Out Scroll Engine. Eliminated animation stuttering by replacing reflow-heavy font-size transitions and conflicting keyframe fill-mode oscillations with pure GPU-composited scale transitions (`0.92` to `1.08` via `cubic-bezier(0.22, 1, 0.36, 1)`), standardized 28px static line height, per-container `requestAnimationFrame` smooth scrolling with Better Lyrics cubic ease-out ($1 - (1-p)^3$), and 38vh viewport-centering scroll padding. All 91 desktop tests and workspace checks pass cleanly.
+- **Active Coding Status**: Completed ADR-121: Transparent Unified Table Header & Interactive Column Sorting in Favorites Stage. Purged `background: var(--bg-canvas); position: sticky; top: 0; z-index: 10;` from `crates/attune-desktop/src/stages/favorites.rs`, eliminating the opaque black bar clashing with the liquid background gradient and unifying styling 1:1 with `library.rs`. Added interactive multi-column sorting (`title`, `artist`, `album`, `bpm`, `duration`) with active direction indicators (`▲`/`▼`) and wired sorted order into "Play All". All 92 desktop tests pass cleanly.
 
 
 ---

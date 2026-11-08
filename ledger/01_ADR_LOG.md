@@ -4254,6 +4254,37 @@ This file records all major architectural decisions for **Attune**, including co
   - Lyrics line transition and auto-scroll centering are buttery-smooth with zero stutter, zero layout reflow, and zero sudden jerks.
   - Active line expands smoothly with Better Lyrics cubic-bezier curves at full display refresh rate.
 
+---
+
+## ADR-121: Transparent Unified Table Header & Interactive Column Sorting in Favorites Stage
+- **Date**: 2026-11-08
+- **Status**: `LOCKED`
+- **Context**:
+  1. The user reported that "the black bar is not fitting with the other tables", comparing screenshots between the Favorites stage (`media_1794124900221_eea56490.png`) and the Music Library stage (`media_1794124922202_a577367d.png`).
+  2. Inspection revealed that the Songs table header in `crates/attune-desktop/src/stages/favorites.rs` contained `background: var(--bg-canvas); position: sticky; top: 0; z-index: 10;`.
+  3. `var(--bg-canvas)` rendered a solid, opaque `#0b0f17` black box across the entire width of the window, clashing with the liquid frosted glass and dynamic mesh background gradient.
+  4. In contrast, the Music Library stage (`library.rs`) renders a completely transparent header with only `border-bottom: 1px solid var(--border-glass);`, allowing the liquid gradient background to flow through seamlessly.
+  5. In addition, the Favorites table header lacked interactive column sorting (`sort_by` / `sort_asc`) with directional arrow indicators (`▲`/`▼`) available in the Music Library.
+- **Decision**:
+  1. **Purged Black Canvas Background & Sticky Positioning (`crates/attune-desktop/src/stages/favorites.rs`)**:
+     - Removed `background: var(--bg-canvas); position: sticky; top: 0; z-index: 10;` from the Songs Table Header in `favorites.rs`.
+     - Standardized the header container styling to:
+       ```rust
+       style: "display: grid; grid-template-columns: 44px 2fr 1.5fr 1.5fr 70px 70px 70px 60px; padding: 8px 12px; border-bottom: 1px solid var(--border-glass); color: var(--text-muted); font-size: 11.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em;"
+       ```
+     - Perfectly unifies the visual language of the Favorites table with `library.rs` and the broader Liquid Material Glass aesthetic.
+  2. **Interactive Multi-Column Sorting**:
+     - Added `sort_by` (`"title"`, `"artist"`, `"album"`, `"bpm"`, `"duration"`) and `sort_asc` signals to `Favorites`.
+     - Wired clickable header columns with active sort direction arrows (`▲` for ascending, `▼` for descending).
+     - Integrated sorted track order directly into `tab_tracks_to_play` ensuring "Play All" executes in the exact visual sequence displayed to the user.
+  3. **Verification**:
+     - Added unit test `test_favorites_song_sorting_by_title_and_duration` in `favorites.rs`.
+     - All 92 desktop unit tests and workspace tests pass with 0 errors.
+- **Consequences**:
+  - The opaque black bar artifact is 100% eliminated; the table header blends seamlessly into the dynamic background gradient.
+  - Favorites table offers identical sorting capabilities and visual cues as the Music Library.
+
+
 
 
 

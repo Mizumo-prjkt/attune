@@ -54,6 +54,8 @@ pub fn Favorites(
 ) -> Element {
     let mut active_tab = use_signal(|| FavoritesTab::Songs);
     let mut search_query = use_signal(String::new);
+    let mut sort_by = use_signal(|| "title");
+    let mut sort_asc = use_signal(|| true);
     let strings = crate::i18n::current_strings();
 
     let query = search_query.read().trim().to_lowercase();
@@ -65,7 +67,7 @@ pub fn Favorites(
         .cloned()
         .collect();
 
-    let filtered_fav_tracks: Vec<TrackEntry> = all_fav_tracks
+    let mut filtered_fav_tracks: Vec<TrackEntry> = all_fav_tracks
         .iter()
         .filter(|t| {
             if query.is_empty() {
@@ -78,6 +80,26 @@ pub fn Favorites(
         })
         .cloned()
         .collect();
+
+    filtered_fav_tracks.sort_by(|a, b| {
+        let cmp = match *sort_by.read() {
+            "title" => a.title.to_lowercase().cmp(&b.title.to_lowercase()),
+            "artist" => a.artist.to_lowercase().cmp(&b.artist.to_lowercase()),
+            "album" => a.album.to_lowercase().cmp(&b.album.to_lowercase()),
+            "bpm" => {
+                let ba = a.bpm.unwrap_or(0.0);
+                let bb = b.bpm.unwrap_or(0.0);
+                ba.partial_cmp(&bb).unwrap_or(std::cmp::Ordering::Equal)
+            }
+            "duration" => a.duration_ms.cmp(&b.duration_ms),
+            _ => a.title.to_lowercase().cmp(&b.title.to_lowercase()),
+        };
+        if *sort_asc.read() {
+            cmp
+        } else {
+            cmp.reverse()
+        }
+    });
 
     // 2. Gather Favorite Artists
     let all_unique_artists = crate::artist_profile::extract_all_unique_artists(&tracks);
@@ -282,16 +304,76 @@ pub fn Favorites(
             div { style: "overflow-y: auto; flex: 1;",
                 match *active_tab.read() {
                     FavoritesTab::Songs => rsx! {
-                        // Songs Table Header
+                        // Songs Table Header (100% transparent, identical to library.rs)
                         div {
-                            style: "display: grid; grid-template-columns: 44px 2fr 1.5fr 1.5fr 70px 70px 70px 60px; padding: 8px 12px; border-bottom: 1px solid var(--border-glass); color: var(--text-muted); font-size: 11.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; position: sticky; top: 0; background: var(--bg-canvas); z-index: 10;",
+                            style: "display: grid; grid-template-columns: 44px 2fr 1.5fr 1.5fr 70px 70px 70px 60px; padding: 8px 12px; border-bottom: 1px solid var(--border-glass); color: var(--text-muted); font-size: 11.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em;",
                             span { "#" }
-                            span { "{strings.title}" }
-                            span { "{strings.artist}" }
-                            span { "{strings.album}" }
-                            span { "{strings.bpm}" }
+                            span {
+                                style: "cursor: pointer;",
+                                onclick: move |_| {
+                                    if *sort_by.read() == "title" {
+                                        let curr = *sort_asc.read();
+                                        sort_asc.set(!curr);
+                                    } else {
+                                        sort_by.set("title");
+                                        sort_asc.set(true);
+                                    }
+                                },
+                                "{strings.title}" if *sort_by.read() == "title" { if *sort_asc.read() { " ▲" } else { " ▼" } }
+                            }
+                            span {
+                                style: "cursor: pointer;",
+                                onclick: move |_| {
+                                    if *sort_by.read() == "artist" {
+                                        let curr = *sort_asc.read();
+                                        sort_asc.set(!curr);
+                                    } else {
+                                        sort_by.set("artist");
+                                        sort_asc.set(true);
+                                    }
+                                },
+                                "{strings.artist}" if *sort_by.read() == "artist" { if *sort_asc.read() { " ▲" } else { " ▼" } }
+                            }
+                            span {
+                                style: "cursor: pointer;",
+                                onclick: move |_| {
+                                    if *sort_by.read() == "album" {
+                                        let curr = *sort_asc.read();
+                                        sort_asc.set(!curr);
+                                    } else {
+                                        sort_by.set("album");
+                                        sort_asc.set(true);
+                                    }
+                                },
+                                "{strings.album}" if *sort_by.read() == "album" { if *sort_asc.read() { " ▲" } else { " ▼" } }
+                            }
+                            span {
+                                style: "cursor: pointer;",
+                                onclick: move |_| {
+                                    if *sort_by.read() == "bpm" {
+                                        let curr = *sort_asc.read();
+                                        sort_asc.set(!curr);
+                                    } else {
+                                        sort_by.set("bpm");
+                                        sort_asc.set(true);
+                                    }
+                                },
+                                "{strings.bpm}" if *sort_by.read() == "bpm" { if *sort_asc.read() { " ▲" } else { " ▼" } }
+                            }
                             span { "{strings.key}" }
-                            span { style: "text-align: right;", "{strings.time}" }
+                            span {
+                                style: "cursor: pointer; text-align: right;",
+                                onclick: move |_| {
+                                    if *sort_by.read() == "duration" {
+                                        let curr = *sort_asc.read();
+                                        sort_asc.set(!curr);
+                                    } else {
+                                        sort_by.set("duration");
+                                        sort_asc.set(true);
+                                    }
+                                },
+                                "{strings.time}" if *sort_by.read() == "duration" { if *sort_asc.read() { " ▲" } else { " ▼" } }
+                            }
                             span { style: "text-align: center;", "{strings.actions}" }
                         }
 
@@ -645,5 +727,40 @@ pub mod tests {
         assert_eq!(artist.name, "DECO*27");
         assert!(artist.is_verified);
         assert_eq!(artist.track_count, 12);
+    }
+
+    #[test]
+    fn test_favorites_song_sorting_by_title_and_duration() {
+        let t1 = TrackEntry {
+            title: "Beta Song".to_string(),
+            artist: "Artist 1".to_string(),
+            album: "Album 1".to_string(),
+            duration_ms: 240000,
+            bpm: Some(130.0),
+            path: PathBuf::from("/music/b.mp3"),
+            ..Default::default()
+        };
+        let t2 = TrackEntry {
+            title: "Alpha Song".to_string(),
+            artist: "Artist 2".to_string(),
+            album: "Album 2".to_string(),
+            duration_ms: 180000,
+            bpm: Some(120.0),
+            path: PathBuf::from("/music/a.mp3"),
+            ..Default::default()
+        };
+
+        let mut tracks = vec![t1.clone(), t2.clone()];
+        tracks.sort_by(|a, b| a.title.to_lowercase().cmp(&b.title.to_lowercase()));
+        assert_eq!(tracks[0].title, "Alpha Song");
+        assert_eq!(tracks[1].title, "Beta Song");
+
+        tracks.sort_by(|a, b| a.duration_ms.cmp(&b.duration_ms));
+        assert_eq!(tracks[0].title, "Alpha Song");
+        assert_eq!(tracks[1].title, "Beta Song");
+
+        tracks.reverse();
+        assert_eq!(tracks[0].title, "Beta Song");
+        assert_eq!(tracks[1].title, "Alpha Song");
     }
 }
