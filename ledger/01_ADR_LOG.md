@@ -4350,6 +4350,48 @@ This file records all major architectural decisions for **Attune**, including co
   - Empty-session gating completely prevents phantom window states and cache attribution errors.
   - High quality album and track artwork can be retrieved, previewed, and applied directly within Attune without external browser searches.
 
+---
+
+## ADR-124: Lyrics Layout Placement, Multi-Viewport Text Alignment, Karaoke Golden Bounce Preset & Custom CSS Guide
+- **Date**: 2026-11-08
+- **Status**: `LOCKED`
+- **Context**:
+  1. The user requested:
+     - "can you add an option in settings on lyrics to edit the attributes of the fullscreen lyrics and the sidebar lyrics' properties and look"
+     - "like their position, left or middle or right alignment for the texts"
+     - "and also allowing to move the controls and full screen from left or right side"
+     - "though try to add a note when adding a custom css script for the full screen, the modifications will be disabled and prioritized the css that they imported instead"
+     - "also add a guide on how to make their own and maybe add a sample that maybe made it look like karaoke text at least and what feature to call and add a note that the css will be only be used for the full screen lyrics instead"
+  2. Previously, text alignment was hardcoded to left with `transform-origin: left center` in CSS. In fullscreen mode, the layout was fixed with album artwork and controls on the left and lyrics on the right.
+  3. When custom CSS was enabled for fullscreen lyrics, declarative settings could conflict with or be overridden unpredictably by custom styles unless a strict precedence protocol and clear visual indication are established.
+- **Decision**:
+  1. **Configuration Schema Extensions (`crates/attune-desktop/src/config.rs`)**:
+     - Added `dock_lyrics_align: String` (values: `"left"`, `"center"`, `"right"`, default `"left"`).
+     - Added `fullscreen_lyrics_align: String` (values: `"left"`, `"center"`, `"right"`, default `"left"`).
+     - Added `fullscreen_layout_side: String` (values: `"left"`, `"right"`, default `"left"`).
+     - Added `PRESET_KARAOKE_BOUNCE: &str` featuring vivid golden text (`#FFDF00`), tactile spring bounce animation (`karaokeBounce`), bold weight, and multi-layered glow text-shadow.
+  2. **Responsive GPU-Composited CSS Modifiers (`crates/attune-desktop/src/style.css`)**:
+     - Defined `.lyric-line.align-left`, `.lyric-line.align-center`, and `.lyric-line.align-right` with matching `transform-origin` and hover/active transforms.
+     - Defined `.fullscreen-lyric-line.align-left`, `.fullscreen-lyric-line.align-center`, and `.fullscreen-lyric-line.align-right` with symmetric scaling and zero horizontal drift.
+  3. **Settings Controls & Precedence Architecture (`crates/attune-desktop/src/stages/settings.rs`)**:
+     - Under "Lyrics Font Family": Added Sidebar Lyrics Alignment selector (`Left`, `Center`, `Right`).
+     - Under "Fullscreen Now Playing Stage": Added Fullscreen Layout Placement selector (`Controls Left, Lyrics Right` vs. `Controls Right, Lyrics Left`) and Fullscreen Lyrics Alignment selector.
+     - When Custom Fullscreen CSS is active, the declarative fullscreen alignment selector is disabled with a prominent `"Overridden by Custom CSS"` badge.
+     - In the Custom CSS card, added an informative callout box stating that Custom CSS applies exclusively to the Fullscreen stage and takes precedence over declarative fullscreen styles, while the docked sidebar remains governed by sidebar settings.
+     - Added "Karaoke Golden Bounce" preset button to the presets toolbar.
+     - Added an inline "Custom CSS Guide & Class Reference" detailing `.fullscreen-lyric-active`, `.fullscreen-lyric-inactive`, `.fullscreen-lyric-line`, `.fullscreen-lyrics-scroll`, and `[data-line-idx]`.
+  4. **Fullscreen Now Playing Stage Integration (`crates/attune-desktop/src/stages/fullscreen_now_playing.rs`)**:
+     - Applied `flex-direction: row-reverse` to `.fullscreen-body` when `config.fullscreen_layout_side == "right"`, seamlessly flipping album art and controls to the right and lyrics to the left.
+     - When custom CSS is inactive, applied the appropriate `.align-*` class to lyric lines. When custom CSS is active, omitted declarative alignment classes so user CSS rules have unrestricted priority.
+  5. **Docked Sidebar Lyrics Integration (`crates/attune-desktop/src/app.rs`)**:
+     - Applied `dock_lyrics_align` modifier classes directly to `.lyric-line` elements in the sidebar drawer, completely isolated from fullscreen custom CSS.
+  6. **Mandate 4 (Zero Hardcoding) & Localization (`crates/attune-desktop/src/i18n.rs`)**:
+     - Added 15 new localized strings across English and Wikang Filipino, and updated `export_language_template_json()`.
+- **Consequences**:
+  - Users have full flexibility over lyrics alignment and fullscreen control placement.
+  - Custom CSS authoring is clearly guided with verified class names and a one-click Karaoke preset.
+  - Strict priority prevents styling collisions between declarative controls and custom stylesheets.
+
 
 
 
