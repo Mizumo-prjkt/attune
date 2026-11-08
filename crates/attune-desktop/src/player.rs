@@ -5,7 +5,7 @@
 //! Seamless DJ transitions between Deck A and Deck B are planned via `JitPlanner`.
 
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
 
@@ -18,6 +18,59 @@ use attune_core::{
 
 /// Fallback mixer rate only used when no output device can be queried (headless).
 const HEADLESS_FALLBACK_SAMPLE_RATE: u32 = 48_000;
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct DriverDiagnostics {
+    pub has_hardware_output: bool,
+    pub driver_error: Option<String>,
+    pub sample_rate: u32,
+    pub precision: String,
+    pub is_forced_32bit: bool,
+    pub device_name: String,
+}
+
+impl Default for DriverDiagnostics {
+    fn default() -> Self {
+        Self {
+            has_hardware_output: false,
+            driver_error: None,
+            sample_rate: 44100,
+            precision: "Headless Fallback".into(),
+            is_forced_32bit: false,
+            device_name: "Default Output".into(),
+        }
+    }
+}
+
+static DRIVER_DIAGNOSTICS: Mutex<Option<DriverDiagnostics>> = Mutex::new(None);
+static ACTIVE_PLAYER: Mutex<Option<std::sync::Weak<Player>>> = Mutex::new(None);
+
+pub fn get_driver_diagnostics() -> DriverDiagnostics {
+    DRIVER_DIAGNOSTICS.lock().unwrap().clone().unwrap_or_default()
+}
+
+pub fn update_driver_diagnostics(diag: DriverDiagnostics) {
+    if let Ok(mut guard) = DRIVER_DIAGNOSTICS.lock() {
+        *guard = Some(diag);
+    }
+}
+
+pub fn register_active_player(player: &Arc<Player>) {
+    if let Ok(mut guard) = ACTIVE_PLAYER.lock() {
+        *guard = Some(Arc::downgrade(player));
+    }
+}
+
+pub fn reconfigure_active_player(force_32bit: bool) -> Result<(), String> {
+    if let Ok(guard) = ACTIVE_PLAYER.lock() {
+        if let Some(ref weak) = *guard {
+            if let Some(player) = weak.upgrade() {
+                return player.reconfigure_output(force_32bit);
+            }
+        }
+    }
+    Err("No active player registered".into())
+}
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum LoadState {
@@ -46,8 +99,8 @@ pub struct PendingTransitionInfo {
 pub struct Player {
     mixer: Arc<Mutex<DualDeckMixer>>,
     // Holds the cpal stream alive; `None` means headless (no output device).
-    driver: Option<AudioOutputDriver>,
-    driver_error: Option<String>,
+    driver: Arc<Mutex<Option<AudioOutputDriver>>>,
+    driver_error: Arc<Mutex<Option<String>>>,
     generation: Arc<AtomicU64>,
     load_state: Arc<Mutex<LoadState>>,
     // User gain in dB stored as f32 bits; re-applied after each load (load resets deck gain).
@@ -56,10 +109,15 @@ pub struct Player {
     current_profile: Arc<Mutex<Option<(f32, String)>>>,
     current_track_path: Arc<Mutex<Option<PathBuf>>>,
     active_transition: Arc<Mutex<Option<PendingTransitionInfo>>>,
+    force_32bit_float: Arc<AtomicBool>,
 }
 
 impl Player {
     pub fn new() -> Self {
+        Self::new_with_options(false)
+    }
+
+    pub fn new_with_options(force_32bit: bool) -> Self {
         let sample_rate = AudioOutputDriver::default_sample_rate().unwrap_or_else(|e| {
             log::warn!("No default output sample rate ({:?}); using headless fallback", e);
             HEADLESS_FALLBACK_SAMPLE_RATE
@@ -68,7 +126,7 @@ impl Player {
 
         // Driver construction can panic inside some cpal backends; fail gracefully.
         let driver_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            AudioOutputDriver::new(Arc::clone(&mixer))
+            AudioOutputDriver::new_with_options(Arc::clone(&mixer), force_32bit)
         }));
         let (driver, driver_error) = match driver_result {
             Ok(Ok(d)) => (Some(d), None),
@@ -79,10 +137,10 @@ impl Player {
             log::error!("Audio output unavailable, running headless: {}", err);
         }
 
-        Self {
+        let p = Self {
             mixer,
-            driver,
-            driver_error,
+            driver: Arc::new(Mutex::new(driver)),
+            driver_error: Arc::new(Mutex::new(driver_error)),
             generation: Arc::new(AtomicU64::new(0)),
             load_state: Arc::new(Mutex::new(LoadState::Idle)),
             gain_db_bits: Arc::new(AtomicU32::new(0f32.to_bits())),
@@ -90,15 +148,118 @@ impl Player {
             current_profile: Arc::new(Mutex::new(None)),
             current_track_path: Arc::new(Mutex::new(None)),
             active_transition: Arc::new(Mutex::new(None)),
+            force_32bit_float: Arc::new(AtomicBool::new(force_32bit)),
+        };
+        p.sync_diagnostics_state();
+        p
+    }
+
+    pub fn reconfigure_output(&self, force_32bit: bool) -> Result<(), String> {
+        self.force_32bit_float.store(force_32bit, Ordering::SeqCst);
+
+        // 1. Drop existing driver to release hardware stream cleanly
+        if let Ok(mut guard) = self.driver.lock() {
+            *guard = None;
         }
+
+        // 2. Rebuild driver with forced 32-bit output mode
+        let mixer_cb = Arc::clone(&self.mixer);
+        let driver_res = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            AudioOutputDriver::new_with_options(mixer_cb, force_32bit)
+        }));
+
+        let res = match driver_res {
+            Ok(Ok(new_driver)) => {
+                log::info!(
+                    "AudioOutputDriver reconfigured successfully: format={:?}, forced_32bit={}",
+                    new_driver.sample_format(),
+                    new_driver.is_forced_32bit()
+                );
+                if let Ok(mut guard) = self.driver.lock() {
+                    *guard = Some(new_driver);
+                }
+                if let Ok(mut guard) = self.driver_error.lock() {
+                    *guard = None;
+                }
+                Ok(())
+            }
+            Ok(Err(e)) => {
+                let err_str = format!("{:?}", e);
+                log::warn!("Audio driver reconfiguration error: {}", err_str);
+                if let Ok(mut guard) = self.driver_error.lock() {
+                    *guard = Some(err_str.clone());
+                }
+                Err(err_str)
+            }
+            Err(_) => {
+                let err_str = "Audio driver panicked during reconfiguration".to_string();
+                log::error!("{}", err_str);
+                if let Ok(mut guard) = self.driver_error.lock() {
+                    *guard = Some(err_str.clone());
+                }
+                Err(err_str)
+            }
+        };
+
+        self.sync_diagnostics_state();
+        res
     }
 
     pub fn has_hardware_output(&self) -> bool {
-        self.driver.is_some()
+        self.driver.lock().map(|d| d.is_some()).unwrap_or(false)
     }
 
-    pub fn driver_error(&self) -> Option<&str> {
-        self.driver_error.as_deref()
+    pub fn driver_error(&self) -> Option<String> {
+        self.driver_error.lock().ok().and_then(|e| e.clone())
+    }
+
+    pub fn stream_precision(&self) -> String {
+        if let Ok(guard) = self.driver.lock() {
+            if let Some(ref d) = *guard {
+                return d.precision_label();
+            }
+        }
+        if let Ok(guard) = self.driver_error.lock() {
+            if let Some(ref err) = *guard {
+                return format!("Headless ({err})");
+            }
+        }
+        "Headless Fallback".to_string()
+    }
+
+    pub fn sample_rate(&self) -> u32 {
+        if let Ok(guard) = self.driver.lock() {
+            if let Some(ref d) = *guard {
+                return d.sample_rate();
+            }
+        }
+        self.mixer.lock().map(|m| m.sample_rate).unwrap_or(HEADLESS_FALLBACK_SAMPLE_RATE)
+    }
+
+    pub fn is_forced_32bit(&self) -> bool {
+        self.force_32bit_float.load(Ordering::SeqCst)
+    }
+
+    pub fn sync_diagnostics_state(&self) {
+        let has_hw = self.has_hardware_output();
+        let err = self.driver_error();
+        let rate = self.sample_rate();
+        let precision = self.stream_precision();
+        let is_forced = self.is_forced_32bit();
+        let dev_name = if let Ok(guard) = self.driver.lock() {
+            guard.as_ref().map(|d| d.device_name().to_string()).unwrap_or_else(|| "Default Audio Device".to_string())
+        } else {
+            "Default Audio Device".to_string()
+        };
+
+        update_driver_diagnostics(DriverDiagnostics {
+            has_hardware_output: has_hw,
+            driver_error: err,
+            sample_rate: rate,
+            precision,
+            is_forced_32bit: is_forced,
+            device_name: dev_name,
+        });
     }
 
     pub fn load_state(&self) -> LoadState {

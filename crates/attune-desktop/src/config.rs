@@ -45,6 +45,8 @@ fn default_api_priority() -> Vec<String> {
 }
 fn default_align_left() -> String { "left".to_string() }
 fn default_layout_side() -> String { "left".to_string() }
+fn default_dock_lyrics_font_size() -> u32 { 16 }
+fn default_fullscreen_lyrics_font_size() -> u32 { 28 }
 
 pub const PRESET_SPOTLIGHT_BLUR: &str = r#"/* Spotlight Depth Blur (Better Lyrics Inspired) */
 .fullscreen-lyric-inactive {
@@ -172,6 +174,8 @@ pub struct AppConfig {
     pub sidebar_text_glow: bool,
     #[serde(default = "default_align_left")]
     pub dock_lyrics_align: String,
+    #[serde(default = "default_dock_lyrics_font_size")]
+    pub dock_lyrics_font_size: u32,
 
     // Fullscreen View
     #[serde(default = "default_true")]
@@ -184,6 +188,8 @@ pub struct AppConfig {
     pub fullscreen_lyrics_align: String,
     #[serde(default = "default_layout_side")]
     pub fullscreen_layout_side: String,
+    #[serde(default = "default_fullscreen_lyrics_font_size")]
+    pub fullscreen_lyrics_font_size: u32,
     #[serde(default)]
     pub enable_lyrics_custom_css: bool,
     #[serde(default = "default_lyrics_custom_css")]
@@ -235,11 +241,13 @@ impl Default for AppConfig {
             lyric_font_family: default_lyric_font(),
             sidebar_text_glow: false,
             dock_lyrics_align: default_align_left(),
+            dock_lyrics_font_size: default_dock_lyrics_font_size(),
             fullscreen_text_glow: true,
             fullscreen_gradient_bg: true,
             fullscreen_visualizer_effects: true,
             fullscreen_lyrics_align: default_align_left(),
             fullscreen_layout_side: default_layout_side(),
+            fullscreen_lyrics_font_size: default_fullscreen_lyrics_font_size(),
             enable_lyrics_custom_css: false,
             lyrics_custom_css: default_lyrics_custom_css(),
             api_priority: default_api_priority(),
@@ -730,6 +738,8 @@ mod tests {
         assert_eq!(loaded.extra_music_dirs, vec![PathBuf::from("/tmp/extra")]);
         assert_eq!(loaded.song_exclusions, vec!["excluded_song.flac", "sample"]);
         assert!(loaded.auto_scroll_long_text);
+        assert_eq!(loaded.dock_lyrics_font_size, 16);
+        assert_eq!(loaded.fullscreen_lyrics_font_size, 28);
 
         cfg.auto_scroll_long_text = false;
         let json2 = serde_json::to_string(&cfg).unwrap();

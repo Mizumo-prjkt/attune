@@ -33,6 +33,8 @@ pub fn FullscreenNowPlaying(
     on_exit: EventHandler<()>,
     #[props(default)]
     on_artwork_updated: EventHandler<(Option<std::path::PathBuf>, std::path::PathBuf, String)>,
+    #[props(default)]
+    on_config_updated: EventHandler<AppConfig>,
 ) -> Element {
     let strings = crate::i18n::current_strings();
     let lyric_font_css = crate::system_fonts::resolve_font_family_css(&config.lyric_font_family);
@@ -219,6 +221,46 @@ pub fn FullscreenNowPlaying(
                     }
                 }
 
+                // In-View Lyrics Font Resizing Pill (A- / A+)
+                div {
+                    class: "lyrics-size-pill",
+                    title: "{strings.lyrics_text_size}: {config.fullscreen_lyrics_font_size}px",
+                    button {
+                        class: "lyrics-size-btn",
+                        title: "{strings.decrease_lyrics_size}",
+                        disabled: config.fullscreen_lyrics_font_size <= 18,
+                        onclick: {
+                            let mut new_cfg = config.clone();
+                            let on_config_updated = on_config_updated.clone();
+                            move |_| {
+                                let target_size = (new_cfg.fullscreen_lyrics_font_size.saturating_sub(2)).max(18);
+                                new_cfg.fullscreen_lyrics_font_size = target_size;
+                                on_config_updated.call(new_cfg.clone());
+                            }
+                        },
+                        "A-"
+                    }
+                    span {
+                        class: "lyrics-size-val",
+                        "{config.fullscreen_lyrics_font_size}px"
+                    }
+                    button {
+                        class: "lyrics-size-btn",
+                        title: "{strings.increase_lyrics_size}",
+                        disabled: config.fullscreen_lyrics_font_size >= 56,
+                        onclick: {
+                            let mut new_cfg = config.clone();
+                            let on_config_updated = on_config_updated.clone();
+                            move |_| {
+                                let target_size = (new_cfg.fullscreen_lyrics_font_size.saturating_add(2)).min(56);
+                                new_cfg.fullscreen_lyrics_font_size = target_size;
+                                on_config_updated.call(new_cfg.clone());
+                            }
+                        },
+                        "A+"
+                    }
+                }
+
                 // Minimalist Floating Exit Button (Esc shortcut)
                 button {
                     class: "fullscreen-floating-close-inline",
@@ -377,7 +419,7 @@ pub fn FullscreenNowPlaying(
                     div {
                         class: "fullscreen-lyrics-scroll",
                         "data-locked": if *is_locked_to_active.read() { "true" } else { "false" },
-                        style: "overflow-y: auto; max-height: 85vh; padding: 38vh 32px; display: flex; flex-direction: column; gap: 28px; scroll-behavior: auto; mask-image: linear-gradient(to bottom, transparent 0%, black 15%, black 85%, transparent 100%); -webkit-mask-image: linear-gradient(to bottom, transparent 0%, black 15%, black 85%, transparent 100%); --lyrics-font-family: {lyric_font_css}; font-family: var(--lyrics-font-family);",
+                        style: "overflow-y: auto; max-height: 85vh; padding: 38vh 32px; display: flex; flex-direction: column; gap: 28px; scroll-behavior: auto; mask-image: linear-gradient(to bottom, transparent 0%, black 15%, black 85%, transparent 100%); -webkit-mask-image: linear-gradient(to bottom, transparent 0%, black 15%, black 85%, transparent 100%); --lyrics-font-family: {lyric_font_css}; --lyrics-fullscreen-font-size: {config.fullscreen_lyrics_font_size}px; font-family: var(--lyrics-font-family);",
                         onwheel: move |_| {
                             if *is_locked_to_active.read() {
                                 is_locked_to_active.set(false);

@@ -53,6 +53,18 @@ Attune features a grouped font selector dropdown under **Settings > Lyrics > Lyr
   - **Deduplication Guard**: Any of Attune's default fonts (`Plus Jakarta Sans`, `Sora`, `Inter`, `Roboto`) that happen to be installed on the user's host machine are automatically excluded from the "System Fonts" group to prevent duplicate entries.
 * **Live Typography Preview**: An interactive preview card displays sample English and Japanese text immediately in the chosen font face with CSS variable metrics (`--lyrics-font-family`).
 
+### Text Resizing & Font Size Steppers
+Attune provides fine-grained control over typography sizing for both docked sidebar and fullscreen reading:
+* **Sidebar Lyrics Font Size**: Range from `12px` to `32px` (Default: `16px`). Adjustable in **Settings > Lyrics** via continuous slider and stepper, with an instant reset button.
+* **Fullscreen Lyrics Font Size**: Range from `18px` to `56px` (Default: `28px`). Adjustable in **Settings > Lyrics** via continuous slider and stepper, with an instant reset button.
+* **In-View Dynamic Resizing Steppers (`A-` / `{size}px` / `A+`)**:
+  - **Sidebar Dock Header**: A tactile `.lyrics-size-pill` control allows incrementing or decrementing font size by ±2px without leaving the song or opening settings.
+  - **Fullscreen Action Bar**: Embedded directly alongside Lyrics Sources and Follow mode toggles for immediate legibility adjustment on high-DPI displays or couch listening distances.
+  - **Live Preview Window**: Dedicated size stepper in the preview toolbar updating both the live simulation and persistent config.
+* **Cascading CSS Variables**:
+  - `--lyrics-font-size`: Applied to `.lyrics-container` and `.lyric-line`.
+  - `--lyrics-fullscreen-font-size`: Applied to `.fullscreen-lyrics-scroll` and `.fullscreen-lyric-line`. Custom CSS authors can also reference these variables directly.
+
 ### Fullscreen Layout Placement
 Controls which side of the edge-to-edge fullscreen window hosts album artwork and player controls versus the lyrics column:
 * **Controls Left, Lyrics Right** (Default): Standard player layout with cover art on the left and scrolling lyrics on the right.

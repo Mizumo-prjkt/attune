@@ -612,6 +612,64 @@ pub fn LyricsPreviewStandaloneWindow() -> Element {
                         },
                         "{sim_speed.read():.1}x"
                     }
+
+                    // In-Preview Text Resizing Stepper (A- / A+)
+                    {
+                        let is_fs = *preview_mode.read() == "fullscreen";
+                        let curr_sz = if is_fs { curr_cfg.fullscreen_lyrics_font_size } else { curr_cfg.dock_lyrics_font_size };
+                        let min_sz = if is_fs { 18 } else { 12 };
+                        let max_sz = if is_fs { 56 } else { 32 };
+                        let step = 2;
+
+                        rsx! {
+                            div {
+                                class: "lyrics-size-pill",
+                                title: if is_fs { "{strings.fullscreen_lyrics_size}: {curr_sz}px" } else { "{strings.sidebar_lyrics_size}: {curr_sz}px" },
+                                button {
+                                    class: "lyrics-size-btn",
+                                    title: "{strings.decrease_lyrics_size}",
+                                    disabled: curr_sz <= min_sz,
+                                    onclick: {
+                                        let mut new_cfg = curr_cfg.clone();
+                                        let mut config_sig = config_sig.clone();
+                                        move |_| {
+                                            if is_fs {
+                                                new_cfg.fullscreen_lyrics_font_size = (new_cfg.fullscreen_lyrics_font_size.saturating_sub(step)).max(min_sz);
+                                            } else {
+                                                new_cfg.dock_lyrics_font_size = (new_cfg.dock_lyrics_font_size.saturating_sub(step)).max(min_sz);
+                                            }
+                                            let _ = crate::config::save_config(&new_cfg);
+                                            config_sig.set(new_cfg.clone());
+                                        }
+                                    },
+                                    "A-"
+                                }
+                                span {
+                                    class: "lyrics-size-val",
+                                    "{curr_sz}px"
+                                }
+                                button {
+                                    class: "lyrics-size-btn",
+                                    title: "{strings.increase_lyrics_size}",
+                                    disabled: curr_sz >= max_sz,
+                                    onclick: {
+                                        let mut new_cfg = curr_cfg.clone();
+                                        let mut config_sig = config_sig.clone();
+                                        move |_| {
+                                            if is_fs {
+                                                new_cfg.fullscreen_lyrics_font_size = (new_cfg.fullscreen_lyrics_font_size.saturating_add(step)).min(max_sz);
+                                            } else {
+                                                new_cfg.dock_lyrics_font_size = (new_cfg.dock_lyrics_font_size.saturating_add(step)).min(max_sz);
+                                            }
+                                            let _ = crate::config::save_config(&new_cfg);
+                                            config_sig.set(new_cfg.clone());
+                                        }
+                                    },
+                                    "A+"
+                                }
+                            }
+                        }
+                    }
                 }
             }
 
@@ -623,6 +681,16 @@ pub fn LyricsPreviewStandaloneWindow() -> Element {
                         "Font: "
                         strong { style: "color: var(--accent-mint);",
                             "{curr_cfg.lyric_font_family}"
+                        }
+                    }
+                    span { style: "color: var(--text-muted);",
+                        "Size: "
+                        strong { style: "color: var(--accent-mint);",
+                            if *preview_mode.read() == "fullscreen" {
+                                "{curr_cfg.fullscreen_lyrics_font_size}px (FS)"
+                            } else {
+                                "{curr_cfg.dock_lyrics_font_size}px (Dock)"
+                            }
                         }
                     }
                     span { style: "color: var(--text-muted);",
@@ -780,7 +848,7 @@ pub fn LyricsPreviewStandaloneWindow() -> Element {
 
                             div {
                                 class: "fullscreen-lyrics-scroll",
-                                style: "overflow-y: auto; max-height: 80vh; padding: 25vh 24px; display: flex; flex-direction: column; gap: 24px; scroll-behavior: smooth; mask-image: linear-gradient(to bottom, transparent 0%, black 15%, black 85%, transparent 100%); -webkit-mask-image: linear-gradient(to bottom, transparent 0%, black 15%, black 85%, transparent 100%); --lyrics-font-family: {preview_font_css}; font-family: var(--lyrics-font-family);",
+                                style: "overflow-y: auto; max-height: 80vh; padding: 25vh 24px; display: flex; flex-direction: column; gap: 24px; scroll-behavior: smooth; mask-image: linear-gradient(to bottom, transparent 0%, black 15%, black 85%, transparent 100%); -webkit-mask-image: linear-gradient(to bottom, transparent 0%, black 15%, black 85%, transparent 100%); --lyrics-font-family: {preview_font_css}; --lyrics-fullscreen-font-size: {curr_cfg.fullscreen_lyrics_font_size}px; font-family: var(--lyrics-font-family);",
 
                                 for (idx, line_item) in track.lines.iter().enumerate() {
                                     {
@@ -886,7 +954,7 @@ pub fn LyricsPreviewStandaloneWindow() -> Element {
 
                             // Sidebar Scrolling Lines
                             div {
-                                style: "flex: 1; overflow-y: auto; padding: 30px 20px; display: flex; flex-direction: column; gap: 18px; --lyrics-font-family: {preview_font_css}; font-family: var(--lyrics-font-family);",
+                                style: "flex: 1; overflow-y: auto; padding: 30px 20px; display: flex; flex-direction: column; gap: 18px; --lyrics-font-family: {preview_font_css}; --lyrics-font-size: {curr_cfg.dock_lyrics_font_size}px; font-family: var(--lyrics-font-family);",
 
                                 for (idx, line_item) in track.lines.iter().enumerate() {
                                     {
@@ -897,14 +965,17 @@ pub fn LyricsPreviewStandaloneWindow() -> Element {
                                             _ => "align-left",
                                         };
 
+                                        let active_sz = curr_cfg.dock_lyrics_font_size;
+                                        let inactive_sz = ((active_sz as f32) * 0.84).round() as u32;
+
                                         let line_style = if is_active {
                                             if curr_cfg.sidebar_text_glow {
-                                                "font-family: var(--lyrics-font-family); font-size: 16px; font-weight: 700; color: #ffffff; text-shadow: 0 0 16px rgba(255,255,255,0.7); opacity: 1; cursor: pointer; transition: all 0.25s ease;"
+                                                format!("font-family: var(--lyrics-font-family); font-size: {active_sz}px; font-weight: 700; color: #ffffff; text-shadow: 0 0 16px rgba(255,255,255,0.7); opacity: 1; cursor: pointer; transition: all 0.25s ease;")
                                             } else {
-                                                "font-family: var(--lyrics-font-family); font-size: 16px; font-weight: 700; color: #ffffff; opacity: 1; cursor: pointer; transition: all 0.25s ease;"
+                                                format!("font-family: var(--lyrics-font-family); font-size: {active_sz}px; font-weight: 700; color: #ffffff; opacity: 1; cursor: pointer; transition: all 0.25s ease;")
                                             }
                                         } else {
-                                            "font-family: var(--lyrics-font-family); font-size: 13.5px; font-weight: 500; color: rgba(255,255,255,0.40); cursor: pointer; transition: all 0.25s ease;"
+                                            format!("font-family: var(--lyrics-font-family); font-size: {inactive_sz}px; font-weight: 500; color: rgba(255,255,255,0.40); cursor: pointer; transition: all 0.25s ease;")
                                         };
 
                                         let is_word_mode = *sync_format.read() == "word";

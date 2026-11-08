@@ -230,6 +230,13 @@ pub struct Strings {
     pub font_group_default: &'static str,
     pub font_group_system: &'static str,
     pub font_preview_sample: &'static str,
+    pub lyrics_text_size: &'static str,
+    pub sidebar_lyrics_size: &'static str,
+    pub fullscreen_lyrics_size: &'static str,
+    pub decrease_lyrics_size: &'static str,
+    pub increase_lyrics_size: &'static str,
+    pub reset_lyrics_size: &'static str,
+    pub lyrics_text_size_desc: &'static str,
 
     // Artist Profile Finder & Matcher Stage
     pub select_artist_to_find_profile: &'static str,
@@ -437,6 +444,13 @@ pub fn get_strings(lang: Language) -> Strings {
             font_group_default: "Default & Attune Fonts",
             font_group_system: "System Installed Fonts",
             font_preview_sample: "Live Typography Preview",
+            lyrics_text_size: "Lyrics Text Size",
+            sidebar_lyrics_size: "Sidebar Lyrics Text Size",
+            fullscreen_lyrics_size: "Fullscreen Lyrics Text Size",
+            decrease_lyrics_size: "Decrease Lyrics Text Size (A-)",
+            increase_lyrics_size: "Increase Lyrics Text Size (A+)",
+            reset_lyrics_size: "Reset Text Size",
+            lyrics_text_size_desc: "Adjust the font size of synchronized singing lines for docked sidebar and edge-to-edge fullscreen views.",
 
             // Artist Profile Finder & Matcher Stage
             select_artist_to_find_profile: "Select an artist to find their profile",
@@ -641,6 +655,13 @@ pub fn get_strings(lang: Language) -> Strings {
             font_group_default: "Mga Default at Font ng Attune",
             font_group_system: "Mga Naka-install na Font ng Sistema",
             font_preview_sample: "Live na Preview ng Typograpiya",
+            lyrics_text_size: "Laki ng Titik ng Kanta",
+            sidebar_lyrics_size: "Laki ng Titik sa Sidebar",
+            fullscreen_lyrics_size: "Laki ng Titik sa Fullscreen",
+            decrease_lyrics_size: "Paliitin ang Titik ng Kanta (A-)",
+            increase_lyrics_size: "Palakihin ang Titik ng Kanta (A+)",
+            reset_lyrics_size: "I-reset ang Laki ng Titik",
+            lyrics_text_size_desc: "Baguhin ang laki ng font ng mga linyang kasabay sa pagkanta para sa sidebar at fullscreen na mga view.",
 
             // Artist Profile Finder & Matcher Stage
             select_artist_to_find_profile: "Pumili ng artista upang hanapin ang kanilang profile",
@@ -848,6 +869,13 @@ pub fn export_language_template_json() -> String {
     map.insert("font_group_default", s.font_group_default);
     map.insert("font_group_system", s.font_group_system);
     map.insert("font_preview_sample", s.font_preview_sample);
+    map.insert("lyrics_text_size", s.lyrics_text_size);
+    map.insert("sidebar_lyrics_size", s.sidebar_lyrics_size);
+    map.insert("fullscreen_lyrics_size", s.fullscreen_lyrics_size);
+    map.insert("decrease_lyrics_size", s.decrease_lyrics_size);
+    map.insert("increase_lyrics_size", s.increase_lyrics_size);
+    map.insert("reset_lyrics_size", s.reset_lyrics_size);
+    map.insert("lyrics_text_size_desc", s.lyrics_text_size_desc);
 
     map.insert("select_artist_to_find_profile", s.select_artist_to_find_profile);
     map.insert("select_artist_to_find_profile_desc", s.select_artist_to_find_profile_desc);

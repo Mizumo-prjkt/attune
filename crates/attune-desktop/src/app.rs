@@ -213,9 +213,14 @@ pub fn select_next_playback_index(
 #[component]
 pub fn App() -> Element {
     // 1. Audio Engine & Library State
-    let player = use_signal(|| Arc::new(Player::new()));
+    let player = use_signal(|| {
+        let initial_cfg = config::load_config();
+        let p = Arc::new(Player::new_with_options(initial_cfg.force_32bit_float));
+        crate::player::register_active_player(&p);
+        p
+    });
     let mut tracks = use_signal(Vec::<TrackEntry>::new);
-    let app_config = use_signal(config::load_config);
+    let mut app_config = use_signal(config::load_config);
     let strings = crate::i18n::get_strings(crate::i18n::Language::from_code(&app_config.read().language));
     let mut music_dir = use_signal(|| {
         let (dir, _) = config::resolve_music_dir(None);
@@ -827,6 +832,9 @@ pub fn App() -> Element {
                     // Sync settings modified in standalone settings window
                     let fresh_cfg = config::load_config();
                     if *app_config.read() != fresh_cfg {
+                        if fresh_cfg.force_32bit_float != app_config.read().force_32bit_float {
+                            let _ = player.read().reconfigure_output(fresh_cfg.force_32bit_float);
+                        }
                         if fresh_cfg.music_dir != *music_dir.read() {
                             music_dir.set(fresh_cfg.music_dir.clone());
                         }
@@ -1849,6 +1857,10 @@ pub fn App() -> Element {
                                         nav_state.write().back();
                                     },
                                     on_artwork_updated: handle_artwork_updated.clone(),
+                                    on_config_updated: move |new_cfg: crate::config::AppConfig| {
+                                        app_config.set(new_cfg.clone());
+                                        let _ = crate::config::save_config(&new_cfg);
+                                    },
                                 }
                             }
                         },
@@ -1904,6 +1916,43 @@ pub fn App() -> Element {
                                             span { "Free-Scroll" }
                                         }
                                     }
+                                    // In-View Text Resizing Stepper (A- / A+)
+                                    div {
+                                        class: "lyrics-size-pill",
+                                        title: "{strings.lyrics_text_size}: {app_config.read().dock_lyrics_font_size}px",
+                                        button {
+                                            class: "lyrics-size-btn",
+                                            title: "{strings.decrease_lyrics_size}",
+                                            disabled: app_config.read().dock_lyrics_font_size <= 12,
+                                            onclick: move |_| {
+                                                let curr_size = app_config.read().dock_lyrics_font_size;
+                                                let target = (curr_size.saturating_sub(2)).max(12);
+                                                let mut new_cfg = app_config.read().clone();
+                                                new_cfg.dock_lyrics_font_size = target;
+                                                app_config.set(new_cfg.clone());
+                                                let _ = crate::config::save_config(&new_cfg);
+                                            },
+                                            "A-"
+                                        }
+                                        span {
+                                            class: "lyrics-size-val",
+                                            "{app_config.read().dock_lyrics_font_size}px"
+                                        }
+                                        button {
+                                            class: "lyrics-size-btn",
+                                            title: "{strings.increase_lyrics_size}",
+                                            disabled: app_config.read().dock_lyrics_font_size >= 32,
+                                            onclick: move |_| {
+                                                let curr_size = app_config.read().dock_lyrics_font_size;
+                                                let target = (curr_size.saturating_add(2)).min(32);
+                                                let mut new_cfg = app_config.read().clone();
+                                                new_cfg.dock_lyrics_font_size = target;
+                                                app_config.set(new_cfg.clone());
+                                                let _ = crate::config::save_config(&new_cfg);
+                                            },
+                                            "A+"
+                                        }
+                                    }
                                     button {
                                         class: "btn-icon",
                                         style: "width: 24px; height: 24px;",
@@ -1944,7 +1993,7 @@ pub fn App() -> Element {
                                 } else {
                                     div {
                                         class: "lyrics-container",
-                                        style: "--lyrics-font-family: {lyric_font_css}; font-family: var(--lyrics-font-family);",
+                                        style: "--lyrics-font-family: {lyric_font_css}; --lyrics-font-size: {app_config.read().dock_lyrics_font_size}px; font-family: var(--lyrics-font-family);",
                                         for (idx, line) in lyrics_sheet.read().lines.iter().enumerate() {
                                             {
                                                 let is_active = *active_lyric_index.read() == Some(idx);

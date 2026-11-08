@@ -239,6 +239,8 @@ pub fn SettingsStandaloneWindow() -> Element {
         all_tracks
     });
 
+    let initial_diag = crate::player::get_driver_diagnostics();
+
     rsx! {
         div {
             class: if config_sig.read().auto_scroll_long_text {
@@ -256,9 +258,9 @@ pub fn SettingsStandaloneWindow() -> Element {
                 extra_music_dirs: config_sig.read().extra_music_dirs.clone(),
                 song_exclusions: config_sig.read().song_exclusions.clone(),
                 tracks: tracks.read().clone(),
-                has_hardware_output: true,
-                driver_error: None,
-                mixer_sample_rate: 44100,
+                has_hardware_output: initial_diag.has_hardware_output,
+                driver_error: initial_diag.driver_error,
+                mixer_sample_rate: initial_diag.sample_rate,
                 shuffle_mode: ShuffleMode::Smart,
                 on_change_shuffle_mode: EventHandler::new(|_| ()),
                 on_choose_folder: EventHandler::new(move |_| {
@@ -407,6 +409,34 @@ pub fn SettingsContent(
     let mut benchmark_feedback = use_signal(|| None::<String>);
     let mut trim_feedback = use_signal(|| None::<(bool, String)>);
     let mut show_am_lyrics_modal = use_signal(|| false);
+
+    let mut driver_diag = use_signal(crate::player::get_driver_diagnostics);
+    use_future(move || async move {
+        loop {
+            tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+            let fresh = crate::player::get_driver_diagnostics();
+            if *driver_diag.read() != fresh {
+                driver_diag.set(fresh);
+            }
+        }
+    });
+    let diag = driver_diag.read().clone();
+    let backend_label = if diag.has_hardware_output {
+        if diag.device_name.is_empty() || diag.device_name == "Default Audio Device" {
+            "cpal (Hardware Active)".to_string()
+        } else {
+            format!("cpal ({})", diag.device_name)
+        }
+    } else if let Some(ref err) = diag.driver_error {
+        format!("Headless ({err})")
+    } else {
+        "Headless Fallback".to_string()
+    };
+    let precision_color = if diag.precision.contains("32-bit") {
+        "var(--accent-purple)"
+    } else {
+        "var(--accent-mint)"
+    };
 
     let gpu_info = probe_gpu_capabilities();
     let current_tab = *active_tab.read();
@@ -706,7 +736,12 @@ pub fn SettingsContent(
                                 }
                                 SwitchToggle {
                                     active: curr_cfg.force_32bit_float,
-                                    on_toggle: move |_| update_cfg(Box::new(|c| c.force_32bit_float = !c.force_32bit_float)),
+                                    on_toggle: move |_| {
+                                        let new_val = !curr_cfg.force_32bit_float;
+                                        let _ = crate::player::reconfigure_active_player(new_val);
+                                        update_cfg(Box::new(move |c| c.force_32bit_float = new_val));
+                                        driver_diag.set(crate::player::get_driver_diagnostics());
+                                    },
                                 }
                             }
                         }
@@ -778,19 +813,24 @@ pub fn SettingsContent(
                         div { class: "settings-card",
                             h3 { class: "settings-card-title", "Hardware Output Driver Diagnostics" }
                             div { style: "display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 10px;",
-                                div { style: "background: rgba(255,255,255,0.03); padding: 10px; border-radius: 8px;",
+                                div { style: "background: rgba(255,255,255,0.03); padding: 10px; border-radius: 8px; min-width: 0;",
                                     span { style: "font-size: 11px; color: var(--text-muted); display: block;", "Driver Backend" }
-                                    span { style: "font-size: 13px; font-weight: 600; color: #fff;",
-                                        if has_hardware_output { "cpal (Hardware Active)" } else { "Headless Fallback" }
+                                    span {
+                                        style: "font-size: 13px; font-weight: 600; color: #fff; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: block;",
+                                        title: "{diag.device_name}",
+                                        "{backend_label}"
                                     }
                                 }
                                 div { style: "background: rgba(255,255,255,0.03); padding: 10px; border-radius: 8px;",
                                     span { style: "font-size: 11px; color: var(--text-muted); display: block;", "Sample Rate" }
-                                    span { style: "font-size: 13px; font-weight: 600; color: var(--accent-mint);", "{mixer_sample_rate} Hz" }
+                                    span { style: "font-size: 13px; font-weight: 600; color: var(--accent-mint);", "{diag.sample_rate} Hz" }
                                 }
                                 div { style: "background: rgba(255,255,255,0.03); padding: 10px; border-radius: 8px;",
                                     span { style: "font-size: 11px; color: var(--text-muted); display: block;", "Precision" }
-                                    span { style: "font-size: 13px; font-weight: 600; color: var(--accent-purple);", "32-bit Float Native" }
+                                    span {
+                                        style: "font-size: 13px; font-weight: 600; color: {precision_color};",
+                                        "{diag.precision}"
+                                    }
                                 }
                             }
                         }
@@ -1032,15 +1072,15 @@ pub fn SettingsContent(
                                             }
                                             span {
                                                 style: "font-size: 11px; color: var(--accent-mint); font-family: monospace; background: rgba(45,212,191,0.08); padding: 2px 8px; border-radius: 4px;",
-                                                "{preview_font_css}"
+                                                "{preview_font_css} • {curr_cfg.fullscreen_lyrics_font_size}px / {curr_cfg.dock_lyrics_font_size}px"
                                             }
                                         }
                                         div {
-                                            style: "font-family: {preview_font_css}; font-size: 22px; font-weight: 700; color: #FFFDD0; line-height: 1.35; margin-bottom: 4px; transition: font-family 0.2s ease;",
+                                            style: "font-family: {preview_font_css}; font-size: {curr_cfg.fullscreen_lyrics_font_size}px; font-weight: 700; color: #FFFDD0; line-height: 1.35; margin-bottom: 6px; transition: all 0.2s ease;",
                                             "いいから はやく ハンコ押せや"
                                         }
                                         div {
-                                            style: "font-family: {preview_font_css}; font-size: 14.5px; color: rgba(255,255,255,0.72); line-height: 1.4; transition: font-family 0.2s ease;",
+                                            style: "font-family: {preview_font_css}; font-size: {curr_cfg.dock_lyrics_font_size}px; color: rgba(255,255,255,0.72); line-height: 1.4; transition: all 0.2s ease;",
                                             "The quick brown fox jumps over the lazy dog • 120.0 BPM • C Major"
                                         }
                                     }
@@ -1097,6 +1137,54 @@ pub fn SettingsContent(
                                             span { class: "material-icons md-14", "format_align_right" }
                                         }
                                         "{strings.align_right}"
+                                    }
+                                }
+                            }
+
+                            // Sidebar Lyrics Font Size
+                            div { style: "display: flex; justify-content: space-between; align-items: center; margin-top: 14px; padding-top: 12px; border-top: 1px solid rgba(255,255,255,0.05);",
+                                div {
+                                    div { style: "font-weight: 500; font-size: 13.5px;", "{strings.sidebar_lyrics_size}" }
+                                    div { style: "font-size: 12px; color: var(--text-muted);", "{strings.lyrics_text_size_desc}" }
+                                }
+                                div { style: "display: flex; align-items: center; gap: 10px;",
+                                    input {
+                                        r#type: "range",
+                                        min: "12",
+                                        max: "32",
+                                        step: "1",
+                                        value: "{curr_cfg.dock_lyrics_font_size}",
+                                        style: "width: 110px; accent-color: var(--accent-mint); cursor: pointer;",
+                                        oninput: move |e| {
+                                            if let Ok(val) = e.value().parse::<u32>() {
+                                                update_cfg(Box::new(move |c| c.dock_lyrics_font_size = val));
+                                            }
+                                        }
+                                    }
+                                    div { class: "lyrics-size-pill",
+                                        button {
+                                            class: "lyrics-size-btn",
+                                            title: "{strings.decrease_lyrics_size}",
+                                            disabled: curr_cfg.dock_lyrics_font_size <= 12,
+                                            onclick: move |_| update_cfg(Box::new(|c| c.dock_lyrics_font_size = (c.dock_lyrics_font_size.saturating_sub(2)).max(12))),
+                                            "A-"
+                                        }
+                                        span { class: "lyrics-size-val", "{curr_cfg.dock_lyrics_font_size}px" }
+                                        button {
+                                            class: "lyrics-size-btn",
+                                            title: "{strings.increase_lyrics_size}",
+                                            disabled: curr_cfg.dock_lyrics_font_size >= 32,
+                                            onclick: move |_| update_cfg(Box::new(|c| c.dock_lyrics_font_size = (c.dock_lyrics_font_size.saturating_add(2)).min(32))),
+                                            "A+"
+                                        }
+                                    }
+                                    if curr_cfg.dock_lyrics_font_size != 16 {
+                                        button {
+                                            class: "btn-pill",
+                                            style: "font-size: 11px; padding: 2px 8px;",
+                                            onclick: move |_| update_cfg(Box::new(|c| c.dock_lyrics_font_size = 16)),
+                                            "{strings.reset_lyrics_size}"
+                                        }
                                     }
                                 }
                             }
@@ -1258,6 +1346,54 @@ pub fn SettingsContent(
                                     if curr_cfg.enable_lyrics_custom_css {
                                         span { style: "font-size: 11px; color: #ffa726;",
                                             "Controlled via custom CSS rules (.fullscreen-lyric-line)"
+                                        }
+                                    }
+                                }
+                            }
+
+                            // Fullscreen Lyrics Font Size
+                            div { style: "display: flex; justify-content: space-between; align-items: center; margin-top: 14px; padding-top: 12px; border-top: 1px solid rgba(255,255,255,0.05);",
+                                div {
+                                    div { style: "font-weight: 500; font-size: 13.5px;", "{strings.fullscreen_lyrics_size}" }
+                                    div { style: "font-size: 12px; color: var(--text-muted);", "{strings.lyrics_text_size_desc}" }
+                                }
+                                div { style: "display: flex; align-items: center; gap: 10px;",
+                                    input {
+                                        r#type: "range",
+                                        min: "18",
+                                        max: "56",
+                                        step: "2",
+                                        value: "{curr_cfg.fullscreen_lyrics_font_size}",
+                                        style: "width: 110px; accent-color: var(--accent-mint); cursor: pointer;",
+                                        oninput: move |e| {
+                                            if let Ok(val) = e.value().parse::<u32>() {
+                                                update_cfg(Box::new(move |c| c.fullscreen_lyrics_font_size = val));
+                                            }
+                                        }
+                                    }
+                                    div { class: "lyrics-size-pill",
+                                        button {
+                                            class: "lyrics-size-btn",
+                                            title: "{strings.decrease_lyrics_size}",
+                                            disabled: curr_cfg.fullscreen_lyrics_font_size <= 18,
+                                            onclick: move |_| update_cfg(Box::new(|c| c.fullscreen_lyrics_font_size = (c.fullscreen_lyrics_font_size.saturating_sub(2)).max(18))),
+                                            "A-"
+                                        }
+                                        span { class: "lyrics-size-val", "{curr_cfg.fullscreen_lyrics_font_size}px" }
+                                        button {
+                                            class: "lyrics-size-btn",
+                                            title: "{strings.increase_lyrics_size}",
+                                            disabled: curr_cfg.fullscreen_lyrics_font_size >= 56,
+                                            onclick: move |_| update_cfg(Box::new(|c| c.fullscreen_lyrics_font_size = (c.fullscreen_lyrics_font_size.saturating_add(2)).min(56))),
+                                            "A+"
+                                        }
+                                    }
+                                    if curr_cfg.fullscreen_lyrics_font_size != 28 {
+                                        button {
+                                            class: "btn-pill",
+                                            style: "font-size: 11px; padding: 2px 8px;",
+                                            onclick: move |_| update_cfg(Box::new(|c| c.fullscreen_lyrics_font_size = 28)),
+                                            "{strings.reset_lyrics_size}"
                                         }
                                     }
                                 }
@@ -2294,7 +2430,7 @@ pub fn SettingsContent(
                                 }
                                 div { style: "display: flex; flex-direction: column; gap: 6px; margin-top: 4px; font-size: 12px;",
                                     div { "• " span { style: "color: #fff; font-weight: 600;", "DirectForm2 EQ: " } "10-band studio equalization with sub-harmonic synthesis." }
-                                    div { "• " span { style: "color: #fff; font-weight: 600;", "Hermite Cubic: " } "Resamples streams to DAC native rate ({mixer_sample_rate} Hz) with zero phase drift." }
+                                    div { "• " span { style: "color: #fff; font-weight: 600;", "Hermite Cubic: " } "Resamples streams to DAC native rate ({diag.sample_rate} Hz) with zero phase drift." }
                                     div { "• " span { style: "color: #fff; font-weight: 600;", "Silence Trimmer: " } "Detects leading/trailing silence below -60 dBFS." }
                                 }
                                 button {

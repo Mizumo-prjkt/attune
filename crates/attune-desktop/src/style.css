@@ -18,6 +18,8 @@
   --lyrics-active: #fffdd0;
   --lyrics-glow: rgba(255, 253, 208, 0.35);
   --lyrics-font-family: inherit;
+  --lyrics-font-size: 16px;
+  --lyrics-fullscreen-font-size: 28px;
   --font-family: system-ui, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", "Noto Sans CJK JP", "Noto Sans JP", sans-serif;
 }
 
@@ -294,7 +296,7 @@ body, html {
 
 .lyric-line {
   font-family: var(--lyrics-font-family, inherit);
-  font-size: 16px;
+  font-size: var(--lyrics-font-size, 16px);
   line-height: 1.45;
   color: var(--text-muted);
   cursor: pointer;
@@ -2720,6 +2722,63 @@ body, html {
   white-space: nowrap;
 }
 
+/* Lyrics In-View Text Resizing Controls */
+.lyrics-size-pill {
+  display: inline-flex;
+  align-items: center;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 20px;
+  padding: 3px 6px;
+  gap: 3px;
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  transition: all 0.2s ease;
+  user-select: none;
+}
+
+.lyrics-size-pill:hover {
+  background: rgba(255, 255, 255, 0.13);
+  border-color: rgba(255, 255, 255, 0.28);
+}
+
+.lyrics-size-btn {
+  background: transparent;
+  border: none;
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 700;
+  padding: 2px 6px;
+  border-radius: 10px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s ease;
+  user-select: none;
+}
+
+.lyrics-size-btn:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.18);
+  color: #ffffff;
+  transform: scale(1.08);
+}
+
+.lyrics-size-btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.lyrics-size-val {
+  font-size: 11px;
+  font-family: monospace;
+  font-weight: 600;
+  color: var(--accent-mint);
+  min-width: 32px;
+  text-align: center;
+  user-select: none;
+}
+
 .fullscreen-floating-close-inline {
   width: 40px;
   height: 40px;
@@ -2842,7 +2901,7 @@ body, html {
 /* Better Lyrics fluid GPU composited typography: zero layout reflow */
 .fullscreen-lyric-line {
   font-family: var(--lyrics-font-family, inherit);
-  font-size: 28px;
+  font-size: var(--lyrics-fullscreen-font-size, 28px);
   line-height: 1.45;
   font-weight: 700;
   cursor: pointer;

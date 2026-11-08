@@ -4541,6 +4541,88 @@ This file records all major architectural decisions for **Attune**, including co
   - Selecting any font in Settings or the preview window immediately changes lyrics typography across both sidebar and fullscreen views.
   - Users can browse hundreds of installed host fonts cleanly separated from default fonts without visual duplication.
 
+---
+
+## ADR-129: Lyrics Text Resizing Controls (Sidebar, Fullscreen, In-View Steppers, Settings & Live Preview)
+
+- **Date**: 2026-11-09
+- **Status**: `LOCKED`
+- **Context**:
+  1. The user requested:
+     *"can you add lyrics text resizing? like resize text lyrics view at least"*
+  2. While font family customization was implemented in ADR-128, text font size was previously static:
+     - Docked sidebar lyrics were fixed at 16px (`.lyric-line`).
+     - Fullscreen lyrics were fixed at 28px (`.fullscreen-lyric-line`).
+     - Users with varied screen resolutions (e.g. 1080p laptop vs 4K monitor) or viewing distances (desktop nearfield vs couch/living-room TV) required independently adjustable font sizes.
+     - Users also needed quick in-view resizing directly within the lyrics views without having to navigate away to Settings every time.
+- **Decision**:
+  1. **Config Persistence (`crates/attune-desktop/src/config.rs`)**:
+     - Added `dock_lyrics_font_size: u32` (default: 16px, range 12..=32px) and `fullscreen_lyrics_font_size: u32` (default: 28px, range 18..=56px) with serde defaults and config roundtrip test assertions.
+  2. **CSS Variable Integration (`crates/attune-desktop/src/style.css`)**:
+     - Added `--lyrics-font-size: 16px;` and `--lyrics-fullscreen-font-size: 28px;` to `:root`.
+     - Bound `.lyric-line` to `font-size: var(--lyrics-font-size, 16px);`.
+     - Bound `.fullscreen-lyric-line` to `font-size: var(--lyrics-fullscreen-font-size, 28px);`.
+     - Styled `.lyrics-size-pill`, `.lyrics-size-btn`, and `.lyrics-size-val` controls with glassmorphism blur and hover effects.
+  3. **In-View Dynamic Resizing Steppers (`A-` / `{size}px` / `A+`)**:
+     - Embedded in `crates/attune-desktop/src/app.rs` inside the `DockMode::Lyrics` dock header alongside Auto-Scroll.
+     - Embedded in `crates/attune-desktop/src/stages/fullscreen_now_playing.rs` inside the `.fullscreen-top-actions` bar alongside Lyrics Sources and Follow Lyrics toggles.
+     - Added `on_config_updated: EventHandler<AppConfig>` to propagate size changes immediately and persist to disk via `save_config`.
+  4. **Settings Page Sliders & Steppers (`crates/attune-desktop/src/stages/settings.rs`)**:
+     - Added independent sliders, numeric steppers, and reset buttons for Sidebar Lyrics Font Size (12px to 32px) and Fullscreen Lyrics Font Size (18px to 56px).
+     - Enhanced Live Typography Preview card to dynamically render sample text at the exact active font sizes.
+  5. **Live Preview Window Integration (`crates/attune-desktop/src/stages/lyrics_preview.rs`)**:
+     - Added in-preview text size stepper to the top toolbar that dynamically updates `--lyrics-fullscreen-font-size` and `--lyrics-font-size` on the fly.
+     - Added active size indicator in secondary subheader.
+  6. **Mandate 4 (Zero Hardcoding) & Localization (`crates/attune-desktop/src/i18n.rs`)**:
+     - Added 7 localized keys (`lyrics_text_size`, `sidebar_lyrics_size`, `fullscreen_lyrics_size`, `decrease_lyrics_size`, `increase_lyrics_size`, `reset_lyrics_size`, `lyrics_text_size_desc`) in English and Filipino, updated `export_language_template_json()`.
+- **Consequences**:
+  - Lyrics font sizes can be adjusted both in Settings and in real-time directly inside the active lyrics views.
+  - Cascading CSS variables ensure zero layout reflow overhead when lyrics lines update.
+  - Verified across all unit tests and manual preview simulation.
+
+---
+
+## ADR-130: Hardware Output Driver 32-Bit PCM Stream Negotiation, Zero-Reflow Hot-Reconfiguration & Dynamic Telemetry Diagnostics
+- **Date**: 2026-11-09
+- **Status**: `LOCKED`
+- **Context**:
+  1. The user reported:
+     *"note: the force 32 bit PCM feature meant to force audio to output as 32 bit regardless of the file it is not supported though. this needs to at least work"*
+  2. Investigation revealed:
+     - The toggle `[EXPERIMENTAL] Force 32-bit PCM Float Output` in `Settings > Audio` was previously dummy—it mutated `AppConfig.force_32bit_float` on disk without ever reconfiguring the CPAL audio output driver.
+     - The diagnostics card at the bottom of `Settings > Audio` displayed hardcoded fake constants (`has_hardware_output: true`, `mixer_sample_rate: 44100`, `Precision: "32-bit Float Native"` in purple), directly violating Mandate 4 (Avoid hardcoded values).
+     - When playing 16-bit audio files (e.g., standard CD FLAC, MP3, AAC), standard output drivers negotiated 16-bit integer PCM buffers. Users enabling the 32-bit float output feature expect the audio stream to be forced into 32-bit PCM (`SampleFormat::F32` unclipped 32-bit float, or `SampleFormat::I32` 32-bit integer PCM) to feed unclipped floating-point audio directly to capable hardware DACs and sound servers (PipeWire, PulseAudio, WASAPI, CoreAudio, ALSA).
+- **Decision**:
+  1. **CPAL Audio Driver 32-Bit Output Stream Negotiation (`crates/attune-core/src/engine/driver.rs`)**:
+     - Upgraded `AudioOutputDriver` to store `sample_format: SampleFormat`, `is_forced_32bit: bool`, and `device_name: String`.
+     - Implemented `AudioOutputDriver::new_with_options(mixer, force_32bit)`:
+       * When `force_32bit == true`, inspects `device.supported_output_configs()`:
+         - 1st priority: `SampleFormat::F32` (native 32-bit float PCM) with matching channels and preferred rate (48000/44100).
+         - 2nd priority: `SampleFormat::I32` (native 32-bit int PCM) with full 32-bit scaling (`(sample.clamp(-1.0, 1.0) * 2147483647.0) as i32`).
+       * If forced 32-bit stream creation fails on hardware, gracefully falls back to `default_config` without crashing or freezing (Mandate 4).
+       * Supports `SampleFormat::F32` (direct block copy), `SampleFormat::I32` (32-bit scaling), and `SampleFormat::I16` (16-bit scaling) with anti-underrun ramp smoothing.
+       * Added `precision_label(&self) -> String` producing dynamic, real labels:
+         `32-bit Float PCM (Forced)`, `32-bit Float Native`, `32-bit Int PCM (Forced)`, `32-bit Int Native`, `16-bit Int PCM (Standard)`.
+  2. **Thread-Safe Hot-Reconfiguration & Global Weak Registration (`crates/attune-desktop/src/player.rs`)**:
+     - Converted `driver: Arc<Mutex<Option<AudioOutputDriver>>>`, `driver_error: Arc<Mutex<Option<String>>>`, and added `force_32bit_float: Arc<AtomicBool>`.
+     - Implemented `Player::reconfigure_output(&self, force_32bit) -> Result<(), String>` which cleanly drops the existing CPAL stream and builds the new 32-bit stream without dropping `DualDeckMixer`, preserving active deck audio buffers, playback positions, and master FX rack settings with zero stutter or restart.
+     - Added global thread-safe diagnostics state `DRIVER_DIAGNOSTICS: Mutex<Option<DriverDiagnostics>>` with `get_driver_diagnostics()`.
+     - Added `ACTIVE_PLAYER: Mutex<Option<std::sync::Weak<Player>>>` with `register_active_player` and `reconfigure_active_player(force_32bit)` enabling instantaneous audio stream hot-swapping from secondary settings windows without waiting for background sync ticks.
+  3. **Zero-Hardcoding Settings Diagnostics & Real-Time Telemetry (`crates/attune-desktop/src/stages/settings.rs`)**:
+     - Completely purged hardcoded constants from `SettingsStandaloneWindow` and `SettingsContent`.
+     - Added reactive `driver_diag` signal with 500ms background polling future to reflect driver changes dynamically.
+     - Dynamically renders Driver Backend (`cpal ({device_name})` or `Headless ({error})`), actual hardware sample rate (`{diag.sample_rate} Hz`), and authentic precision (`{diag.precision}` with purple styling for 32-bit and mint green for 16-bit).
+     - Wired the `[EXPERIMENTAL] Force 32-bit PCM Float Output` toggle to call `reconfigure_active_player(new_val)` and immediately refresh diagnostics before updating persistent config.
+  4. **Workspace Build Verification & Unit Testing**:
+     - Added `test_driver_sample_format_and_precision_label` in `attune-core`.
+     - Verified all workspace test suites pass (`cargo test --workspace`) and release compilation succeeds (`cargo build --release -p attune-desktop`).
+- **Consequences**:
+  - The Force 32-bit PCM Float Output toggle actively negotiates 32-bit streams on hardware output devices.
+  - Diagnostics card reflects 100% genuine hardware telemetry in strict compliance with Mandate 4.
+  - Zero playback interruption or app freeze when toggling 32-bit mode.
+
+
+
 
 
 
