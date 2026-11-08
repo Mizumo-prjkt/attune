@@ -40,6 +40,19 @@ When searching for lyrics, Attune follows the configured priority in **Settings 
 
 All lyrics visual settings can be accessed through the **Settings (`⚙`) > Lyrics** tab.
 
+### Typography & Font Family Dropdown
+Attune features a grouped font selector dropdown under **Settings > Lyrics > Lyrics Font Family**:
+* **Default & Attune Fonts (`<optgroup>`)**:
+  - `System Default (Adaptive)`: Attune's adaptive system UI font stack with native CJK and Latin fallbacks.
+  - `Plus Jakarta Sans`: Attune's signature body and lyrics typeface.
+  - `Sora`: Attune's signature geometric display typeface.
+  - `Inter`: High-legibility modern sans-serif.
+  - `Roboto`: Neutral neo-grotesque sans-serif.
+* **System Installed Fonts (`<optgroup>`)**:
+  - Discovered cross-platform on Linux via `fontconfig` (`fc-list`) and on Windows via system registry and font directories.
+  - **Deduplication Guard**: Any of Attune's default fonts (`Plus Jakarta Sans`, `Sora`, `Inter`, `Roboto`) that happen to be installed on the user's host machine are automatically excluded from the "System Fonts" group to prevent duplicate entries.
+* **Live Typography Preview**: An interactive preview card displays sample English and Japanese text immediately in the chosen font face with CSS variable metrics (`--lyrics-font-family`).
+
 ### Fullscreen Layout Placement
 Controls which side of the edge-to-edge fullscreen window hosts album artwork and player controls versus the lyrics column:
 * **Controls Left, Lyrics Right** (Default): Standard player layout with cover art on the left and scrolling lyrics on the right.

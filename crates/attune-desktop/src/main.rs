@@ -14,6 +14,7 @@ mod player;
 mod process_manager;
 mod smart_shuffle;
 mod stages;
+pub mod system_fonts;
 mod theme;
 
 use dioxus::desktop::{Config, WindowBuilder};
@@ -75,7 +76,11 @@ fn main() {
         .with_window(window)
         .with_menu(None)
         .with_custom_head(format!(
-            "<link rel=\"stylesheet\" href=\"https://fonts.googleapis.com/icon?family=Material+Icons\">\n<style>\n{icons_css}\n{css}\n</style>\n{}\n{}\n{}",
+            "<link rel=\"preconnect\" href=\"https://fonts.googleapis.com\">\n\
+            <link rel=\"preconnect\" href=\"https://fonts.gstatic.com\" crossorigin>\n\
+            <link rel=\"stylesheet\" href=\"https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Roboto:wght@400;500;700&family=Sora:wght@400;600;700;800&display=swap\">\n\
+            <link rel=\"stylesheet\" href=\"https://fonts.googleapis.com/icon?family=Material+Icons\">\n\
+            <style>\n{icons_css}\n{css}\n</style>\n{}\n{}\n{}",
             crate::theme::EVENT_COORDINATE_SANITIZER_SCRIPT,
             crate::theme::MARQUEE_SCRIPT,
             crate::theme::LYRICS_SYNC_SCRIPT

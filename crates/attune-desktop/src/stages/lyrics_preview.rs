@@ -348,7 +348,11 @@ pub fn open_lyrics_preview_window() {
             .with_window(window)
             .with_menu(None)
             .with_custom_head(format!(
-                "<link rel=\"stylesheet\" href=\"https://fonts.googleapis.com/icon?family=Material+Icons\">\n<style>\n{icons_css}\n{css}\n</style>"
+                "<link rel=\"preconnect\" href=\"https://fonts.googleapis.com\">\n\
+                <link rel=\"preconnect\" href=\"https://fonts.gstatic.com\" crossorigin>\n\
+                <link rel=\"stylesheet\" href=\"https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Roboto:wght@400;500;700&family=Sora:wght@400;600;700;800&display=swap\">\n\
+                <link rel=\"stylesheet\" href=\"https://fonts.googleapis.com/icon?family=Material+Icons\">\n\
+                <style>\n{icons_css}\n{css}\n</style>"
             ));
 
         dioxus::desktop::window().new_window(dom, cfg);
@@ -410,6 +414,7 @@ pub fn LyricsPreviewStandaloneWindow() -> Element {
     });
 
     let curr_cfg = config_sig.read().clone();
+    let preview_font_css = crate::system_fonts::resolve_font_family_css(&curr_cfg.lyric_font_family);
     let strings = crate::i18n::get_strings(crate::i18n::Language::from_code(&curr_cfg.language));
     let track = &SAMPLE_TRACKS[*selected_track_idx.read() % SAMPLE_TRACKS.len()];
     let total_lines = track.lines.len();
@@ -615,6 +620,12 @@ pub fn LyricsPreviewStandaloneWindow() -> Element {
                 style: "height: 36px; background: rgba(0,0,0,0.45); border-bottom: 1px solid rgba(255,255,255,0.06); display: flex; align-items: center; justify-content: space-between; padding: 0 20px; font-size: 11.5px; z-index: 90; flex-shrink: 0;",
                 div { style: "display: flex; gap: 14px; align-items: center;",
                     span { style: "color: var(--text-muted);",
+                        "Font: "
+                        strong { style: "color: var(--accent-mint);",
+                            "{curr_cfg.lyric_font_family}"
+                        }
+                    }
+                    span { style: "color: var(--text-muted);",
                         "Layout: "
                         strong { style: "color: var(--text-primary);",
                             if curr_cfg.fullscreen_layout_side == "right" { "Controls Right, Lyrics Left" } else { "Controls Left, Lyrics Right" }
@@ -769,7 +780,7 @@ pub fn LyricsPreviewStandaloneWindow() -> Element {
 
                             div {
                                 class: "fullscreen-lyrics-scroll",
-                                style: "overflow-y: auto; max-height: 80vh; padding: 25vh 24px; display: flex; flex-direction: column; gap: 24px; scroll-behavior: smooth; mask-image: linear-gradient(to bottom, transparent 0%, black 15%, black 85%, transparent 100%); -webkit-mask-image: linear-gradient(to bottom, transparent 0%, black 15%, black 85%, transparent 100%);",
+                                style: "overflow-y: auto; max-height: 80vh; padding: 25vh 24px; display: flex; flex-direction: column; gap: 24px; scroll-behavior: smooth; mask-image: linear-gradient(to bottom, transparent 0%, black 15%, black 85%, transparent 100%); -webkit-mask-image: linear-gradient(to bottom, transparent 0%, black 15%, black 85%, transparent 100%); --lyrics-font-family: {preview_font_css}; font-family: var(--lyrics-font-family);",
 
                                 for (idx, line_item) in track.lines.iter().enumerate() {
                                     {
@@ -875,7 +886,7 @@ pub fn LyricsPreviewStandaloneWindow() -> Element {
 
                             // Sidebar Scrolling Lines
                             div {
-                                style: "flex: 1; overflow-y: auto; padding: 30px 20px; display: flex; flex-direction: column; gap: 18px;",
+                                style: "flex: 1; overflow-y: auto; padding: 30px 20px; display: flex; flex-direction: column; gap: 18px; --lyrics-font-family: {preview_font_css}; font-family: var(--lyrics-font-family);",
 
                                 for (idx, line_item) in track.lines.iter().enumerate() {
                                     {
@@ -888,12 +899,12 @@ pub fn LyricsPreviewStandaloneWindow() -> Element {
 
                                         let line_style = if is_active {
                                             if curr_cfg.sidebar_text_glow {
-                                                "font-size: 16px; font-weight: 700; color: #ffffff; text-shadow: 0 0 16px rgba(255,255,255,0.7); opacity: 1; cursor: pointer; transition: all 0.25s ease;"
+                                                "font-family: var(--lyrics-font-family); font-size: 16px; font-weight: 700; color: #ffffff; text-shadow: 0 0 16px rgba(255,255,255,0.7); opacity: 1; cursor: pointer; transition: all 0.25s ease;"
                                             } else {
-                                                "font-size: 16px; font-weight: 700; color: #ffffff; opacity: 1; cursor: pointer; transition: all 0.25s ease;"
+                                                "font-family: var(--lyrics-font-family); font-size: 16px; font-weight: 700; color: #ffffff; opacity: 1; cursor: pointer; transition: all 0.25s ease;"
                                             }
                                         } else {
-                                            "font-size: 13.5px; font-weight: 500; color: rgba(255,255,255,0.40); cursor: pointer; transition: all 0.25s ease;"
+                                            "font-family: var(--lyrics-font-family); font-size: 13.5px; font-weight: 500; color: rgba(255,255,255,0.40); cursor: pointer; transition: all 0.25s ease;"
                                         };
 
                                         let is_word_mode = *sync_format.read() == "word";

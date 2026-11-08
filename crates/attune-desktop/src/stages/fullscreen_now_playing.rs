@@ -35,6 +35,7 @@ pub fn FullscreenNowPlaying(
     on_artwork_updated: EventHandler<(Option<std::path::PathBuf>, std::path::PathBuf, String)>,
 ) -> Element {
     let strings = crate::i18n::current_strings();
+    let lyric_font_css = crate::system_fonts::resolve_font_family_css(&config.lyric_font_family);
     let show_artwork_modal = use_signal(|| false);
 
     // Default to locked follow mode (Flutter equivalent: _isLockedToActive = true)
@@ -376,7 +377,7 @@ pub fn FullscreenNowPlaying(
                     div {
                         class: "fullscreen-lyrics-scroll",
                         "data-locked": if *is_locked_to_active.read() { "true" } else { "false" },
-                        style: "overflow-y: auto; max-height: 85vh; padding: 38vh 32px; display: flex; flex-direction: column; gap: 28px; scroll-behavior: auto; mask-image: linear-gradient(to bottom, transparent 0%, black 15%, black 85%, transparent 100%); -webkit-mask-image: linear-gradient(to bottom, transparent 0%, black 15%, black 85%, transparent 100%);",
+                        style: "overflow-y: auto; max-height: 85vh; padding: 38vh 32px; display: flex; flex-direction: column; gap: 28px; scroll-behavior: auto; mask-image: linear-gradient(to bottom, transparent 0%, black 15%, black 85%, transparent 100%); -webkit-mask-image: linear-gradient(to bottom, transparent 0%, black 15%, black 85%, transparent 100%); --lyrics-font-family: {lyric_font_css}; font-family: var(--lyrics-font-family);",
                         onwheel: move |_| {
                             if *is_locked_to_active.read() {
                                 is_locked_to_active.set(false);

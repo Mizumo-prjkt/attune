@@ -170,7 +170,11 @@ pub fn open_settings_window() {
             .with_window(window)
             .with_menu(None)
             .with_custom_head(format!(
-                "<link rel=\"stylesheet\" href=\"https://fonts.googleapis.com/icon?family=Material+Icons\">\n<style>\n{icons_css}\n{css}\n</style>\n{}",
+                "<link rel=\"preconnect\" href=\"https://fonts.googleapis.com\">\n\
+                <link rel=\"preconnect\" href=\"https://fonts.gstatic.com\" crossorigin>\n\
+                <link rel=\"stylesheet\" href=\"https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Roboto:wght@400;500;700&family=Sora:wght@400;600;700;800&display=swap\">\n\
+                <link rel=\"stylesheet\" href=\"https://fonts.googleapis.com/icon?family=Material+Icons\">\n\
+                <style>\n{icons_css}\n{css}\n</style>\n{}",
                 crate::theme::MARQUEE_SCRIPT
             ));
 
@@ -968,22 +972,76 @@ pub fn SettingsContent(
 
                         // Card: Typography & Font Family
                         div { class: "settings-card",
-                            h3 { class: "settings-card-title", "Lyrics Font Family" }
-                            p { class: "settings-card-desc", "Custom font face used for singing line rendering." }
-                            div { style: "display: flex; gap: 10px; margin-top: 10px; flex-wrap: wrap;",
-                                for font in &["System Default", "Plus Jakarta Sans", "Sora", "Inter", "Roboto"] {
-                                    {
-                                        let f_str = font.to_string();
-                                        let is_sel = curr_cfg.lyric_font_family == f_str;
-                                        rsx! {
-                                            button {
-                                                class: if is_sel { "btn-pill active" } else { "btn-pill" },
-                                                onclick: move |_| {
-                                                    let f_clone = f_str.clone();
-                                                    update_cfg(Box::new(move |c| c.lyric_font_family = f_clone.clone()));
-                                                },
-                                                "{font}"
+                            h3 { class: "settings-card-title", "{strings.lyrics_font_family}" }
+                            p { class: "settings-card-desc", "{strings.lyrics_font_family_desc}" }
+
+                            {
+                                let current_font_val = if curr_cfg.lyric_font_family.is_empty() || curr_cfg.lyric_font_family == "System Default" {
+                                    "system"
+                                } else {
+                                    curr_cfg.lyric_font_family.as_str()
+                                };
+                                let system_fonts = crate::system_fonts::get_available_system_fonts();
+                                let preview_font_css = crate::system_fonts::resolve_font_family_css(&curr_cfg.lyric_font_family);
+
+                                rsx! {
+                                    select {
+                                        class: "form-select",
+                                        style: "max-width: 480px; margin-top: 14px;",
+                                        value: "{current_font_val}",
+                                        onchange: move |e| {
+                                            let val = e.value();
+                                            update_cfg(Box::new(move |c| c.lyric_font_family = val.clone()));
+                                        },
+                                        oninput: move |e| {
+                                            let val = e.value();
+                                            update_cfg(Box::new(move |c| c.lyric_font_family = val.clone()));
+                                        },
+                                        optgroup {
+                                            label: "{strings.font_group_default}",
+                                            for opt in crate::system_fonts::ATTUNE_DEFAULT_FONTS {
+                                                option {
+                                                    key: "{opt.id}",
+                                                    value: "{opt.id}",
+                                                    selected: current_font_val == opt.id,
+                                                    "{opt.label}"
+                                                }
                                             }
+                                        }
+                                        optgroup {
+                                            label: "{strings.font_group_system} ({system_fonts.len()})",
+                                            for sys_font in system_fonts.iter() {
+                                                option {
+                                                    key: "{sys_font}",
+                                                    value: "{sys_font}",
+                                                    selected: current_font_val == sys_font.as_str(),
+                                                    "{sys_font}"
+                                                }
+                                            }
+                                        }
+                                    }
+
+                                    // Live Typography Preview Card
+                                    div {
+                                        style: "margin-top: 14px; padding: 14px 18px; border-radius: 12px; background: rgba(0,0,0,0.30); border: 1px solid var(--border-glass);",
+                                        div {
+                                            style: "display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;",
+                                            span {
+                                                style: "font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-muted); font-weight: 700;",
+                                                "{strings.font_preview_sample}"
+                                            }
+                                            span {
+                                                style: "font-size: 11px; color: var(--accent-mint); font-family: monospace; background: rgba(45,212,191,0.08); padding: 2px 8px; border-radius: 4px;",
+                                                "{preview_font_css}"
+                                            }
+                                        }
+                                        div {
+                                            style: "font-family: {preview_font_css}; font-size: 22px; font-weight: 700; color: #FFFDD0; line-height: 1.35; margin-bottom: 4px; transition: font-family 0.2s ease;",
+                                            "いいから はやく ハンコ押せや"
+                                        }
+                                        div {
+                                            style: "font-family: {preview_font_css}; font-size: 14.5px; color: rgba(255,255,255,0.72); line-height: 1.4; transition: font-family 0.2s ease;",
+                                            "The quick brown fox jumps over the lazy dog • 120.0 BPM • C Major"
                                         }
                                     }
                                 }

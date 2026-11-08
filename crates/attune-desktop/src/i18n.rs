@@ -225,6 +225,11 @@ pub struct Strings {
     pub preview_format_word_sync: &'static str,
     pub preview_word_engine_active: &'static str,
     pub preview_syllable_progress: &'static str,
+    pub lyrics_font_family: &'static str,
+    pub lyrics_font_family_desc: &'static str,
+    pub font_group_default: &'static str,
+    pub font_group_system: &'static str,
+    pub font_preview_sample: &'static str,
 
     // Artist Profile Finder & Matcher Stage
     pub select_artist_to_find_profile: &'static str,
@@ -427,6 +432,11 @@ pub fn get_strings(lang: Language) -> Strings {
             preview_format_word_sync: "Word Sync (TTML/ELRC)",
             preview_word_engine_active: "TTML / ELRC Word Engine Active",
             preview_syllable_progress: "Word Progress",
+            lyrics_font_family: "Lyrics Font Family",
+            lyrics_font_family_desc: "Select a typography font face for rendering singing lines across sidebar and fullscreen views.",
+            font_group_default: "Default & Attune Fonts",
+            font_group_system: "System Installed Fonts",
+            font_preview_sample: "Live Typography Preview",
 
             // Artist Profile Finder & Matcher Stage
             select_artist_to_find_profile: "Select an artist to find their profile",
@@ -626,6 +636,11 @@ pub fn get_strings(lang: Language) -> Strings {
             preview_format_word_sync: "Sabay sa Salita (TTML/ELRC)",
             preview_word_engine_active: "Aktibo ang TTML / ELRC Word Engine",
             preview_syllable_progress: "Pagsulong ng Salita",
+            lyrics_font_family: "Pamilya ng Font ng Titik",
+            lyrics_font_family_desc: "Pumili ng font para sa pagpapakita ng mga linya ng kanta sa sidebar at fullscreen na mga view.",
+            font_group_default: "Mga Default at Font ng Attune",
+            font_group_system: "Mga Naka-install na Font ng Sistema",
+            font_preview_sample: "Live na Preview ng Typograpiya",
 
             // Artist Profile Finder & Matcher Stage
             select_artist_to_find_profile: "Pumili ng artista upang hanapin ang kanilang profile",
@@ -828,6 +843,11 @@ pub fn export_language_template_json() -> String {
     map.insert("preview_format_word_sync", s.preview_format_word_sync);
     map.insert("preview_word_engine_active", s.preview_word_engine_active);
     map.insert("preview_syllable_progress", s.preview_syllable_progress);
+    map.insert("lyrics_font_family", s.lyrics_font_family);
+    map.insert("lyrics_font_family_desc", s.lyrics_font_family_desc);
+    map.insert("font_group_default", s.font_group_default);
+    map.insert("font_group_system", s.font_group_system);
+    map.insert("font_preview_sample", s.font_preview_sample);
 
     map.insert("select_artist_to_find_profile", s.select_artist_to_find_profile);
     map.insert("select_artist_to_find_profile_desc", s.select_artist_to_find_profile_desc);

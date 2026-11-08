@@ -2,7 +2,7 @@
 
 - **Project Name**: Attune
 - **Current Phase**: `Phase 6 IN PROGRESS -> Multi-Platform Packaging, Installer Scripting & Distribution Orchestration`
-- **Active Coding Status**: Completed ADR-127: Comprehensive Lyrics Engine & CSS Manual (`docs/LYRICS_MANUAL.md`) and TTML / ELRC Syllable-by-Syllable Synchronization Simulator. Created detailed markdown manual documenting all supported formats (.lrc, .elrc, .yrc, .ttml, .xml), companion resolution order, settings, class selectors, keyframes, and built-in animation presets. Implemented real-time TTML/ELRC syllable simulation in `lyrics_preview.rs` with 40ms high-res timer, interactive syllable clicks, word state classes (.word-upcoming, .word-active, .word-sung), word progress telemetry bar, and full i18n support. All 99 desktop unit tests pass cleanly.
+- **Active Coding Status**: Completed ADR-128: Grouped Lyrics Font Family Dropdown, Cross-Platform System Fonts Discovery & Deduplication Guard. Replaced static font pills with an optgroup-divided dropdown separating Default & Attune Fonts (System Default, Plus Jakarta Sans, Sora, Inter, Roboto) from discovered System Installed Fonts. Added deduplication filter ensuring Attune's fonts are excluded from the system group even when installed on host OS. Added live typography preview card, bound CSS variable `--lyrics-font-family` across sidebar, fullscreen, and preview viewports, linked Google Fonts in window headers, and localized all strings in English and Filipino. All 102 desktop unit tests pass cleanly.
 
 
 ---

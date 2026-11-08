@@ -1862,8 +1862,11 @@ pub fn App() -> Element {
             if *dock_mode.read() != DockMode::Closed {
                 div { class: "right-dock",
                     match *dock_mode.read() {
-                        DockMode::Lyrics => rsx! {
-                            div { class: "dock-header",
+                        DockMode::Lyrics => {
+                            let lyric_font = app_config.read().lyric_font_family.clone();
+                            let lyric_font_css = crate::system_fonts::resolve_font_family_css(&lyric_font);
+                            rsx! {
+                                div { class: "dock-header",
                                 span { style: "font-weight: 700; font-size: 15px;", "{strings.synchronized_lyrics}" }
                                 div { style: "display: flex; gap: 8px; align-items: center;",
                                     button {
@@ -1939,7 +1942,9 @@ pub fn App() -> Element {
                                         }
                                     }
                                 } else {
-                                    div { class: "lyrics-container",
+                                    div {
+                                        class: "lyrics-container",
+                                        style: "--lyrics-font-family: {lyric_font_css}; font-family: var(--lyrics-font-family);",
                                         for (idx, line) in lyrics_sheet.read().lines.iter().enumerate() {
                                             {
                                                 let is_active = *active_lyric_index.read() == Some(idx);
@@ -1992,7 +1997,7 @@ pub fn App() -> Element {
                                     span { "Sync to Line" }
                                 }
                             }
-                        },
+                        }},
                         DockMode::Queue => rsx! {
                             div { class: "dock-header",
                                 span { style: "font-weight: 700; font-size: 15px;", "{strings.playback_queue}" }

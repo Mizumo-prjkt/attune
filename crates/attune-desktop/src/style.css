@@ -17,6 +17,7 @@
   --text-muted: rgba(255, 255, 255, 0.42);
   --lyrics-active: #fffdd0;
   --lyrics-glow: rgba(255, 253, 208, 0.35);
+  --lyrics-font-family: inherit;
   --font-family: system-ui, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", "Noto Sans CJK JP", "Noto Sans JP", sans-serif;
 }
 
@@ -288,9 +289,11 @@ body, html {
   flex-direction: column;
   gap: 16px;
   padding: 40px 0;
+  font-family: var(--lyrics-font-family, inherit);
 }
 
 .lyric-line {
+  font-family: var(--lyrics-font-family, inherit);
   font-size: 16px;
   line-height: 1.45;
   color: var(--text-muted);
@@ -2005,6 +2008,15 @@ body, html {
   cursor: pointer;
 }
 
+.form-select optgroup {
+  background-color: #0d121c !important;
+  color: var(--accent-mint) !important;
+  font-weight: 700 !important;
+  font-size: 11px !important;
+  letter-spacing: 0.05em;
+  padding: 6px 10px !important;
+}
+
 .form-select option {
   background-color: #121722 !important;
   color: #ffffff !important;
@@ -2809,6 +2821,7 @@ body, html {
 
 /* Fullscreen Synchronized Lyrics Line Typography & GPU Composited Animation */
 .fullscreen-lyrics-scroll {
+  font-family: var(--lyrics-font-family, inherit);
   scroll-behavior: auto !important; /* Programmatic requestAnimationFrame easing handles smooth scrolling */
 }
 
@@ -2828,6 +2841,7 @@ body, html {
 
 /* Better Lyrics fluid GPU composited typography: zero layout reflow */
 .fullscreen-lyric-line {
+  font-family: var(--lyrics-font-family, inherit);
   font-size: 28px;
   line-height: 1.45;
   font-weight: 700;

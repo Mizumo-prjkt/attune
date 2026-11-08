@@ -4494,6 +4494,54 @@ This file records all major architectural decisions for **Attune**, including co
   - Developers and users have an authoritative markdown manual to reference when styling and building custom themes.
   - Creators can visually audition and debug syllable-level word animations (karaoke sweeps, spring pops) in real time with high-precision simulation.
 
+---
+
+## ADR-128: Grouped Lyrics Font Family Dropdown, Cross-Platform System Fonts Discovery & Deduplication Guard
+- **Date**: 2026-11-08
+- **Status**: `LOCKED`
+- **Context**:
+  1. The user reported:
+     *"the font family was not changing for some reason, at least make this a dropdown but group our fonts as default and the rest is system, watch out for some fonts of ours that may also be present on users' system"*
+  2. Root cause analysis revealed why font family was not changing:
+     - `lyric_font_family` in `AppConfig` was saved to `config.json`, but was never applied anywhere in the CSS or DOM: `.lyrics-container`, `.lyric-line`, `.fullscreen-lyrics-scroll`, and `.fullscreen-lyric-line` had no font-family rules or CSS variable references.
+     - Web fonts (`Plus Jakarta Sans`, `Sora`, `Inter`, `Roboto`) were not linked in the HTML `<head>` for WebKitGTK / WebView2, so machines without them preinstalled could not resolve them.
+     - The Settings UI used static pill buttons with mismatched identifiers (`"System Default"` vs stored `"system"`).
+  3. The user requested:
+     - Convert the font family selector into a `<select>` dropdown.
+     - Group Attune's fonts under a "Default" group, and installed host fonts under a "System" group.
+     - Guard against duplicates: if any of Attune's default fonts are also installed on the host OS (e.g. `Plus Jakarta Sans`), exclude them from the "System" group so they do not appear twice.
+- **Decision**:
+  1. **Cross-Platform System Fonts Discovery & Deduplication (`crates/attune-desktop/src/system_fonts.rs`)**:
+     - Built `system_fonts.rs` with `get_available_system_fonts()` cached via `std::sync::OnceLock`.
+     - On Linux: Enumerates installed fonts via `fontconfig` (`fc-list : family`), extracting primary family tokens and sorting deduplicated names in a `BTreeSet`.
+     - On Windows: Queries registry `HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Fonts` and falls back to a comprehensive list of standard Windows typefaces.
+     - Implemented `is_our_font(name: &str) -> bool`:
+       - Detects Attune's signature and bundled fonts: `system`, `Plus Jakarta Sans` (and weights), `Sora` (while preserving `Noto Sans Sora Sompeng`), `Inter`, and `Roboto`.
+       - Strictly excludes any matches from the "System" group.
+     - Implemented `resolve_font_family_css(name: &str) -> String`:
+       - Translates font identifiers into valid CSS font-family strings with sanitized quotes and robust fallbacks (`system-ui, -apple-system, BlinkMacSystemFont, ...`).
+  2. **Grouped Dropdown & Live Typography Preview in Settings (`crates/attune-desktop/src/stages/settings.rs`)**:
+     - Replaced the button pill row with a styled `<select class="form-select">`:
+       - `<optgroup label="Default & Attune Fonts">`: Contains `System Default (Adaptive)`, `Plus Jakarta Sans`, `Sora`, `Inter`, and `Roboto`.
+       - `<optgroup label="System Installed Fonts ({count})">`: Lists all discovered host fonts, guaranteed deduplicated.
+     - Added an interactive Live Typography Preview card immediately beneath the dropdown showing sample English/Japanese text and real-time font-family badge metrics.
+  3. **Universal Font Family Application Across All Viewports**:
+     - Bound `--lyrics-font-family: {lyric_font_css}; font-family: var(--lyrics-font-family);` to:
+       - `.lyrics-container` and `.lyric-line` in the docked right sidebar (`crates/attune-desktop/src/app.rs`).
+       - `.fullscreen-lyrics-scroll` and `.fullscreen-lyric-line` in the fullscreen player stage (`crates/attune-desktop/src/stages/fullscreen_now_playing.rs`).
+       - Both Fullscreen and Docked Sidebar modes in the Lyrics Live Preview Window (`crates/attune-desktop/src/stages/lyrics_preview.rs`).
+     - Added `--lyrics-font-family: inherit;` to `:root` and font-family inheritance to lyrics classes in `crates/attune-desktop/src/style.css`.
+     - Injected Google Fonts `<link>` for `Inter`, `Plus Jakarta Sans`, `Roboto`, and `Sora` into `<head>` across all windows (`main.rs`, `stages/settings.rs`, `stages/lyrics_preview.rs`).
+  4. **Mandate 4 (Zero Hardcoding) & Localization (`crates/attune-desktop/src/i18n.rs`)**:
+     - Added 5 localized string keys (`lyrics_font_family`, `lyrics_font_family_desc`, `font_group_default`, `font_group_system`, `font_preview_sample`) in English and Filipino, updated `export_language_template_json()`.
+  5. **Unit Testing & Verification**:
+     - Added unit tests `test_is_our_font_exclusions`, `test_resolve_font_family_css`, and `test_system_fonts_do_not_contain_our_fonts` in `crates/attune-desktop/src/system_fonts.rs`.
+     - Verified that all 102 desktop unit tests pass with zero failures.
+- **Consequences**:
+  - Selecting any font in Settings or the preview window immediately changes lyrics typography across both sidebar and fullscreen views.
+  - Users can browse hundreds of installed host fonts cleanly separated from default fonts without visual duplication.
+
+
 
 
 
