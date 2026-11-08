@@ -4621,6 +4621,39 @@ This file records all major architectural decisions for **Attune**, including co
   - Diagnostics card reflects 100% genuine hardware telemetry in strict compliance with Mandate 4.
   - Zero playback interruption or app freeze when toggling 32-bit mode.
 
+---
+
+## ADR-131: Purge of Alt-Prefix Shortcut Feature & Direct Hardware Accelerators with Automatic Input Guarding
+
+- **Date**: 2026-11-09
+- **Status**: `LOCKED`
+- **Context**:
+  1. The user requested:
+     *"can you remove alt prefix feature?"*
+  2. Investigation:
+     - The "Require Alt Prefix for Hotkeys" setting originally existed to prevent accidental triggers (e.g. Space pausing music while typing).
+     - However, requiring users to hold Alt before pressing basic playback hotkeys (Space for Play/Pause, Arrow Left/Right for Seek) added unnecessary friction and conflicted with standard desktop player accelerator expectations.
+     - Furthermore, accidental hotkey triggering when typing in inputs can be solved much more cleanly at the WebKit event level by stopping hotkey propagation on focused text inputs (`INPUT`, `TEXTAREA`, or `contenteditable`).
+- **Decision**:
+  1. **Purged `alt_shortcut_prefix` from Configuration (`crates/attune-desktop/src/config.rs`)**:
+     - Removed `alt_shortcut_prefix` field from `AppConfig` and its default initialization in `AppConfig::default()`.
+     - Serde gracefully handles old config files on disk via default fallback without schema breakage.
+  2. **Direct Hotkey Execution in App Container (`crates/attune-desktop/src/app.rs`)**:
+     - Removed `if cfg.alt_shortcut_prefix && !e.modifiers().alt()` check from `onkeydown`.
+     - When `cfg.enable_shortcuts` is true, player hotkeys execute directly with no modifier required.
+  3. **Streamlined Settings UI (`crates/attune-desktop/src/stages/settings.rs`)**:
+     - Removed the "Require Alt Prefix for Hotkeys" switch row and subtitle from `SettingsTab::General`.
+     - Removed trailing row border from the single remaining "Enable Player Shortcuts" row.
+     - Updated card description to "Manage global player hotkeys and desktop accelerators."
+  4. **Automatic Input Guarding (`crates/attune-desktop/src/theme.rs`)**:
+     - Added an event listener in `LYRICS_SYNC_SCRIPT` running in the WebKit capture phase: whenever `target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable`, keydown events for `Space`, `Spacebar`, `ArrowLeft`, and `ArrowRight` stop propagation.
+     - This guarantees that typing spaces or navigating the text cursor inside search bars, display name inputs, or custom CSS editors never toggles playback or seeks the audio stream.
+- **Consequences**:
+  - Desktop keyboard accelerators work directly and naturally without needing an Alt prefix.
+  - Zero accidental triggers when typing in text fields or search bars.
+  - All 102 desktop unit tests and 100% of workspace tests pass cleanly.
+
+
 
 
 

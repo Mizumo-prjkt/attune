@@ -134,8 +134,6 @@ pub struct AppConfig {
     // General
     #[serde(default)]
     pub home_subtext: Option<String>,
-    #[serde(default)]
-    pub alt_shortcut_prefix: bool,
     #[serde(default = "default_true")]
     pub enable_shortcuts: bool,
     #[serde(default = "default_true")]
@@ -224,7 +222,6 @@ impl Default for AppConfig {
             extra_music_dirs: Vec::new(),
             song_exclusions: Vec::new(),
             home_subtext: None,
-            alt_shortcut_prefix: false,
             enable_shortcuts: true,
             system_media_toast: true,
             auto_scroll_long_text: true,

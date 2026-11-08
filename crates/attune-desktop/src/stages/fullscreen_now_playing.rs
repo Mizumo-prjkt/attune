@@ -580,6 +580,7 @@ pub mod tests {
         assert!(script.contains("data-line-idx"));
         assert!(script.contains("MutationObserver"));
         assert!(script.contains("Escape"));
+        assert!(script.contains("INPUT"));
         assert!(script.contains("smoothScrollTo"));
         assert!(script.contains("requestAnimationFrame"));
     }

@@ -593,9 +593,9 @@ pub fn SettingsContent(
                         // Card: Keyboard Shortcuts Configuration
                         div { class: "settings-card",
                             h3 { class: "settings-card-title", "Keyboard Shortcuts" }
-                            p { class: "settings-card-desc", "Manage global player hotkeys and accident prevention rules." }
+                            p { class: "settings-card-desc", "Manage global player hotkeys and desktop accelerators." }
 
-                            div { style: "display: flex; justify-content: space-between; align-items: center; margin-top: 12px; padding: 8px 0; border-bottom: 1px solid rgba(255,255,255,0.05);",
+                            div { style: "display: flex; justify-content: space-between; align-items: center; margin-top: 12px; padding: 8px 0;",
                                 div {
                                     div { style: "font-weight: 500; font-size: 13.5px;", "Enable Player Shortcuts" }
                                     div { style: "font-size: 12px; color: var(--text-muted);", "Space for Play/Pause, Left/Right for Seek, J/K for Next/Previous." }
@@ -603,17 +603,6 @@ pub fn SettingsContent(
                                 SwitchToggle {
                                     active: curr_cfg.enable_shortcuts,
                                     on_toggle: move |_| update_cfg(Box::new(|c| c.enable_shortcuts = !c.enable_shortcuts)),
-                                }
-                            }
-
-                            div { style: "display: flex; justify-content: space-between; align-items: center; margin-top: 8px; padding: 8px 0;",
-                                div {
-                                    div { style: "font-weight: 500; font-size: 13.5px;", "Require Alt Prefix for Hotkeys" }
-                                    div { style: "font-size: 12px; color: var(--text-muted);", "Hold Alt before pressing keys to prevent accidental triggers while typing." }
-                                }
-                                SwitchToggle {
-                                    active: curr_cfg.alt_shortcut_prefix,
-                                    on_toggle: move |_| update_cfg(Box::new(|c| c.alt_shortcut_prefix = !c.alt_shortcut_prefix)),
                                 }
                             }
                         }

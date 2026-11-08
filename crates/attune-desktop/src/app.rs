@@ -1219,9 +1219,6 @@ pub fn App() -> Element {
                 if !cfg.enable_shortcuts {
                     return;
                 }
-                if cfg.alt_shortcut_prefix && !e.modifiers().alt() {
-                    return;
-                }
                 match e.key() {
                     Key::Character(ref c) if c == " " => {
                         let p = player.read();

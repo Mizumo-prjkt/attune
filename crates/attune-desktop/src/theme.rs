@@ -270,6 +270,16 @@ pub const LYRICS_SYNC_SCRIPT: &str = r#"
     }
   }, true);
 
+  // Guard input/textarea elements from bubbling player hotkeys (Space / Arrows) to global containers
+  window.addEventListener('keydown', function(e) {
+    var target = e.target;
+    if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) {
+      if (e.key === ' ' || e.key === 'Spacebar' || e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+        e.stopPropagation();
+      }
+    }
+  }, true);
+
   if (document.readyState === 'loading') {
     window.addEventListener('DOMContentLoaded', initLyricsObserver);
   } else {
