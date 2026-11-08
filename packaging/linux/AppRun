@@ -10,16 +10,44 @@ APPDIR=$(dirname "$SELF")
 export APPDIR
 export PATH="${APPDIR}/usr/bin:${PATH}"
 # Ensure dynamic linker resolves libraries relative to AppDir /lib and /usr/lib
-export LD_LIBRARY_PATH="${APPDIR}/usr/lib:${APPDIR}/lib:${APPDIR}/usr/bin/lib:${LD_LIBRARY_PATH}"
+export LD_LIBRARY_PATH="${APPDIR}/usr/lib:${APPDIR}/lib:${APPDIR}/usr/bin/lib:${LD_LIBRARY_PATH:-}"
+export ATTUNE_LIB_DIR="${APPDIR}/usr/lib"
 
 # Forward working directory if unlinked
 if [ ! -d "$(pwd 2>/dev/null)" ]; then
     cd "${HOME:-/tmp}" 2>/dev/null || true
 fi
 
-# Prefer Native Rust Desktop executable (attune-desktop), fallback to legacy attune_app
-if [ -x "${APPDIR}/usr/bin/attune-desktop" ]; then
-    exec "${APPDIR}/usr/bin/attune-desktop" "$@"
-else
-    exec "${APPDIR}/usr/bin/attune_app" "$@"
+TARGET_BIN="${APPDIR}/usr/bin/attune-desktop"
+if [ ! -x "$TARGET_BIN" ]; then
+    TARGET_BIN="${APPDIR}/usr/bin/attune_app"
 fi
+
+# Dynamic SONAME fallback resolver: if any needed library (e.g. libxdo.so.3 vs libxdo.so.4)
+# is missing by exact version name on a different distro, bridge it automatically in a private runtime dir.
+if command -v ldd >/dev/null 2>&1 && [ -x "$TARGET_BIN" ]; then
+    MISSING_LIBS=$(ldd "$TARGET_BIN" 2>/dev/null | awk '/not found/ {print $1}' || true)
+    if [ -n "$MISSING_LIBS" ]; then
+        RUNTIME_LIB_DIR="${TMPDIR:-/tmp}/attune-runtime-libs-$$"
+        mkdir -p "$RUNTIME_LIB_DIR"
+        trap 'rm -rf "$RUNTIME_LIB_DIR"' EXIT INT TERM
+        for MISSING in $MISSING_LIBS; do
+            BASE_STEM=$(echo "$MISSING" | sed 's/\.so\..*/.so/')
+            FOUND_ALT=""
+            for SEARCH_DIR in "${APPDIR}/usr/lib" "${APPDIR}/lib" /usr/lib /usr/lib64 /usr/lib/x86_64-linux-gnu /lib /lib64 /lib/x86_64-linux-gnu; do
+                for CAND in "${SEARCH_DIR}/${BASE_STEM}"*; do
+                    if [ -f "$CAND" ]; then
+                        FOUND_ALT="$CAND"
+                        break 2
+                    fi
+                done
+            done
+            if [ -n "$FOUND_ALT" ]; then
+                ln -sf "$FOUND_ALT" "${RUNTIME_LIB_DIR}/${MISSING}"
+            fi
+        done
+        export LD_LIBRARY_PATH="${RUNTIME_LIB_DIR}:${LD_LIBRARY_PATH}"
+    fi
+fi
+
+exec "$TARGET_BIN" "$@"

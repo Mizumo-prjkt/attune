@@ -5021,6 +5021,29 @@ This file records all major architectural decisions for **Attune**, including co
   - `cargo build --target x86_64-pc-windows-gnu -p attune-procmgr -p attune-watchguard -p attune-music-metadata` compiles and links cleanly with 0 warnings and 0 errors.
   - CI test and DLL-signing phases execute deterministically after compilation.
 
+---
+
+## ADR-143: Cross-Distro Linux ELF SONAME Decoupling (`linux_xdo_shim` Runtime `dlopen` Resolver, `-Wl,--as-needed`, `$ORIGIN` `DT_RUNPATH`, AppImage/Tarball `libxdo.so.{3,4}` Bundling & `AppRun` Dynamic SONAME Bridge)
+
+- **Date**: 2026-11-09
+- **Status**: LOCKED
+- **Context**:
+  - Running the CI-built AppImage (`Attune-0.1.1-rc2-x86_64-release.appimage`, compiled on Ubuntu 24.04) on Arch Linux failed at launch with:
+    `/tmp/.mount_Attune.../usr/bin/attune-desktop: error while loading shared libraries: libxdo.so.3: cannot open shared object file: No such file or directory`.
+  - Root cause: `muda v0.15.3` (transitively depended on by `dioxus-desktop`) links against `libxdo` (`xdo_new`, `xdo_free`, `xdo_send_keysequence_window`). Ubuntu/Debian package `libxdo` with SONAME `libxdo.so.3`, whereas Arch Linux and newer rolling distributions package `libxdo.so.4`, and many Linux desktop installations do not have `xdotool`/`libxdo` installed at all.
+- **Decision**:
+  1. **Zero-`DT_NEEDED` Runtime `dlopen` Shim (`linux_xdo_shim` in `crates/attune-desktop/src/main.rs` + `build.rs`)**:
+     - Added `mod linux_xdo_shim` on Linux providing the 3 C-ABI symbols (`xdo_new`, `xdo_free`, `xdo_send_keysequence_window`), dynamically resolving `libxdo.so.4`, `libxdo.so.3`, `libxdo.so`, or `libxdo.so.2` via `libc::dlopen` on demand (and returning safe no-ops if absent).
+     - Added `cargo:rustc-link-arg=-Wl,--as-needed` and `cargo:rustc-link-arg=-Wl,-rpath,$ORIGIN:$ORIGIN/lib:$ORIGIN/../lib:$ORIGIN/../usr/lib` in `crates/attune-desktop/build.rs`.
+     - Verified via `readelf -d target/debug/attune-desktop` that `libxdo.so.*` is completely eliminated from `DT_NEEDED` and `RUNPATH` is embedded in the ELF header.
+  2. **AppImage & Tarball Compatibility Bundling (`packaging/linux/build_appimage.sh` & `tools/builder.py`)**:
+     - Bundled `libxdo` (under all three aliases: `libxdo.so`, `libxdo.so.3`, `libxdo.so.4`), `libXtst.so.6`, and `libXinerama.so.1` into `$APPDIR/usr/lib/`, `$APPDIR/lib/`, `$APPDIR/usr/bin/lib/`, and the portable Linux tarball `lib/` directory.
+  3. **Dynamic SONAME Fallback Bridge in `packaging/linux/AppRun`**:
+     - Updated `AppRun` to inspect `ldd "$TARGET_BIN"` for any `"not found"` SONAMEs at launch and automatically symlink matching host library stems in a private temporary runtime directory (`/tmp/attune-runtime-libs-$$`) cleaned up on exit.
+- **Consequences**:
+  - `attune-desktop` ELF binaries compiled on Ubuntu/Debian run out-of-the-box on Arch, Fedora, openSUSE, and systems without `xdotool`/`libxdo` installed.
+  - All 119 desktop unit tests pass cleanly.
+
 
 
 

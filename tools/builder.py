@@ -1176,6 +1176,17 @@ def package_bundle(target_os="linux", mode="release", localversion="", bundle_ty
                     shutil.copy2(m_src, stage_tar_dir / meta_file)
                     shutil.copy2(m_src, stage_lib_dir / meta_file)
 
+            # Bundle libxdo.{so,so.3,so.4} compatibility aliases into the portable tarball lib/
+            for search_dir in (Path("/usr/lib/x86_64-linux-gnu"), Path("/usr/lib64"), Path("/usr/lib")):
+                if search_dir.exists():
+                    xdo_matches = list(search_dir.glob("libxdo.so*"))
+                    if xdo_matches:
+                        xdo_real = xdo_matches[0].resolve()
+                        if xdo_real.is_file():
+                            for alias in ("libxdo.so", "libxdo.so.3", "libxdo.so.4"):
+                                shutil.copy2(xdo_real, stage_lib_dir / alias)
+                            break
+
             log(f"[Package] Creating portable tarball {tar_path}...")
             subprocess.check_call(
                 ["tar", "-czf", str(tar_path), "-C", str(stage_tar_dir.parent), "Attune"],

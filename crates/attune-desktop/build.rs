@@ -12,6 +12,14 @@ use std::process::Command;
 fn main() {
     println!("cargo:rerun-if-env-changed=ATTUNE_VERSION");
 
+    // On Linux, emit --as-needed and relative $ORIGIN RUNPATH so the binary resolves bundled
+    // shared libraries in ./lib and ../usr/lib and never hard-depends on distro-specific
+    // SONAMEs like libxdo.so.3 vs libxdo.so.4.
+    if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("linux") {
+        println!("cargo:rustc-link-arg=-Wl,--as-needed");
+        println!("cargo:rustc-link-arg=-Wl,-rpath,$ORIGIN:$ORIGIN/lib:$ORIGIN/../lib:$ORIGIN/../usr/lib");
+    }
+
     if let Ok(v) = std::env::var("ATTUNE_VERSION") {
         let trimmed = v.trim();
         if !trimmed.is_empty() {

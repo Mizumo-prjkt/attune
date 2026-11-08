@@ -104,6 +104,48 @@ if [ -f "target/${MODE}/attune_integrity.json" ]; then
     echo "   + Bundled attune_integrity.json anti-tamper manifest"
 fi
 
+# 2b. Bundle cross-distro non-base shared libraries (libxdo, libXtst, libXinerama)
+# and create SONAME aliases (libxdo.so.3 & libxdo.so.4) so binaries built on Ubuntu/Debian
+# run on Arch/Fedora and vice-versa even when xdotool is not installed on the target host.
+echo "-> Bundling cross-distro compatibility shared libraries (libxdo, libXtst, libXinerama)..."
+if [ -f "$NATIVE_BIN" ]; then
+    XDO_PATH=$(ldd "$NATIVE_BIN" 2>/dev/null | awk '/libxdo\.so/ {print $3}' | head -n 1 || true)
+    if [ -z "$XDO_PATH" ] || [ ! -f "$XDO_PATH" ]; then
+        for CAND in /usr/lib/x86_64-linux-gnu/libxdo.so* /usr/lib64/libxdo.so* /usr/lib/libxdo.so*; do
+            if [ -f "$CAND" ]; then
+                XDO_PATH="$CAND"
+                break
+            fi
+        done
+    fi
+    if [ -n "$XDO_PATH" ] && [ -f "$XDO_PATH" ]; then
+        for ALIAS in libxdo.so libxdo.so.3 libxdo.so.4; do
+            cp -L "$XDO_PATH" "$APPDIR/usr/lib/${ALIAS}"
+            cp -L "$XDO_PATH" "$APPDIR/lib/${ALIAS}"
+            cp -L "$XDO_PATH" "$APPDIR/usr/bin/lib/${ALIAS}"
+        done
+        echo "   + Bundled ${XDO_PATH} as libxdo.so.{3,4}"
+    fi
+
+    for EXTRA_LIB in libXtst.so.6 libXinerama.so.1; do
+        EXTRA_PATH=$(ldd "$NATIVE_BIN" 2>/dev/null | awk -v lib="$EXTRA_LIB" '$1 == lib {print $3}' | head -n 1 || true)
+        if [ -z "$EXTRA_PATH" ] || [ ! -f "$EXTRA_PATH" ]; then
+            for CAND in "/usr/lib/x86_64-linux-gnu/${EXTRA_LIB}" "/usr/lib64/${EXTRA_LIB}" "/usr/lib/${EXTRA_LIB}"; do
+                if [ -f "$CAND" ]; then
+                    EXTRA_PATH="$CAND"
+                    break
+                fi
+            done
+        fi
+        if [ -n "$EXTRA_PATH" ] && [ -f "$EXTRA_PATH" ]; then
+            cp -L "$EXTRA_PATH" "$APPDIR/usr/lib/${EXTRA_LIB}"
+            cp -L "$EXTRA_PATH" "$APPDIR/lib/${EXTRA_LIB}"
+            cp -L "$EXTRA_PATH" "$APPDIR/usr/bin/lib/${EXTRA_LIB}"
+            echo "   + Bundled ${EXTRA_LIB} (${EXTRA_PATH})"
+        fi
+    done
+fi
+
 # 3. Desktop Entry and Icons
 echo "-> Setting up desktop entry, icons and AppRun..."
 cp packaging/linux/attune.desktop "$APPDIR/attune.desktop"
