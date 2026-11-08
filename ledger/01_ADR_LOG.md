@@ -4169,5 +4169,55 @@ This file records all major architectural decisions for **Attune**, including co
   - Users can seamlessly switch between favorite songs, artists, and albums.
   - User favorites persist across application restarts.
 
+---
+
+## ADR-119: Better Lyrics Animation Architecture, Custom Fullscreen CSS Injector & Open-Source Attribution
+- **Date**: 2026-11-08
+- **Status**: `LOCKED`
+- **Context**:
+  1. The user requested:
+     - Review Better Lyrics animation and styling guide from `https://raw.githubusercontent.com/better-lyrics/better-lyrics/refs/heads/master/STYLING-SKILL.md`.
+     - Enhance Attune lyrics animation based on the review.
+     - Support custom CSS animation at the end of the Lyrics tab in Settings (`SettingsTab::Lyrics`) for fullscreen lyrics.
+     - Add open-source credits and thanks to `better-lyrics/better-lyrics`.
+  2. Previously, Attune desktop's active lyrics animation in fullscreen mode relied on standard CSS linear/ease-out transitions, lacking spring physics and dynamic depth of field.
+  3. Power users and skin designers had no mechanism to author or inject personalized lyrics visual styles, animations, keyframes, or blur effects without modifying engine source code.
+- **Decision**:
+  1. **Better Lyrics Dynamic Motion & Keyframe Curves (`crates/attune-desktop/src/style.css`)**:
+     - Upgraded `.fullscreen-lyric-line` and `.fullscreen-lyric-active` transition curves to Better Lyrics fluid cubic-bezier curve: `cubic-bezier(0.22, 1, 0.36, 1)` with a 500ms duration.
+     - Engineered `@keyframes lyricLineSpringEnter` applying subtle spring expansion: `0% { transform: scale(0.97) translateX(-4px); } 60% { transform: scale(1.025) translateX(3px); } 100% { transform: scale(1.0) translateX(0); }`.
+     - Added companion `@keyframes lyricLineSpringEnterDock` for the docked right-panel lyrics drawer.
+     - Refined inactive line opacity (0.35) and active line cream typography with non-blurry hardware dual text-shadow glow (`0 0 24px rgba(255, 253, 208, 0.85), 0 0 48px rgba(100, 255, 218, 0.40)`).
+  2. **Config Schema & Presets (`crates/attune-desktop/src/config.rs`)**:
+     - Extended `AppConfig` with:
+       ```rust
+       pub enable_lyrics_custom_css: bool,
+       pub lyrics_custom_css: String,
+       ```
+     - Defined 3 built-in custom animation presets + default template:
+       * `PRESET_SPOTLIGHT_BLUR`: Dramatic depth-of-field with inactive line blur and scale isolation.
+       * `PRESET_SPRING_POP`: High-energy pop bouncy spring dynamics with subtle rotation.
+       * `PRESET_CYBERPUNK_NEON`: Electric cyan and magenta pulse wave glow with subtle text shear.
+       * `default_lyrics_custom_css()`: Guided starter template documenting all CSS selectors and variables.
+  3. **Custom CSS Settings UI (`crates/attune-desktop/src/stages/settings.rs`)**:
+     - Added dedicated "Custom Fullscreen Lyrics CSS Animation" card at the bottom of `SettingsTab::Lyrics`.
+     - Includes master enable/disable switch toggle, 4 one-click preset loader buttons ("Spotlight Depth Blur", "Apple Music Spring Pop", "Cyberpunk Neon Glow", "Reset Template"), and a monospace code `<textarea>`.
+     - In-line syntax helper table documenting valid class targets: `.fullscreen-lyric-line`, `.fullscreen-lyric-active`, `.fullscreen-lyric-passed`, `.lyrics-fullscreen-container`.
+     - Real-time persistence to `~/.config/attune/config.json`.
+  4. **Live Dynamic Webview Injection (`crates/attune-desktop/src/stages/fullscreen_now_playing.rs`)**:
+     - Dynamically renders `<style id="attune-custom-lyrics-css">{custom_css}</style>` into the DOM whenever `config.enable_lyrics_custom_css` is active and non-empty.
+     - Changes update immediately in the running WebKitGTK engine without reloading.
+  5. **Open Source Attribution & Thanks (`crates/attune-desktop/src/stages/about.rs`)**:
+     - Added dedicated "Special Thanks & Open Source Credits" card in the About Attune stage.
+     - Explicitly credited `better-lyrics/better-lyrics` ("Inspiration for fluid cubic-bezier line transitions and lyrics visual animation architecture") with external clickable URL button.
+     - Updated Settings Help Guide to attribute Better Lyrics.
+  6. **Zero-Hardcoding Internationalization (`crates/attune-desktop/src/i18n.rs`)**:
+     - Added `custom_lyrics_css`, `custom_lyrics_css_desc`, and `special_thanks_and_credits` to `AppStrings` with full English and Filipino translations.
+- **Consequences**:
+  - Fullscreen lyrics motion feels fluid, rhythmic, and natural.
+  - End-users can fully customize their lyrics animations with custom CSS keyframes.
+  - Full compliance with open source etiquette and project governance.
+
+
 
 
