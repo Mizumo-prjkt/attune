@@ -11,8 +11,8 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 use crate::config::{
-    self, export_backup_tar, import_backup_tar, load_config, probe_gpu_capabilities,
-    save_config, AppConfig,
+    self, export_backup_tar, import_backup_tar, load_config, probe_gpu_capabilities, save_config,
+    AppConfig,
 };
 use crate::i18n::export_language_template_json;
 use crate::library::{clear_thumbnail_cache, TrackEntry};
@@ -67,10 +67,7 @@ pub enum SettingsTab {
 
 /// Tactile and accessible sliding switch toggle matching modern OS styling without text clutter
 #[component]
-pub fn SwitchToggle(
-    active: bool,
-    on_toggle: EventHandler<()>,
-) -> Element {
+pub fn SwitchToggle(active: bool, on_toggle: EventHandler<()>) -> Element {
     rsx! {
         div {
             class: if active { "switch-track active" } else { "switch-track" },
@@ -105,10 +102,12 @@ pub fn build_directory_tree(roots: &[PathBuf], tracks: &[TrackEntry]) -> Vec<Dir
         if !root.is_dir() {
             continue;
         }
-        let root_tracks: Vec<&TrackEntry> = tracks.iter().filter(|t| t.path.starts_with(root)).collect();
+        let root_tracks: Vec<&TrackEntry> =
+            tracks.iter().filter(|t| t.path.starts_with(root)).collect();
         let total_root_tracks = root_tracks.len();
 
-        let mut sub_groups: std::collections::BTreeMap<String, (PathBuf, usize)> = std::collections::BTreeMap::new();
+        let mut sub_groups: std::collections::BTreeMap<String, (PathBuf, usize)> =
+            std::collections::BTreeMap::new();
         for t in &root_tracks {
             if let Ok(rel) = t.path.strip_prefix(root) {
                 if let Some(first_comp) = rel.components().next() {
@@ -133,7 +132,8 @@ pub fn build_directory_tree(roots: &[PathBuf], tracks: &[TrackEntry]) -> Vec<Dir
 
         subdirs.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
 
-        let root_name = root.file_name()
+        let root_name = root
+            .file_name()
             .and_then(|s| s.to_str())
             .unwrap_or_else(|| root.to_str().unwrap_or("Root"))
             .to_string();
@@ -153,7 +153,10 @@ pub fn build_directory_tree(roots: &[PathBuf], tracks: &[TrackEntry]) -> Vec<Dir
 
 /// Opens Settings in a dedicated standalone secondary OS window.
 pub fn open_settings_window() {
-    if SETTINGS_WINDOW_OPEN.compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst).is_ok() {
+    if SETTINGS_WINDOW_OPEN
+        .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+        .is_ok()
+    {
         let dom = VirtualDom::new(SettingsStandaloneWindow);
         let mut window = dioxus::desktop::WindowBuilder::new()
             .with_title("Attune — Settings & Preferences")
@@ -222,10 +225,14 @@ pub fn SettingsStandaloneWindow() -> Element {
         if all_tracks.is_empty() {
             let mut roots = Vec::new();
             if let Some(ref d) = cfg.music_dir {
-                if d.is_dir() { roots.push(d.clone()); }
+                if d.is_dir() {
+                    roots.push(d.clone());
+                }
             }
             for d in &cfg.extra_music_dirs {
-                if d.is_dir() && !roots.contains(d) { roots.push(d.clone()); }
+                if d.is_dir() && !roots.contains(d) {
+                    roots.push(d.clone());
+                }
             }
             for r in &roots {
                 let files = attune_core::LibraryScanner::discover_audio_files(r);
@@ -396,7 +403,11 @@ pub fn SettingsContent(
     });
 
     let mut home_subtext_input = use_signal(|| {
-        config_sig.read().home_subtext.clone().unwrap_or_else(|| "Attune Dynamic DJ Transition is active".to_string())
+        config_sig
+            .read()
+            .home_subtext
+            .clone()
+            .unwrap_or_else(|| "Attune Dynamic DJ Transition is active".to_string())
     });
 
     let mut new_exclusion_input = use_signal(String::new);
@@ -797,7 +808,7 @@ pub fn SettingsContent(
                                         span { class: "badge-pill", style: "background: rgba(234, 179, 8, 0.2); color: #eab308; border-color: rgba(234, 179, 8, 0.4);", "Experimental" }
                                     }
                                     p { class: "settings-card-desc",
-                                        "Stream unclipped 32-bit floating point PCM directly to hardware DAC. (Not recommended for Atom-level or Athlon Embedded systems with older drivers)."
+                                        "Stream unclipped 32-bit floating point PCM directly to hardware DAC. (Not recommended for Atom-level or Athlon Embedded systems with older drivers, and also old Sound Card/Chip. Also disable this option if the sound starts being weird, glitchy, distorted, slowmo, or has static)."
                                     }
                                 }
                                 SwitchToggle {
@@ -2727,6 +2738,9 @@ mod tests {
         assert_eq!(format_duration_human(45 * 1000), "0 min");
         assert_eq!(format_duration_human(150 * 1000), "2 min");
         assert_eq!(format_duration_human(3700 * 1000), "1 hr 1 min");
-        assert_eq!(format_duration_human(9 * 3600 * 1000 + 33 * 60 * 1000), "9 hr 33 min");
+        assert_eq!(
+            format_duration_human(9 * 3600 * 1000 + 33 * 60 * 1000),
+            "9 hr 33 min"
+        );
     }
 }
