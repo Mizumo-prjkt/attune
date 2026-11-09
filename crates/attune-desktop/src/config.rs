@@ -156,6 +156,8 @@ pub struct AppConfig {
     pub force_32bit_float: bool,
     #[serde(default)]
     pub skip_silence: bool,
+    #[serde(default)]
+    pub gpu_audio_processing: bool,
     #[serde(default = "default_engine")]
     pub engine_choice: String,
 
@@ -236,6 +238,7 @@ impl Default for AppConfig {
             fetch_youtube_thumbnails: true,
             force_32bit_float: false,
             skip_silence: false,
+            gpu_audio_processing: false,
             engine_choice: default_engine(),
             language: default_language(),
             lyric_priority: default_lyric_priority(),
@@ -837,9 +840,11 @@ mod tests {
         assert_eq!(loaded.app_font_family, "system");
 
         cfg.auto_scroll_long_text = false;
+        cfg.gpu_audio_processing = true;
         let json2 = serde_json::to_string(&cfg).unwrap();
         let loaded2: AppConfig = serde_json::from_str(&json2).unwrap();
         assert!(!loaded2.auto_scroll_long_text);
+        assert!(loaded2.gpu_audio_processing);
     }
 
     #[test]

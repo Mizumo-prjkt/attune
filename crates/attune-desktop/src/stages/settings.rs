@@ -825,6 +825,35 @@ pub fn SettingsContent(
                             }
                         }
 
+                        // Card: GPU Audio Processing
+                        div { class: "settings-card",
+                            div { style: "display: flex; justify-content: space-between; align-items: center;",
+                                div {
+                                    div { style: "display: flex; align-items: center; gap: 8px;",
+                                        h3 { class: "settings-card-title", "[EXPERIMENTAL] GPU Audio Processing" }
+                                        span { class: "badge-pill", style: "background: rgba(234, 179, 8, 0.2); color: #eab308; border-color: rgba(234, 179, 8, 0.4);", "Experimental" }
+                                    }
+                                    p { class: "settings-card-desc",
+                                        "Offload live audio spectral profiling, JIT DJ transition planning, and mastering DSP analysis to GPU compute shaders (Vulkan / Metal / Direct3D). Automatically falls back to CPU if unavailable."
+                                    }
+                                    if gpu_info.is_supported {
+                                        div { style: "font-size: 11.5px; color: var(--accent-mint); margin-top: 6px; display: flex; align-items: center; gap: 4px;",
+                                            span { class: "material-icons md-14", "memory" }
+                                            "{gpu_info.model} ({gpu_info.api})"
+                                        }
+                                    }
+                                }
+                                SwitchToggle {
+                                    active: curr_cfg.gpu_audio_processing && gpu_info.is_supported,
+                                    on_toggle: move |_| {
+                                        if gpu_info.is_supported {
+                                            update_cfg(Box::new(|c| c.gpu_audio_processing = !c.gpu_audio_processing));
+                                        }
+                                    },
+                                }
+                            }
+                        }
+
                         // Card: Skip Silence
                         div { class: "settings-card",
                             div { style: "display: flex; justify-content: space-between; align-items: center;",
@@ -2623,6 +2652,7 @@ pub fn SettingsContent(
                                     div { "• " span { style: "color: #fff; font-weight: 600;", "DirectForm2 EQ: " } "10-band studio equalization with sub-harmonic synthesis." }
                                     div { "• " span { style: "color: #fff; font-weight: 600;", "Hermite Cubic: " } "Resamples streams to DAC native rate ({diag.sample_rate} Hz) with zero phase drift." }
                                     div { "• " span { style: "color: #fff; font-weight: 600;", "Silence Trimmer: " } "Detects leading/trailing silence below -60 dBFS." }
+                                    div { "• " span { style: "color: #fff; font-weight: 600;", "GPU Processing: " } "Vulkan/Metal/DX12 compute shaders for live CQT & transition spectral analysis." }
                                 }
                                 button {
                                     class: "btn-pill active",

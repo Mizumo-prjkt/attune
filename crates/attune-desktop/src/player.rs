@@ -306,7 +306,8 @@ impl Player {
                 match result {
                     Ok(buffer) => {
                         // Extract detected BPM and Key via fast head/tail AudioProfiler
-                        let use_gpu = crate::config::load_config().gpu_bpm_index_offload;
+                        let cfg = crate::config::load_config();
+                        let use_gpu = cfg.gpu_audio_processing || cfg.gpu_bpm_index_offload;
                         let profiler = AudioProfiler::new_with_gpu(use_gpu);
                         let tap = profiler.profile_track(&buffer, &path.to_string_lossy(), AnalysisTier::FastHeadTail);
                         if let Ok(mut prof) = current_profile.lock() {
@@ -381,7 +382,8 @@ impl Player {
                 let confidence_pct = (recipe.confidence_score * 100.0).clamp(10.0, 99.0) as u32;
                 let scheduled_start_ms = recipe.timing.track_a_transition_start_ms;
 
-                let use_gpu = crate::config::load_config().gpu_bpm_index_offload;
+                let cfg = crate::config::load_config();
+                let use_gpu = cfg.gpu_audio_processing || cfg.gpu_bpm_index_offload;
                 let profiler = AudioProfiler::new_with_gpu(use_gpu);
                 let tap_b = profiler.profile_track(&buf_b, &incoming_path.to_string_lossy(), AnalysisTier::FastHeadTail);
                 let incoming_bpm = tap_b.global_summary.nominal_bpm;

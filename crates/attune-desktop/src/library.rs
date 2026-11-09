@@ -431,7 +431,8 @@ impl TrackEntry {
     /// Performs deep 5-layer audio profiling using `AudioProfiler` if BPM or Key
     /// are not already provided in ID3 tags.
     pub fn profile_and_index(path: &Path) -> Self {
-        let use_gpu = crate::config::load_config().gpu_bpm_index_offload;
+        let cfg = crate::config::load_config();
+        let use_gpu = cfg.gpu_audio_processing || cfg.gpu_bpm_index_offload;
         Self::profile_and_index_with_gpu(path, use_gpu)
     }
 
@@ -735,7 +736,8 @@ pub fn spawn_deep_indexing(root: PathBuf, reindex_all: bool) -> Receiver<Indexin
                 HashMap::new()
             };
 
-            let use_gpu = crate::config::load_config().gpu_bpm_index_offload;
+            let cfg = crate::config::load_config();
+            let use_gpu = cfg.gpu_audio_processing || cfg.gpu_bpm_index_offload;
             let mut indexed_tracks = Vec::with_capacity(total);
             let mut lossless_count = 0usize;
 

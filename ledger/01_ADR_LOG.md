@@ -5143,6 +5143,33 @@ This file records all major architectural decisions for **Attune**, including co
   - Transparent fallback guarantees no crashes or dropped tracks on systems without compatible compute devices.
   - All 125 desktop unit tests and full workspace test suite pass cleanly.
 
+---
+
+## ADR-147: Setup Wizard Official Logo Integration & Experimental GPU Audio Processing Option (`gpu_audio_processing`)
+
+- **Date**: 2026-11-09
+- **Status**: LOCKED
+- **Context**:
+  - The Startup Setup Wizard (`SetupStage` in `crates/attune-desktop/src/stages/setup.rs`) rendered a generic material icon (`<span class="material-icons md-28">album</span>`) inside the hero disc instead of displaying the official circular Attune logo, causing visual inconsistency with the sidebar header and About stage.
+  - Users requested an explicit option in the **Audio** configuration (`Settings -> Audio` and `Setup Wizard -> Step 2: Audio`) to enable experimental GPU processing for live audio playback, JIT DJ transition planning, and mastering DSP analysis.
+- **Decision**:
+  1. **Official Logo Integration in Setup Wizard (`crates/attune-desktop/src/stages/setup.rs`)**:
+     - Replaced the placeholder `album` icon in the Setup Wizard hero card with an `<img>` tag embedding the official transparent disc logo via `crate::app_icon::app_icon_data_url()`.
+     - Added mint accent drop shadow (`drop-shadow(0 2px 8px rgba(45, 212, 191, 0.45))`) and enclosed within an `overflow: hidden` circular glass disc.
+  2. **Experimental GPU Audio Processing Configuration (`crates/attune-desktop/src/config.rs`)**:
+     - Added `pub gpu_audio_processing: bool` (default: `false`) to `AppConfig`.
+     - Added test assertions in `config_roundtrip_test` verifying serialization roundtrips.
+  3. **Audio Settings & Setup Wizard UI Controls (`crates/attune-desktop/src/stages/settings.rs`, `setup.rs`)**:
+     - Added `[EXPERIMENTAL] GPU Audio Processing` card under `Settings -> Audio` with `Experimental` badge, tactile `SwitchToggle`, dynamic hardware detection badge (`{gpu_info.model} ({gpu_info.api})`), and updated the Audio Help Guide.
+     - Added `[EXPERIMENTAL] GPU Audio Processing` toggle under `Setup Wizard -> Step 2: Audio` with instant state update.
+  4. **Player & Profiler Engine Wiring (`crates/attune-desktop/src/player.rs`, `library.rs`)**:
+     - Updated real-time player JIT decoding and transition planning to evaluate `cfg.gpu_audio_processing || cfg.gpu_bpm_index_offload`.
+     - When either option is enabled, instantiates `AudioProfiler::new_with_gpu(true)` to utilize `attune_core::gpu` WGSL compute shaders.
+- **Consequences**:
+  - Setup Wizard now renders the genuine official Attune logo.
+  - Users can enable experimental GPU audio processing directly from both Audio Settings and the Setup Wizard.
+  - All 126 desktop unit tests pass cleanly.
+
 
 
 

@@ -254,8 +254,12 @@ pub fn SetupStage(
 
                 // Hero Logo Disc + Header
                 div { style: "display: flex; align-items: center; gap: 16px; margin-bottom: 18px;",
-                    div { style: "width: 56px; height: 56px; border-radius: 50%; background: linear-gradient(135deg, rgba(45, 212, 191, 0.25), rgba(168, 85, 247, 0.25)); border: 2px solid var(--accent-mint); display: flex; align-items: center; justify-content: center; box-shadow: 0 0 24px rgba(45, 212, 191, 0.3); flex-shrink: 0;",
-                        span { class: "material-icons md-28", style: "color: var(--accent-mint);", "album" }
+                    div { style: "width: 56px; height: 56px; border-radius: 50%; background: linear-gradient(135deg, rgba(45, 212, 191, 0.25), rgba(168, 85, 247, 0.25)); border: 2px solid var(--accent-mint); display: flex; align-items: center; justify-content: center; box-shadow: 0 0 24px rgba(45, 212, 191, 0.3); flex-shrink: 0; overflow: hidden;",
+                        img {
+                            src: "{crate::app_icon::app_icon_data_url()}",
+                            style: "width: 38px; height: 38px; object-fit: contain; filter: drop-shadow(0 2px 8px rgba(45, 212, 191, 0.45));",
+                            alt: "Attune Logo",
+                        }
                     }
                     div { style: "text-align: left;",
                         h1 { style: "font-size: 24px; font-weight: 700; letter-spacing: -0.02em; margin: 0 0 4px 0;",
@@ -482,6 +486,27 @@ pub fn SetupStage(
                                         update_cfg(Box::new(move |c| c.skip_silence = new_val));
                                     },
                                     if curr_cfg.skip_silence { "Enabled" } else { "Disabled" }
+                                }
+                            }
+
+                            div { style: "border-top: 1px solid rgba(255,255,255,0.06); padding-top: 12px; display: flex; justify-content: space-between; align-items: center; gap: 16px;",
+                                div {
+                                    div { style: "display: flex; align-items: center; gap: 8px;",
+                                        span { style: "font-size: 13.5px; font-weight: 600;", "[EXPERIMENTAL] GPU Audio Processing" }
+                                        span { class: "badge-pill", style: "background: rgba(234, 179, 8, 0.2); color: #eab308; border-color: rgba(234, 179, 8, 0.4); font-size: 10px;", "Experimental" }
+                                    }
+                                    div { style: "font-size: 12px; color: var(--text-muted); margin-top: 2px; line-height: 1.4;",
+                                        "Offload real-time audio FFT spectral profiling and JIT DJ transition planning to GPU compute (Vulkan / Metal / Direct3D)."
+                                    }
+                                }
+                                button {
+                                    class: if curr_cfg.gpu_audio_processing { "btn-pill active" } else { "btn-pill" },
+                                    style: "min-width: 90px; justify-content: center;",
+                                    onclick: move |_| {
+                                        let new_val = !curr_cfg.gpu_audio_processing;
+                                        update_cfg(Box::new(move |c| c.gpu_audio_processing = new_val));
+                                    },
+                                    if curr_cfg.gpu_audio_processing { "Enabled" } else { "Disabled" }
                                 }
                             }
                         }
@@ -1243,5 +1268,12 @@ mod tests {
         assert!(chain.contains(&"lrc".to_string()));
         assert!(chain.contains(&"elrc".to_string()));
         assert!(chain.contains(&"external".to_string()));
+    }
+
+    #[test]
+    fn test_setup_hero_logo_url_validity() {
+        let logo_url = crate::app_icon::app_icon_data_url();
+        assert!(logo_url.starts_with("data:image/png;base64,"));
+        assert!(logo_url.len() > 100);
     }
 }
