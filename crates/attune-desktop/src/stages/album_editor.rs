@@ -9,7 +9,7 @@ use std::path::PathBuf;
 pub fn AlbumEditor(
     group: AlbumGroup,
     on_back: EventHandler<()>,
-    on_saved: EventHandler<()>,
+    on_saved: EventHandler<Vec<crate::library::TrackEntry>>,
 ) -> Element {
     let mut album_name = use_signal(|| group.name.clone());
     let mut primary_artist = use_signal(|| group.artist.clone());
@@ -205,18 +205,20 @@ pub fn AlbumEditor(
                                     }
                                 }
 
+                                let modified_paths: Vec<PathBuf> = tracks.iter().map(|t| t.path.clone()).collect();
                                 crate::library::clear_thumbnail_cache();
-                                crate::library::clear_all_library_caches();
+                                let updated_tracks = crate::library::refresh_tracks_in_cache(&modified_paths);
 
                                 is_saving.set(false);
                                 if errors.is_empty() {
                                     status_msg.set(Some((true, format!("✓ Successfully updated {} tracks!", saved_count))));
-                                    on_saved.call(());
+                                    on_saved.call(updated_tracks);
                                 } else {
                                     status_msg.set(Some((
                                         false,
                                         format!("✗ Updated {}/{} tracks ({} failed: {})", saved_count, tracks.len(), errors.len(), errors[0]),
                                     )));
+                                    on_saved.call(updated_tracks);
                                 }
                             }
                         },

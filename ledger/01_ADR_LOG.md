@@ -5079,6 +5079,40 @@ This file records all major architectural decisions for **Attune**, including co
   - Entering and exiting Fullscreen Now Playing is instantaneous, fills 100% of the fullscreen viewport without clipping or freezing, and responds immediately to `Esc`, `F11`, and the top-right close button.
   - All 121 desktop unit tests pass cleanly.
 
+---
+
+## ADR-145: Non-Destructive In-Place Library Cache Synchronization & Sidecar Overlay Pipeline (`refresh_tracks_in_cache`, `spawn_scan_multi` Fast-Path Streaming, Companion `.tweaks.json` Sidecar Ingestion & Elimination of Destructive Cache Wipes)
+
+- **Date**: 2026-11-09
+- **Status**: LOCKED
+- **Context**:
+  - When saving album info in `AlbumEditor`, the song list disappeared from the library, persisting across restarts and leaving the library index stuck at `0 / 0` tracks.
+  - **Root Causes Identified**:
+    1. **Destructive Cache Deletion & In-Memory Wipe on Save**:
+       - `AlbumEditor` (line 209) and `app.rs` (line 1674) unconditionally called `clear_all_library_caches()`, deleting all `~/.cache/attune/library_cache_*.json` files across all configured roots when saving a single album.
+       - Immediately afterward, `on_saved` in `app.rs` called `tracks.set(Vec::new())` and invoked `library::spawn_scan(dir)` with only the primary directory (ignoring `extra_music_dirs` and `song_exclusions`).
+    2. **Uncached Fast-Scan DSP Bottleneck & Progress Emission Inversion**:
+       - When `load_library_cache(root)` returned `None`, `spawn_scan_multi` iterated over all discovered audio files calling `TrackEntry::profile_and_index(file)`—running the full 5-layer DSP analysis and 90s audio decoding synchronously on a single thread.
+       - `ScanEvent::Discovered(...)` was only emitted after the entire multi-minute profiling loop finished, leaving `scan_progress` at `(0, 0)` while tracks were completely hidden.
+       - If the user closed or restarted the app during this window, the unfinished scan was cancelled before `save_library_cache` was ever reached, leaving the disk cache permanently missing.
+    3. **Companion `.tweaks.json` Sidecars Ignored in Fast Probe**:
+       - `TrackEntry::from_probe` only inspected container tags via Symphonia and ignored companion `.tweaks.json` sidecar files created when editing non-FLAC/MP3 formats (such as `.m4a` AAC live recordings).
+- **Decision**:
+  1. **Companion Sidecar Overlay in `TrackEntry::from_probe` (`crates/attune-desktop/src/library.rs`)**:
+     - Added `sidecar_tweaks_path(path)` and `apply_sidecar_tweaks(path)` to `TrackEntry`. Overlays edited `title`, `artist` (including `additional_artists`), `album`, `genre`, `composer`, `writer`, `vocalist`, `producer`, `bpm`, `musical_key`, and `picture_path` directly onto the probed `TrackEntry`.
+  2. **In-Place Atomic Disk Cache Updating (`refresh_tracks_in_cache` in `crates/attune-desktop/src/library.rs`)**:
+     - Created `refresh_tracks_in_cache(modified_paths: &[PathBuf]) -> Vec<TrackEntry>`. Scans existing cache files in `~/.cache/attune/`, re-probes only the modified files, preserves existing 5-layer DSP fields (`bpm`, `key`, `aggression`, `vibe_family`, `duration_ms`) via `preserve_dsp_from`, and atomically updates the cache file on disk without invalidating any other tracks.
+  3. **Non-Destructive In-Memory Updates in `AlbumEditor` and `App` (`crates/attune-desktop/src/stages/album_editor.rs`, `app.rs`)**:
+     - Removed all calls to `clear_all_library_caches()` and `tracks.set(Vec::new())` upon saving album metadata.
+     - `AlbumEditor` now calls `refresh_tracks_in_cache` and invokes `on_saved.call(updated_tracks)`. `App` updates the modified tracks in-place across `tracks`, `current_track`, and `queue`, preserving the existing playback state and UI list instantly.
+  4. **Fast Streaming Library Scanner (`spawn_scan_multi` in `crates/attune-desktop/src/library.rs`)**:
+     - Re-architected `spawn_scan_multi` to discover all files across all roots upfront and **immediately emit `ScanEvent::Discovered(total)`** before probing so the UI instantly displays the discovery count (e.g. `0 / 167`).
+     - Emits `ScanEvent::Track(Box::new(entry))` incrementally as each file is probed via fast Symphonia metadata probing (`< 2ms` per file), yielding cached tracks immediately and persisting partial caches every 25 tracks.
+- **Consequences**:
+  - Saving album information or artwork updates metadata and cover art in-place in `< 50ms` without ever wiping the library list.
+  - Startup scanning streams tracks smoothly without blocking the UI or leaving `scan_progress` at `(0, 0)`.
+  - All 124 desktop unit tests and full workspace test suite pass cleanly.
+
 
 
 

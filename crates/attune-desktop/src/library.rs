@@ -244,14 +244,110 @@ pub struct TrackEntry {
 }
 
 impl TrackEntry {
-    /// Builds an entry from a probed file metadata; falls back to filename/"Unknown"
-    /// when tags are missing.
+    /// Returns the companion `.tweaks.json` sidecar path for a given audio file.
+    pub fn sidecar_tweaks_path(path: &Path) -> PathBuf {
+        let mut p = path.to_path_buf();
+        let ext = p.extension().and_then(|e| e.to_str()).unwrap_or("");
+        if ext.is_empty() {
+            p.set_extension("tweaks.json");
+        } else {
+            p.set_extension(format!("{ext}.tweaks.json"));
+        }
+        p
+    }
+
+    /// Overlays non-destructive `.tweaks.json` sidecar metadata onto a probed `TrackEntry`.
+    fn apply_sidecar_tweaks(&mut self, path: &Path) {
+        let sidecar = Self::sidecar_tweaks_path(path);
+        if !sidecar.is_file() {
+            return;
+        }
+        let Ok(content) = std::fs::read_to_string(&sidecar) else {
+            return;
+        };
+        let Ok(meta) = serde_json::from_str::<crate::dynamic_components::music_metadata_changer::TrackMetadata>(&content) else {
+            return;
+        };
+
+        if let Some(t) = meta.title.filter(|s| !s.trim().is_empty()) {
+            self.title = t;
+        }
+        if let Some(a) = meta.artist.filter(|s| !s.trim().is_empty()) {
+            let mut full_artist = a.clone();
+            for extra in &meta.additional_artists {
+                let trimmed = extra.trim();
+                if !trimmed.is_empty() && !full_artist.to_lowercase().contains(&trimmed.to_lowercase()) {
+                    full_artist.push_str(", ");
+                    full_artist.push_str(trimmed);
+                }
+            }
+            self.artist = full_artist;
+        }
+        if let Some(al) = meta.album.filter(|s| !s.trim().is_empty()) {
+            self.album = al;
+        }
+        if let Some(g) = meta.genre.filter(|s| !s.trim().is_empty()) {
+            self.genre = Some(g);
+        }
+        if let Some(c) = meta.composer.filter(|s| !s.trim().is_empty()) {
+            self.composer = Some(c);
+        }
+        if let Some(w) = meta.writer.filter(|s| !s.trim().is_empty()) {
+            self.writer = Some(w);
+        }
+        if let Some(v) = meta.vocalist.filter(|s| !s.trim().is_empty()) {
+            self.vocalist = Some(v);
+        }
+        if let Some(pr) = meta.producer.filter(|s| !s.trim().is_empty()) {
+            self.producer = Some(pr);
+        }
+        if let Some(b) = meta.bpm.filter(|&b| b > 0.0) {
+            self.bpm = Some(b);
+        }
+        if let Some(k) = meta.musical_key.filter(|s| !s.trim().is_empty()) {
+            self.key = Some(k);
+        }
+        if let Some(pic_str) = meta.picture_path.filter(|s| !s.trim().is_empty()) {
+            let pic_path = PathBuf::from(pic_str.trim());
+            if pic_path.is_file() {
+                self.artwork_path = Some(pic_path);
+            }
+        }
+    }
+
+    /// Preserves cached 5-layer DSP profiling fields (`bpm`, `key`, `aggression`, `vibe_family`)
+    /// when re-probing a track whose container tags do not explicitly override them.
+    pub fn preserve_dsp_from(&mut self, existing: &TrackEntry) {
+        if self.bpm.map(|b| b < 10.0).unwrap_or(true) {
+            self.bpm = existing.bpm;
+        }
+        if self
+            .key
+            .as_deref()
+            .map(|k| k.is_empty() || k == "—" || k == "Unknown")
+            .unwrap_or(true)
+        {
+            self.key = existing.key.clone();
+        }
+        if self.aggression.is_none() {
+            self.aggression = existing.aggression;
+        }
+        if self.vibe_family.is_none() {
+            self.vibe_family = existing.vibe_family.clone();
+        }
+        if self.duration_ms == 0 && existing.duration_ms > 0 {
+            self.duration_ms = existing.duration_ms;
+        }
+    }
+
+    /// Builds an entry from a probed file metadata (plus `.tweaks.json` sidecar if present);
+    /// falls back to filename/"Unknown" when tags are missing.
     pub fn from_probe(path: &Path) -> Self {
         let file_stem = path
             .file_stem()
             .map(|s| s.to_string_lossy().to_string())
             .unwrap_or_default();
-        match AudioDecoder::probe_metadata(path) {
+        let mut entry = match AudioDecoder::probe_metadata(path) {
             Ok(p) => {
                 let mut artwork_path = p.artwork_path.map(PathBuf::from);
                 if artwork_path.as_ref().map(|p| !p.is_file()).unwrap_or(true) {
@@ -269,8 +365,6 @@ impl TrackEntry {
                     }
                 }
 
-                let artwork_data_url = artwork_path.as_deref().and_then(resolve_thumbnail_data_url);
-
                 TrackEntry {
                     path: path.to_path_buf(),
                     title: p.title.filter(|t| !t.trim().is_empty()).unwrap_or(file_stem),
@@ -284,7 +378,7 @@ impl TrackEntry {
                     sample_rate: p.sample_rate,
                     bit_depth: p.bit_depth,
                     artwork_path,
-                    artwork_data_url,
+                    artwork_data_url: None,
                     aggression: None,
                     vibe_family: None,
                     composer: p.composer,
@@ -320,7 +414,18 @@ impl TrackEntry {
                     producer: None,
                 }
             }
-        }
+        };
+
+        // Overlay any companion `.tweaks.json` sidecar modifications
+        entry.apply_sidecar_tweaks(path);
+
+        // Resolve thumbnail data URL after sidecar picture_path overrides
+        entry.artwork_data_url = entry
+            .artwork_path
+            .as_deref()
+            .and_then(resolve_thumbnail_data_url);
+
+        entry
     }
 
     /// Performs deep 5-layer audio profiling using `AudioProfiler` if BPM or Key
@@ -496,6 +601,64 @@ pub fn clear_all_library_caches() {
     }
 }
 
+/// Updates or replaces specific tracks in all existing library disk caches on disk.
+/// Automatically re-probes only the specified paths while preserving existing DSP profile
+/// parameters (bpm, key, aggression, vibe_family) and saves caches atomically.
+pub fn refresh_tracks_in_cache(modified_paths: &[PathBuf]) -> Vec<TrackEntry> {
+    if modified_paths.is_empty() {
+        return Vec::new();
+    }
+
+    let cache_dir = dirs::cache_dir()
+        .unwrap_or_else(|| PathBuf::from("/tmp"))
+        .join("attune");
+
+    let mut updated_entries: HashMap<PathBuf, TrackEntry> = HashMap::new();
+
+    // Scan all library cache files in cache_dir
+    if let Ok(entries) = std::fs::read_dir(&cache_dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
+                if name.starts_with("library_cache_") && name.ends_with(".json") {
+                    if let Ok(bytes) = std::fs::read(&path) {
+                        if let Ok(mut cache) = serde_json::from_slice::<LibraryCache>(&bytes) {
+                            let mut cache_modified = false;
+                            for track in &mut cache.tracks {
+                                if modified_paths.contains(&track.path) {
+                                    let mut probed = TrackEntry::from_probe(&track.path);
+                                    probed.preserve_dsp_from(track);
+                                    *track = probed.clone();
+                                    updated_entries.insert(track.path.clone(), probed);
+                                    cache_modified = true;
+                                }
+                            }
+                            if cache_modified {
+                                cache.total_tracks = cache.tracks.len();
+                                cache.last_updated_secs = std::time::SystemTime::now()
+                                    .duration_since(std::time::UNIX_EPOCH)
+                                    .map(|d| d.as_secs())
+                                    .unwrap_or(0);
+                                let _ = save_library_cache(&cache.root_path, &cache.tracks);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // For any path not found in existing caches, probe it directly
+    for path in modified_paths {
+        if !updated_entries.contains_key(path) && path.is_file() {
+            let probed = TrackEntry::from_probe(path);
+            updated_entries.insert(path.clone(), probed);
+        }
+    }
+
+    updated_entries.into_values().collect()
+}
+
 // ---------------------------------------------------------------------------
 // Library Scanning & Deep Profiling Events
 // ---------------------------------------------------------------------------
@@ -647,44 +810,93 @@ pub fn spawn_scan_multi(roots: Vec<PathBuf>, exclusions: Vec<String>) -> Receive
                 return;
             }
 
-            let mut all_scanned_tracks: Vec<TrackEntry> = Vec::new();
+            // Phase 1: Rapid file discovery across all roots
+            let mut root_files: Vec<(PathBuf, Vec<PathBuf>)> = Vec::with_capacity(valid_roots.len());
+            let mut total_discovered = 0usize;
 
             for root in &valid_roots {
-                // 1. Check if cache exists for this root
-                if let Some(cached_tracks) = load_library_cache(root) {
-                    for t in cached_tracks {
-                        if !crate::config::AppConfig::is_path_or_title_excluded(&exclusions, &t.path, Some(&t.title)) {
-                            all_scanned_tracks.push(t);
-                        }
-                    }
-                    continue;
-                }
-
-                // 2. Discover and probe files for uncached root
-                let files = LibraryScanner::discover_audio_files(root);
-                log::info!("Discovered {} audio files under {}", files.len(), root.display());
-                let mut root_tracks = Vec::with_capacity(files.len());
-                for file in files.iter() {
-                    if crate::config::AppConfig::is_path_or_title_excluded(&exclusions, file, None) {
-                        continue;
-                    }
-                    let entry = TrackEntry::profile_and_index(file);
-                    if !crate::config::AppConfig::is_path_or_title_excluded(&exclusions, &entry.path, Some(&entry.title)) {
-                        root_tracks.push(entry.clone());
-                        all_scanned_tracks.push(entry);
-                    }
-                }
-                let _ = save_library_cache(root, &root_tracks);
+                let files: Vec<PathBuf> = LibraryScanner::discover_audio_files(root)
+                    .into_iter()
+                    .filter(|f| !crate::config::AppConfig::is_path_or_title_excluded(&exclusions, f, None))
+                    .collect();
+                total_discovered += files.len();
+                root_files.push((root.clone(), files));
             }
 
-            if tx.send(ScanEvent::Discovered(all_scanned_tracks.len())).is_err() {
+            log::info!(
+                "Library Scanner: Discovered {} total audio files across {} roots",
+                total_discovered,
+                valid_roots.len()
+            );
+
+            // Immediately notify UI of discovered file count so scan_progress is (0, total)
+            if tx.send(ScanEvent::Discovered(total_discovered)).is_err() {
                 return;
             }
 
-            for t in all_scanned_tracks {
-                if tx.send(ScanEvent::Track(Box::new(t))).is_err() {
-                    return;
+            if total_discovered == 0 {
+                let _ = tx.send(ScanEvent::Finished);
+                return;
+            }
+
+            // Phase 2: Stream cached or fast-probed tracks incrementally
+            for (root, files) in root_files {
+                let mut cached_map: HashMap<PathBuf, TrackEntry> = load_library_cache(&root)
+                    .unwrap_or_default()
+                    .into_iter()
+                    .map(|t| (t.path.clone(), t))
+                    .collect();
+
+                let mut root_tracks = Vec::with_capacity(files.len());
+
+                for (idx, file) in files.into_iter().enumerate() {
+                    let entry = if let Some(existing) = cached_map.remove(&file) {
+                        // Check if file or sidecar has been modified since cached
+                        let sidecar = TrackEntry::sidecar_tweaks_path(&file);
+                        let file_mod = std::fs::metadata(&file).and_then(|m| m.modified()).ok();
+                        let sidecar_mod = std::fs::metadata(&sidecar).and_then(|m| m.modified()).ok();
+
+                        let needs_reprobe = match (file_mod, sidecar_mod) {
+                            (Some(_), _) if existing.duration_ms == 0 => true,
+                            _ => false,
+                        };
+
+                        if needs_reprobe {
+                            let mut probed = TrackEntry::from_probe(&file);
+                            probed.preserve_dsp_from(&existing);
+                            probed
+                        } else {
+                            existing
+                        }
+                    } else {
+                        // Fast metadata probe (< 2ms per file without 90s audio decoding)
+                        TrackEntry::from_probe(&file)
+                    };
+
+                    if !crate::config::AppConfig::is_path_or_title_excluded(
+                        &exclusions,
+                        &entry.path,
+                        Some(&entry.title),
+                    ) {
+                        if tx.send(ScanEvent::Track(Box::new(entry.clone()))).is_err() {
+                            log::warn!(
+                                "Library scan receiver dropped early; saving partial cache for {}",
+                                root.display()
+                            );
+                            let _ = save_library_cache(&root, &root_tracks);
+                            return;
+                        }
+                        root_tracks.push(entry);
+                    }
+
+                    // Incrementally persist cache every 25 tracks
+                    if (idx + 1) % 25 == 0 {
+                        let _ = save_library_cache(&root, &root_tracks);
+                    }
                 }
+
+                // Final save for this root directory
+                let _ = save_library_cache(&root, &root_tracks);
             }
 
             let _ = tx.send(ScanEvent::Finished);
@@ -843,5 +1055,137 @@ mod tests {
         assert!(load_library_cache(&root).is_none());
 
         let _ = std::fs::remove_dir(&root);
+    }
+
+    #[test]
+    fn test_track_entry_from_probe_overlays_sidecar_tweaks() {
+        let temp_dir = std::env::temp_dir().join(format!("attune_sidecar_test_{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&temp_dir);
+        let audio_path = temp_dir.join("track1.m4a");
+        // Create dummy audio file so it exists
+        std::fs::write(&audio_path, b"dummy audio payload").unwrap();
+
+        // Create companion .m4a.tweaks.json sidecar file
+        let sidecar_path = TrackEntry::sidecar_tweaks_path(&audio_path);
+        let tweaks_json = r#"{
+            "title": "Overridden Title",
+            "artist": "Primary Artist",
+            "additional_artists": ["Guest Singer"],
+            "album": "Overridden Album",
+            "genre": "J-Pop",
+            "bpm": 128.5,
+            "musical_key": "C Minor",
+            "composer": "Famous Composer",
+            "picture_path": null
+        }"#;
+        std::fs::write(&sidecar_path, tweaks_json).unwrap();
+
+        let probed = TrackEntry::from_probe(&audio_path);
+        assert_eq!(probed.title, "Overridden Title");
+        assert_eq!(probed.artist, "Primary Artist, Guest Singer");
+        assert_eq!(probed.album, "Overridden Album");
+        assert_eq!(probed.genre, Some("J-Pop".to_string()));
+        assert_eq!(probed.bpm, Some(128.5));
+        assert_eq!(probed.key, Some("C Minor".to_string()));
+        assert_eq!(probed.composer, Some("Famous Composer".to_string()));
+
+        let _ = std::fs::remove_file(sidecar_path);
+        let _ = std::fs::remove_file(audio_path);
+        let _ = std::fs::remove_dir(temp_dir);
+    }
+
+    #[test]
+    fn test_refresh_tracks_in_cache_preserves_dsp_and_updates_in_place() {
+        let root = std::env::temp_dir().join(format!("attune_refresh_test_{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&root);
+        let track_path = root.join("song_a.wav");
+        std::fs::write(&track_path, b"RIFF....").unwrap();
+
+        let mut initial_track = entry("Original Title", "Original Artist", "Original Album");
+        initial_track.path = track_path.clone();
+        initial_track.bpm = Some(140.0);
+        initial_track.key = Some("Am".to_string());
+        initial_track.aggression = Some(0.88);
+        initial_track.vibe_family = Some("Rock".to_string());
+
+        // Save into cache
+        save_library_cache(&root, &[initial_track.clone()]).unwrap();
+
+        // Write sidecar with updated metadata
+        let sidecar = TrackEntry::sidecar_tweaks_path(&track_path);
+        std::fs::write(
+            &sidecar,
+            r#"{"title": "Updated Title", "artist": "Updated Artist", "album": "Updated Album"}"#,
+        )
+        .unwrap();
+
+        // Refresh cache in-place
+        let updated = refresh_tracks_in_cache(&[track_path.clone()]);
+        assert_eq!(updated.len(), 1);
+        assert_eq!(updated[0].title, "Updated Title");
+        assert_eq!(updated[0].artist, "Updated Artist");
+        assert_eq!(updated[0].album, "Updated Album");
+        // Verify DSP fields preserved!
+        assert_eq!(updated[0].bpm, Some(140.0));
+        assert_eq!(updated[0].key, Some("Am".to_string()));
+        assert_eq!(updated[0].aggression, Some(0.88));
+        assert_eq!(updated[0].vibe_family, Some("Rock".to_string()));
+
+        // Verify cache file on disk was updated in-place
+        let loaded = load_library_cache(&root).unwrap();
+        assert_eq!(loaded.len(), 1);
+        assert_eq!(loaded[0].title, "Updated Title");
+        assert_eq!(loaded[0].bpm, Some(140.0));
+        assert_eq!(loaded[0].aggression, Some(0.88));
+
+        let _ = std::fs::remove_file(sidecar);
+        let _ = std::fs::remove_file(track_path);
+        invalidate_library_cache(&root);
+        let _ = std::fs::remove_dir(root);
+    }
+
+    #[test]
+    fn test_spawn_scan_multi_streams_and_caches() {
+        let root = std::env::temp_dir().join(format!("attune_scan_test_{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&root);
+        let track_a = root.join("track_a.mp3");
+        let track_b = root.join("track_b.wav");
+        std::fs::write(&track_a, b"ID3 dummy mp3").unwrap();
+        std::fs::write(&track_b, b"RIFF dummy wav").unwrap();
+
+        let rx = spawn_scan_multi(vec![root.clone()], Vec::new());
+        let mut discovered = 0;
+        let mut track_count = 0;
+        let mut finished = false;
+
+        while let Ok(ev) = rx.recv() {
+            match ev {
+                ScanEvent::Discovered(tot) => {
+                    discovered = tot;
+                }
+                ScanEvent::Track(t) => {
+                    track_count += 1;
+                    assert!(t.title.contains("track_a") || t.title.contains("track_b"));
+                }
+                ScanEvent::Finished => {
+                    finished = true;
+                    break;
+                }
+            }
+        }
+
+        assert_eq!(discovered, 2);
+        assert_eq!(track_count, 2);
+        assert!(finished);
+
+        // Verify cache was automatically created on disk
+        let cached = load_library_cache(&root);
+        assert!(cached.is_some());
+        assert_eq!(cached.unwrap().len(), 2);
+
+        let _ = std::fs::remove_file(track_a);
+        let _ = std::fs::remove_file(track_b);
+        invalidate_library_cache(&root);
+        let _ = std::fs::remove_dir(root);
     }
 }

@@ -2,7 +2,7 @@
 
 - **Project Name**: Attune
 - **Current Phase**: `Phase 6 IN PROGRESS -> Multi-Platform Packaging, Installer Scripting & Distribution Orchestration`
-- **Active Coding Status**: Completed ADR-143: Cross-Distro Linux ELF SONAME Decoupling (`linux_xdo_shim` Runtime `dlopen` Resolver, `-Wl,--as-needed`, `$ORIGIN` `DT_RUNPATH`, AppImage/Tarball `libxdo.so.{3,4}` Bundling & `AppRun` Dynamic SONAME Bridge). Eliminated hard ELF `DT_NEEDED` dependency on `libxdo.so.3` (Ubuntu/Debian) vs `libxdo.so.4` (Arch/Fedora) in `attune-desktop` via `linux_xdo_shim` in `crates/attune-desktop/src/main.rs` and `-Wl,--as-needed` + `$ORIGIN` `DT_RUNPATH` in `crates/attune-desktop/build.rs`. Updated `packaging/linux/build_appimage.sh`, `packaging/linux/AppRun`, and `tools/builder.py` to bundle `libxdo.so.{3,4}`, `libXtst.so.6`, and `libXinerama.so.1` and dynamically bridge SONAME differences across Linux distributions. Verified with `readelf -d` (`libxdo.so` absent from `DT_NEEDED`) and all 119 desktop unit tests.
+- **Active Coding Status**: Completed ADR-145: Non-Destructive In-Place Library Cache Synchronization & Sidecar Overlay Pipeline (`refresh_tracks_in_cache`, `spawn_scan_multi` Fast-Path Streaming, Companion `.tweaks.json` Sidecar Ingestion & Elimination of Destructive Cache Wipes). Fixed album saving bug where songs disappeared from index by replacing `clear_all_library_caches()` and in-memory `tracks.set(Vec::new())` with atomic in-place updating (`refresh_tracks_in_cache`), ingesting companion `.tweaks.json` metadata sidecars in `TrackEntry::from_probe`, and re-architecting `spawn_scan_multi` to stream discovery and fast-probed tracks incrementally without blocking. Verified all 124 desktop unit tests and restored 167-track user library cache.
 
 
 ---

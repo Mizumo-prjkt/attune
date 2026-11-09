@@ -755,8 +755,20 @@ pub fn App() -> Element {
                     queue.set(q);
                 }
 
+                let mut roots = Vec::new();
                 if let Some(ref dir) = *music_dir.read() {
-                    let _ = crate::library::save_library_cache(dir, &all_tracks);
+                    roots.push(dir.clone());
+                }
+                for extra in extra_music_dirs.read().iter() {
+                    if !roots.contains(extra) {
+                        roots.push(extra.clone());
+                    }
+                }
+                for r in &roots {
+                    let r_tracks: Vec<TrackEntry> = all_tracks.iter().filter(|t| t.path.starts_with(r)).cloned().collect();
+                    if !r_tracks.is_empty() {
+                        let _ = crate::library::save_library_cache(r, &r_tracks);
+                    }
                 }
             }
         }
@@ -1669,14 +1681,35 @@ pub fn App() -> Element {
                             AlbumEditor {
                                 group,
                                 on_back: move |_| go_back(),
-                                on_saved: move |_| {
+                                on_saved: move |updated_tracks: Vec<TrackEntry>| {
                                     crate::library::clear_thumbnail_cache();
-                                    crate::library::clear_all_library_caches();
-                                    if let Some(dir) = music_dir.read().clone() {
-                                        tracks.set(Vec::new());
-                                        let rx = library::spawn_scan(dir);
-                                        *scan_rx.write() = Arc::new(Mutex::new(Some(rx)));
-                                        is_scanning.set(true);
+                                    if !updated_tracks.is_empty() {
+                                        let mut curr = tracks.read().clone();
+                                        for updated in &updated_tracks {
+                                            if let Some(pos) = curr.iter().position(|t| t.path == updated.path) {
+                                                curr[pos] = updated.clone();
+                                            }
+                                        }
+                                        tracks.set(curr.clone());
+
+                                        let curr_t_opt = current_track.read().clone();
+                                        if let Some(curr_t) = curr_t_opt {
+                                            if let Some(up) = updated_tracks.iter().find(|t| t.path == curr_t.path) {
+                                                current_track.set(Some(up.clone()));
+                                            }
+                                        }
+
+                                        let mut q = queue.read().clone();
+                                        let mut q_changed = false;
+                                        for qt in &mut q {
+                                            if let Some(up) = updated_tracks.iter().find(|t| t.path == qt.path) {
+                                                *qt = up.clone();
+                                                q_changed = true;
+                                            }
+                                        }
+                                        if q_changed {
+                                            queue.set(q);
+                                        }
                                     }
                                     go_back();
                                 },
