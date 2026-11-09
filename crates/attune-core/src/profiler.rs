@@ -8,17 +8,33 @@ use std::f32::consts::PI;
 
 pub struct AudioProfiler {
     pub hop_size_ms: u32,
+    pub use_gpu: bool,
 }
 
 impl Default for AudioProfiler {
     fn default() -> Self {
-        Self { hop_size_ms: 50 } // 20 Hz
+        Self {
+            hop_size_ms: 50, // 20 Hz
+            use_gpu: false,
+        }
     }
 }
 
 impl AudioProfiler {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    pub fn new_with_gpu(use_gpu: bool) -> Self {
+        Self {
+            hop_size_ms: 50,
+            use_gpu,
+        }
+    }
+
+    pub fn with_gpu(mut self, enabled: bool) -> Self {
+        self.use_gpu = enabled;
+        self
     }
 
     /// Profile an entire track (or head/tail cue zones) into a complete .tap profile
@@ -116,93 +132,150 @@ impl AudioProfiler {
         let mut energy_4band_db = Vec::with_capacity(num_frames);
         let mut aggression_curve = Vec::with_capacity(num_frames);
         let mut instrument_activations = Vec::with_capacity(num_frames);
-
-        let mut input_buf = r2c.make_input_vec();
-        let mut output_spectrum = r2c.make_output_vec();
-
-        let mut prev_spec = vec![0.0f32; fft_len / 2 + 1];
-        let mut mag_spec = vec![0.0f32; fft_len / 2 + 1];
         let mut onset_strengths = Vec::with_capacity(num_frames);
         let mut prev_midi = 0.0f32;
 
-        for frame_idx in 0..num_frames {
-            let offset = frame_idx * hop_size;
-            let frame_slice = &zone_samples[offset..offset + fft_len];
+        let gpu_frames_opt = if self.use_gpu {
+            crate::gpu::try_gpu_spectral_profile(zone_samples, sr, hop_size, fft_len)
+        } else {
+            None
+        };
 
-            for i in 0..fft_len {
-                input_buf[i] = frame_slice[i] * hann_window[i];
-            }
+        if let Some(gpu_frames) = gpu_frames_opt {
+            for (frame_idx, g) in gpu_frames.into_iter().enumerate() {
+                let offset = frame_idx * hop_size;
+                let frame_slice = if offset + fft_len <= zone_samples.len() {
+                    &zone_samples[offset..offset + fft_len]
+                } else {
+                    &[]
+                };
 
-            // FFT
-            r2c.process(&mut input_buf, &mut output_spectrum).ok();
+                let (autocorr_pitch, autocorr_voicing) = if !frame_slice.is_empty() {
+                    estimate_pitch_autocorr(frame_slice, sr)
+                } else {
+                    (0.0, 0.0)
+                };
 
-            for i in 0..mag_spec.len() {
-                mag_spec[i] = output_spectrum[i].norm();
-            }
+                let pitch_hz = if autocorr_pitch > 30.0 { autocorr_pitch } else { g.dominant_pitch_hz };
+                let voicing = autocorr_voicing.max(g.voicing);
 
-            // Layer 1: Pitch & Voicing via Autocorrelation / Peak Picking
-            let (pitch_hz, voicing) = estimate_pitch_autocorr(frame_slice, sr);
-            let midi_cents = if pitch_hz > 30.0 && voicing > 0.4 {
-                6900.0 + 1200.0 * (pitch_hz / 440.0).log2()
-            } else {
-                0.0
-            };
-            f0_midi_cents.push(midi_cents);
-            voicing_confs.push(voicing);
+                let midi_cents = if pitch_hz > 30.0 && voicing > 0.4 {
+                    6900.0 + 1200.0 * (pitch_hz / 440.0).log2()
+                } else {
+                    0.0
+                };
+                f0_midi_cents.push(midi_cents);
+                voicing_confs.push(voicing);
+                chroma_12.push(g.chroma_12);
+                onset_strengths.push(g.spectral_flux);
+                energy_4band_db.push(g.energy_4band_db);
+                aggression_curve.push(g.aggression);
 
-            let pitch_jitter = if midi_cents > 1000.0 && prev_midi > 1000.0 {
-                (midi_cents - prev_midi).abs()
-            } else {
-                0.0
-            };
-            if midi_cents > 1000.0 {
-                prev_midi = midi_cents;
-            }
-
-            // Layer 2: 12-Bin Chroma
-            let chroma = compute_chroma(&mag_spec, sr, fft_len);
-            chroma_12.push(chroma);
-
-            // Layer 3: Onset strength (spectral flux)
-            let mut flux = 0.0f32;
-            for i in 0..mag_spec.len() {
-                let diff = mag_spec[i] - prev_spec[i];
-                if diff > 0.0 {
-                    flux += diff;
+                let pitch_jitter = if midi_cents > 1000.0 && prev_midi > 1000.0 {
+                    (midi_cents - prev_midi).abs()
+                } else {
+                    0.0
+                };
+                if midi_cents > 1000.0 {
+                    prev_midi = midi_cents;
                 }
+
+                let inst = detect_instrument_signatures(
+                    &[],
+                    sr,
+                    fft_len,
+                    voicing,
+                    midi_cents,
+                    pitch_jitter,
+                    g.energy_power,
+                    g.roughness,
+                );
+                instrument_activations.push(inst);
             }
-            onset_strengths.push(flux);
-            prev_spec.copy_from_slice(&mag_spec);
+        } else {
+            let mut input_buf = r2c.make_input_vec();
+            let mut output_spectrum = r2c.make_output_vec();
+            let mut prev_spec = vec![0.0f32; fft_len / 2 + 1];
+            let mut mag_spec = vec![0.0f32; fft_len / 2 + 1];
 
-            // Layer 4: 4-Band Energy (Sub: 20-150, Low-Mid: 150-600, Vocal: 600-4000, Air: 4000-20000)
-            let (e4_power, e4_db) = compute_4band_energy(&mag_spec, sr, fft_len);
-            energy_4band_db.push(e4_db);
+            for frame_idx in 0..num_frames {
+                let offset = frame_idx * hop_size;
+                let frame_slice = &zone_samples[offset..offset + fft_len];
 
-            // Layer 5: Aggression & Timbre
-            let attack_slope = if flux > 0.1 { (flux * 2.0).min(1.0) } else { 0.0 };
-            let roughness = compute_spectral_roughness(&mag_spec, sr, fft_len);
-            let total_power = e4_power[0] + e4_power[1] + e4_power[2] + e4_power[3];
-            let mid_high_ratio = if total_power > 1e-6 {
-                ((e4_power[2] + e4_power[3]) / total_power).clamp(0.0, 1.0)
-            } else {
-                0.0
-            };
-            let aggression = (0.25 * attack_slope + 0.50 * roughness + 0.25 * mid_high_ratio).clamp(0.0, 1.0);
-            aggression_curve.push(aggression);
+                for i in 0..fft_len {
+                    input_buf[i] = frame_slice[i] * hann_window[i];
+                }
 
-            // Instrument activations:
-            // [distorted_guitar, clean_acoustic_piano, brass_horns, synth, clean_vocal, grit_vocal]
-            let inst = detect_instrument_signatures(
-                &mag_spec,
-                sr,
-                fft_len,
-                voicing,
-                midi_cents,
-                pitch_jitter,
-                e4_power,
-                roughness,
-            );
-            instrument_activations.push(inst);
+                // FFT
+                r2c.process(&mut input_buf, &mut output_spectrum).ok();
+
+                for i in 0..mag_spec.len() {
+                    mag_spec[i] = output_spectrum[i].norm();
+                }
+
+                // Layer 1: Pitch & Voicing via Autocorrelation / Peak Picking
+                let (pitch_hz, voicing) = estimate_pitch_autocorr(frame_slice, sr);
+                let midi_cents = if pitch_hz > 30.0 && voicing > 0.4 {
+                    6900.0 + 1200.0 * (pitch_hz / 440.0).log2()
+                } else {
+                    0.0
+                };
+                f0_midi_cents.push(midi_cents);
+                voicing_confs.push(voicing);
+
+                let pitch_jitter = if midi_cents > 1000.0 && prev_midi > 1000.0 {
+                    (midi_cents - prev_midi).abs()
+                } else {
+                    0.0
+                };
+                if midi_cents > 1000.0 {
+                    prev_midi = midi_cents;
+                }
+
+                // Layer 2: 12-Bin Chroma
+                let chroma = compute_chroma(&mag_spec, sr, fft_len);
+                chroma_12.push(chroma);
+
+                // Layer 3: Onset strength (spectral flux)
+                let mut flux = 0.0f32;
+                for i in 0..mag_spec.len() {
+                    let diff = mag_spec[i] - prev_spec[i];
+                    if diff > 0.0 {
+                        flux += diff;
+                    }
+                }
+                onset_strengths.push(flux);
+                prev_spec.copy_from_slice(&mag_spec);
+
+                // Layer 4: 4-Band Energy (Sub: 20-150, Low-Mid: 150-600, Vocal: 600-4000, Air: 4000-20000)
+                let (e4_power, e4_db) = compute_4band_energy(&mag_spec, sr, fft_len);
+                energy_4band_db.push(e4_db);
+
+                // Layer 5: Aggression & Timbre
+                let attack_slope = if flux > 0.1 { (flux * 2.0).min(1.0) } else { 0.0 };
+                let roughness = compute_spectral_roughness(&mag_spec, sr, fft_len);
+                let total_power = e4_power[0] + e4_power[1] + e4_power[2] + e4_power[3];
+                let mid_high_ratio = if total_power > 1e-6 {
+                    ((e4_power[2] + e4_power[3]) / total_power).clamp(0.0, 1.0)
+                } else {
+                    0.0
+                };
+                let aggression = (0.25 * attack_slope + 0.50 * roughness + 0.25 * mid_high_ratio).clamp(0.0, 1.0);
+                aggression_curve.push(aggression);
+
+                // Instrument activations
+                let inst = detect_instrument_signatures(
+                    &mag_spec,
+                    sr,
+                    fft_len,
+                    voicing,
+                    midi_cents,
+                    pitch_jitter,
+                    e4_power,
+                    roughness,
+                );
+                instrument_activations.push(inst);
+            }
         }
 
         // Layer 1 post-processing: Sustained Pitch / Fermata Regions

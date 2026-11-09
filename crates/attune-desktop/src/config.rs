@@ -581,6 +581,15 @@ pub struct GpuCapabilityInfo {
 /// Probes GPU hardware and API capabilities (Vulkan >= 1.1 / OpenCL) with zero hardcoding.
 /// Gracefully falls back to unsupported status if criteria are not met or hardware is legacy.
 pub fn probe_gpu_capabilities() -> GpuCapabilityInfo {
+    if let Some((adapter_name, backend_name)) = attune_core::gpu::get_gpu_device_info() {
+        return GpuCapabilityInfo {
+            is_supported: true,
+            model: adapter_name,
+            api: format!("{backend_name} Compute"),
+            details: "GPU hardware acceleration available for parallel indexing".to_string(),
+        };
+    }
+
     #[cfg(target_os = "linux")]
     {
         let mut model = "Standard Graphics Adapter".to_string();

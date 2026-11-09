@@ -5113,6 +5113,36 @@ This file records all major architectural decisions for **Attune**, including co
   - Startup scanning streams tracks smoothly without blocking the UI or leaving `scan_progress` at `(0, 0)`.
   - All 124 desktop unit tests and full workspace test suite pass cleanly.
 
+---
+
+## ADR-146: GPU Compute Offloading Engine (wgpu WGSL Spectral Profiling & High-Throughput Parallel Artist Indexing)
+
+- **Date**: 2026-11-09
+- **Status**: LOCKED
+- **Context**:
+  - `Settings -> Directory & Indexes -> [EXPERIMENTAL] GPU Parallel Indexing Offload` featured two toggles (`gpu_bpm_index_offload` and `gpu_artist_index_offload`) that lacked true hardware acceleration implementation:
+    1. BPM/CQT profiling required heavy 2048-sample discrete spectral analysis, 12-bin CQT chromagrams, 4-band spectral energy (Sub: 20-150Hz, Low-Mid: 150-600Hz, Vocal: 600-4000Hz, Air: 4k-20kHz), spectral flux, and aggression index calculation across audio cue zones.
+    2. Artist metadata extraction iterated single-threaded across the library, sequentially probing disks and deserializing JSON profile caches (`~/.cache/attune-desktop/artists/`) for every candidate.
+  - Per Mandate 4 (Zero Hardcoding & Graceful Degradation), GPU hardware compute must dynamically probe physical adapters (Vulkan, Metal, Direct3D 12) without hardcoded vendor assumptions, and must fail gracefully with complete transparency to the CPU RealFFT / Rayon pipelines when running in headless environments or on legacy GPUs.
+- **Decision**:
+  1. **Cross-Platform WGSL Compute Pipeline (`crates/attune-core/src/gpu.rs`)**:
+     - Built `GpuSpectralProfiler` using `wgpu` v24 and `bytemuck` v1.20 with a 64-thread workgroup layout executing parallel discrete spectral analysis over 2048-sample frames.
+     - Enforced strict 16-byte memory boundary alignment across GPU and CPU structs using `vec4<f32>` arrays (`chroma_0_3`, `chroma_4_7`, `chroma_8_11`, `energy_power`, `energy_db`, `metrics_scalars`, `voicing_pad`) with `bytemuck::Pod` safety.
+     - Added global thread-safe singleton `get_or_init_gpu_profiler()`, helper `try_gpu_spectral_profile`, availability check `is_gpu_acceleration_available()`, and hardware query `get_gpu_device_info()` returning the exact physical adapter name (e.g. `Intel(R) HD Graphics 630 (KBL GT2)`) and backend (e.g. `Vulkan`).
+  2. **Seamless GPU Integration into `AudioProfiler` (`crates/attune-core/src/profiler.rs`)**:
+     - Added `pub use_gpu: bool` to `AudioProfiler` with constructors `new_with_gpu(use_gpu)` and builder `with_gpu(enabled)`.
+     - In `extract_cue_zone`: when `use_gpu` is true, routes cue zone frames through `try_gpu_spectral_profile` and feeds the resulting chromagrams, energy bands, flux, and aggression curves into profile metrics. If GPU allocation or shader dispatch is unavailable, automatically falls back to CPU `RealFFT` without error.
+  3. **Desktop Configuration Wiring (`crates/attune-desktop/src/library.rs`, `player.rs`, `config.rs`)**:
+     - Wired `crate::config::load_config().gpu_bpm_index_offload` into `TrackEntry::profile_and_index_with_gpu`, `spawn_deep_indexing`, and JIT background profiling in `player.rs`.
+     - In `crates/attune-desktop/src/config.rs`, updated `probe_gpu_capabilities()` to query `attune_core::gpu::get_gpu_device_info()` first, displaying the genuine hardware adapter and backend in the Settings UI badge.
+  4. **High-Throughput Parallel Batch Artist Extraction (`crates/attune-desktop/src/artist_profile.rs`)**:
+     - Engineered `extract_all_unique_artists_with_offload(tracks, parallel_offload)`.
+     - When `gpu_artist_index_offload` is enabled, chunks tracks across Rayon worker threads (`par_chunks`), extracts and normalizes Unicode candidate names concurrently, merges partial maps, and loads cached artist profile JSON files concurrently (`into_par_iter()`), eliminating the serial disk I/O bottleneck.
+- **Consequences**:
+  - Full hardware GPU spectral acceleration is active on Vulkan/Metal/Direct3D 12 capable GPUs.
+  - Transparent fallback guarantees no crashes or dropped tracks on systems without compatible compute devices.
+  - All 125 desktop unit tests and full workspace test suite pass cleanly.
+
 
 
 

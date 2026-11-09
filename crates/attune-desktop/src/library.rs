@@ -431,6 +431,12 @@ impl TrackEntry {
     /// Performs deep 5-layer audio profiling using `AudioProfiler` if BPM or Key
     /// are not already provided in ID3 tags.
     pub fn profile_and_index(path: &Path) -> Self {
+        let use_gpu = crate::config::load_config().gpu_bpm_index_offload;
+        Self::profile_and_index_with_gpu(path, use_gpu)
+    }
+
+    /// Performs deep 5-layer audio profiling using `AudioProfiler` with explicit GPU offload preference.
+    pub fn profile_and_index_with_gpu(path: &Path, use_gpu: bool) -> Self {
         let mut entry = Self::from_probe(path);
 
         let need_bpm = entry.bpm.map(|b| b < 10.0).unwrap_or(true);
@@ -446,7 +452,7 @@ impl TrackEntry {
                 if entry.duration_ms == 0 {
                     entry.duration_ms = dur_ms;
                 }
-                let profiler = AudioProfiler::new();
+                let profiler = AudioProfiler::new_with_gpu(use_gpu);
                 let tap = profiler.profile_track(&head, &path.to_string_lossy(), AnalysisTier::FastHeadTail);
 
                 if need_bpm && tap.global_summary.nominal_bpm > 10.0 {
@@ -729,6 +735,7 @@ pub fn spawn_deep_indexing(root: PathBuf, reindex_all: bool) -> Receiver<Indexin
                 HashMap::new()
             };
 
+            let use_gpu = crate::config::load_config().gpu_bpm_index_offload;
             let mut indexed_tracks = Vec::with_capacity(total);
             let mut lossless_count = 0usize;
 
@@ -747,10 +754,10 @@ pub fn spawn_deep_indexing(root: PathBuf, reindex_all: bool) -> Receiver<Indexin
                     if has_bpm && has_key {
                         existing.clone()
                     } else {
-                        TrackEntry::profile_and_index(file)
+                        TrackEntry::profile_and_index_with_gpu(file, use_gpu)
                     }
                 } else {
-                    TrackEntry::profile_and_index(file)
+                    TrackEntry::profile_and_index_with_gpu(file, use_gpu)
                 };
 
                 if entry.format == "FLAC" || entry.format == "WAV" || entry.format == "ALAC" {

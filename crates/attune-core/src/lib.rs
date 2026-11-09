@@ -8,10 +8,12 @@ pub mod renderer;
 pub mod engine;
 pub mod cache;
 pub mod generative;
+pub mod gpu;
 
 pub use audio::{AudioBuffer, AudioDecoder, AudioError, TrackMetadataProbe};
 pub use schema::{EndingType, TrackAnalysisProfile, TransitionRecipe};
 pub use profiler::AudioProfiler;
+pub use gpu::{is_gpu_acceleration_available, try_gpu_spectral_profile, GpuSpectralProfiler};
 pub use planner::TransitionPlanner;
 pub use renderer::TransitionRenderer;
 pub use engine::{DualDeckMixer, Deck, DeckId, DeckState, JitPlanner, AudioOutputDriver, ExternalDspStatus, probe_external_dsp, MasterFxParams, MasterFxRack, EQ_BANDS_COUNT, EQ_CENTER_FREQS};

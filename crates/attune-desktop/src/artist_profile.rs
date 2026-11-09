@@ -886,55 +886,136 @@ pub fn track_has_artist(track: &TrackEntry, target_artist: &str) -> bool {
 /// Extracts all unique individual artists across all tracks in the library,
 /// pinpointing artists using '&', 'feat.', 'ft.', commas, and title featured clauses.
 pub fn extract_all_unique_artists(tracks: &[TrackEntry]) -> Vec<ArtistSummary> {
+    let offload = crate::config::load_config().gpu_artist_index_offload;
+    extract_all_unique_artists_with_offload(tracks, offload)
+}
+
+/// Extracts all unique individual artists across all tracks in the library,
+/// optionally offloading batch parsing and JSON cache resolution in parallel threads.
+pub fn extract_all_unique_artists_with_offload(tracks: &[TrackEntry], parallel_offload: bool) -> Vec<ArtistSummary> {
     use std::collections::HashSet;
+    use rayon::prelude::*;
 
     let mut artist_map: HashMap<String, (Vec<TrackEntry>, HashSet<String>)> = HashMap::new();
     let mut canonical_names: HashMap<String, String> = HashMap::new();
 
-    for track in tracks {
-        let artists = extract_all_artists_from_track(track);
-        for artist in artists {
-            if is_ignorable_artist(&artist) {
-                continue;
-            }
-
-            let key = canonical_artist_key(&artist);
-            if let Some(existing) = canonical_names.get_mut(&key) {
-                if should_prefer_casing(&artist, existing) {
-                    *existing = artist.clone();
+    if parallel_offload && tracks.len() > 16 {
+        let chunk_size = (tracks.len() / rayon::current_num_threads()).max(16);
+        let partial_maps: Vec<HashMap<String, (String, Vec<TrackEntry>, HashSet<String>)>> = tracks
+            .par_chunks(chunk_size)
+            .map(|chunk| {
+                let mut local_map: HashMap<String, (String, Vec<TrackEntry>, HashSet<String>)> = HashMap::new();
+                for track in chunk {
+                    let artists = extract_all_artists_from_track(track);
+                    for artist in artists {
+                        if is_ignorable_artist(&artist) {
+                            continue;
+                        }
+                        let key = canonical_artist_key(&artist);
+                        let entry = local_map.entry(key).or_insert_with(|| (artist.clone(), Vec::new(), HashSet::new()));
+                        if should_prefer_casing(&artist, &entry.0) {
+                            entry.0 = artist.clone();
+                        }
+                        if !entry.1.iter().any(|t| t.path == track.path) {
+                            entry.1.push(track.clone());
+                        }
+                        entry.2.insert(track.album.clone());
+                    }
                 }
-            } else {
-                canonical_names.insert(key.clone(), artist.clone());
-            }
+                local_map
+            })
+            .collect();
 
-            let entry = artist_map.entry(key).or_insert_with(|| (Vec::new(), HashSet::new()));
-            if !entry.0.iter().any(|t| t.path == track.path) {
-                entry.0.push(track.clone());
+        for partial in partial_maps {
+            for (key, (c_name, p_tracks, p_albums)) in partial {
+                if let Some(existing) = canonical_names.get_mut(&key) {
+                    if should_prefer_casing(&c_name, existing) {
+                        *existing = c_name;
+                    }
+                } else {
+                    canonical_names.insert(key.clone(), c_name);
+                }
+
+                let entry = artist_map.entry(key).or_insert_with(|| (Vec::new(), HashSet::new()));
+                for t in p_tracks {
+                    if !entry.0.iter().any(|exist| exist.path == t.path) {
+                        entry.0.push(t);
+                    }
+                }
+                entry.1.extend(p_albums);
             }
-            entry.1.insert(track.album.clone());
+        }
+    } else {
+        for track in tracks {
+            let artists = extract_all_artists_from_track(track);
+            for artist in artists {
+                if is_ignorable_artist(&artist) {
+                    continue;
+                }
+
+                let key = canonical_artist_key(&artist);
+                if let Some(existing) = canonical_names.get_mut(&key) {
+                    if should_prefer_casing(&artist, existing) {
+                        *existing = artist.clone();
+                    }
+                } else {
+                    canonical_names.insert(key.clone(), artist.clone());
+                }
+
+                let entry = artist_map.entry(key).or_insert_with(|| (Vec::new(), HashSet::new()));
+                if !entry.0.iter().any(|t| t.path == track.path) {
+                    entry.0.push(track.clone());
+                }
+                entry.1.insert(track.album.clone());
+            }
         }
     }
 
-    let mut list: Vec<ArtistSummary> = artist_map
-        .into_iter()
-        .map(|(key, (artist_tracks, albums))| {
-            let name = canonical_names.get(&key).cloned().unwrap_or(key);
-            let fallback_artwork_url = artist_tracks.iter().find_map(|t| t.artwork_data_url.clone());
-            let cached_profile = load_cached_artist_profile(&name);
-            let is_verified = cached_profile.as_ref().map_or(false, |p| p.is_verified());
-            let photo_url = cached_profile.and_then(|p| p.image_url);
-            let sample_track = artist_tracks[0].clone();
-            ArtistSummary {
-                name,
-                track_count: artist_tracks.len(),
-                album_count: albums.len(),
-                sample_track,
-                fallback_artwork_url,
-                photo_url,
-                is_verified,
-            }
-        })
-        .collect();
+    let artist_entries: Vec<(String, (Vec<TrackEntry>, HashSet<String>))> = artist_map.into_iter().collect();
+
+    let mut list: Vec<ArtistSummary> = if parallel_offload && artist_entries.len() > 4 {
+        artist_entries
+            .into_par_iter()
+            .map(|(key, (artist_tracks, albums))| {
+                let name = canonical_names.get(&key).cloned().unwrap_or(key);
+                let fallback_artwork_url = artist_tracks.iter().find_map(|t| t.artwork_data_url.clone());
+                let cached_profile = load_cached_artist_profile(&name);
+                let is_verified = cached_profile.as_ref().map_or(false, |p| p.is_verified());
+                let photo_url = cached_profile.and_then(|p| p.image_url);
+                let sample_track = artist_tracks[0].clone();
+                ArtistSummary {
+                    name,
+                    track_count: artist_tracks.len(),
+                    album_count: albums.len(),
+                    sample_track,
+                    fallback_artwork_url,
+                    photo_url,
+                    is_verified,
+                }
+            })
+            .collect()
+    } else {
+        artist_entries
+            .into_iter()
+            .map(|(key, (artist_tracks, albums))| {
+                let name = canonical_names.get(&key).cloned().unwrap_or(key);
+                let fallback_artwork_url = artist_tracks.iter().find_map(|t| t.artwork_data_url.clone());
+                let cached_profile = load_cached_artist_profile(&name);
+                let is_verified = cached_profile.as_ref().map_or(false, |p| p.is_verified());
+                let photo_url = cached_profile.and_then(|p| p.image_url);
+                let sample_track = artist_tracks[0].clone();
+                ArtistSummary {
+                    name,
+                    track_count: artist_tracks.len(),
+                    album_count: albums.len(),
+                    sample_track,
+                    fallback_artwork_url,
+                    photo_url,
+                    is_verified,
+                }
+            })
+            .collect()
+    };
 
     list.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
     list
@@ -1979,5 +2060,30 @@ mod tests {
         assert!(cands[0].description.as_deref().unwrap_or("").contains("Electronic DSP Group"));
         assert!(cands[0].description.as_deref().unwrap_or("").contains("Country: JP"));
         assert!(cands[0].bio.as_deref().unwrap_or("").contains("アチューン"));
+    }
+
+    #[test]
+    fn test_extract_all_unique_artists_parallel_offload() {
+        let mut tracks = Vec::new();
+        for i in 0..50 {
+            let artist = match i % 5 {
+                0 => "Hatsune Miku",
+                1 => "DECO*27 feat. Hatsune Miku",
+                2 => "PinocchioP, DECO*27",
+                3 => "KASANE TETO & Ui",
+                _ => "Unknown Contributor",
+            };
+            tracks.push(make_test_track(&format!("Song {i}"), artist, &format!("Album {}", i % 3), 180000));
+        }
+
+        let seq_summaries = extract_all_unique_artists_with_offload(&tracks, false);
+        let par_summaries = extract_all_unique_artists_with_offload(&tracks, true);
+
+        assert_eq!(seq_summaries.len(), par_summaries.len());
+        for (s, p) in seq_summaries.iter().zip(par_summaries.iter()) {
+            assert_eq!(s.name, p.name);
+            assert_eq!(s.track_count, p.track_count);
+            assert_eq!(s.album_count, p.album_count);
+        }
     }
 }

@@ -20,3 +20,6 @@ symphonia = { workspace = true }
 cpal = "0.18.2"
 rusqlite = { workspace = true }
 rayon = { workspace = true }
+wgpu = { workspace = true }
+bytemuck = { workspace = true }
+pollster = "0.4"

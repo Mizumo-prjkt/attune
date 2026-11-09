@@ -34,3 +34,5 @@ rusqlite = { version = "0.34", features = ["bundled"] }
 tiny_http = "0.12"
 ureq = { version = "2.12", default-features = false }
 rayon = "1.12"
+wgpu = "24"
+bytemuck = { version = "1.20", features = ["derive"] }
