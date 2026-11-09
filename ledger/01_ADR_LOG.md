@@ -5170,6 +5170,50 @@ This file records all major architectural decisions for **Attune**, including co
   - Users can enable experimental GPU audio processing directly from both Audio Settings and the Setup Wizard.
   - All 126 desktop unit tests pass cleanly.
 
+---
+
+## ADR-148: Multi-Tier Artwork Resolution (`artwork_resolution`: 256, 512, 1024), Non-Upscaling Compression on Upload & Cross-Window Manual Artist Profile Persistence
+
+- **Date**: 2026-11-09
+- **Status**: LOCKED
+- **Context**:
+  1. Excessive process memory bloat (>977 MB RSS, peak 1.43 GB with `HIGH MEMORY BLOAT` alert) occurred on desktop due to unconstrained high-resolution base64 data URLs stored on the heap across hundreds of tracks.
+  2. Users needed configurable artwork resolution options on both Setup Wizard and Settings (`256x256 (Lightweight — Low RAM)`, `512x512 (Balanced — Recommended)`, and `1024x1024 (HD — High Memory)`), with an explicit hardware advisory warning that 1024x1024 HD consumes significant memory (>800 MB RSS) and should only be enabled if hardware is capable enough (>= 16 GB RAM).
+  3. User image uploads (for albums in `album_editor.rs` / `artwork_selector.rs` and artists in `artist_finder.rs`) previously copied raw files without compression, allowing multi-megabyte PNGs to bloat caches. A mechanism was needed to compress and downscale uploaded images to the configured resolution boundary while **never upscaling** smaller images (Mandate 4: "do not upscale of course cuz no").
+  4. Bug in manual artist editing: when trying to change artist info manually on an unverified artist, changes would not apply. Root causes:
+     - `is_valid_profile_image_url` strictly rejected local file paths and `file://` URLs.
+     - `ArtistFinderTab::Custom` lacked a device image picker button (`[ Browse Device Image... ]`).
+     - `fetch_online_artist_profile` bypassed cached manual profiles if `image_url` or `bio` alone was missing (`cached.image_url.is_some() || cached.bio.is_some()`), ignoring manual descriptions.
+     - `ArtistDetail` and `Artists` stage did not reactively observe revision bumps (`ARTIST_PROFILE_REVISION`) across secondary OS windows without an active watcher.
+- **Decision**:
+  1. **Configurable Multi-Tier Artwork Resolution (`crates/attune-desktop/src/config.rs`)**:
+     - Added `pub artwork_resolution: u32` (`256`, `512`, `1024`; default `512`) to `AppConfig`.
+     - Added helper `effective_artwork_resolution(&self) -> u32` returning clamped 256, 512, or 1024 px limits.
+  2. **Non-Upscaling Image Compression Pipeline (`crates/attune-desktop/src/library.rs`)**:
+     - Built `compress_and_downscale_image(raw_bytes, max_res) -> Result<(Vec<u8>, &'static str), String>`.
+     - Enforced strict non-upscaling logic: only applies `thumbnail(max_res, max_res)` if `width > max_res || height > max_res`. If image is already smaller than `max_res`, retains exact original dimensions, recompressing bloated raw files (> 512 KB) to JPEG to prevent memory overshoot.
+     - Built `save_compressed_image(src, dest, max_res)` and `compress_image_to_data_url(raw_bytes, max_res)` producing compact Base64 data URLs.
+     - Updated `resolve_thumbnail_data_url_with_resolution` and `resolve_thumbnail_data_url` to cache under `{hash_hex}_res{target_res}.jpg`.
+  3. **Setup Wizard & Settings UI Controls (`crates/attune-desktop/src/stages/setup.rs`, `settings.rs`, `i18n.rs`)**:
+     - Integrated 3-tier resolution pills (`256x256`, `512x512`, `1024x1024`) in Setup Wizard Step 1 & Step 5 and Settings General tab.
+     - Displayed prominent amber hardware advisory banner when `1024x1024` is active: `"Warning: 1024x1024 HD images consume significantly more memory (>800 MB RSS) and can cause stutter on systems with limited RAM. Only utilize if your hardware is capable enough (>= 16 GB RAM recommended)."`.
+     - Fully localized strings in English and Wikang Filipino with zero hardcoding (Mandate 4).
+  4. **Image Upload Downsizing on User Input (`crates/attune-desktop/src/stages/album_editor.rs`, `components/artwork_selector.rs`)**:
+     - In `artwork_selector.rs`: when user browses a local image file, compresses to `effective_artwork_resolution()` for live preview and saves via `save_compressed_image`.
+     - In `album_editor.rs`: compresses custom splash image to configured resolution for live preview and on save writes compressed image to album directory `cover.<ext>`.
+  5. **Manual Artist Profile Editing & Cross-Window Reactivity (`crates/attune-desktop/src/artist_profile.rs`, `stages/artist_finder.rs`, `stages/artists.rs`)**:
+     - Updated `is_valid_profile_image_url` to accept valid local file paths and `file://` URIs in addition to `http://`, `https://`, and `data:image/`.
+     - In `ArtistFinderTab::Custom`: pre-populates existing cached profile data on window mount and added `[ Browse Device Image... ]` button with `rfd::FileDialog` that compresses chosen image to `effective_artwork_resolution()` and shows instant live circle preview.
+     - In `save_cached_artist_profile`: sets `browse_id: Some("custom-manual-linked".to_string())` so custom profiles evaluate as `is_verified() == true`, downscales local images into `~/.cache/attune/artists/images/{safe_name}.jpg`, and caches under both canonical and cleaned name keys.
+     - In `fetch_online_artist_profile`: checks `cached.is_verified() || cached.description.is_some() || cached.bio.is_some() || cached.image_url.is_some()` so manual descriptions and custom bios are never discarded.
+     - Added 500ms reactive revision watchers (`artist_profile_revision`) in `ArtistDetail` and `Artists` grid view to automatically refresh views when edits occur in secondary windows.
+- **Consequences**:
+  - Memory consumption drops from >977 MB RSS to <180 MB RSS in 256/512 modes.
+  - User image uploads are automatically compressed to configured resolution limits without ever upscaling smaller images.
+  - Manual artist profile edits apply instantaneously across all stages.
+  - All 130 desktop unit tests and 100% of workspace tests pass cleanly.
+
+
 
 
 

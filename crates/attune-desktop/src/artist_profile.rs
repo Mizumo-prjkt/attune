@@ -64,7 +64,12 @@ pub fn is_valid_profile_image_url(url: &str) -> bool {
     if u.is_empty() || u.contains("example.com") {
         return false;
     }
-    u.starts_with("http://") || u.starts_with("https://") || u.starts_with("data:image/")
+    if u.starts_with("http://") || u.starts_with("https://") || u.starts_with("data:image/") || u.starts_with("file://") {
+        return true;
+    }
+    // Accept valid local image file paths
+    let p = std::path::Path::new(u);
+    p.is_file()
 }
 
 /// Unicode character altmap and normalization for artist names.
@@ -197,6 +202,18 @@ pub fn load_cached_artist_profile(artist_name: &str) -> Option<OnlineArtistInfo>
             }
             return Some(info);
         }
+        let clean_key = clean_primary_artist(artist_name).to_lowercase();
+        if !clean_key.is_empty() {
+            if let Some(entry) = cache.get(&clean_key) {
+                let mut info = entry.clone();
+                if let Some(ref img) = info.image_url {
+                    if !is_valid_profile_image_url(img) {
+                        info.image_url = None;
+                    }
+                }
+                return Some(info);
+            }
+        }
     }
 
     // 2. Disk cache
@@ -230,14 +247,59 @@ pub fn save_cached_artist_profile(artist_name: &str, info: &OnlineArtistInfo) {
     }
 
     let mut sanitized = info.clone();
+
+    // Ensure manual or custom linked profiles carry verified status
+    if sanitized.browse_id.is_none() {
+        sanitized.browse_id = Some("custom-manual-linked".to_string());
+    }
+
+    // If image_url points to a local file, downscale/compress it to cache and store as Data URL
     if let Some(ref img) = sanitized.image_url {
-        if !is_valid_profile_image_url(img) {
+        let trimmed = img.trim();
+        let local_path = if trimmed.starts_with("file://") {
+            Some(std::path::PathBuf::from(&trimmed[7..]))
+        } else if std::path::Path::new(trimmed).is_file() {
+            Some(std::path::PathBuf::from(trimmed))
+        } else {
+            None
+        };
+
+        if let Some(src_p) = local_path {
+            let clean = clean_primary_artist(artist_name);
+            let safe_name: String = clean
+                .chars()
+                .map(|c| if c.is_alphanumeric() || c == '_' || c == '-' { c } else { '_' })
+                .collect();
+            let img_dir = dirs::cache_dir()
+                .unwrap_or_else(|| std::path::PathBuf::from("/tmp"))
+                .join("attune")
+                .join("artists")
+                .join("images");
+            let dest_img = img_dir.join(format!("{safe_name}.jpg"));
+            let max_res = crate::config::load_config().effective_artwork_resolution();
+
+            if crate::library::save_compressed_image(&src_p, &dest_img, max_res).is_ok() {
+                if let Ok(bytes) = std::fs::read(&dest_img) {
+                    if let Some(data_url) = crate::library::compress_image_to_data_url(&bytes, max_res) {
+                        sanitized.image_url = Some(data_url);
+                    } else {
+                        sanitized.image_url = Some(format!("file://{}", dest_img.to_string_lossy()));
+                    }
+                } else {
+                    sanitized.image_url = Some(format!("file://{}", dest_img.to_string_lossy()));
+                }
+            }
+        } else if !is_valid_profile_image_url(trimmed) {
             sanitized.image_url = None;
         }
     }
 
+    let clean_key = clean_primary_artist(artist_name).to_lowercase();
     if let Ok(mut cache) = ARTIST_PROFILE_CACHE.write() {
         cache.insert(key, sanitized.clone());
+        if !clean_key.is_empty() {
+            cache.insert(clean_key, sanitized.clone());
+        }
     }
 
     let clean = clean_primary_artist(artist_name);
@@ -1485,7 +1547,7 @@ pub fn fetch_online_artist_profile(artist: &str, force_refresh: bool) -> OnlineA
     // 1. Check cache
     if !force_refresh {
         if let Some(cached) = load_cached_artist_profile(&clean) {
-            if cached.image_url.is_some() || cached.bio.is_some() {
+            if cached.is_verified() || cached.description.is_some() || cached.bio.is_some() || cached.image_url.is_some() {
                 return cached;
             }
         }
@@ -2084,6 +2146,48 @@ mod tests {
             assert_eq!(s.name, p.name);
             assert_eq!(s.track_count, p.track_count);
             assert_eq!(s.album_count, p.album_count);
+        }
+    }
+
+    #[test]
+    fn test_is_valid_profile_image_url_accepts_data_url_and_local() {
+        assert!(is_valid_profile_image_url("https://images.google.com/avatar.jpg"));
+        assert!(is_valid_profile_image_url("http://cdn.example.org/photo.png"));
+        assert!(!is_valid_profile_image_url("http://example.com/bogus.jpg"));
+        assert!(is_valid_profile_image_url("data:image/jpeg;base64,/9j/4AAQSkZJRg=="));
+        assert!(is_valid_profile_image_url("file:///home/user/Pictures/artist.jpg"));
+        assert!(!is_valid_profile_image_url(""));
+        assert!(!is_valid_profile_image_url("   "));
+    }
+
+    #[test]
+    fn test_save_and_load_manual_unverified_artist_profile() {
+        let test_artist = "Manual Indie Producer";
+        let info = OnlineArtistInfo {
+            name: Some(test_artist.to_string()),
+            description: Some("Independent Chiptune Artist".to_string()),
+            bio: Some("Produces 8-bit synthetic tunes".to_string()),
+            image_url: Some("data:image/jpeg;base64,/9j/4AAQSkZJRg==".to_string()),
+            banner_url: None,
+            subscribers: None,
+            views: None,
+            browse_id: Some("custom-manual-linked".to_string()),
+        };
+
+        save_cached_artist_profile(test_artist, &info);
+
+        let loaded = load_cached_artist_profile(test_artist).expect("profile loaded");
+        assert!(loaded.is_verified());
+        assert_eq!(loaded.description.as_deref(), Some("Independent Chiptune Artist"));
+        assert_eq!(loaded.bio.as_deref(), Some("Produces 8-bit synthetic tunes"));
+
+        let online = fetch_online_artist_profile(test_artist, false);
+        assert!(online.is_verified());
+        assert_eq!(online.description.as_deref(), Some("Independent Chiptune Artist"));
+
+        // Cleanup
+        if let Some(path) = artist_cache_file_path(test_artist) {
+            let _ = std::fs::remove_file(path);
         }
     }
 }

@@ -140,15 +140,19 @@ pub fn AlbumEditor(
 
                                 let mut effective_cover_path: Option<std::path::PathBuf> = None;
 
-                                // If new splash art was picked, copy it to the album directory as cover.<ext>
+                                // If new splash art was picked, compress and copy it to the album directory as cover.<ext>
                                 if let Some(splash_src) = new_splash.as_ref() {
                                     if let Some(first_track) = tracks.first() {
                                         if let Some(parent) = first_track.path.parent() {
                                             let ext = splash_src.extension().and_then(|e| e.to_str()).unwrap_or("jpg");
                                             let dest = parent.join(format!("cover.{}", ext));
-                                            if splash_src != &dest {
-                                                if let Err(e) = std::fs::copy(splash_src, &dest) {
-                                                    log::error!("AlbumEditor: Failed to copy cover art to {}: {}", dest.display(), e);
+                                            let max_res = crate::config::load_config().effective_artwork_resolution();
+                                            if let Err(e) = crate::library::save_compressed_image(splash_src, &dest, max_res) {
+                                                log::warn!("AlbumEditor: save_compressed_image failed: {e}; falling back to copy");
+                                                if splash_src != &dest {
+                                                    if let Err(e) = std::fs::copy(splash_src, &dest) {
+                                                        log::error!("AlbumEditor: Failed to copy cover art to {}: {}", dest.display(), e);
+                                                    }
                                                 }
                                             }
                                             if dest.is_file() {
@@ -259,18 +263,23 @@ pub fn AlbumEditor(
                                 .pick_file()
                             {
                                 custom_splash_path.set(Some(path.clone()));
-                                // Convert to base64 Data URL for instant live preview
+                                // Convert to compressed base64 Data URL for instant live preview
+                                let max_res = crate::config::load_config().effective_artwork_resolution();
                                 if let Ok(bytes) = std::fs::read(&path) {
-                                    use base64::Engine;
-                                    let b64 = base64::engine::general_purpose::STANDARD.encode(&bytes);
-                                    let mime = if path.extension().and_then(|e| e.to_str()).unwrap_or("").eq_ignore_ascii_case("png") {
-                                        "image/png"
-                                    } else if path.extension().and_then(|e| e.to_str()).unwrap_or("").eq_ignore_ascii_case("webp") {
-                                        "image/webp"
+                                    if let Some(url) = crate::library::compress_image_to_data_url(&bytes, max_res) {
+                                        custom_splash_data_url.set(Some(url));
                                     } else {
-                                        "image/jpeg"
-                                    };
-                                    custom_splash_data_url.set(Some(format!("data:{};base64,{}", mime, b64)));
+                                        use base64::Engine;
+                                        let b64 = base64::engine::general_purpose::STANDARD.encode(&bytes);
+                                        let mime = if path.extension().and_then(|e| e.to_str()).unwrap_or("").eq_ignore_ascii_case("png") {
+                                            "image/png"
+                                        } else if path.extension().and_then(|e| e.to_str()).unwrap_or("").eq_ignore_ascii_case("webp") {
+                                            "image/webp"
+                                        } else {
+                                            "image/jpeg"
+                                        };
+                                        custom_splash_data_url.set(Some(format!("data:{};base64,{}", mime, b64)));
+                                    }
                                 }
                             }
                         },

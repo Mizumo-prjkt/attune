@@ -47,6 +47,7 @@ fn default_align_left() -> String { "left".to_string() }
 fn default_layout_side() -> String { "left".to_string() }
 fn default_dock_lyrics_font_size() -> u32 { 16 }
 fn default_fullscreen_lyrics_font_size() -> u32 { 28 }
+fn default_artwork_resolution() -> u32 { 512 }
 
 pub const PRESET_SPOTLIGHT_BLUR: &str = r#"/* Spotlight Depth Blur (Better Lyrics Inspired) */
 .fullscreen-lyric-inactive {
@@ -148,6 +149,8 @@ pub struct AppConfig {
     pub auto_scroll_long_text: bool,
     #[serde(default = "default_true")]
     pub high_quality_thumbnails: bool,
+    #[serde(default = "default_artwork_resolution")]
+    pub artwork_resolution: u32,
     #[serde(default = "default_true")]
     pub fetch_youtube_thumbnails: bool,
 
@@ -235,6 +238,7 @@ impl Default for AppConfig {
             system_media_toast: true,
             auto_scroll_long_text: true,
             high_quality_thumbnails: true,
+            artwork_resolution: 512,
             fetch_youtube_thumbnails: true,
             force_32bit_float: false,
             skip_silence: false,
@@ -270,6 +274,15 @@ impl Default for AppConfig {
 }
 
 impl AppConfig {
+    /// Returns the active artwork resolution limit in pixels (256, 512, or 1024; defaults to 512).
+    pub fn effective_artwork_resolution(&self) -> u32 {
+        match self.artwork_resolution {
+            256 => 256,
+            1024 => 1024,
+            _ => 512,
+        }
+    }
+
     /// Returns all configured music directories: primary `music_dir` followed by any `extra_music_dirs`.
     pub fn all_music_dirs(&self) -> Vec<PathBuf> {
         let mut dirs = Vec::new();
@@ -838,13 +851,18 @@ mod tests {
         assert_eq!(loaded.dock_lyrics_font_size, 16);
         assert_eq!(loaded.fullscreen_lyrics_font_size, 28);
         assert_eq!(loaded.app_font_family, "system");
+        assert_eq!(loaded.artwork_resolution, 512);
+        assert_eq!(loaded.effective_artwork_resolution(), 512);
 
         cfg.auto_scroll_long_text = false;
         cfg.gpu_audio_processing = true;
+        cfg.artwork_resolution = 1024;
         let json2 = serde_json::to_string(&cfg).unwrap();
         let loaded2: AppConfig = serde_json::from_str(&json2).unwrap();
         assert!(!loaded2.auto_scroll_long_text);
         assert!(loaded2.gpu_audio_processing);
+        assert_eq!(loaded2.artwork_resolution, 1024);
+        assert_eq!(loaded2.effective_artwork_resolution(), 1024);
     }
 
     #[test]

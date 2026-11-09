@@ -31,16 +31,70 @@ pub fn clear_thumbnail_cache() {
     crate::theme::clear_palette_cache();
 }
 
-/// Resolves an album cover to a Base64 Data URL, supporting both high-quality mode (up to 1024x1024 HD)
-/// and lightweight mode (~160x160 JPEG).
-/// Deduplicates across tracks in the same album to eliminate memory bloat on library scan.
-pub fn resolve_thumbnail_data_url_with_quality(art_p: &Path, high_quality: bool) -> Option<String> {
+/// Downscales and compresses image bytes to match the target maximum resolution boundary (256, 512, or 1024).
+/// Never upscales smaller images. Preserves original dimensions when image is already within bounds.
+pub fn compress_and_downscale_image(raw_bytes: &[u8], max_res: u32) -> Result<(Vec<u8>, &'static str), String> {
+    let img = image::load_from_memory(raw_bytes).map_err(|e| format!("Failed to decode image: {e}"))?;
+    let (w, h) = (img.width(), img.height());
+
+    // Strict mandate: never upscale. Only downscale if width or height exceeds max_res boundary.
+    if w > max_res || h > max_res {
+        let thumb = img.thumbnail(max_res, max_res);
+        let mut out = Vec::new();
+        let mut cursor = std::io::Cursor::new(&mut out);
+        thumb.write_to(&mut cursor, image::ImageFormat::Jpeg)
+            .map_err(|e| format!("Failed to encode downscaled JPEG: {e}"))?;
+        Ok((out, "image/jpeg"))
+    } else {
+        // Image is within bounds. If file size exceeds 512 KB, recompress as JPEG without upscaling
+        if raw_bytes.len() > 512 * 1024 {
+            let mut out = Vec::new();
+            let mut cursor = std::io::Cursor::new(&mut out);
+            img.write_to(&mut cursor, image::ImageFormat::Jpeg)
+                .map_err(|e| format!("Failed to recompress JPEG: {e}"))?;
+            Ok((out, "image/jpeg"))
+        } else {
+            let is_png = raw_bytes.starts_with(b"\x89PNG\r\n\x1a\n");
+            let is_webp = raw_bytes.len() >= 12 && &raw_bytes[0..4] == b"RIFF" && &raw_bytes[8..12] == b"WEBP";
+            let mime = if is_png { "image/png" } else if is_webp { "image/webp" } else { "image/jpeg" };
+            Ok((raw_bytes.to_vec(), mime))
+        }
+    }
+}
+
+/// Helper to compress and downscale an image file from disk and save to destination path.
+pub fn save_compressed_image(src_path: &Path, dest_path: &Path, max_res: u32) -> Result<(), String> {
+    let raw_bytes = std::fs::read(src_path).map_err(|e| format!("Failed to read source image: {e}"))?;
+    let (compressed_bytes, _) = compress_and_downscale_image(&raw_bytes, max_res)?;
+    if let Some(parent) = dest_path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    std::fs::write(dest_path, &compressed_bytes).map_err(|e| format!("Failed to write destination image: {e}"))
+}
+
+/// Helper to convert image bytes to a downscaled, compressed Base64 Data URL.
+pub fn compress_image_to_data_url(raw_bytes: &[u8], max_res: u32) -> Option<String> {
+    use base64::Engine;
+    let (bytes, mime) = compress_and_downscale_image(raw_bytes, max_res).ok()?;
+    let b64 = base64::engine::general_purpose::STANDARD.encode(&bytes);
+    Some(format!("data:{mime};base64,{b64}"))
+}
+
+/// Resolves an album cover to a Base64 Data URL using a specific resolution constraint (256, 512, or 1024).
+/// Never upscales smaller images. Deduplicates in memory and persists to disk cache to prevent RAM bloat.
+pub fn resolve_thumbnail_data_url_with_resolution(art_p: &Path, resolution: u32) -> Option<String> {
     if !art_p.is_file() {
         return None;
     }
 
+    let target_res = match resolution {
+        256 => 256,
+        1024 => 1024,
+        _ => 512,
+    };
+
     // 1. Fast path: check in-memory deduplication cache
-    let mem_cache_key = format!("{}:{}", art_p.to_string_lossy(), if high_quality { "hq" } else { "lq" });
+    let mem_cache_key = format!("{}:res_{target_res}", art_p.to_string_lossy());
     {
         let mut guard = THUMBNAIL_CACHE.lock().unwrap();
         let cache = guard.get_or_insert_with(HashMap::new);
@@ -63,58 +117,20 @@ pub fn resolve_thumbnail_data_url_with_quality(art_p: &Path, high_quality: bool)
         .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
         .map(|d| d.as_secs())
         .unwrap_or(0);
-    let key = format!("{}-{}-{}-{}", art_p.to_string_lossy(), art_meta.len(), mod_time, if high_quality { "hq" } else { "lq" });
+    let key = format!("{}-{}-{}-res_{target_res}", art_p.to_string_lossy(), art_meta.len(), mod_time);
 
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
     key.hash(&mut hasher);
     let hash_hex = format!("{:016x}", hasher.finish());
-    let cached_file = cache_dir.join(format!("{hash_hex}_{}.jpg", if high_quality { "hq" } else { "lq" }));
+    let cached_file = cache_dir.join(format!("{hash_hex}_res{target_res}.jpg"));
 
     let (image_bytes, mime_type) = if cached_file.is_file() {
         (std::fs::read(&cached_file).ok()?, "image/jpeg")
     } else {
         let raw_bytes = std::fs::read(art_p).ok()?;
-        let is_png = raw_bytes.starts_with(b"\x89PNG\r\n\x1a\n");
-        let is_webp = raw_bytes.len() >= 12 && &raw_bytes[0..4] == b"RIFF" && &raw_bytes[8..12] == b"WEBP";
-
-        if high_quality {
-            // High quality mode: If original image is <= 512 KB, preserve original bytes directly
-            if raw_bytes.len() <= 512 * 1024 {
-                let mime = if is_png { "image/png" } else if is_webp { "image/webp" } else { "image/jpeg" };
-                (raw_bytes, mime)
-            } else if let Ok(img) = image::load_from_memory(&raw_bytes) {
-                // Downscale gracefully to max 1024x1024 HD
-                let thumb = img.thumbnail(1024, 1024);
-                let mut out = Vec::new();
-                let mut cursor = std::io::Cursor::new(&mut out);
-                if thumb.write_to(&mut cursor, image::ImageFormat::Jpeg).is_ok() {
-                    let _ = std::fs::write(&cached_file, &out);
-                    (out, "image/jpeg")
-                } else {
-                    (raw_bytes, "image/jpeg")
-                }
-            } else {
-                (raw_bytes, "image/jpeg")
-            }
-        } else {
-            // Standard mode: lightweight 160x160 thumbnail
-            if raw_bytes.len() <= 16 * 1024 {
-                let mime = if is_png { "image/png" } else if is_webp { "image/webp" } else { "image/jpeg" };
-                (raw_bytes, mime)
-            } else if let Ok(img) = image::load_from_memory(&raw_bytes) {
-                let thumb = img.thumbnail(160, 160);
-                let mut out = Vec::new();
-                let mut cursor = std::io::Cursor::new(&mut out);
-                if thumb.write_to(&mut cursor, image::ImageFormat::Jpeg).is_ok() {
-                    let _ = std::fs::write(&cached_file, &out);
-                    (out, "image/jpeg")
-                } else {
-                    (raw_bytes, "image/jpeg")
-                }
-            } else {
-                (raw_bytes, "image/jpeg")
-            }
-        }
+        let (processed, mime) = compress_and_downscale_image(&raw_bytes, target_res).ok()?;
+        let _ = std::fs::write(&cached_file, &processed);
+        (processed, mime)
     };
 
     use base64::Engine;
@@ -133,10 +149,17 @@ pub fn resolve_thumbnail_data_url_with_quality(art_p: &Path, high_quality: bool)
     Some(data_url)
 }
 
-/// Resolves an album cover to a Base64 Data URL using the active configuration's thumbnail quality setting.
+/// Resolves an album cover to a Base64 Data URL, supporting both high-quality mode (1024x1024 HD)
+/// and lightweight mode (256x256).
+pub fn resolve_thumbnail_data_url_with_quality(art_p: &Path, high_quality: bool) -> Option<String> {
+    let res = if high_quality { 1024 } else { 256 };
+    resolve_thumbnail_data_url_with_resolution(art_p, res)
+}
+
+/// Resolves an album cover to a Base64 Data URL using the active configuration's thumbnail resolution setting.
 pub fn resolve_thumbnail_data_url(art_p: &Path) -> Option<String> {
-    let hq = crate::config::load_config().high_quality_thumbnails;
-    resolve_thumbnail_data_url_with_quality(art_p, hq)
+    let res = crate::config::load_config().effective_artwork_resolution();
+    resolve_thumbnail_data_url_with_resolution(art_p, res)
 }
 
 /// Probes whether an artwork image has a widescreen (16:9) aspect ratio (ratio >= 1.35)
@@ -1196,5 +1219,39 @@ mod tests {
         let _ = std::fs::remove_file(track_b);
         invalidate_library_cache(&root);
         let _ = std::fs::remove_dir(root);
+    }
+
+    #[test]
+    fn test_compress_and_downscale_image_never_upscales() {
+        let small_img = image::RgbImage::new(64, 64);
+        let mut small_bytes = Vec::new();
+        let mut cursor = std::io::Cursor::new(&mut small_bytes);
+        small_img.write_to(&mut cursor, image::ImageFormat::Jpeg).unwrap();
+
+        let (processed, _) = compress_and_downscale_image(&small_bytes, 512).unwrap();
+        let decoded = image::load_from_memory(&processed).unwrap();
+        // Mandate 4 & User Rule: dimensions must never be upscaled
+        assert_eq!(decoded.width(), 64);
+        assert_eq!(decoded.height(), 64);
+    }
+
+    #[test]
+    fn test_compress_and_downscale_image_downscales_oversized() {
+        let large_img = image::RgbImage::new(800, 600);
+        let mut large_bytes = Vec::new();
+        let mut cursor = std::io::Cursor::new(&mut large_bytes);
+        large_img.write_to(&mut cursor, image::ImageFormat::Jpeg).unwrap();
+
+        let (processed_256, _) = compress_and_downscale_image(&large_bytes, 256).unwrap();
+        let decoded_256 = image::load_from_memory(&processed_256).unwrap();
+        assert!(decoded_256.width() <= 256);
+        assert!(decoded_256.height() <= 256);
+        assert_eq!(decoded_256.width(), 256);
+
+        let (processed_512, _) = compress_and_downscale_image(&large_bytes, 512).unwrap();
+        let decoded_512 = image::load_from_memory(&processed_512).unwrap();
+        assert!(decoded_512.width() <= 512);
+        assert!(decoded_512.height() <= 512);
+        assert_eq!(decoded_512.width(), 512);
     }
 }

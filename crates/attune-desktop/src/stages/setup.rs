@@ -178,6 +178,7 @@ pub fn SetupStage(
     let step_now = *current_step.read();
     let diag = driver_diag.read().clone();
     let detected_flutter = legacy_flutter_paths.read().clone();
+    let strings = crate::i18n::get_strings(crate::i18n::Language::from_code(&curr_cfg.language));
 
     rsx! {
         div {
@@ -397,6 +398,62 @@ pub fn SetupStage(
                                         onclick: move |_| update_cfg(Box::new(move |c| c.min_song_duration_sec = sec)),
                                         if sec == 0 { "All Files (0s)" } else { "{sec}s+" }
                                     }
+                                }
+                            }
+                        }
+
+                        // Artwork & Image Resolution for Artists & Albums
+                        div { style: "background: rgba(255,255,255,0.03); border: 1px solid var(--border-glass); border-radius: 16px; padding: 18px; display: flex; flex-direction: column; gap: 12px;",
+                            div { style: "display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; flex-wrap: wrap;",
+                                div {
+                                    div { style: "font-size: 13.5px; font-weight: 600;", "{strings.artwork_resolution}" }
+                                    div { style: "font-size: 12px; color: var(--text-muted); margin-top: 2px;", "{strings.artwork_resolution_desc}" }
+                                }
+                                div { style: "display: flex; gap: 8px; align-items: center; flex-wrap: wrap;",
+                                    button {
+                                        class: if curr_cfg.artwork_resolution == 256 { "btn-pill active" } else { "btn-pill" },
+                                        style: "font-size: 12px; padding: 6px 14px;",
+                                        onclick: move |_| update_cfg(Box::new(move |c| {
+                                            c.artwork_resolution = 256;
+                                            c.high_quality_thumbnails = false;
+                                            crate::library::clear_thumbnail_cache();
+                                        })),
+                                        "256x256 (Lightweight)"
+                                    }
+                                    button {
+                                        class: if curr_cfg.artwork_resolution == 512 { "btn-pill active" } else { "btn-pill" },
+                                        style: "font-size: 12px; padding: 6px 14px;",
+                                        onclick: move |_| update_cfg(Box::new(move |c| {
+                                            c.artwork_resolution = 512;
+                                            c.high_quality_thumbnails = false;
+                                            crate::library::clear_thumbnail_cache();
+                                        })),
+                                        "512x512 (Recommended)"
+                                    }
+                                    button {
+                                        class: if curr_cfg.artwork_resolution == 1024 { "btn-pill active" } else { "btn-pill" },
+                                        style: "font-size: 12px; padding: 6px 14px;",
+                                        onclick: move |_| update_cfg(Box::new(move |c| {
+                                            c.artwork_resolution = 1024;
+                                            c.high_quality_thumbnails = true;
+                                            crate::library::clear_thumbnail_cache();
+                                        })),
+                                        "1024x1024 HD (High RAM)"
+                                    }
+                                }
+                            }
+                            if curr_cfg.artwork_resolution == 1024 {
+                                div { style: "background: rgba(245, 158, 11, 0.12); border: 1px solid rgba(245, 158, 11, 0.35); border-radius: 10px; padding: 10px 14px; display: flex; align-items: flex-start; gap: 10px; font-size: 12px; color: #fbbf24; line-height: 1.45;",
+                                    span { class: "material-icons md-18", style: "flex-shrink: 0; margin-top: 1px;", "warning" }
+                                    div { "{strings.hd_memory_warning}" }
+                                }
+                            } else if curr_cfg.artwork_resolution == 256 {
+                                div { style: "font-size: 11.5px; color: var(--accent-mint); line-height: 1.4;",
+                                    "✓ Lightweight 256x256 mode caches compact thumbnails, minimizing memory consumption (< 150 MB RAM) for maximum fluidity."
+                                }
+                            } else {
+                                div { style: "font-size: 11.5px; color: var(--text-muted); line-height: 1.4;",
+                                    "✓ Balanced 512x512 mode provides crisp album artwork and sharp artist portraits while keeping RAM consumption light."
                                 }
                             }
                         }
@@ -1056,14 +1113,21 @@ pub fn SetupStage(
                                     },
                                     if curr_cfg.auto_scroll_long_text { "✓ Long Text Marquee: ON" } else { "Long Text Marquee: OFF" }
                                 }
-                                button {
-                                    class: if curr_cfg.high_quality_thumbnails { "btn-pill active" } else { "btn-pill" },
-                                    style: "font-size: 12px;",
-                                    onclick: move |_| {
-                                        let v = !curr_cfg.high_quality_thumbnails;
-                                        update_cfg(Box::new(move |c| c.high_quality_thumbnails = v));
-                                    },
-                                    if curr_cfg.high_quality_thumbnails { "✓ 1024px HD Artwork: ON" } else { "1024px HD Artwork: OFF" }
+                                div { style: "display: flex; gap: 6px; align-items: center; flex-wrap: wrap;",
+                                    span { style: "font-size: 12px; color: var(--text-muted);", "Artwork:" }
+                                    for res in [256u32, 512, 1024] {
+                                        button {
+                                            key: "{res}",
+                                            class: if curr_cfg.artwork_resolution == res { "btn-pill active" } else { "btn-pill" },
+                                            style: "font-size: 11.5px; padding: 4px 10px;",
+                                            onclick: move |_| update_cfg(Box::new(move |c| {
+                                                c.artwork_resolution = res;
+                                                c.high_quality_thumbnails = res == 1024;
+                                                crate::library::clear_thumbnail_cache();
+                                            })),
+                                            if res == 1024 { "1024px HD" } else { "{res}px" }
+                                        }
+                                    }
                                 }
                             }
                         }

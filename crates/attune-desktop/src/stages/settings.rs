@@ -765,26 +765,59 @@ pub fn SettingsContent(
                             }
                         }
 
-                        // Card: Album Artwork & Thumbnail Quality
+                        // Card: Album Artwork & Thumbnail Resolution
                         div { class: "settings-card",
-                            h3 { class: "settings-card-title", "Album Artwork & Thumbnail Quality" }
-                            p { class: "settings-card-desc",
-                                "Configure thumbnail downsampling quality. High Quality preserves original artwork resolution and renders crisp HD covers up to 1024x1024."
-                            }
-
-                            div { style: "display: flex; justify-content: space-between; align-items: center; margin-top: 12px; padding: 8px 0;",
+                            div { style: "display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; flex-wrap: wrap;",
                                 div {
-                                    div { style: "font-weight: 500; font-size: 13.5px;", "Render High Quality Thumbnails" }
-                                    div { style: "font-size: 12px; color: var(--text-muted);",
-                                        "Render crisp 1024x1024 HD album art instead of 160x160 compressed thumbnails. Preserves lossless fidelity for album views and now playing."
+                                    h3 { class: "settings-card-title", "{strings.artwork_resolution}" }
+                                    p { class: "settings-card-desc", "{strings.artwork_resolution_desc}" }
+                                }
+                                div { style: "display: flex; gap: 8px; align-items: center; flex-wrap: wrap;",
+                                    button {
+                                        class: if curr_cfg.artwork_resolution == 256 { "btn-pill active" } else { "btn-pill" },
+                                        style: "font-size: 12px; padding: 6px 14px;",
+                                        onclick: move |_| update_cfg(Box::new(|c| {
+                                            c.artwork_resolution = 256;
+                                            c.high_quality_thumbnails = false;
+                                            crate::library::clear_thumbnail_cache();
+                                        })),
+                                        "{strings.res_256_label}"
+                                    }
+                                    button {
+                                        class: if curr_cfg.artwork_resolution == 512 { "btn-pill active" } else { "btn-pill" },
+                                        style: "font-size: 12px; padding: 6px 14px;",
+                                        onclick: move |_| update_cfg(Box::new(|c| {
+                                            c.artwork_resolution = 512;
+                                            c.high_quality_thumbnails = false;
+                                            crate::library::clear_thumbnail_cache();
+                                        })),
+                                        "{strings.res_512_label}"
+                                    }
+                                    button {
+                                        class: if curr_cfg.artwork_resolution == 1024 { "btn-pill active" } else { "btn-pill" },
+                                        style: "font-size: 12px; padding: 6px 14px;",
+                                        onclick: move |_| update_cfg(Box::new(|c| {
+                                            c.artwork_resolution = 1024;
+                                            c.high_quality_thumbnails = true;
+                                            crate::library::clear_thumbnail_cache();
+                                        })),
+                                        "{strings.res_1024_label}"
                                     }
                                 }
-                                SwitchToggle {
-                                    active: curr_cfg.high_quality_thumbnails,
-                                    on_toggle: move |_| update_cfg(Box::new(|c| {
-                                        c.high_quality_thumbnails = !c.high_quality_thumbnails;
-                                        crate::library::clear_thumbnail_cache();
-                                    })),
+                            }
+
+                            if curr_cfg.artwork_resolution == 1024 {
+                                div { style: "margin-top: 14px; background: rgba(245, 158, 11, 0.12); border: 1px solid rgba(245, 158, 11, 0.35); border-radius: 10px; padding: 12px 16px; display: flex; align-items: flex-start; gap: 12px; font-size: 12.5px; color: #fbbf24; line-height: 1.5;",
+                                    span { class: "material-icons md-20", style: "flex-shrink: 0; margin-top: 1px;", "warning" }
+                                    div { "{strings.hd_memory_warning}" }
+                                }
+                            } else if curr_cfg.artwork_resolution == 256 {
+                                div { style: "margin-top: 10px; font-size: 12px; color: var(--accent-mint); line-height: 1.4;",
+                                    "✓ Lightweight mode caches 256x256 thumbnails, minimizing memory consumption (< 150 MB RAM) for maximum UI smoothness."
+                                }
+                            } else {
+                                div { style: "margin-top: 10px; font-size: 12px; color: var(--text-muted); line-height: 1.4;",
+                                    "✓ Balanced mode provides crisp album artwork and sharp artist portraits while maintaining low memory footprint."
                                 }
                             }
                         }

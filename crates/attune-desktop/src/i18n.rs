@@ -258,6 +258,15 @@ pub struct Strings {
     pub bio_description: &'static str,
     pub no_artist_candidates_found: &'static str,
     pub no_artist_candidates_guide: &'static str,
+
+    // Artwork Resolution & Memory Footprint
+    pub artwork_resolution: &'static str,
+    pub artwork_resolution_desc: &'static str,
+    pub res_256_label: &'static str,
+    pub res_512_label: &'static str,
+    pub res_1024_label: &'static str,
+    pub hd_memory_warning: &'static str,
+    pub browse_device_image: &'static str,
 }
 
 pub fn get_strings(lang: Language) -> Strings {
@@ -475,6 +484,13 @@ pub fn get_strings(lang: Language) -> Strings {
             bio_description: "Biography & Notes",
             no_artist_candidates_found: "No matching artist profiles found.",
             no_artist_candidates_guide: "Try searching with alternative spelling, romanization, or Japanese characters, or enter a custom portrait URL in Custom Entry.",
+            artwork_resolution: "Artwork Resolution (Artists & Albums)",
+            artwork_resolution_desc: "Configures the maximum image resolution and downsampling limit for cached album covers and artist portraits. Lower resolutions drastically minimize RAM usage.",
+            res_256_label: "256x256 (Lightweight — Low RAM)",
+            res_512_label: "512x512 (Balanced — Recommended)",
+            res_1024_label: "1024x1024 (HD — High Memory)",
+            hd_memory_warning: "Warning: 1024x1024 HD images consume significantly more memory (>800 MB RSS for large libraries) and can cause UI lag on low-to-mid-range hardware. Only utilize 1024x1024 if your hardware is capable enough (>= 16 GB RAM recommended).",
+            browse_device_image: "Browse Device Image...",
         },
         Language::Filipino => Strings {
             app_name: "Attune",
@@ -689,6 +705,13 @@ pub fn get_strings(lang: Language) -> Strings {
             bio_description: "Talambuhay at Mga Tala",
             no_artist_candidates_found: "Walang nahanap na tugmang profile ng artista.",
             no_artist_candidates_guide: "Subukang maghanap gamit ang ibang baybay, romanization, o mga karakter sa Hapon, o maglagay ng sariling URL sa Manu-manong Entri.",
+            artwork_resolution: "Resolusyon ng Artwork (Mga Artista at Album)",
+            artwork_resolution_desc: "Itinatakda ang pinakamataas na resolusyon at limitasyon sa pag-compress para sa mga pabalat ng album at larawan ng artista. Malaking nagpapababa ng gamit sa RAM ang mas mababang resolusyon.",
+            res_256_label: "256x256 (Magaan — Mababang RAM)",
+            res_512_label: "512x512 (Balanse — Inirerekomenda)",
+            res_1024_label: "1024x1024 (HD — Mataas na Memorya)",
+            hd_memory_warning: "Babala: Ang 1024x1024 HD na mga larawan ay gumagamit ng higit na maraming memorya (>800 MB RSS) at maaaring magdulot ng lag sa mga kagamitang may limitadong memorya. Gamitin lamang ang 1024x1024 kung sapat ang kakayahan ng iyong hardware (inirerekomenda ang >= 16 GB RAM).",
+            browse_device_image: "Pumili ng Larawan sa Device...",
         },
     }
 }
@@ -905,6 +928,13 @@ pub fn export_language_template_json() -> String {
     map.insert("bio_description", s.bio_description);
     map.insert("no_artist_candidates_found", s.no_artist_candidates_found);
     map.insert("no_artist_candidates_guide", s.no_artist_candidates_guide);
+    map.insert("artwork_resolution", s.artwork_resolution);
+    map.insert("artwork_resolution_desc", s.artwork_resolution_desc);
+    map.insert("res_256_label", s.res_256_label);
+    map.insert("res_512_label", s.res_512_label);
+    map.insert("res_1024_label", s.res_1024_label);
+    map.insert("hd_memory_warning", s.hd_memory_warning);
+    map.insert("browse_device_image", s.browse_device_image);
 
     serde_json::to_string_pretty(&map).unwrap_or_else(|_| "{}".to_string())
 }

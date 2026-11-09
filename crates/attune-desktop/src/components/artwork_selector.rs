@@ -185,8 +185,13 @@ pub fn ArtworkSelectorModal(
                             {
                                 selected_local_path.set(Some(path.clone()));
                                 selected_yt.set(None);
-                                if let Some(url) = resolve_thumbnail_data_url(&path) {
-                                    preview_url.set(Some(url));
+                                let max_res = crate::config::load_config().effective_artwork_resolution();
+                                if let Ok(bytes) = std::fs::read(&path) {
+                                    if let Some(url) = crate::library::compress_image_to_data_url(&bytes, max_res) {
+                                        preview_url.set(Some(url));
+                                    } else if let Some(url) = resolve_thumbnail_data_url(&path) {
+                                        preview_url.set(Some(url));
+                                    }
                                 }
                             }
                         },
@@ -380,8 +385,13 @@ pub fn ArtworkSelectorModal(
                                             {
                                                 selected_local_path.set(Some(path.clone()));
                                                 selected_yt.set(None);
-                                                if let Some(url) = resolve_thumbnail_data_url(&path) {
-                                                    preview_url.set(Some(url));
+                                                let max_res = crate::config::load_config().effective_artwork_resolution();
+                                                if let Ok(bytes) = std::fs::read(&path) {
+                                                    if let Some(url) = crate::library::compress_image_to_data_url(&bytes, max_res) {
+                                                        preview_url.set(Some(url));
+                                                    } else if let Some(url) = resolve_thumbnail_data_url(&path) {
+                                                        preview_url.set(Some(url));
+                                                    }
                                                 }
                                             }
                                         },
@@ -501,13 +511,17 @@ pub fn ArtworkSelectorModal(
                                                     }
                                                 }
                                             } else if let Some(local_p) = sel_local {
-                                                // If track has a directory, copy chosen image to cover.<ext>
+                                                // If track has a directory, compress and save chosen image to cover.<ext>
+                                                let max_res = crate::config::load_config().effective_artwork_resolution();
                                                 let target_dest = if let Some(ref p) = track_p {
                                                     if let Some(parent) = p.parent() {
                                                         let ext = local_p.extension().and_then(|e| e.to_str()).unwrap_or("jpg");
                                                         let d = parent.join(format!("cover.{}", ext));
-                                                        if local_p != d {
-                                                            let _ = std::fs::copy(&local_p, &d);
+                                                        if let Err(e) = crate::library::save_compressed_image(&local_p, &d, max_res) {
+                                                            log::warn!("artwork_selector: save_compressed_image failed: {e}; falling back to copy");
+                                                            if local_p != d {
+                                                                let _ = std::fs::copy(&local_p, &d);
+                                                            }
                                                         }
                                                         d
                                                     } else {

@@ -14,7 +14,7 @@ use std::sync::{Arc, Mutex};
 use dioxus::prelude::*;
 
 use crate::artist_profile::{
-    is_valid_profile_image_url, save_cached_artist_profile,
+    is_valid_profile_image_url, load_cached_artist_profile, save_cached_artist_profile,
     search_online_artist_candidates, ArtistCandidate, OnlineArtistInfo,
 };
 use crate::config::load_config;
@@ -136,11 +136,18 @@ pub fn ArtistFinderStandaloneWindow() -> Element {
     let mut search_status = use_signal(String::new);
     let mut success_feedback = use_signal(|| None::<String>);
 
+    // Preload existing cached profile data into manual inputs if present
+    let existing_profile = load_cached_artist_profile(&target_artist);
+    let init_img = existing_profile.as_ref().and_then(|p| p.image_url.clone()).unwrap_or_default();
+    let init_banner = existing_profile.as_ref().and_then(|p| p.banner_url.clone()).unwrap_or_default();
+    let init_bio = existing_profile.as_ref().and_then(|p| p.bio.clone()).unwrap_or_default();
+    let init_desc = existing_profile.as_ref().and_then(|p| p.description.clone()).unwrap_or_default();
+
     // Custom profile manual inputs
-    let mut custom_image_url = use_signal(String::new);
-    let mut custom_banner_url = use_signal(String::new);
-    let mut custom_bio = use_signal(String::new);
-    let mut custom_desc = use_signal(String::new);
+    let mut custom_image_url = use_signal(|| init_img);
+    let mut custom_banner_url = use_signal(|| init_banner);
+    let mut custom_bio = use_signal(|| init_bio);
+    let mut custom_desc = use_signal(|| init_desc);
 
     // Initial search trigger on window open
     let target_artist_for_init = initial_query.clone();
@@ -345,20 +352,49 @@ pub fn ArtistFinderStandaloneWindow() -> Element {
 
                         div { style: "display: flex; flex-direction: column; gap: 6px;",
                             label { style: "font-size: 12.5px; font-weight: 600; color: var(--text-secondary);", "{strings.image_url}" }
-                            input {
-                                class: "form-input",
-                                placeholder: "https://... (JPEG, PNG, WebP image link)",
-                                value: "{custom_image_url}",
-                                oninput: move |e| custom_image_url.set(e.value()),
+                            div { style: "display: flex; gap: 10px;",
+                                input {
+                                    class: "form-input",
+                                    style: "flex: 1;",
+                                    placeholder: "https://... or choose a local file",
+                                    value: "{custom_image_url}",
+                                    oninput: move |e| custom_image_url.set(e.value()),
+                                }
+                                button {
+                                    class: "btn-pill",
+                                    style: "font-size: 12px; white-space: nowrap; display: inline-flex; align-items: center; gap: 6px; padding: 8px 14px;",
+                                    onclick: {
+                                        let mut custom_img = custom_image_url.clone();
+                                        move |_| {
+                                            if let Some(path) = rfd::FileDialog::new()
+                                                .add_filter("Images", &["png", "jpg", "jpeg", "webp"])
+                                                .pick_file()
+                                            {
+                                                let max_res = crate::config::load_config().effective_artwork_resolution();
+                                                if let Ok(bytes) = std::fs::read(&path) {
+                                                    if let Some(data_url) = crate::library::compress_image_to_data_url(&bytes, max_res) {
+                                                        custom_img.set(data_url);
+                                                    } else {
+                                                        custom_img.set(path.to_string_lossy().to_string());
+                                                    }
+                                                } else {
+                                                    custom_img.set(path.to_string_lossy().to_string());
+                                                }
+                                            }
+                                        }
+                                    },
+                                    span { class: "material-icons md-16", "folder_open" }
+                                    "{strings.browse_device_image}"
+                                }
                             }
                             if !custom_image_url.read().is_empty() && is_valid_profile_image_url(&custom_image_url.read()) {
                                 div { style: "display: flex; align-items: center; gap: 12px; margin-top: 6px;",
                                     img {
                                         src: "{custom_image_url}",
                                         alt: "Preview",
-                                        style: "width: 54px; height: 54px; border-radius: 50%; object-fit: cover; border: 1px solid var(--border-glass);",
+                                        style: "width: 54px; height: 54px; border-radius: 50%; object-fit: cover; border: 1.5px solid var(--accent-mint); box-shadow: 0 4px 14px rgba(0,0,0,0.4);",
                                     }
-                                    span { style: "font-size: 12px; color: var(--accent-mint);", "Image link preview loaded" }
+                                    span { style: "font-size: 12px; color: var(--accent-mint); font-weight: 600;", "✓ Image loaded and compressed to profile bounds" }
                                 }
                             }
                         }
@@ -431,7 +467,7 @@ pub fn ArtistFinderStandaloneWindow() -> Element {
                                             banner_url: banner,
                                             subscribers: None,
                                             views: None,
-                                            browse_id: None,
+                                            browse_id: Some("custom-manual-linked".to_string()),
                                         };
 
                                         save_cached_artist_profile(&t_artist, &info);

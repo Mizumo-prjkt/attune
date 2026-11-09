@@ -18,6 +18,24 @@ pub fn Artists(
     let mut is_syncing = use_signal(|| false);
     let mut sync_status = use_signal(String::new);
     let mut refresh_trigger = use_signal(|| 0usize);
+    let last_seen_rev = use_signal(crate::artist_profile::artist_profile_revision);
+
+    // Watcher: automatically refresh artist grid cards when profiles are linked or edited across windows
+    use_hook(move || {
+        let mut rev_sig = last_seen_rev.clone();
+        let mut trigger = refresh_trigger.clone();
+        spawn(async move {
+            loop {
+                tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+                let current_rev = crate::artist_profile::artist_profile_revision();
+                if current_rev != *rev_sig.read() {
+                    rev_sig.set(current_rev);
+                    let curr = *trigger.read();
+                    trigger.set(curr + 1);
+                }
+            }
+        });
+    });
 
     let _ = *refresh_trigger.read();
     let all_artists = extract_all_unique_artists(&tracks);
@@ -266,6 +284,30 @@ pub fn ArtistDetail(
     let mut copy_feedback = use_signal(|| None::<String>);
     let mut last_seen_rev = use_signal(crate::artist_profile::artist_profile_revision);
     let artist_for_fetch = artist_name.clone();
+
+    // Active cross-window revision watcher: updates detail view instantaneously when a profile is saved in ArtistFinder
+    let a_watch = artist_name.clone();
+    use_hook(move || {
+        let a = a_watch.clone();
+        let mut info_sig = online_info.clone();
+        let mut rev_sig = last_seen_rev.clone();
+        spawn(async move {
+            loop {
+                tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+                let current_rev = crate::artist_profile::artist_profile_revision();
+                if current_rev != *rev_sig.read() {
+                    rev_sig.set(current_rev);
+                    let a_fetch = a.clone();
+                    let refreshed = tokio::task::spawn_blocking(move || {
+                        fetch_online_artist_profile(&a_fetch, false)
+                    })
+                    .await
+                    .unwrap_or_default();
+                    info_sig.set(refreshed);
+                }
+            }
+        });
+    });
 
     use_effect(move || {
         let a = artist_for_fetch.clone();
