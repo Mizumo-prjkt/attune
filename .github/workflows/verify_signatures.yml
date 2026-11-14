@@ -127,34 +127,28 @@ jobs:
               if (Test-Path $tmpCer) {
                 & certutil.exe -addstore -f "ROOT" $tmpCer 2>$null
                 & certutil.exe -addstore -f "TrustedPublisher" $tmpCer 2>$null
-                & certutil.exe -user -addstore -f "ROOT" $tmpCer 2>$null
-                & certutil.exe -user -addstore -f "TrustedPublisher" $tmpCer 2>$null
                 Import-Certificate -FilePath $tmpCer -CertStoreLocation "Cert:\LocalMachine\Root" -ErrorAction SilentlyContinue | Out-Null
-                Import-Certificate -FilePath $tmpCer -CertStoreLocation "Cert:\CurrentUser\Root" -ErrorAction SilentlyContinue | Out-Null
                 Import-Certificate -FilePath $tmpCer -CertStoreLocation "Cert:\LocalMachine\TrustedPublisher" -ErrorAction SilentlyContinue | Out-Null
-                Import-Certificate -FilePath $tmpCer -CertStoreLocation "Cert:\CurrentUser\TrustedPublisher" -ErrorAction SilentlyContinue | Out-Null
               }
 
-              foreach ($loc in @([System.Security.Cryptography.X509Certificates.StoreLocation]::LocalMachine, [System.Security.Cryptography.X509Certificates.StoreLocation]::CurrentUser)) {
-                foreach ($storeName in @("Root", "TrustedPublisher")) {
-                  try {
-                    $store = [System.Security.Cryptography.X509Certificates.X509Store]::new($storeName, $loc)
-                    $store.Open([System.Security.Cryptography.OpenFlags]::ReadWrite)
-                    if ($certCollection.Count -gt 0) {
-                      foreach ($c in $certCollection) {
-                        $cleanCert = [System.Security.Cryptography.X509Certificates.X509Certificate2]::new($c.RawData)
-                        $store.Add($cleanCert)
-                        Write-Host "Successfully registered certificate trust anchor in $loc\$storeName ($($c.Subject))."
-                      }
-                    } else {
-                      $cleanCert = [System.Security.Cryptography.X509Certificates.X509Certificate2]::new([System.IO.File]::ReadAllBytes($tmpCer))
+              foreach ($storeName in @("Root", "TrustedPublisher")) {
+                try {
+                  $store = [System.Security.Cryptography.X509Certificates.X509Store]::new($storeName, [System.Security.Cryptography.X509Certificates.StoreLocation]::LocalMachine)
+                  $store.Open([System.Security.Cryptography.OpenFlags]::ReadWrite)
+                  if ($certCollection.Count -gt 0) {
+                    foreach ($c in $certCollection) {
+                      $cleanCert = [System.Security.Cryptography.X509Certificates.X509Certificate2]::new($c.RawData)
                       $store.Add($cleanCert)
-                      Write-Host "Successfully registered certificate trust anchor in $loc\$storeName ($($cleanCert.Subject))."
+                      Write-Host "Successfully registered certificate trust anchor in LocalMachine\$storeName ($($c.Subject))."
                     }
-                    $store.Close()
-                  } catch {
-                    Write-Host "Store registration note ($loc\$storeName): $_"
+                  } else {
+                    $cleanCert = [System.Security.Cryptography.X509Certificates.X509Certificate2]::new([System.IO.File]::ReadAllBytes($tmpCer))
+                    $store.Add($cleanCert)
+                    Write-Host "Successfully registered certificate trust anchor in LocalMachine\$storeName ($($cleanCert.Subject))."
                   }
+                  $store.Close()
+                } catch {
+                  Write-Host "Store registration note (LocalMachine\$storeName): $_"
                 }
               }
               Remove-Item -Path $tmpCer -Force -ErrorAction SilentlyContinue
@@ -386,14 +380,10 @@ jobs:
                   [System.IO.File]::WriteAllBytes($probeCer, $sc.RawData)
                   & certutil.exe -addstore -f "ROOT" $probeCer 2>$null
                   & certutil.exe -addstore -f "TrustedPublisher" $probeCer 2>$null
-                  & certutil.exe -user -addstore -f "ROOT" $probeCer 2>$null
-                  & certutil.exe -user -addstore -f "TrustedPublisher" $probeCer 2>$null
                   $lmRoot = [string]::Concat("Cert:\", "Local", "Machine\Root")
                   $lmPub = [string]::Concat("Cert:\", "Local", "Machine\TrustedPublisher")
                   Import-Certificate -FilePath $probeCer -CertStoreLocation $lmRoot -ErrorAction SilentlyContinue | Out-Null
-                  Import-Certificate -FilePath $probeCer -CertStoreLocation "Cert:\CurrentUser\Root" -ErrorAction SilentlyContinue | Out-Null
                   Import-Certificate -FilePath $probeCer -CertStoreLocation $lmPub -ErrorAction SilentlyContinue | Out-Null
-                  Import-Certificate -FilePath $probeCer -CertStoreLocation "Cert:\CurrentUser\TrustedPublisher" -ErrorAction SilentlyContinue | Out-Null
                   Write-Host "Successfully established root anchor for: $($sc.Subject)"
                 } catch {
                   Write-Warning "Root anchor auto-registration notice: $_"
