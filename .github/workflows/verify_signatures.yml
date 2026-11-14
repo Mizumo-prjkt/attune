@@ -41,6 +41,12 @@ on:
         required: false
       CERT_BASE64:
         required: false
+      RELEASE_KEYSTORE_BASE64:
+        required: false
+      ATTUNE_KEYSTORE_BASE64:
+        required: false
+      ANDROID_KEYSTORE_BASE64:
+        required: false
       WINDOWS_CERT_PASS:
         required: false
       WINDOWS_CERT_PASSWORD:
@@ -48,6 +54,14 @@ on:
       CERT_PASS:
         required: false
       CERT_PASSWORD:
+        required: false
+      RELEASE_KEYSTORE_PASSWORD:
+        required: false
+      ATTUNE_KEYSTORE_PASSWORD:
+        required: false
+      RELEASE_KEY_PASSWORD:
+        required: false
+      ATTUNE_KEY_PASSWORD:
         required: false
       KEYS:
         required: false
@@ -71,8 +85,8 @@ jobs:
       - name: Setup Windows Trust Anchor
         shell: pwsh
         env:
-          WINDOWS_CERT_BASE64: ${{ secrets.WINDOWS_CERT_BASE64 || secrets.WINDOWS_CERTIFICATE_BASE64 || secrets.CERT_BASE64 }}
-          WINDOWS_CERT_PASS: ${{ secrets.WINDOWS_CERT_PASS || secrets.WINDOWS_CERT_PASSWORD || secrets.CERT_PASS || secrets.CERT_PASSWORD }}
+          WINDOWS_CERT_BASE64: ${{ secrets.WINDOWS_CERT_BASE64 || secrets.WINDOWS_CERTIFICATE_BASE64 || secrets.CERT_BASE64 || secrets.RELEASE_KEYSTORE_BASE64 || secrets.ATTUNE_KEYSTORE_BASE64 || secrets.ANDROID_KEYSTORE_BASE64 }}
+          WINDOWS_CERT_PASS: ${{ secrets.WINDOWS_CERT_PASS || secrets.WINDOWS_CERT_PASSWORD || secrets.CERT_PASS || secrets.CERT_PASSWORD || secrets.RELEASE_KEYSTORE_PASSWORD || secrets.ATTUNE_KEYSTORE_PASSWORD || secrets.RELEASE_KEY_PASSWORD || secrets.ATTUNE_KEY_PASSWORD }}
         run: |
           if ($env:WINDOWS_CERT_BASE64) {
             Write-Host "Importing provided certificate into LocalMachine\Root trust store..."
@@ -80,21 +94,42 @@ jobs:
               $cleanB64 = $env:WINDOWS_CERT_BASE64 -replace '\s+', ''
               $certBytes = [System.Convert]::FromBase64String($cleanB64)
               $pass = if ($env:WINDOWS_CERT_PASS) { $env:WINDOWS_CERT_PASS } else { "" }
+              $opensslCmd = Get-Command openssl -ErrorAction SilentlyContinue
+              $opensslExe = if ($opensslCmd) { $opensslCmd.Source } elseif (Test-Path "C:\Program Files\Git\usr\bin\openssl.exe") { "C:\Program Files\Git\usr\bin\openssl.exe" } else { $null }
+              if ($opensslExe) {
+                $tmpPfx = Join-Path $env:RUNNER_TEMP "attune_trust_in.pfx"
+                $tmpPem = Join-Path $env:RUNNER_TEMP "attune_trust.pem"
+                $tmpNormPfx = Join-Path $env:RUNNER_TEMP "attune_trust_norm.pfx"
+                [System.IO.File]::WriteAllBytes($tmpPfx, $certBytes)
+                $env:ATTUNE_PFX_PASS = $pass
+                & $opensslExe pkcs12 -in $tmpPfx -out $tmpPem -nodes -passin env:ATTUNE_PFX_PASS 2>$null
+                if ($LASTEXITCODE -eq 0 -and (Test-Path $tmpPem)) {
+                  & $opensslExe pkcs12 -export -in $tmpPem -out $tmpNormPfx -keypbe PBE-SHA1-3DES -certpbe PBE-SHA1-3DES -macalg sha1 -passout env:ATTUNE_PFX_PASS 2>$null
+                  if ($LASTEXITCODE -eq 0 -and (Test-Path $tmpNormPfx)) {
+                    $certBytes = [System.IO.File]::ReadAllBytes($tmpNormPfx)
+                    Write-Host "Normalized PKCS#12 trust anchor to PBE-SHA1-3DES + SHA-1 MAC."
+                  }
+                }
+                Remove-Item -Path $tmpPfx, $tmpPem, $tmpNormPfx -Force -ErrorAction SilentlyContinue
+                Remove-Item Env:\ATTUNE_PFX_PASS -ErrorAction SilentlyContinue
+              }
               $certCollection = [System.Security.Cryptography.X509Certificates.X509Certificate2Collection]::new()
               $certCollection.Import($certBytes, $pass, [System.Security.Cryptography.X509KeyStorageFlags]::Exportable)
-              $store = [System.Security.Cryptography.X509Certificates.X509Store]::new("Root", "LocalMachine")
-              $store.Open([System.Security.Cryptography.OpenFlags]::ReadWrite)
-              if ($certCollection.Count -gt 0) {
-                foreach ($c in $certCollection) {
-                  $store.Add($c)
-                  Write-Host "Successfully registered certificate trust anchor ($($c.Subject))."
+              foreach ($storeName in @("Root", "TrustedPublisher")) {
+                $store = [System.Security.Cryptography.X509Certificates.X509Store]::new($storeName, "LocalMachine")
+                $store.Open([System.Security.Cryptography.OpenFlags]::ReadWrite)
+                if ($certCollection.Count -gt 0) {
+                  foreach ($c in $certCollection) {
+                    $store.Add($c)
+                    Write-Host "Successfully registered certificate trust anchor in LocalMachine\$storeName ($($c.Subject))."
+                  }
+                } else {
+                  $cert = [System.Security.Cryptography.X509Certificates.X509Certificate2]::new($certBytes, $pass, [System.Security.Cryptography.X509KeyStorageFlags]::Exportable)
+                  $store.Add($cert)
+                  Write-Host "Successfully registered certificate trust anchor in LocalMachine\$storeName ($($cert.Subject))."
                 }
-              } else {
-                $cert = [System.Security.Cryptography.X509Certificates.X509Certificate2]::new($certBytes, $pass, [System.Security.Cryptography.X509KeyStorageFlags]::Exportable)
-                $store.Add($cert)
-                Write-Host "Successfully registered certificate trust anchor ($($cert.Subject))."
+                $store.Close()
               }
-              $store.Close()
             } catch {
               Write-Warning "Failed to import root certificate into store: $_"
             }

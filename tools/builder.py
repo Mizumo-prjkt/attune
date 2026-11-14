@@ -1202,6 +1202,9 @@ def resolve_windows_signing_certificate(log_func=None):
         os.environ.get("WINDOWS_CERT_BASE64")
         or os.environ.get("WINDOWS_CERTIFICATE_BASE64")
         or os.environ.get("CERT_BASE64")
+        or os.environ.get("RELEASE_KEYSTORE_BASE64")
+        or os.environ.get("ATTUNE_KEYSTORE_BASE64")
+        or os.environ.get("ANDROID_KEYSTORE_BASE64")
     )
     cert_path = os.environ.get("CERT_PATH") or os.environ.get("WINDOWS_CERT_PATH")
     cert_pass = (
@@ -1209,6 +1212,10 @@ def resolve_windows_signing_certificate(log_func=None):
         or os.environ.get("WINDOWS_CERT_PASSWORD")
         or os.environ.get("CERT_PASS")
         or os.environ.get("CERT_PASSWORD")
+        or os.environ.get("RELEASE_KEYSTORE_PASSWORD")
+        or os.environ.get("ATTUNE_KEYSTORE_PASSWORD")
+        or os.environ.get("RELEASE_KEY_PASSWORD")
+        or os.environ.get("ATTUNE_KEY_PASSWORD")
     )
 
     if cert_b64 and (not cert_path or not Path(cert_path).exists()):
@@ -1218,6 +1225,44 @@ def resolve_windows_signing_certificate(log_func=None):
             temp_cert = REPO_ROOT / "build" / "windows_certificate.pfx"
             temp_cert.parent.mkdir(parents=True, exist_ok=True)
             temp_cert.write_bytes(raw_bytes)
+            if raw_bytes[:1] == b"\x30":
+                openssl_bin = shutil.which("openssl")
+                if not openssl_bin and IS_WINDOWS:
+                    git_openssl = Path(r"C:\Program Files\Git\usr\bin\openssl.exe")
+                    if git_openssl.exists():
+                        openssl_bin = str(git_openssl)
+                if openssl_bin:
+                    pem_temp = temp_cert.with_suffix(".pem")
+                    norm_temp = temp_cert.with_suffix(".norm.pfx")
+                    pfx_env = os.environ.copy()
+                    pfx_env["ATTUNE_PFX_PASS"] = cert_pass or ""
+                    try:
+                        r1 = subprocess.run(
+                            [openssl_bin, "pkcs12", "-in", str(temp_cert), "-out", str(pem_temp), "-nodes", "-passin", "env:ATTUNE_PFX_PASS"],
+                            env=pfx_env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+                        )
+                        if r1.returncode == 0 and pem_temp.exists():
+                            r2 = subprocess.run(
+                                [
+                                    openssl_bin, "pkcs12", "-export",
+                                    "-in", str(pem_temp), "-out", str(norm_temp),
+                                    "-keypbe", "PBE-SHA1-3DES", "-certpbe", "PBE-SHA1-3DES", "-macalg", "sha1",
+                                    "-passout", "env:ATTUNE_PFX_PASS",
+                                ],
+                                env=pfx_env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+                            )
+                            if r2.returncode == 0 and norm_temp.exists() and norm_temp.stat().st_size > 0:
+                                temp_cert.write_bytes(norm_temp.read_bytes())
+                                log("[Sign] Normalized PKCS#12 certificate to PBE-SHA1-3DES + SHA-1 MAC for Windows CryptoAPI compatibility.")
+                    except Exception as norm_err:
+                        log(f"[Sign] PKCS#12 normalization skipped: {norm_err}")
+                    finally:
+                        for tmp_f in (pem_temp, norm_temp):
+                            try:
+                                if tmp_f.exists():
+                                    tmp_f.unlink()
+                            except Exception:
+                                pass
             if not IS_WINDOWS:
                 try:
                     os.chmod(temp_cert, 0o600)
@@ -1226,6 +1271,9 @@ def resolve_windows_signing_certificate(log_func=None):
             cert_path = str(temp_cert)
             os.environ["CERT_PATH"] = cert_path
             os.environ["WINDOWS_CERT_PATH"] = cert_path
+            if cert_pass:
+                os.environ["CERT_PASS"] = cert_pass
+                os.environ["WINDOWS_CERT_PASS"] = cert_pass
             log(f"[Sign] Decoded base64 Windows certificate to: {cert_path}")
         except Exception as e:
             log(f"[Sign] Warning: Failed to decode base64 certificate: {e}")
@@ -1308,6 +1356,22 @@ def sign_binary(binary_path, cert_path=None, cert_pass=None, log_func=None):
             cmd.append(str(target_bin))
             try:
                 res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+                if res.returncode != 0:
+                    fallback_cmd = [
+                        "http://timestamp.sectigo.com" if arg == "http://timestamp.digicert.com" else arg
+                        for arg in cmd
+                    ]
+                    res = subprocess.run(fallback_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+                if res.returncode != 0:
+                    no_ts_cmd = [
+                        arg for i, arg in enumerate(cmd)
+                        if arg not in ("/tr", "http://timestamp.digicert.com", "/td")
+                        and not (i > 0 and cmd[i - 1] == "/td")
+                    ]
+                    res_no_ts = subprocess.run(no_ts_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+                    if res_no_ts.returncode == 0:
+                        res = res_no_ts
+                        log(f"[Sign/Authenticode] Signed {target_bin.name} without RFC 3161 timestamp (TSA unreachable).")
                 if res.returncode == 0:
                     log(f"[Sign/Authenticode] Successfully signed with SignTool: {target_bin.name}")
                 else:

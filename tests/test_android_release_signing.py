@@ -274,6 +274,62 @@ class TestGradleAndWorkflowSigningContracts(unittest.TestCase):
         builder_text = (REPO_ROOT / "tools" / "builder.py").read_text(encoding="utf-8")
         self.assertIn('"--android-skip-build-dependency-validation"', builder_text)
 
+    def test_windows_signing_resolves_release_keystore_secrets_and_normalizes_pkcs12(self):
+        import base64
+        import subprocess
+        import tempfile
+
+        wf_text = (REPO_ROOT / ".github" / "workflows" / "build_and_release.yml").read_text(encoding="utf-8")
+        self.assertIn("secrets.RELEASE_KEYSTORE_BASE64", wf_text)
+        self.assertIn("secrets.RELEASE_KEYSTORE_PASSWORD", wf_text)
+        verify_text = (REPO_ROOT / ".github" / "workflows" / "verify_signatures.yml").read_text(encoding="utf-8")
+        self.assertIn("secrets.RELEASE_KEYSTORE_BASE64", verify_text)
+        self.assertIn("secrets.RELEASE_KEYSTORE_PASSWORD", verify_text)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_root = Path(tmp)
+            key_pem = tmp_root / "test_key.pem"
+            cert_pem = tmp_root / "test_cert.pem"
+            pbes2_pfx = tmp_root / "test_pbes2.pfx"
+            test_pass = "UnitTestPfxPass123!"
+            subprocess.run(
+                [
+                    "openssl", "req", "-x509", "-newkey", "rsa:2048",
+                    "-keyout", str(key_pem), "-out", str(cert_pem),
+                    "-days", "1", "-nodes", "-subj", "/CN=AttuneTest",
+                ],
+                check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            )
+            subprocess.run(
+                [
+                    "openssl", "pkcs12", "-export",
+                    "-inkey", str(key_pem), "-in", str(cert_pem),
+                    "-out", str(pbes2_pfx), "-passout", f"pass:{test_pass}",
+                ],
+                check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            )
+            b64_str = base64.b64encode(pbes2_pfx.read_bytes()).decode("ascii")
+            clean_env = {
+                k: v for k, v in os.environ.items()
+                if not k.startswith(("WINDOWS_CERT", "CERT_", "RELEASE_KEY", "ATTUNE_KEY", "ANDROID_KEY"))
+            }
+            clean_env["RELEASE_KEYSTORE_BASE64"] = b64_str
+            clean_env["RELEASE_KEYSTORE_PASSWORD"] = test_pass
+            with mock.patch.dict(os.environ, clean_env, clear=True), mock.patch.object(
+                builder, "REPO_ROOT", tmp_root
+            ):
+                cert_path, cert_pass = builder.resolve_windows_signing_certificate()
+                self.assertEqual(cert_pass, test_pass)
+                self.assertIsNotNone(cert_path)
+                self.assertTrue(Path(cert_path).exists())
+                info_res = subprocess.run(
+                    ["openssl", "pkcs12", "-in", cert_path, "-info", "-noout", "-passin", f"pass:{test_pass}"],
+                    stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+                )
+                combined_info = info_res.stdout + info_res.stderr
+                self.assertIn("MAC: sha1", combined_info)
+                self.assertIn("pbeWithSHA1And3-KeyTripleDES-CBC", combined_info)
+
 
 if __name__ == "__main__":
     unittest.main()
