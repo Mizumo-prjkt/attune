@@ -78,6 +78,7 @@ jobs:
   verify_authenticode:
     name: "Verify Windows Authenticode Signatures"
     runs-on: windows-2022
+    timeout-minutes: 5
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
@@ -125,8 +126,8 @@ jobs:
               }
 
               if (Test-Path $tmpCer) {
-                & certutil.exe -addstore -f "ROOT" $tmpCer 2>$null
-                & certutil.exe -addstore -f "TrustedPublisher" $tmpCer 2>$null
+                & certutil.exe -silent -addstore -f "ROOT" $tmpCer 2>$null
+                & certutil.exe -silent -addstore -f "TrustedPublisher" $tmpCer 2>$null
                 Import-Certificate -FilePath $tmpCer -CertStoreLocation "Cert:\LocalMachine\Root" -ErrorAction SilentlyContinue | Out-Null
                 Import-Certificate -FilePath $tmpCer -CertStoreLocation "Cert:\LocalMachine\TrustedPublisher" -ErrorAction SilentlyContinue | Out-Null
               }
@@ -329,6 +330,7 @@ jobs:
 
       - name: Verify Authenticode Signatures & Timestamps
         id: verify
+        timeout-minutes: 5
         shell: pwsh
         env:
           SIGNTOOL_PATH: ${{ steps.signtool.outputs.path }}
@@ -378,8 +380,8 @@ jobs:
                 $probeCer = Join-Path $env:TEMP "attune_probe_root.cer"
                 try {
                   [System.IO.File]::WriteAllBytes($probeCer, $sc.RawData)
-                  & certutil.exe -addstore -f "ROOT" $probeCer 2>$null
-                  & certutil.exe -addstore -f "TrustedPublisher" $probeCer 2>$null
+                  & certutil.exe -silent -addstore -f "ROOT" $probeCer 2>$null
+                  & certutil.exe -silent -addstore -f "TrustedPublisher" $probeCer 2>$null
                   $lmRoot = [string]::Concat("Cert:\", "Local", "Machine\Root")
                   $lmPub = [string]::Concat("Cert:\", "Local", "Machine\TrustedPublisher")
                   Import-Certificate -FilePath $probeCer -CertStoreLocation $lmRoot -ErrorAction SilentlyContinue | Out-Null
