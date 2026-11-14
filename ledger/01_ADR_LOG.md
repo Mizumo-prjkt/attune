@@ -5327,6 +5327,27 @@ This file records all major architectural decisions for **Attune**, including co
   - `ATTUNE_ALLOW_DEBUG_SIGNING_FOR_RELEASE` (`"1"`, `"true"`, `"yes"`, trimmed/case-insensitive) and `key.properties` syntax (`=`, `:`, whitespace separators, line continuations, and Java escapes) behave identically across `apps/attune_app/android/app/build.gradle.kts` and `tools/builder.py`.
   - `tests/test_android_release_signing.py` (9 tests) and `tests/e2e_windows_pipeline/run_e2e_tests.py --all` (192 tests) provide regression coverage across `generate_keystore.py`, `builder.py`, `build.gradle.kts`, and `build_and_release.yml`.
 
+---
+
+## ADR-151: Windows Authenticode Verification Workflow PowerShell `List<string>` Fix, Variant Filtering & ISCC Guarding
+
+- **Date**: 2026-11-14
+- **Status**: **LOCKED**
+- **Context**:
+  - Running `.github/workflows/verify_signatures.yml` on GitHub Actions surfaced three issues:
+    1. `$summaryLines = [System.Collections.Generic.List[string]]::new($tableHeaders)` threw `Cannot find an overload for "new" and the argument count: "1"` in PowerShell because `@(...)` evaluates to `object[]` rather than `string[]`.
+    2. `verify_signatures.yml` accepted `inputs.build_type` (default `"Release"`) without filtering artifact downloads, archive extraction, or binary scanning, causing Release verification runs to download and audit Debug artifacts as well; additionally, manual `workflow_dispatch` auto-discovery picked up older pre-ADR-149 `v0.1.1-rc5` artifacts (which predated `WINDOWS_CERT_BASE64` wiring in `build_and_release.yml` and `shell=False` ISCC quoting fixes).
+    3. `.github/workflows/build_and_release.yml` checked `WINDOWS_CERT_BASE64 || CERT_BASE64` and `WINDOWS_CERT_PASS || CERT_PASS || CERT_PASSWORD`, omitting `WINDOWS_CERTIFICATE_BASE64` and `WINDOWS_CERT_PASSWORD` supported by `verify_signatures.yml` and `tools/builder.py`; `packaging/windows/attune_installer.iss` left `signonce` active even when `SignToolName == ""`; and `tools/builder.py` logged only a warning on non-zero `iscc` exit codes.
+- **Decision**:
+  1. Instantiate `$summaryLines = [System.Collections.Generic.List[string]]::new()` and append `[string]$hdr` elements in a loop in `.github/workflows/verify_signatures.yml`.
+  2. Filter `download-artifact`, `gh run download`, portable zip extraction, and binary scanning by `inputs.build_type` (`Release`, `Debug`, or `Both`), and log the discovered `Build and Deploy` run metadata (`databaseId`, `displayTitle`, `headBranch`, `createdAt`).
+  3. Align `WINDOWS_CERT_BASE64` / `WINDOWS_CERT_PASS` secret fallbacks in `.github/workflows/build_and_release.yml` with `verify_signatures.yml` and `tools/builder.py`.
+  4. Define `BinarySignFlags` in `packaging/windows/attune_installer.iss` without `signonce` by default and override it with `signonce` inside `#if SignToolName != ""`, preserving static parser detection for tests while avoiding ISCC compilation failures on unsigned local builds; raise `RuntimeError` in `tools/builder.py` when `iscc` exits non-zero.
+- **Consequences**:
+  - `verify_signatures.yml` generates GitHub Step Summaries cleanly without PowerShell `.new()` overload crashes and only audits the requested build variant.
+  - Note: Existing historical artifacts from `v0.1.1-rc5` remain unsigned until a fresh `Build and Deploy` run is triggered on `main` (via `workflow_dispatch` or new tag push `v*`).
+  - Verification metrics: 192/192 E2E Windows pipeline tests pass, 9/9 Android release signing tests pass, Python `py_compile` clean, valid YAML on both workflows.
+
 
 
 

@@ -1691,7 +1691,7 @@ def package_bundle(target_os="linux", mode="release", localversion="", bundle_ty
                     log(f"  [iscc] {line.rstrip()}")
                 iscc_rc = proc.wait()
                 if iscc_rc != 0:
-                    log(f"[Package] Warning: iscc compiler exited with code {iscc_rc}.")
+                    raise RuntimeError(f"ISCC compiler failed with exit code {iscc_rc}.")
                 expected_setup = dist_dir / f"Attune-{full_ver}-Windows-{mode.capitalize()}-Setup.exe"
                 if expected_setup.exists() and expected_setup not in artifacts:
                     log(f"[Package] Produced Windows Installer: {expected_setup}")

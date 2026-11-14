@@ -290,8 +290,8 @@ jobs:
         shell: pwsh
         env:
           ATTUNE_VERSION: ${{ needs.meta.outputs.version }}
-          WINDOWS_CERT_BASE64: ${{ secrets.WINDOWS_CERT_BASE64 || secrets.CERT_BASE64 }}
-          WINDOWS_CERT_PASS: ${{ secrets.WINDOWS_CERT_PASS || secrets.CERT_PASS || secrets.CERT_PASSWORD }}
+          WINDOWS_CERT_BASE64: ${{ secrets.WINDOWS_CERT_BASE64 || secrets.WINDOWS_CERTIFICATE_BASE64 || secrets.CERT_BASE64 }}
+          WINDOWS_CERT_PASS: ${{ secrets.WINDOWS_CERT_PASS || secrets.WINDOWS_CERT_PASSWORD || secrets.CERT_PASS || secrets.CERT_PASSWORD }}
         run: |
           python tools/builder.py --target windows --build-type "${{ matrix.build_type }}" --version-id "${{ needs.meta.outputs.version }}" --build-number "${{ needs.meta.outputs.build_number }}" --generate-icons --sign-dlls --package --installer --sign --test
 

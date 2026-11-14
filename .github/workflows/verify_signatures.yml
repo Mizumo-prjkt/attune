@@ -106,7 +106,7 @@ jobs:
         if: github.event_name == 'workflow_call' && !inputs.release_tag
         uses: actions/download-artifact@v4
         with:
-          pattern: 'artifacts-windows-*'
+          pattern: ${{ (inputs.build_type || 'Release') == 'Both' && 'artifacts-windows-*' || format('artifacts-windows-{0}', inputs.build_type || 'Release') }}
           path: downloaded_artifacts
           merge-multiple: false
         continue-on-error: true
@@ -118,9 +118,11 @@ jobs:
           GITHUB_REPO: ${{ github.repository }}
           RUN_ID: ${{ inputs.run_id || github.event.workflow_run.id }}
           RELEASE_TAG: ${{ inputs.release_tag }}
+          BUILD_TYPE: ${{ inputs.build_type || 'Release' }}
         run: |
           $artDir = Join-Path $PWD "downloaded_artifacts"
           New-Item -ItemType Directory -Force -Path $artDir | Out-Null
+          $artifactPattern = if ($env:BUILD_TYPE -eq 'Both') { 'artifacts-windows-*' } else { "artifacts-windows-$($env:BUILD_TYPE)" }
 
           function Count-StagedArtifacts {
             param([string]$Dir)
@@ -130,7 +132,7 @@ jobs:
 
           $alreadyStaged = Count-StagedArtifacts $artDir
           if ($alreadyStaged -gt 0 -and -not $env:RELEASE_TAG) {
-            Write-Host "Using $alreadyStaged artifact file(s) already downloaded via workflow_call."
+            Write-Host "Using $alreadyStaged artifact file(s) already downloaded via workflow_call (variant: $env:BUILD_TYPE)."
             return
           }
 
@@ -138,14 +140,14 @@ jobs:
           $ErrorActionPreference = 'Continue'
 
           if ($env:RELEASE_TAG) {
-            Write-Host "Downloading artifacts from release $env:RELEASE_TAG..."
+            Write-Host "Downloading artifacts from release $env:RELEASE_TAG (variant: $env:BUILD_TYPE)..."
             gh release download $env:RELEASE_TAG --pattern "*Windows*" --dir $artDir
             if ($LASTEXITCODE -ne 0) {
               Write-Warning "gh release download exited with code $LASTEXITCODE."
             }
           } elseif ($env:RUN_ID) {
-            Write-Host "Downloading artifacts from workflow run $env:RUN_ID..."
-            gh run download $env:RUN_ID -p "artifacts-windows-*" --dir $artDir
+            Write-Host "Downloading artifacts ($artifactPattern) from workflow run $env:RUN_ID..."
+            gh run download $env:RUN_ID -p $artifactPattern --dir $artDir
             if ($LASTEXITCODE -ne 0) {
               Write-Warning "gh run download for run $env:RUN_ID exited with code $LASTEXITCODE."
             }
@@ -153,8 +155,8 @@ jobs:
             Write-Host "Using existing local dist\windows artifacts..."
             Copy-Item -Path "dist\windows\*" -Destination $artDir -Recurse -Force
           } else {
-            Write-Host "No run_id or release_tag specified; discovering latest Build and Deploy run with Windows artifacts..."
-            $runsJson = gh run list --workflow "build_and_release.yml" --limit 10 --json databaseId,status,conclusion 2>&1
+            Write-Host "No run_id or release_tag specified; discovering latest Build and Deploy run matching '$artifactPattern'..."
+            $runsJson = gh run list --workflow "build_and_release.yml" --limit 10 --json databaseId,status,conclusion,headBranch,displayTitle,createdAt 2>&1
             $runs = @()
             if ($LASTEXITCODE -eq 0 -and $runsJson) {
               try { $runs = $runsJson | ConvertFrom-Json } catch { $runs = @() }
@@ -166,10 +168,10 @@ jobs:
               if ($LASTEXITCODE -ne 0 -or -not $artsJson) { continue }
               try {
                 $artsObj = $artsJson | ConvertFrom-Json
-                $winArts = @($artsObj.artifacts | Where-Object { $_.name -like "artifacts-windows-*" -and -not $_.expired })
+                $winArts = @($artsObj.artifacts | Where-Object { $_.name -like $artifactPattern -and -not $_.expired })
                 if ($winArts.Count -gt 0) {
-                  Write-Host "Found $($winArts.Count) Windows artifact bundle(s) in workflow run $($r.databaseId) ($($r.conclusion)). Downloading..."
-                  gh run download $r.databaseId -p "artifacts-windows-*" --dir $artDir
+                  Write-Host "Found $($winArts.Count) matching Windows artifact bundle(s) in workflow run $($r.databaseId) ('$($r.displayTitle)', branch '$($r.headBranch)', conclusion: $($r.conclusion), created: $($r.createdAt)). Downloading..."
+                  gh run download $r.databaseId -p $artifactPattern --dir $artDir
                   if ($LASTEXITCODE -eq 0 -and (Count-StagedArtifacts $artDir) -gt 0) {
                     break
                   }
@@ -228,6 +230,8 @@ jobs:
       - name: Extract Archive & Collect Windows Binaries
         id: stage_files
         shell: pwsh
+        env:
+          BUILD_TYPE: ${{ inputs.build_type || 'Release' }}
         run: |
           $candidateRoots = @("downloaded_artifacts", "dist\windows")
           $searchRoots = @($candidateRoots | Where-Object { Test-Path $_ })
@@ -237,8 +241,11 @@ jobs:
           }
           New-Item -ItemType Directory -Force -Path $extractedDir | Out-Null
 
+          $excludeVariant = if ($env:BUILD_TYPE -eq 'Release') { 'Debug' } elseif ($env:BUILD_TYPE -eq 'Debug') { 'Release' } else { $null }
           if ($searchRoots.Count -gt 0) {
-            Get-ChildItem -Path $searchRoots -Filter "*.zip" -Recurse -ErrorAction SilentlyContinue | ForEach-Object {
+            Get-ChildItem -Path $searchRoots -Filter "*.zip" -Recurse -ErrorAction SilentlyContinue | Where-Object {
+              -not $excludeVariant -or $_.FullName -notmatch "(^|[\\/_-])$excludeVariant([\\/_.-]|$)"
+            } | ForEach-Object {
               Write-Host "Extracting portable bundle: $($_.FullName)..."
               $uniqueSub = "{0}_{1}" -f $_.BaseName, ([guid]::NewGuid().ToString("N").Substring(0, 6))
               Expand-Archive -Path $_.FullName -DestinationPath (Join-Path $extractedDir $uniqueSub) -Force
@@ -252,10 +259,14 @@ jobs:
           }
 
           $candidateFiles = @(Get-ChildItem -Path $existingScanPaths -File -Recurse -ErrorAction SilentlyContinue |
-              Where-Object { $_.Extension -in '.exe', '.dll' -and $_.FullName -notmatch "appimagetool" } |
+              Where-Object {
+                $_.Extension -in '.exe', '.dll' -and
+                $_.FullName -notmatch "appimagetool" -and
+                (-not $excludeVariant -or $_.FullName -notmatch "(^|[\\/_-])$excludeVariant([\\/_.-]|$)")
+              } |
               Select-Object -Unique -Property FullName)
 
-          Write-Host "Discovered $($candidateFiles.Count) candidate binary files to audit:"
+          Write-Host "Discovered $($candidateFiles.Count) candidate binary files to audit (build_type=$($env:BUILD_TYPE)):"
           $candidateFiles | ForEach-Object { Write-Host " - $($_.FullName)" }
           "extracted_dir=$extractedDir" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
 
@@ -264,6 +275,7 @@ jobs:
         shell: pwsh
         env:
           SIGNTOOL_PATH: ${{ steps.signtool.outputs.path }}
+          BUILD_TYPE: ${{ inputs.build_type || 'Release' }}
         run: |
           $extractedDir = "${{ steps.stage_files.outputs.extracted_dir }}"
           $searchDirs = @(@("downloaded_artifacts", "dist\windows", $extractedDir) | Where-Object { $_ -and (Test-Path $_) })
@@ -271,6 +283,7 @@ jobs:
             Write-Host "::error::No existing directories to scan for signed Windows binaries."
             exit 1
           }
+          $excludeVariant = if ($env:BUILD_TYPE -eq 'Release') { 'Debug' } elseif ($env:BUILD_TYPE -eq 'Debug') { 'Release' } else { $null }
 
           $requiredTargets = @(
             "Attune-*-Windows-*-Setup.exe",
@@ -295,11 +308,13 @@ jobs:
 
           foreach ($pattern in $requiredTargets) {
             $matchingFiles = Get-ChildItem -Path $searchDirs -Filter $pattern -Recurse -ErrorAction SilentlyContinue |
+                Where-Object { -not $excludeVariant -or $_.FullName -notmatch "(^|[\\/_-])$excludeVariant([\\/_.-]|$)" } |
                 Select-Object -Unique -Property FullName
 
             if (-not $matchingFiles -or $matchingFiles.Count -eq 0) {
               if ($pattern -eq "attune-desktop.exe") {
                 $alt = Get-ChildItem -Path $searchDirs -Filter "Attune-Desktop-*.exe" -Recurse -ErrorAction SilentlyContinue |
+                    Where-Object { -not $excludeVariant -or $_.FullName -notmatch "(^|[\\/_-])$excludeVariant([\\/_.-]|$)" } |
                     Select-Object -Unique -Property FullName
                 if ($alt) { $matchingFiles = $alt }
               }
@@ -397,7 +412,10 @@ jobs:
             "| Component | File | Status | Signer Subject | Timestamp TSA | SignTool /pa | Verdict |",
             "| :--- | :--- | :--- | :--- | :--- | :--- | :--- |"
           )
-          $summaryLines = [System.Collections.Generic.List[string]]::new($tableHeaders)
+          $summaryLines = [System.Collections.Generic.List[string]]::new()
+          foreach ($hdr in $tableHeaders) {
+            $summaryLines.Add([string]$hdr)
+          }
           foreach ($r in $results) {
             $summaryLines.Add("| `$($r.Target)` | `$($r.File)` | $($r.Status) | $($r.Subject) | $($r.Timestamp) | $($r.SignTool) | $($r.Verdict) |")
           }
@@ -408,7 +426,6 @@ jobs:
 
           if ($failed) {
             Write-Host "::error::Signature verification FAILED for one or more critical Windows binaries."
-            exit 1
             throw "Signature verification FAILED for one or more critical Windows binaries."
           } else {
             Write-Host "All Windows binaries, libraries, and installers successfully passed Authenticode signature and timestamp verification!"

@@ -19,13 +19,16 @@
 #define MyAppExeName "attune-desktop.exe"
 #define LegacyFlutterExeName "attune_app.exe"
 
+#ifndef SignToolName
+#define SignToolName ""
+#endif
+
 ; Force unconditional upgrade of all native DLLs and executables, even if read-only,
 ; lacking PE VERSIONINFO headers, or locked by a running background process.
 #define DllUpgradeFlags "replacesameversion comparetimestamp overwritereadonly restartreplace uninsremovereadonly ignoreversion"
+#define BinarySignFlags "replacesameversion comparetimestamp overwritereadonly restartreplace uninsremovereadonly ignoreversion"
+#if SignToolName != ""
 #define BinarySignFlags "replacesameversion comparetimestamp overwritereadonly restartreplace uninsremovereadonly ignoreversion signonce"
-
-#ifndef SignToolName
-#define SignToolName ""
 #endif
 
 [Setup]
