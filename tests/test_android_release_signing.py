@@ -266,6 +266,14 @@ class TestGradleAndWorkflowSigningContracts(unittest.TestCase):
         self.assertIn("RELEASE_KEYSTORE_PASSWORD", android_build_step.get("env", {}))
         self.assertIn("RELEASE_KEY_PASSWORD", android_build_step.get("env", {}))
 
+    def test_android_agp_version_and_dependency_validation_flag(self):
+        settings_gradle = (REPO_ROOT / "apps" / "attune_app" / "android" / "settings.gradle.kts").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn('id("com.android.application") version "9.1.1"', settings_gradle)
+        builder_text = (REPO_ROOT / "tools" / "builder.py").read_text(encoding="utf-8")
+        self.assertIn('"--android-skip-build-dependency-validation"', builder_text)
+
 
 if __name__ == "__main__":
     unittest.main()

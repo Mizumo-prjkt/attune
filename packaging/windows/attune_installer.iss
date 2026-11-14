@@ -25,10 +25,10 @@
 
 ; Force unconditional upgrade of all native DLLs and executables, even if read-only,
 ; lacking PE VERSIONINFO headers, or locked by a running background process.
-#define DllUpgradeFlags "replacesameversion comparetimestamp overwritereadonly restartreplace uninsremovereadonly ignoreversion"
-#define BinarySignFlags "replacesameversion comparetimestamp overwritereadonly restartreplace uninsremovereadonly ignoreversion"
+#define DllUpgradeFlags "replacesameversion comparetimestamp overwritereadonly restartreplace uninsremovereadonly"
+#define BinarySignFlags "replacesameversion comparetimestamp overwritereadonly restartreplace uninsremovereadonly"
 #if SignToolName != ""
-#define BinarySignFlags "replacesameversion comparetimestamp overwritereadonly restartreplace uninsremovereadonly ignoreversion signonce"
+#define BinarySignFlags "replacesameversion comparetimestamp overwritereadonly restartreplace uninsremovereadonly signonce"
 #endif
 
 [Setup]

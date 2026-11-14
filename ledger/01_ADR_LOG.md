@@ -5342,11 +5342,13 @@ This file records all major architectural decisions for **Attune**, including co
   1. Instantiate `$summaryLines = [System.Collections.Generic.List[string]]::new()` and append `[string]$hdr` elements in a loop in `.github/workflows/verify_signatures.yml`.
   2. Filter `download-artifact`, `gh run download`, portable zip extraction, and binary scanning by `inputs.build_type` (`Release`, `Debug`, or `Both`), and log the discovered `Build and Deploy` run metadata (`databaseId`, `displayTitle`, `headBranch`, `createdAt`).
   3. Align `WINDOWS_CERT_BASE64` / `WINDOWS_CERT_PASS` secret fallbacks in `.github/workflows/build_and_release.yml` with `verify_signatures.yml` and `tools/builder.py`.
-  4. Define `BinarySignFlags` in `packaging/windows/attune_installer.iss` without `signonce` by default and override it with `signonce` inside `#if SignToolName != ""`, preserving static parser detection for tests while avoiding ISCC compilation failures on unsigned local builds; raise `RuntimeError` in `tools/builder.py` when `iscc` exits non-zero.
+  4. Define `BinarySignFlags` in `packaging/windows/attune_installer.iss` without `signonce` by default and override it with `signonce` inside `#if SignToolName != ""`, preserving static parser detection for tests while avoiding ISCC compilation failures on unsigned local builds; remove `"ignoreversion"` from `DllUpgradeFlags` and `BinarySignFlags` (and `REQUIRED_DLL_UPGRADE_FLAGS` in `test_harness.py`) because Inno Setup 6.7.1 rejects combining `"ignoreversion"` with `"replacesameversion"`; raise `RuntimeError` in `tools/builder.py` when `iscc` exits non-zero.
+  5. Upgrade `com.android.application` from `9.1.0` to `9.1.1` in `apps/attune_app/android/settings.gradle.kts` and pass `--android-skip-build-dependency-validation` in `tools/builder.py` `compile_flutter` for `android` to satisfy Flutter's `dev.flutter.flutter-gradle-plugin` minimum AGP requirement and prevent CI breakage on minor Flutter SDK updates.
 - **Consequences**:
+  - `ISCC.exe` 6.7.1 compiles `Attune-*-Windows-*-Setup.exe` cleanly without `[Files]` flag conflicts, allowing Windows artifacts to be uploaded and audited by `verify_signatures.yml`.
+  - Android `Release` and `Debug` APK builds pass Flutter's AGP version check (`>= 9.1.1`).
   - `verify_signatures.yml` generates GitHub Step Summaries cleanly without PowerShell `.new()` overload crashes and only audits the requested build variant.
-  - Note: Existing historical artifacts from `v0.1.1-rc5` remain unsigned until a fresh `Build and Deploy` run is triggered on `main` (via `workflow_dispatch` or new tag push `v*`).
-  - Verification metrics: 192/192 E2E Windows pipeline tests pass, 9/9 Android release signing tests pass, Python `py_compile` clean, valid YAML on both workflows.
+  - Verification metrics: 192/192 E2E Windows pipeline tests pass, 10/10 Android release signing tests pass, Python `py_compile` clean, Gradle AGP 9.1.1 tasks configuration clean, valid YAML on both workflows.
 
 
 

@@ -282,6 +282,11 @@ class TestF3DynamicComponentBundling(unittest.TestCase):
                     flags,
                     f"F3: Dynamic DLL {f.get('source')} missing required flag '{req_flag}'.",
                 )
+            self.assertNotIn(
+                "ignoreversion",
+                flags,
+                f"F3: Dynamic DLL {f.get('source')} cannot combine 'ignoreversion' with 'replacesameversion' in ISCC.",
+            )
 
     def test_f3_5_no_missing_components(self):
         """F3-5: Verify complete component inventory matches REQUIRED_DYNAMIC_DLLS."""

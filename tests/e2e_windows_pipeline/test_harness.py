@@ -45,13 +45,13 @@ REQUIRED_DYNAMIC_DLLS = [
 REQUIRED_PE_BINARIES = ["attune-desktop.exe"] + REQUIRED_DYNAMIC_DLLS
 
 # Expected upgrade flags for dynamic components in Inno Setup
+# Note: Inno Setup 6.x forbids combining "ignoreversion" with "replacesameversion".
 REQUIRED_DLL_UPGRADE_FLAGS = {
     "replacesameversion",
     "comparetimestamp",
     "overwritereadonly",
     "restartreplace",
     "uninsremovereadonly",
-    "ignoreversion",
 }
 
 

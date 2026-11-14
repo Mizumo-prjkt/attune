@@ -1063,6 +1063,7 @@ def compile_flutter(target_os="linux", mode="release", version_override="", loca
         cmd = [
             "flutter", "build", "apk",
             f"--{mode.lower()}",
+            "--android-skip-build-dependency-validation",
             f"--build-name={effective_build_name}",
             f"--build-number={effective_build_num}",
         ]
