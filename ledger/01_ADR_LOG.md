@@ -5294,6 +5294,39 @@ This file records all major architectural decisions for **Attune**, including co
   - Release pipeline automatically blocks deployment if any artifact fails signature or timestamp validation.
   - Verification metrics: 192/192 E2E tests pass, 133 attune-desktop unit tests pass, 17 empirical loader tests pass, 0 cargo check errors on `x86_64-pc-windows-gnu`, valid YAML on CI workflows.
 
+---
+
+## ADR-150: Android Release Signing Fail-Closed Enforcement & Passwordless `key.properties` Hardening (`alert-autofix-1`)
+
+- **Date**: 2026-11-14
+- **Status**: **LOCKED**
+- **Context**:
+  - GitHub Copilot Autofix (`alert-autofix-1`, commit `460574a`) resolved CodeQL's plaintext-credential-write finding in `tools/generate_keystore.py` by removing `storePassword` and `keyPassword` from `apps/attune_app/android/key.properties`.
+  - However, CodeRabbit flagged a resulting functional correctness & security vulnerability: in `apps/attune_app/android/app/build.gradle.kts`, when `key.properties` lacked `storePassword`/`keyPassword` and the `RELEASE_*` / `ATTUNE_*` environment variables were unset, the `else` branch silently copied `signingConfigs.getByName("debug")` into the `release` build type. Furthermore, `tools/builder.py` only checked whether `key.properties` and `attune_release.jks` existed, so builds proceeded with zero warning, producing debug-signed release APKs that fail upgrade-in-place checks and violate release provenance.
+  - Additional credential-hygiene gaps existed in `tools/generate_keystore.py` (hardcoded `"attunerelease"` password default, plaintext `-storepass`/`-keypass` CLI process arguments, and cleartext password output in GUI log messages) and `.github/workflows/build_and_release.yml` (`${RELEASE_KEYSTORE_PASSWORD:-attunerelease}` hardcoded fallback and writing plaintext passwords into CI `key.properties`).
+- **Decision**:
+  1. **Fail-Closed Android Gradle Release Signing (`apps/attune_app/android/app/build.gradle.kts`)**:
+     - Use `FileInputStream(keyPropertiesFile).use { ... }` to prevent descriptor leaks while reading `key.properties`.
+     - Treat any partial keystore state (`hasKeystoreArtifacts` = `key.properties` or `.jks` exists without complete credentials) as invalid for `release` builds; disallow silent fallback to `debug` signing unless `ATTUNE_ALLOW_DEBUG_SIGNING_FOR_RELEASE` (`1`/`true`/`yes`) is explicitly set with **no** keystore artifacts present.
+     - Enforce the error via `tasks.configureEach` (`throw GradleException(...)`) strictly on tasks whose name contains `"Release"` (ignoring case), preserving normal developer ergonomics for `debug` builds.
+  2. **Builder Pre-Flight Validation (`tools/builder.py`)**:
+     - Add `_parse_key_properties` and `validate_android_release_signing(flutter_dir, log_func=None)` wired into `compile_flutter` for `platform == "android"` and `mode == "release"`.
+     - Raise `RuntimeError` immediately if partial keystore artifacts exist without resolvable `storePassword`/`keyPassword` (either in `key.properties` or `RELEASE_*`/`ATTUNE_*` env vars), or if no keystore exists and `ATTUNE_ALLOW_DEBUG_SIGNING_FOR_RELEASE` is not explicitly enabled.
+  3. **Keystore Generator Hardening (`tools/generate_keystore.py`)**:
+     - Remove the hardcoded `"attunerelease"` password fallback in both `generate_keystore()` and `launch_gui()` (require explicit input >= 6 chars).
+     - Pass passwords to `keytool` via `-storepass:env ATTUNE_KEYTOOL_STOREPASS` and `-keypass:env ATTUNE_KEYTOOL_KEYPASS` environment variables instead of cleartext CLI arguments.
+     - Keep `storePassword`/`keyPassword` out of `key.properties` and remove plaintext password strings from GUI log output.
+  4. **CI Workflow Hardening (`.github/workflows/build_and_release.yml`)**:
+     - Fail immediately if `RELEASE_KEYSTORE_BASE64` is provided without `RELEASE_KEYSTORE_PASSWORD`; remove `${RELEASE_KEYSTORE_PASSWORD:-attunerelease}` fallback; write only `storeFile` and `keyAlias` to `key.properties`; export `ATTUNE_ALLOW_DEBUG_SIGNING_FOR_RELEASE=true` when `RELEASE_KEYSTORE_BASE64` is unset; forward `RELEASE_KEYSTORE_PASSWORD`, `RELEASE_KEY_ALIAS`, and `RELEASE_KEY_PASSWORD` to the Android build step.
+- **Alternatives Considered**:
+  - Re-adding plaintext passwords to `key.properties`: Rejected because it reintroduces the CodeQL plaintext secret storage alert and risks accidental password disclosure if `key.properties` is mishandled.
+  - Emitting only a warning in `builder.py` when release passwords are missing: Rejected because CI and automated releases must fail closed rather than shipping debug-signed release binaries.
+- **Consequences**:
+  - Release builds cannot accidentally ship with debug keys when `key.properties` omits passwords.
+  - Local `debug` Android builds continue to work without release credentials.
+  - `ATTUNE_ALLOW_DEBUG_SIGNING_FOR_RELEASE` (`"1"`, `"true"`, `"yes"`, trimmed/case-insensitive) and `key.properties` syntax (`=`, `:`, whitespace separators, line continuations, and Java escapes) behave identically across `apps/attune_app/android/app/build.gradle.kts` and `tools/builder.py`.
+  - `tests/test_android_release_signing.py` (9 tests) and `tests/e2e_windows_pipeline/run_e2e_tests.py --all` (192 tests) provide regression coverage across `generate_keystore.py`, `builder.py`, `build.gradle.kts`, and `build_and_release.yml`.
+
 
 
 

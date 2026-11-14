@@ -821,6 +821,221 @@ def compile_rust(mode="release", target_os=None, log_callback=None):
     return lib_path
 
 
+def _unescape_java_property(text):
+    """Unescapes Java .properties escape sequences (`\\t`, `\\n`, `\\r`, `\\f`, `\\uXXXX`, `\\x`)."""
+    out = []
+    i = 0
+    n = len(text)
+    escapes = {"t": "\t", "n": "\n", "r": "\r", "f": "\f"}
+    while i < n:
+        ch = text[i]
+        if ch == "\\" and i + 1 < n:
+            nxt = text[i + 1]
+            if nxt in escapes:
+                out.append(escapes[nxt])
+                i += 2
+                continue
+            if nxt == "u" and i + 6 <= n:
+                hex_part = text[i + 2:i + 6]
+                try:
+                    out.append(chr(int(hex_part, 16)))
+                    i += 6
+                    continue
+                except ValueError:
+                    pass
+            out.append(nxt)
+            i += 2
+            continue
+        out.append(ch)
+        i += 1
+    return "".join(out)
+
+
+def _parse_key_properties(prop_path):
+    """
+    Parses a Java .properties file following `java.util.Properties.load` semantics:
+    supports `=`, `:`, and whitespace key/value separators, `#`/`!` comments,
+    backslash line continuations, and Java `.properties` escape sequences.
+    """
+    props = {}
+    p = Path(prop_path)
+    if not p.exists():
+        return props
+
+    raw_bytes = p.read_bytes()
+    try:
+        content = raw_bytes.decode("utf-8")
+    except UnicodeDecodeError:
+        content = raw_bytes.decode("latin-1")
+
+    # Java Properties treats space, tab, and form feed as whitespace.
+    ws_chars = (" ", "\t", "\f")
+    lines = content.splitlines()
+    logical_lines = []
+    i = 0
+    while i < len(lines):
+        stripped = lines[i].lstrip(" \t\f")
+        if not stripped or stripped.startswith("#") or stripped.startswith("!"):
+            i += 1
+            continue
+
+        buf = [stripped]
+        cur = stripped
+        while True:
+            # Count consecutive trailing backslashes; odd count means line continuation.
+            bs_count = 0
+            idx = len(cur) - 1
+            while idx >= 0 and cur[idx] == "\\":
+                bs_count += 1
+                idx -= 1
+            if bs_count % 2 == 1 and i + 1 < len(lines):
+                buf[-1] = buf[-1][:-1]
+                i += 1
+                cur = lines[i].lstrip(" \t\f")
+                buf.append(cur)
+            else:
+                break
+        logical_lines.append("".join(buf))
+        i += 1
+
+    for line in logical_lines:
+        n = len(line)
+        key_end = 0
+        has_sep = False
+        value_start = n
+
+        while key_end < n:
+            ch = line[key_end]
+            if ch == "\\":
+                key_end += 2
+                continue
+            if ch in ("=", ":") or ch in ws_chars:
+                has_sep = ch in ("=", ":")
+                break
+            key_end += 1
+
+        pos = key_end
+        if not has_sep:
+            while pos < n and line[pos] in ws_chars:
+                pos += 1
+            if pos < n and line[pos] in ("=", ":"):
+                has_sep = True
+                pos += 1
+        else:
+            pos += 1
+
+        while pos < n and line[pos] in ws_chars:
+            pos += 1
+        value_start = pos
+
+        k = _unescape_java_property(line[:key_end])
+        v = _unescape_java_property(line[value_start:])
+        if k:
+            props[k] = v
+
+    return props
+
+
+def validate_android_release_signing(flutter_dir, log_func=None):
+    """
+    Validates Android release signing credentials before running `flutter build apk --release`.
+    Prevents silent fallback to the debug signing key when `key.properties` omits passwords
+    or when release credentials cannot be resolved.
+    """
+    def log(msg):
+        if log_func:
+            log_func(msg)
+        else:
+            print(msg)
+
+    android_dir = Path(flutter_dir) / "android"
+    key_props_path = android_dir / "key.properties"
+    key_props = _parse_key_properties(key_props_path)
+
+    store_file_raw = (
+        key_props.get("storeFile")
+        or os.environ.get("RELEASE_KEYSTORE_FILE")
+        or os.environ.get("ATTUNE_KEYSTORE_FILE")
+        or "attune_release.jks"
+    ).strip()
+
+    keystore_candidates = [
+        android_dir / "app" / store_file_raw,
+        android_dir / store_file_raw,
+        android_dir / "app" / "attune_release.jks",
+    ]
+    if Path(store_file_raw).is_absolute():
+        keystore_candidates.insert(0, Path(store_file_raw))
+
+    resolved_keystore = next((c for c in keystore_candidates if c.exists()), None)
+
+    store_pass = (
+        key_props.get("storePassword")
+        or os.environ.get("RELEASE_KEYSTORE_PASSWORD")
+        or os.environ.get("ATTUNE_KEYSTORE_PASSWORD")
+        or ""
+    ).strip()
+    key_alias = (
+        key_props.get("keyAlias")
+        or os.environ.get("RELEASE_KEY_ALIAS")
+        or os.environ.get("ATTUNE_KEY_ALIAS")
+        or ""
+    ).strip()
+    key_pass = (
+        key_props.get("keyPassword")
+        or os.environ.get("RELEASE_KEY_PASSWORD")
+        or os.environ.get("ATTUNE_KEY_PASSWORD")
+        or store_pass
+    ).strip()
+
+    has_partial_or_file = key_props_path.exists() or (resolved_keystore is not None)
+    missing = []
+    if resolved_keystore is None:
+        missing.append(f"keystore file ({store_file_raw})")
+    if not key_alias:
+        missing.append("keyAlias (key.properties or RELEASE_KEY_ALIAS / ATTUNE_KEY_ALIAS)")
+    if not store_pass:
+        missing.append("storePassword (RELEASE_KEYSTORE_PASSWORD / ATTUNE_KEYSTORE_PASSWORD)")
+    if not key_pass:
+        missing.append("keyPassword (RELEASE_KEY_PASSWORD / ATTUNE_KEY_PASSWORD)")
+
+    if not missing:
+        log(f"[Flutter] Android release signing configured (keystore: {resolved_keystore}, alias: {key_alias}).")
+        return {
+            "mode": "release",
+            "keystore": str(resolved_keystore),
+            "alias": key_alias,
+        }
+
+    allow_debug_fallback = (
+        os.environ.get("ATTUNE_ALLOW_DEBUG_SIGNING_FOR_RELEASE", "").strip().lower() in ("1", "true", "yes")
+    )
+
+    if has_partial_or_file:
+        raise RuntimeError(
+            "Android release signing configuration is incomplete "
+            f"(missing: {', '.join(missing)}). "
+            "Refusing to silently fall back to debug signing because release keystore/key.properties artifacts exist. "
+            "Set RELEASE_KEYSTORE_PASSWORD and RELEASE_KEY_PASSWORD (or ATTUNE_KEYSTORE_PASSWORD and ATTUNE_KEY_PASSWORD) "
+            "in your environment before running a release build."
+        )
+
+    if allow_debug_fallback:
+        log(
+            "[Flutter] WARNING: Android release keystore/credentials not configured; "
+            "using explicit debug signing fallback (ATTUNE_ALLOW_DEBUG_SIGNING_FOR_RELEASE is enabled)."
+        )
+        return {"mode": "debug_fallback"}
+
+    raise RuntimeError(
+        "Android release signing credentials cannot be resolved "
+        f"(missing: {', '.join(missing)}). "
+        "Run 'python tools/generate_keystore.py' and set RELEASE_KEYSTORE_PASSWORD / RELEASE_KEY_PASSWORD "
+        "(or ATTUNE_KEYSTORE_PASSWORD / ATTUNE_KEY_PASSWORD) in your environment, or explicitly set "
+        "ATTUNE_ALLOW_DEBUG_SIGNING_FOR_RELEASE=1 only for local debug-signed testing."
+    )
+
+
 def compile_flutter(target_os="linux", mode="release", version_override="", localversion="", build_number=None, log_callback=None):
     """Compiles Flutter application (desktop or Android APK) passing exact build-name and build-number."""
     def log(msg):
@@ -842,11 +1057,7 @@ def compile_flutter(target_os="linux", mode="release", version_override="", loca
     flutter_dir = REPO_ROOT / "apps" / "attune_app"
 
     if effective_target_os == "android" and mode.lower() == "release":
-        key_props = flutter_dir / "android" / "key.properties"
-        keystore_cand = flutter_dir / "android" / "app" / "attune_release.jks"
-        if not key_props.exists() and not keystore_cand.exists() and not os.environ.get("ATTUNE_KEYSTORE_PASSWORD"):
-            log("[Flutter] Note: Android release keystore/key.properties not detected. Gradle will build using debug signing.")
-            log("[Flutter] Note: Run 'python tools/generate_keystore.py' or 'python tools/builder.py --generate-keystore' to generate a release keystore.")
+        validate_android_release_signing(flutter_dir, log_func=log)
 
     if effective_target_os == "android":
         cmd = [
