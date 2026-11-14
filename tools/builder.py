@@ -996,12 +996,13 @@ def resolve_windows_signing_certificate(log_func=None):
         os.environ.get("WINDOWS_CERT_PASS")
         or os.environ.get("WINDOWS_CERT_PASSWORD")
         or os.environ.get("CERT_PASS")
+        or os.environ.get("CERT_PASSWORD")
     )
 
     if cert_b64 and (not cert_path or not Path(cert_path).exists()):
         try:
             import base64
-            raw_bytes = base64.b64decode(cert_b64)
+            raw_bytes = base64.b64decode("".join(cert_b64.split()))
             temp_cert = REPO_ROOT / "build" / "windows_certificate.pfx"
             temp_cert.parent.mkdir(parents=True, exist_ok=True)
             temp_cert.write_bytes(raw_bytes)
@@ -1472,12 +1473,14 @@ def package_bundle(target_os="linux", mode="release", localversion="", bundle_ty
                     stdout=subprocess.PIPE,
                     stderr=subprocess.STDOUT,
                     text=True,
-                    shell=IS_WINDOWS,
+                    shell=False,
                 )
 
                 for line in proc.stdout:
                     log(f"  [iscc] {line.rstrip()}")
-                proc.wait()
+                iscc_rc = proc.wait()
+                if iscc_rc != 0:
+                    log(f"[Package] Warning: iscc compiler exited with code {iscc_rc}.")
                 expected_setup = dist_dir / f"Attune-{full_ver}-Windows-{mode.capitalize()}-Setup.exe"
                 if expected_setup.exists() and expected_setup not in artifacts:
                     log(f"[Package] Produced Windows Installer: {expected_setup}")

@@ -37,7 +37,17 @@ on:
     secrets:
       WINDOWS_CERT_BASE64:
         required: false
+      WINDOWS_CERTIFICATE_BASE64:
+        required: false
+      CERT_BASE64:
+        required: false
       WINDOWS_CERT_PASS:
+        required: false
+      WINDOWS_CERT_PASSWORD:
+        required: false
+      CERT_PASS:
+        required: false
+      CERT_PASSWORD:
         required: false
       KEYS:
         required: false
@@ -48,6 +58,7 @@ on:
 
 permissions:
   contents: read
+  actions: read
 
 jobs:
   verify_authenticode:
@@ -60,8 +71,8 @@ jobs:
       - name: Setup Windows Trust Anchor
         shell: pwsh
         env:
-          WINDOWS_CERT_BASE64: ${{ secrets.WINDOWS_CERT_BASE64 || secrets.CERT_BASE64 }}
-          WINDOWS_CERT_PASS: ${{ secrets.WINDOWS_CERT_PASS || secrets.CERT_PASS }}
+          WINDOWS_CERT_BASE64: ${{ secrets.WINDOWS_CERT_BASE64 || secrets.WINDOWS_CERTIFICATE_BASE64 || secrets.CERT_BASE64 }}
+          WINDOWS_CERT_PASS: ${{ secrets.WINDOWS_CERT_PASS || secrets.WINDOWS_CERT_PASSWORD || secrets.CERT_PASS || secrets.CERT_PASSWORD }}
         run: |
           if ($env:WINDOWS_CERT_BASE64) {
             Write-Host "Importing provided certificate into LocalMachine\Root trust store..."
@@ -69,12 +80,21 @@ jobs:
               $cleanB64 = $env:WINDOWS_CERT_BASE64 -replace '\s+', ''
               $certBytes = [System.Convert]::FromBase64String($cleanB64)
               $pass = if ($env:WINDOWS_CERT_PASS) { $env:WINDOWS_CERT_PASS } else { "" }
-              $cert = [System.Security.Cryptography.X509Certificates.X509Certificate2]::new($certBytes, $pass, [System.Security.Cryptography.X509KeyStorageFlags]::Exportable)
+              $certCollection = [System.Security.Cryptography.X509Certificates.X509Certificate2Collection]::new()
+              $certCollection.Import($certBytes, $pass, [System.Security.Cryptography.X509KeyStorageFlags]::Exportable)
               $store = [System.Security.Cryptography.X509Certificates.X509Store]::new("Root", "LocalMachine")
               $store.Open([System.Security.Cryptography.OpenFlags]::ReadWrite)
-              $store.Add($cert)
+              if ($certCollection.Count -gt 0) {
+                foreach ($c in $certCollection) {
+                  $store.Add($c)
+                  Write-Host "Successfully registered certificate trust anchor ($($c.Subject))."
+                }
+              } else {
+                $cert = [System.Security.Cryptography.X509Certificates.X509Certificate2]::new($certBytes, $pass, [System.Security.Cryptography.X509KeyStorageFlags]::Exportable)
+                $store.Add($cert)
+                Write-Host "Successfully registered certificate trust anchor ($($cert.Subject))."
+              }
               $store.Close()
-              Write-Host "Successfully registered certificate trust anchor ($($cert.Subject))."
             } catch {
               Write-Warning "Failed to import root certificate into store: $_"
             }
@@ -82,35 +102,103 @@ jobs:
             Write-Host "No custom certificate secret provided; proceeding with system Trusted Root CAs."
           }
 
+      - name: Download Artifacts via Action (workflow_call)
+        if: github.event_name == 'workflow_call' && !inputs.release_tag
+        uses: actions/download-artifact@v4
+        with:
+          pattern: 'artifacts-windows-*'
+          path: downloaded_artifacts
+          merge-multiple: false
+        continue-on-error: true
+
       - name: Download Windows Artifacts
         shell: pwsh
         env:
-          GH_TOKEN: ${{ secrets.KEYS || secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.KEYS || secrets.RELEASE_TOKEN || secrets.GH_TOKEN || secrets.GITHUB_TOKEN }}
+          GITHUB_REPO: ${{ github.repository }}
           RUN_ID: ${{ inputs.run_id || github.event.workflow_run.id }}
           RELEASE_TAG: ${{ inputs.release_tag }}
         run: |
           $artDir = Join-Path $PWD "downloaded_artifacts"
           New-Item -ItemType Directory -Force -Path $artDir | Out-Null
 
+          function Count-StagedArtifacts {
+            param([string]$Dir)
+            if (-not (Test-Path $Dir)) { return 0 }
+            return @(Get-ChildItem -Path $Dir -File -Recurse -ErrorAction SilentlyContinue | Where-Object { $_.Extension -in '.exe', '.dll', '.zip' }).Count
+          }
+
+          $alreadyStaged = Count-StagedArtifacts $artDir
+          if ($alreadyStaged -gt 0 -and -not $env:RELEASE_TAG) {
+            Write-Host "Using $alreadyStaged artifact file(s) already downloaded via workflow_call."
+            return
+          }
+
+          $prevEap = $ErrorActionPreference
+          $ErrorActionPreference = 'Continue'
+
           if ($env:RELEASE_TAG) {
             Write-Host "Downloading artifacts from release $env:RELEASE_TAG..."
             gh release download $env:RELEASE_TAG --pattern "*Windows*" --dir $artDir
+            if ($LASTEXITCODE -ne 0) {
+              Write-Warning "gh release download exited with code $LASTEXITCODE."
+            }
           } elseif ($env:RUN_ID) {
             Write-Host "Downloading artifacts from workflow run $env:RUN_ID..."
             gh run download $env:RUN_ID -p "artifacts-windows-*" --dir $artDir
+            if ($LASTEXITCODE -ne 0) {
+              Write-Warning "gh run download for run $env:RUN_ID exited with code $LASTEXITCODE."
+            }
           } elseif (Test-Path "dist\windows") {
             Write-Host "Using existing local dist\windows artifacts..."
             Copy-Item -Path "dist\windows\*" -Destination $artDir -Recurse -Force
+          } else {
+            Write-Host "No run_id or release_tag specified; discovering latest Build and Deploy run with Windows artifacts..."
+            $runsJson = gh run list --workflow "build_and_release.yml" --limit 10 --json databaseId,status,conclusion 2>&1
+            $runs = @()
+            if ($LASTEXITCODE -eq 0 -and $runsJson) {
+              try { $runs = $runsJson | ConvertFrom-Json } catch { $runs = @() }
+            }
+
+            foreach ($r in $runs) {
+              if (-not $r.databaseId) { continue }
+              $artsJson = gh api "repos/$($env:GITHUB_REPO)/actions/runs/$($r.databaseId)/artifacts" 2>$null
+              if ($LASTEXITCODE -ne 0 -or -not $artsJson) { continue }
+              try {
+                $artsObj = $artsJson | ConvertFrom-Json
+                $winArts = @($artsObj.artifacts | Where-Object { $_.name -like "artifacts-windows-*" -and -not $_.expired })
+                if ($winArts.Count -gt 0) {
+                  Write-Host "Found $($winArts.Count) Windows artifact bundle(s) in workflow run $($r.databaseId) ($($r.conclusion)). Downloading..."
+                  gh run download $r.databaseId -p "artifacts-windows-*" --dir $artDir
+                  if ($LASTEXITCODE -eq 0 -and (Count-StagedArtifacts $artDir) -gt 0) {
+                    break
+                  }
+                }
+              } catch {
+                continue
+              }
+            }
+
+            if ((Count-StagedArtifacts $artDir) -eq 0) {
+              Write-Host "No active workflow run Windows artifacts found; checking latest GitHub Release..."
+              $latestTag = (gh release list --limit 1 --json tagName --jq '.[0].tagName' 2>$null)
+              if ($LASTEXITCODE -eq 0 -and $latestTag) {
+                $latestTag = $latestTag.Trim()
+                Write-Host "Downloading Windows assets from latest release '$latestTag'..."
+                gh release download $latestTag --pattern "*Windows*" --dir $artDir
+              }
+            }
           }
 
-      - name: Download Artifacts via Action (workflow_call fallback)
-        if: "!inputs.release_tag && !inputs.run_id && !github.event.workflow_run.id"
-        uses: actions/download-artifact@v4
-        with:
-          pattern: 'artifacts-windows-*'
-          path: downloaded_artifacts
-          merge-multiple: true
-        continue-on-error: true
+          $ErrorActionPreference = $prevEap
+
+          $localDistCount = if (Test-Path "dist\windows") { Count-StagedArtifacts "dist\windows" } else { 0 }
+          $finalCount = (Count-StagedArtifacts $artDir) + $localDistCount
+          if ($finalCount -eq 0) {
+            Write-Host "::error::No Windows artifacts were found in downloaded_artifacts or dist\windows. Provide run_id or release_tag, or ensure Build and Deploy produced Windows artifacts."
+            exit 1
+          }
+          Write-Host "Staged $finalCount Windows artifact file(s) for signature verification."
 
       - name: Locate Windows SignTool
         id: signtool
@@ -128,7 +216,10 @@ jobs:
           if ($signtool) {
             Write-Host "Found SignTool at: $signtool"
             "path=$signtool" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+            $prevEap = $ErrorActionPreference
+            $ErrorActionPreference = 'Continue'
             & $signtool /? | Select-Object -First 2
+            $ErrorActionPreference = $prevEap
           } else {
             Write-Warning "SignTool.exe not found in Windows SDK paths. Proceeding with PowerShell."
             "path=" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
@@ -138,18 +229,31 @@ jobs:
         id: stage_files
         shell: pwsh
         run: |
-          $searchRoots = @("downloaded_artifacts", "dist\windows")
+          $candidateRoots = @("downloaded_artifacts", "dist\windows")
+          $searchRoots = @($candidateRoots | Where-Object { Test-Path $_ })
           $extractedDir = Join-Path $env:TEMP "attune_extracted_binaries"
+          if (Test-Path $extractedDir) {
+            Remove-Item -Path $extractedDir -Recurse -Force -ErrorAction SilentlyContinue
+          }
           New-Item -ItemType Directory -Force -Path $extractedDir | Out-Null
 
-          Get-ChildItem -Path $searchRoots -Filter "*.zip" -Recurse -ErrorAction SilentlyContinue | ForEach-Object {
-            Write-Host "Extracting portable bundle: $($_.FullName)..."
-            Expand-Archive -Path $_.FullName -DestinationPath (Join-Path $extractedDir $_.BaseName) -Force
+          if ($searchRoots.Count -gt 0) {
+            Get-ChildItem -Path $searchRoots -Filter "*.zip" -Recurse -ErrorAction SilentlyContinue | ForEach-Object {
+              Write-Host "Extracting portable bundle: $($_.FullName)..."
+              $uniqueSub = "{0}_{1}" -f $_.BaseName, ([guid]::NewGuid().ToString("N").Substring(0, 6))
+              Expand-Archive -Path $_.FullName -DestinationPath (Join-Path $extractedDir $uniqueSub) -Force
+            }
           }
 
-          $candidateFiles = Get-ChildItem -Path @($searchRoots + @($extractedDir)) -Include "*.exe", "*.dll" -Recurse |
-              Where-Object { $_.FullName -notmatch "appimagetool" } |
-              Select-Object -Unique -Property FullName
+          $existingScanPaths = @(@($searchRoots + @($extractedDir)) | Where-Object { $_ -and (Test-Path $_) })
+          if ($existingScanPaths.Count -eq 0) {
+            Write-Host "::error::No artifact directories exist to collect Windows binaries."
+            exit 1
+          }
+
+          $candidateFiles = @(Get-ChildItem -Path $existingScanPaths -File -Recurse -ErrorAction SilentlyContinue |
+              Where-Object { $_.Extension -in '.exe', '.dll' -and $_.FullName -notmatch "appimagetool" } |
+              Select-Object -Unique -Property FullName)
 
           Write-Host "Discovered $($candidateFiles.Count) candidate binary files to audit:"
           $candidateFiles | ForEach-Object { Write-Host " - $($_.FullName)" }
@@ -162,7 +266,11 @@ jobs:
           SIGNTOOL_PATH: ${{ steps.signtool.outputs.path }}
         run: |
           $extractedDir = "${{ steps.stage_files.outputs.extracted_dir }}"
-          $searchDirs = @("downloaded_artifacts", "dist\windows", $extractedDir)
+          $searchDirs = @(@("downloaded_artifacts", "dist\windows", $extractedDir) | Where-Object { $_ -and (Test-Path $_) })
+          if ($searchDirs.Count -eq 0) {
+            Write-Host "::error::No existing directories to scan for signed Windows binaries."
+            exit 1
+          }
 
           $requiredTargets = @(
             "Attune-*-Windows-*-Setup.exe",
@@ -173,6 +281,12 @@ jobs:
             "attune_music_metadata.dll",
             "attune_music_metadata_changer.dll"
           )
+
+          # Also audit standalone Attune-Desktop-*.exe executables if staged alongside Setup/zip
+          $standaloneDesktop = Get-ChildItem -Path $searchDirs -Filter "Attune-Desktop-*.exe" -Recurse -ErrorAction SilentlyContinue
+          if ($standaloneDesktop -and $standaloneDesktop.Count -gt 0) {
+            $requiredTargets += "Attune-Desktop-*.exe"
+          }
 
           $results = @()
           $failed = $false
@@ -185,13 +299,14 @@ jobs:
 
             if (-not $matchingFiles -or $matchingFiles.Count -eq 0) {
               if ($pattern -eq "attune-desktop.exe") {
-                $alt = Get-ChildItem -Path $searchDirs -Filter "Attune-Desktop-*.exe" -Recurse -ErrorAction SilentlyContinue
+                $alt = Get-ChildItem -Path $searchDirs -Filter "Attune-Desktop-*.exe" -Recurse -ErrorAction SilentlyContinue |
+                    Select-Object -Unique -Property FullName
                 if ($alt) { $matchingFiles = $alt }
               }
             }
 
             if (-not $matchingFiles -or $matchingFiles.Count -eq 0) {
-              Write-Error "MISSING REQUIRED BINARY: Pattern '$pattern' was not found in build artifacts."
+              Write-Error -Message "MISSING REQUIRED BINARY: Pattern '$pattern' was not found in build artifacts." -ErrorAction Continue
               $failed = $true
               $results += [PSCustomObject]@{
                 Target = $pattern
@@ -228,28 +343,32 @@ jobs:
               $signtoolResult = "SKIPPED"
               $signtool = if ($env:SIGNTOOL_PATH) { $env:SIGNTOOL_PATH } else { (Get-ChildItem -Path "C:\Program Files (x86)\Windows Kits\10\bin\*\x64\signtool.exe" -ErrorAction SilentlyContinue | Sort-Object FullName -Descending | Select-Object -First 1).FullName }
               if ($signtool -and (Test-Path $signtool)) {
+                $prevEap = $ErrorActionPreference
+                $ErrorActionPreference = 'Continue'
                 $stOutput = & $signtool verify /pa /v $filePath 2>&1
-                if ($LASTEXITCODE -eq 0) {
+                $stExit = $LASTEXITCODE
+                $ErrorActionPreference = $prevEap
+                if ($stExit -eq 0) {
                   $signtoolResult = "PASS (/pa /v)"
                   Write-Host "SignTool: PASS (Exit code 0)"
                 } else {
-                  $signtoolResult = "FAIL (Exit code $LASTEXITCODE)"
-                  Write-Host "SignTool: FAIL (Exit code $LASTEXITCODE)"
-                  Write-Host "SignTool Output: $stOutput"
+                  $signtoolResult = "FAIL (Exit code $stExit)"
+                  Write-Host "SignTool: FAIL (Exit code $stExit)"
+                  Write-Host "SignTool Output: $($stOutput | Out-String)"
                 }
               }
 
               $filePassed = $true
               if ($sig.Status -ne 'Valid') {
-                Write-Error "Signature is NOT Valid on $fileName (Status: $status)"
+                Write-Error -Message "Signature is NOT Valid on $fileName (Status: $status - $($sig.StatusMessage))" -ErrorAction Continue
                 $filePassed = $false
               }
               if (-not $sig.TimeStamperCertificate) {
-                Write-Error "Signature on $fileName is MISSING RFC 3161 timestamp countersignature (TimeStamperCertificate is null)."
+                Write-Error -Message "Signature on $fileName is MISSING RFC 3161 timestamp countersignature (TimeStamperCertificate is null)." -ErrorAction Continue
                 $filePassed = $false
               }
               if ($signtoolResult -like "FAIL*") {
-                Write-Error "SignTool verification failed on $fileName"
+                Write-Error -Message "SignTool verification failed on $fileName" -ErrorAction Continue
                 $filePassed = $false
               }
 
@@ -288,7 +407,7 @@ jobs:
           }
 
           if ($failed) {
-            Write-Error "Signature verification FAILED for one or more critical Windows binaries."
+            Write-Host "::error::Signature verification FAILED for one or more critical Windows binaries."
             exit 1
             throw "Signature verification FAILED for one or more critical Windows binaries."
           } else {

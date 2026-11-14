@@ -1205,6 +1205,37 @@ class TestTier2F14ReleaseGatingIntegration(unittest.TestCase):
             "F14-B5: 'build_type' parameter must be passed to verify_signatures job.",
         )
 
+    def test_f14_b6_verify_signatures_guards_missing_dist_windows(self):
+        """F14-B6: Verify verify_signatures.yml filters search paths with Test-Path before Get-ChildItem."""
+        verify_path = WORKFLOWS_DIR / "verify_signatures.yml"
+        validator = WorkflowValidator.parse_file(verify_path)
+        scripts = "\n".join(validator.extract_powershell_scripts())
+        self.assertIn(
+            "Where-Object { $_ -and (Test-Path $_) }",
+            scripts,
+            "verify_signatures.yml must filter missing directories (e.g. dist\\windows) before Get-ChildItem.",
+        )
+
+    def test_f14_b7_verify_signatures_workflow_call_and_dispatch_fallback(self):
+        """F14-B7: Verify workflow_call uses download-artifact and empty workflow_dispatch auto-discovers runs."""
+        verify_path = WORKFLOWS_DIR / "verify_signatures.yml"
+        validator = WorkflowValidator.parse_file(verify_path)
+        perms = validator.get_permissions()
+        self.assertEqual(perms.get("actions"), "read")
+        scripts = "\n".join(validator.extract_powershell_scripts())
+        self.assertIn("gh run list --workflow", scripts)
+        self.assertIn("github.event_name == 'workflow_call'", validator.raw_content)
+
+    def test_f14_b8_builder_iscc_avoids_cmd_shell_quoting_corruption(self):
+        """F14-B8: Verify builder.py runs iscc with shell=False so /Ssigntool $q quoting is preserved."""
+        builder_path = Path(WORKFLOWS_DIR).parent.parent / "tools" / "builder.py"
+        src = builder_path.read_text(encoding="utf-8")
+        idx = src.find('Compiling Inno Setup installer')
+        self.assertNotEqual(idx, -1)
+        iscc_block = src[idx:idx + 2500]
+        self.assertIn("shell=False", iscc_block)
+        self.assertNotIn("shell=IS_WINDOWS", iscc_block)
+
 
 if __name__ == "__main__":
     unittest.main()

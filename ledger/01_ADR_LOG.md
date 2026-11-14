@@ -5279,12 +5279,12 @@ This file records all major architectural decisions for **Attune**, including co
     - `#if SignToolName != ""` -> `SignTool={#SignToolName}` and `SignedUninstaller=yes`.
     - Selective `signonce` flags on all embedded `.exe` and `.dll` files.
   - `tools/builder.py`:
-    - `sign_pe_binary(...)`, `setup_windows_signing_certificate()`, `decode_base64_cert()`.
-    - Inno Setup `/Ssigntool=...` switch construction and execution.
-    - Integrity manifest calculation post-signing.
+    - `sign_binary(...)`, `sign_binaries(...)`, `resolve_windows_signing_certificate()`, `find_signtool()`.
+    - Inno Setup `/Ssigntool=...` switch construction and execution (`shell=False` to preserve `$q` quoting).
+    - Integrity manifest calculation post-signing (`generate_integrity_manifest`).
   - `.github/workflows/verify_signatures.yml`:
-    - Standalone verification workflow on `windows-2022` runner.
-    - Setup Windows Trust Anchor, Download Artifacts, Verify Authenticode Signatures via PowerShell and SignTool.
+    - Standalone verification workflow on `windows-2022` runner with `contents: read` and `actions: read`.
+    - Setup Windows Trust Anchor, `actions/download-artifact@v4` on `workflow_call`, `gh run list`/`gh release list` auto-discovery fallback on empty `workflow_dispatch`, `Test-Path`-guarded `Get-ChildItem` scans, and dual Authenticode + RFC 3161 timestamp verification via PowerShell and SignTool.
   - `.github/workflows/build_and_release.yml`:
     - `verify_signatures` job depending on `[meta, build]`, gating `deploy` job on `needs.verify_signatures.result == 'success'`.
 - **Consequences**:
@@ -5292,7 +5292,7 @@ This file records all major architectural decisions for **Attune**, including co
   - Executable binaries, native workspace DLLs, installer, and uninstaller are Authenticode signed with RFC 3161 timestamps, eliminating "Unknown Publisher" warnings.
   - Inno Setup compiles signed installers with signed embedded binaries.
   - Release pipeline automatically blocks deployment if any artifact fails signature or timestamp validation.
-  - Verification metrics: 189/189 E2E tests pass, 133 attune-desktop unit tests pass, 17 empirical loader tests pass, 0 cargo check errors/warnings on `x86_64-pc-windows-gnu`, valid YAML on CI workflows.
+  - Verification metrics: 192/192 E2E tests pass, 133 attune-desktop unit tests pass, 17 empirical loader tests pass, 0 cargo check errors on `x86_64-pc-windows-gnu`, valid YAML on CI workflows.
 
 
 
