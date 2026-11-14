@@ -178,6 +178,47 @@ class TestBuilderAndroidReleaseSigning(unittest.TestCase):
                 res = builder.validate_android_release_signing(flutter_dir, log_func=lambda _m: None)
                 self.assertEqual(res["mode"], "debug_fallback")
 
+            env["ATTUNE_ALLOW_DEBUG_SIGNING_FOR_RELEASE"] = "  Yes  "
+            with mock.patch.dict(os.environ, env, clear=True):
+                res = builder.validate_android_release_signing(flutter_dir, log_func=lambda _m: None)
+                self.assertEqual(res["mode"], "debug_fallback")
+
+    def test_java_properties_syntax_compatibility(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            flutter_dir = Path(tmp)
+            android_dir = flutter_dir / "android"
+            app_dir = android_dir / "app"
+            app_dir.mkdir(parents=True)
+            (app_dir / "attune_release.jks").write_bytes(b"ks")
+
+            props_file = android_dir / "key.properties"
+            props_file.write_text(
+                "# comment ending with \\\n"
+                "! another comment\n"
+                "storeFile app/\\\n"
+                "    attune_release.jks\n"
+                "keyAlias attune\n"
+                "escaped\\=key: val\\:1\n"
+                "trailingBackslash=C\\\\\n"
+                "unicodeVal = \\u0041BC\n",
+                encoding="utf-8",
+            )
+
+            parsed = builder._parse_key_properties(props_file)
+            self.assertEqual(parsed["storeFile"], "app/attune_release.jks")
+            self.assertEqual(parsed["keyAlias"], "attune")
+            self.assertEqual(parsed["escaped=key"], "val:1")
+            self.assertEqual(parsed["trailingBackslash"], "C\\")
+            self.assertEqual(parsed["unicodeVal"], "ABC")
+
+            env = self._clean_signing_env()
+            env["RELEASE_KEYSTORE_PASSWORD"] = "EnvStorePass99"
+            env["RELEASE_KEY_PASSWORD"] = "EnvKeyPass99"
+            with mock.patch.dict(os.environ, env, clear=True):
+                res = builder.validate_android_release_signing(flutter_dir, log_func=lambda _m: None)
+                self.assertEqual(res["mode"], "release")
+                self.assertEqual(res["alias"], "attune")
+
     def test_debug_compile_flutter_does_not_require_release_credentials(self):
         with tempfile.TemporaryDirectory() as tmp:
             flutter_dir = Path(tmp)
@@ -211,6 +252,7 @@ class TestGradleAndWorkflowSigningContracts(unittest.TestCase):
         self.assertIn("throw GradleException(", gradle_text)
         self.assertIn("hasCompleteReleaseSigning", gradle_text)
         self.assertIn("ATTUNE_ALLOW_DEBUG_SIGNING_FOR_RELEASE", gradle_text)
+        self.assertIn('"1", "true", "yes"', gradle_text)
         self.assertIn('signingConfig = signingConfigs.getByName("debug")', gradle_text)
 
     def test_ci_workflow_valid_and_has_no_hardcoded_keystore_password(self):

@@ -138,9 +138,12 @@ android {
     val hasKeystoreArtifacts = keyPropertiesFile.exists() || (keystoreFile != null && keystoreFile.exists())
     val hasCompleteReleaseSigning = keystoreFile != null && keystoreFile.exists() &&
         !storePass.isNullOrEmpty() && !alias.isNullOrEmpty() && !keyPass.isNullOrEmpty()
-    val allowDebugFallbackForRelease =
-        System.getenv("ATTUNE_ALLOW_DEBUG_SIGNING_FOR_RELEASE").equals("true", ignoreCase = true) ||
-        System.getenv("ATTUNE_ALLOW_DEBUG_SIGNING_FOR_RELEASE") == "1"
+    val allowDebugFallbackForRelease = when (
+        System.getenv("ATTUNE_ALLOW_DEBUG_SIGNING_FOR_RELEASE")?.trim()?.lowercase()
+    ) {
+        "1", "true", "yes" -> true
+        else -> false
+    }
 
     signingConfigs {
         create("release") {

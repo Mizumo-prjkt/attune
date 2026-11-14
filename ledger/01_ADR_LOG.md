@@ -5324,7 +5324,8 @@ This file records all major architectural decisions for **Attune**, including co
 - **Consequences**:
   - Release builds cannot accidentally ship with debug keys when `key.properties` omits passwords.
   - Local `debug` Android builds continue to work without release credentials.
-  - `tests/test_android_release_signing.py` (8 tests) and `tests/e2e_windows_pipeline/run_e2e_tests.py --all` (192 tests) provide regression coverage across `generate_keystore.py`, `builder.py`, `build.gradle.kts`, and `build_and_release.yml`.
+  - `ATTUNE_ALLOW_DEBUG_SIGNING_FOR_RELEASE` (`"1"`, `"true"`, `"yes"`, trimmed/case-insensitive) and `key.properties` syntax (`=`, `:`, whitespace separators, line continuations, and Java escapes) behave identically across `apps/attune_app/android/app/build.gradle.kts` and `tools/builder.py`.
+  - `tests/test_android_release_signing.py` (9 tests) and `tests/e2e_windows_pipeline/run_e2e_tests.py --all` (192 tests) provide regression coverage across `generate_keystore.py`, `builder.py`, `build.gradle.kts`, and `build_and_release.yml`.
 
 
 
