@@ -172,10 +172,11 @@ fn main() {
             <link rel=\"preconnect\" href=\"https://fonts.gstatic.com\" crossorigin>\n\
             <link rel=\"stylesheet\" href=\"https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Roboto:wght@400;500;700&family=Sora:wght@400;600;700;800&display=swap\">\n\
             <link rel=\"stylesheet\" href=\"https://fonts.googleapis.com/icon?family=Material+Icons\">\n\
-            <style>\n{icons_css}\n{css}\n</style>\n{}\n{}\n{}",
+            <style>\n{icons_css}\n{css}\n</style>\n{}\n{}\n{}\n{}",
             crate::theme::EVENT_COORDINATE_SANITIZER_SCRIPT,
             crate::theme::MARQUEE_SCRIPT,
-            crate::theme::LYRICS_SYNC_SCRIPT
+            crate::theme::LYRICS_SYNC_SCRIPT,
+            crate::theme::ASSET_UNLOADER_SCRIPT
         ));
 
     dioxus::LaunchBuilder::desktop()

@@ -115,6 +115,7 @@ pub fn Home(
                                     class: "hero-art",
                                     src: "{art_data}",
                                     alt: "{track.title}",
+                                    decoding: "async",
                                 }
                             } else {
                                 div {
@@ -300,7 +301,7 @@ pub fn Home(
                                         class: "match-tile",
                                         onclick: move |_| on_play_track.call(t_click.clone()),
                                         if !art.is_empty() {
-                                            img { class: "match-thumb", src: "{art}", alt: "{t.title}" }
+                                            img { class: "match-thumb", src: "{art}", alt: "{t.title}", loading: "lazy", decoding: "async" }
                                         } else {
                                             div {
                                                 class: "match-thumb",
@@ -351,7 +352,7 @@ pub fn Home(
                                         class: "match-tile",
                                         onclick: move |_| on_play_track.call(t_click.clone()),
                                         if !art.is_empty() {
-                                            img { class: "match-thumb", src: "{art}", alt: "{t.title}" }
+                                            img { class: "match-thumb", src: "{art}", alt: "{t.title}", loading: "lazy", decoding: "async" }
                                         } else {
                                             div {
                                                 class: "match-thumb",

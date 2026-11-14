@@ -5353,6 +5353,47 @@ This file records all major architectural decisions for **Attune**, including co
   - `verify_signatures.yml` generates GitHub Step Summaries cleanly without PowerShell `.new()` overload crashes and only audits the requested build variant.
   - Verification metrics: 192/192 E2E Windows pipeline tests pass, 11/11 Android/Windows signing tests pass, Python `py_compile` clean, Gradle AGP 9.1.1 tasks configuration clean, valid YAML on both workflows.
 
+---
+
+## ADR-152: Bounded LRU Artwork Caches, Resolution-Normalized Track & Artist Payloads, WebView Off-Screen/Unmount Asset Unloading & Artwork Resolution Dropdown Selector
+
+- **Date**: 2026-11-15
+- **Status**: **LOCKED**
+- **Context**:
+  - Even with `256x256 (Lightweight — Low RAM)` selected in Settings, users experienced heavy memory growth and frame/scroll pressure caused by multiple compounding bottlenecks in `crates/attune-desktop`:
+    1. `AppConfig::default()` left `high_quality_thumbnails: true` (`default_true`) alongside `artwork_resolution: 512`, and `load_config()` did not reconcile stale flags.
+    2. Legacy oversized `artwork_data_url` strings stored in `library_cache_*.json` (plus in-memory `tracks`, `queue`, `current_track`, and `recent_tracks`) were never normalized on load or live resolution change; changing Artwork Resolution only cleared `THUMBNAIL_CACHE`.
+    3. `compress_and_downscale_image()` skipped recompressing bloated within-bound PNGs below 512 KB, inflating base64 payloads across JSON caches and WebKit DOM.
+    4. All four core image/metadata caches (`THUMBNAIL_CACHE`, `ARTWORK_ASPECT_CACHE`, `PALETTE_CACHE`, `ARTIST_PROFILE_CACHE`) were unbounded `HashMap`s, with `resolve_thumbnail_data_url_with_resolution` inserting duplicate keys per image (`mem_cache_key` + bare path) and `DynamicPalette::from_track` decoding raw full-res disk covers before checking already-downscaled `artwork_data_url`.
+    5. `artist_profile.rs` hardcoded Google CDN avatar sizing at `=w512-h512-p-l90-rj`, left widescreen banners unbounded, and skipped resolution normalization on cached profiles.
+    6. Artist grid cards and hero headers (`stages/artists.rs`, `stages/favorites.rs`) stacked two overlapping `<img>` elements (`fallback_art` at `z-index: 1` + `photo_art` at `z-index: 2`), doubling decoded WebKit RGBA surfaces per card, and scrolled/unmounted DOM `<img>` nodes retained decoded backing stores indefinitely.
+    7. Settings (`stages/settings.rs`) and Setup Wizard (`stages/setup.rs`) presented Artwork Resolution using three `btn-pill` buttons rather than a compact dropdown matching sibling selectors.
+- **Decision**:
+  1. **Configuration Reconciliation & Helpers (`crates/attune-desktop/src/config.rs`)**:
+     - Default `high_quality_thumbnails` to `false` (matching 512px default) and share `AppConfig::normalize_artwork_resolution`, `parse_artwork_resolution`, `set_artwork_resolution`, `reconcile_artwork_settings`, and `parse_config_str` so `load_config()` reconciles `high_quality_thumbnails = effective_artwork_resolution() >= 1024`.
+  2. **Bounded LRU Caches & Track Artwork Normalization (`crates/attune-desktop/src/library.rs`)**:
+     - Introduce generic `BoundedLru<K, V>` with `CacheValueBytes` enforcing entry and byte ceilings (`THUMBNAIL_CACHE`: 96 / 12 MiB; `ARTWORK_ASPECT_CACHE`: 512 / 256 KiB), removing duplicate bare-path inserts.
+     - Tighten per-tier compact byte limits (`max_compact_image_bytes_for_resolution`: 64 KiB @ 256px, 160 KiB @ 512px, 384 KiB @ 1024px) with a header-only `into_dimensions()` fast-path and JPEG `.to_rgb8()` encoding in `compress_and_downscale_image()`.
+     - Add `normalize_data_url_to_resolution`, deduplicated `normalize_tracks_artwork_resolution`, `load_library_cache_with_resolution` (persisting normalized caches back to disk on load), `unload_inactive_caches()` (trimming to 16 hot entries), and `on_artwork_resolution_changed()`.
+  3. **Palette Cache Bounding, Fast-Path Extraction & WebView Asset Unloading (`crates/attune-desktop/src/theme.rs`)**:
+     - Bound `PALETTE_CACHE` to 64 entries (`trim_palette_cache`), prefer compact `artwork_data_url` in `DynamicPalette::from_track()`, and use a 256px thumbnail for >256 KiB disk images in `DynamicPalette::from_image()`.
+     - Add `ASSET_UNLOADER_SCRIPT` injected into both main (`main.rs`) and standalone Settings (`settings.rs`) WebViews: `IntersectionObserver` (`rootMargin: '280px 180px'`) swaps off-screen images inside `.content-scroll`, `.right-dock`, and `.settings-content-pane` to a 1x1 transparent GIF after a 300ms grace delay while preserving `_attuneCachedSrc` for sub-millisecond scroll-back restoration; `MutationObserver` immediately detaches and clears `src` on disconnected `removedNodes` `<img>` elements; capture-phase `error` handler swaps single-`<img>` cards to `data-fallback-src`; and exposes `window.attuneUnloadStageAssets` and `window.attuneGetAssetStats`.
+  4. **Resolution-Aware Bounded Artist Profile Cache (`crates/attune-desktop/src/artist_profile.rs`)**:
+     - Replace `ARTIST_PROFILE_CACHE` with `BoundedLru` (96 entries / 8 MiB) + `clear_artist_profile_cache()`.
+     - Add `normalize_profile_for_resolution`, `banner_resolution_for_tier` (`640x360`, `1024x576`, `1440x810`), `resize_google_banner_url`, and `select_primary_and_fallback_src`, applying normalization on Innertube fetches, cache loads, and saves while protecting non-Google URLs from mutation.
+  5. **Navigation Unloading & Live Resolution Sync (`crates/attune-desktop/src/app.rs`)**:
+     - Wire `schedule_stage_unload` (`STAGE_TRIM_REV`-debounced) across `navigate_to`, `go_back`, `go_forward`, `Escape`, and `F11` to trim inactive Rust caches (`unload_inactive_caches()`), run `window.attuneUnloadStageAssets(false)`, and invoke background `process_manager::trim_memory()` when leaving heavy media views (`is_heavy_media_stage`).
+     - Update the `app_config` poller (`resolution_sync_rev`-guarded background `spawn_blocking`) to re-normalize `tracks`, `queue`, `current_track`, and `recent_tracks`, persist updated per-root library caches, trim process working memory, and trigger DOM asset refresh whenever `effective_artwork_resolution()` changes.
+  6. **Dropdown Selector & Single-Layer Lazy Images (`stages/{settings,setup,artists,favorites,albums,home,for_you}.rs`)**:
+     - Replace Artwork Resolution `btn-pill` controls with `<select class="form-select">` dropdowns in `settings.rs` (`SettingsTab::General`) and `setup.rs` (Steps 1 & 5), reusing localized labels (`strings.res_256_label`, `strings.res_512_label`, `strings.res_1024_label`).
+     - Inject `EVENT_COORDINATE_SANITIZER_SCRIPT` and `ASSET_UNLOADER_SCRIPT` in `SettingsStandaloneWindow`.
+     - Collapse double-stacked `fallback_art` + `photo_art` `<img>` elements into single-`<img>` cards using `select_primary_and_fallback_src` + `"data-fallback-src"` in `artists.rs` and `favorites.rs`, and add `loading: "lazy"` + `decoding: "async"` on stage grid/row artwork elements.
+- **Consequences**:
+  - In-memory caches are strictly capped in entries and bytes and automatically trim when navigating away from media grids; legacy high-res caches shrink cleanly on first load or live resolution change without deleting DSP profiles.
+  - Off-screen grid items and unmounted stage DOM trees release WebKit/WebView2 decoded RGBA surfaces immediately instead of retaining stale high-resolution bitmaps in RAM.
+  - Artwork Resolution configuration matches the surrounding Liquid Material Glass dropdown UX (`<select class="form-select">`) across Settings and Setup Wizard.
+  - Verification metrics: 142/142 `attune-desktop --bin attune-desktop` tests pass, 17/17 `empirical_loader_tests` pass, 100% of `cargo test --workspace` suites pass (0 failures across all crates), and `cargo check --target x86_64-pc-windows-gnu -p attune-desktop` succeeds with 0 errors.
+
 
 
 

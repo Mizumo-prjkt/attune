@@ -14,14 +14,145 @@ use attune_core::schema::AnalysisTier;
 use attune_core::{AudioDecoder, LibraryScanner};
 use serde::{Deserialize, Serialize};
 
-static THUMBNAIL_CACHE: Mutex<Option<HashMap<PathBuf, String>>> = Mutex::new(None);
-static ARTWORK_ASPECT_CACHE: Mutex<Option<HashMap<String, bool>>> = Mutex::new(None);
+const MAX_THUMBNAIL_CACHE_ENTRIES: usize = 96;
+const MAX_THUMBNAIL_CACHE_BYTES: usize = 12 * 1024 * 1024;
+const MAX_ASPECT_CACHE_ENTRIES: usize = 512;
+const MAX_ASPECT_CACHE_BYTES: usize = 256 * 1024;
+const ACTIVE_THUMBNAIL_RETENTION_ON_UNLOAD: usize = 16;
+const ACTIVE_PALETTE_RETENTION_ON_UNLOAD: usize = 16;
 
-/// Clears the in-memory thumbnail string cache to free heap memory.
+/// Estimates approximate heap memory consumed by a cached value for [`BoundedLru`] eviction.
+pub trait CacheValueBytes {
+    /// Returns the estimated heap byte size occupied by `self`.
+    fn approx_bytes(&self) -> usize;
+}
+
+impl CacheValueBytes for String {
+    fn approx_bytes(&self) -> usize {
+        self.len()
+    }
+}
+
+impl CacheValueBytes for bool {
+    fn approx_bytes(&self) -> usize {
+        std::mem::size_of::<bool>()
+    }
+}
+
+/// Bounded least-recently-used cache enforcing both maximum entry count and total byte limits.
+pub struct BoundedLru<K, V> {
+    max_entries: usize,
+    max_bytes: usize,
+    total_bytes: usize,
+    tick: u64,
+    map: HashMap<K, (V, u64, usize)>,
+}
+
+impl<K, V> BoundedLru<K, V>
+where
+    K: Eq + Hash + Clone,
+    V: Clone + CacheValueBytes,
+{
+    /// Creates an empty [`BoundedLru`] with strict `max_entries` and `max_bytes` limits.
+    pub fn new(max_entries: usize, max_bytes: usize) -> Self {
+        Self {
+            max_entries: max_entries.max(1),
+            max_bytes: max_bytes.max(1),
+            total_bytes: 0,
+            tick: 0,
+            map: HashMap::new(),
+        }
+    }
+
+    /// Retrieves a clone of the value for `key`, updating its recency timestamp.
+    pub fn get(&mut self, key: &K) -> Option<V> {
+        self.tick = self.tick.wrapping_add(1);
+        let tick = self.tick;
+        let entry = self.map.get_mut(key)?;
+        entry.1 = tick;
+        Some(entry.0.clone())
+    }
+
+    /// Inserts `key -> value`, evicting least-recently-used entries until both budgets fit.
+    pub fn insert(&mut self, key: K, value: V) {
+        let entry_bytes = value.approx_bytes();
+        if let Some((_, _, prev_bytes)) = self.map.remove(&key) {
+            self.total_bytes = self.total_bytes.saturating_sub(prev_bytes);
+        }
+        if entry_bytes > self.max_bytes {
+            return;
+        }
+        while !self.map.is_empty()
+            && (self.map.len() >= self.max_entries || self.total_bytes + entry_bytes > self.max_bytes)
+        {
+            if !self.evict_oldest() {
+                break;
+            }
+        }
+        self.tick = self.tick.wrapping_add(1);
+        self.total_bytes = self.total_bytes.saturating_add(entry_bytes);
+        self.map.insert(key, (value, self.tick, entry_bytes));
+    }
+
+    /// Evicts oldest entries until at most `keep_recent` remain.
+    pub fn trim_to(&mut self, keep_recent: usize) {
+        while self.map.len() > keep_recent {
+            if !self.evict_oldest() {
+                break;
+            }
+        }
+    }
+
+    /// Removes all entries and resets memory accounting.
+    pub fn clear(&mut self) {
+        self.map.clear();
+        self.total_bytes = 0;
+        self.tick = 0;
+    }
+
+    /// Returns the number of cached entries.
+    #[allow(dead_code)]
+    pub fn len(&self) -> usize {
+        self.map.len()
+    }
+
+    /// Returns `true` if no entries are currently stored.
+    #[allow(dead_code)]
+    pub fn is_empty(&self) -> bool {
+        self.map.is_empty()
+    }
+
+    /// Returns the total approximate payload bytes held by cached values.
+    #[allow(dead_code)]
+    pub fn approx_bytes(&self) -> usize {
+        self.total_bytes
+    }
+
+    fn evict_oldest(&mut self) -> bool {
+        let oldest_key = self
+            .map
+            .iter()
+            .min_by_key(|(_, (_, last_tick, _))| *last_tick)
+            .map(|(k, _)| k.clone());
+        if let Some(k) = oldest_key {
+            if let Some((_, _, bytes)) = self.map.remove(&k) {
+                self.total_bytes = self.total_bytes.saturating_sub(bytes);
+                return true;
+            }
+        }
+        false
+    }
+}
+
+static THUMBNAIL_CACHE: Mutex<Option<BoundedLru<PathBuf, String>>> = Mutex::new(None);
+static ARTWORK_ASPECT_CACHE: Mutex<Option<BoundedLru<String, bool>>> = Mutex::new(None);
+
+/// Clears the in-memory thumbnail string cache, aspect cache, and palette cache to free heap memory.
 pub fn clear_thumbnail_cache() {
-    let mut guard = THUMBNAIL_CACHE.lock().unwrap();
-    if let Some(ref mut cache) = *guard {
-        cache.clear();
+    if let Ok(mut guard) = THUMBNAIL_CACHE.lock() {
+        if let Some(ref mut cache) = *guard {
+            cache.clear();
+        }
     }
     if let Ok(mut aspect_guard) = ARTWORK_ASPECT_CACHE.lock() {
         if let Some(ref mut cache) = *aspect_guard {
@@ -31,9 +162,61 @@ pub fn clear_thumbnail_cache() {
     crate::theme::clear_palette_cache();
 }
 
+/// Trims inactive decoded artwork/palette caches when navigating away from heavy grid views,
+/// keeping a small LRU working set ready for rapid back/forward navigation and now-playing UI.
+pub fn unload_inactive_caches() {
+    if let Ok(mut guard) = THUMBNAIL_CACHE.lock() {
+        if let Some(ref mut cache) = *guard {
+            cache.trim_to(ACTIVE_THUMBNAIL_RETENTION_ON_UNLOAD);
+        }
+    }
+    crate::theme::trim_palette_cache(ACTIVE_PALETTE_RETENTION_ON_UNLOAD);
+}
+
+/// Invalidates all artwork-resolution-dependent caches when the user changes resolution tier.
+pub fn on_artwork_resolution_changed() {
+    clear_thumbnail_cache();
+    crate::artist_profile::clear_artist_profile_cache();
+}
+
+/// Returns the compact byte budget for an image already within `max_res` pixel dimensions.
+pub fn max_compact_image_bytes_for_resolution(max_res: u32) -> usize {
+    match crate::config::AppConfig::normalize_artwork_resolution(max_res) {
+        256 => 64 * 1024,
+        512 => 160 * 1024,
+        _ => 384 * 1024,
+    }
+}
+
+fn sniff_image_mime(raw_bytes: &[u8]) -> &'static str {
+    let is_png = raw_bytes.starts_with(b"\x89PNG\r\n\x1a\n");
+    let is_webp = raw_bytes.len() >= 12 && &raw_bytes[0..4] == b"RIFF" && &raw_bytes[8..12] == b"WEBP";
+    if is_png {
+        "image/png"
+    } else if is_webp {
+        "image/webp"
+    } else {
+        "image/jpeg"
+    }
+}
+
 /// Downscales and compresses image bytes to match the target maximum resolution boundary (256, 512, or 1024).
-/// Never upscales smaller images. Preserves original dimensions when image is already within bounds.
+/// Never upscales smaller images. Preserves original dimensions when image is already within bounds
+/// and fits within the resolution tier's compact byte ceiling; otherwise re-encodes to compact JPEG.
 pub fn compress_and_downscale_image(raw_bytes: &[u8], max_res: u32) -> Result<(Vec<u8>, &'static str), String> {
+    let max_compact_bytes = max_compact_image_bytes_for_resolution(max_res);
+
+    // Header-only dimension check avoids full pixel decode when already compact & within bounds
+    if raw_bytes.len() <= max_compact_bytes {
+        if let Ok(reader) = image::ImageReader::new(std::io::Cursor::new(raw_bytes)).with_guessed_format() {
+            if let Ok((w, h)) = reader.into_dimensions() {
+                if w <= max_res && h <= max_res {
+                    return Ok((raw_bytes.to_vec(), sniff_image_mime(raw_bytes)));
+                }
+            }
+        }
+    }
+
     let img = image::load_from_memory(raw_bytes).map_err(|e| format!("Failed to decode image: {e}"))?;
     let (w, h) = (img.width(), img.height());
 
@@ -42,23 +225,20 @@ pub fn compress_and_downscale_image(raw_bytes: &[u8], max_res: u32) -> Result<(V
         let thumb = img.thumbnail(max_res, max_res);
         let mut out = Vec::new();
         let mut cursor = std::io::Cursor::new(&mut out);
-        thumb.write_to(&mut cursor, image::ImageFormat::Jpeg)
+        thumb
+            .to_rgb8()
+            .write_to(&mut cursor, image::ImageFormat::Jpeg)
             .map_err(|e| format!("Failed to encode downscaled JPEG: {e}"))?;
         Ok((out, "image/jpeg"))
+    } else if raw_bytes.len() > max_compact_bytes {
+        let mut out = Vec::new();
+        let mut cursor = std::io::Cursor::new(&mut out);
+        img.to_rgb8()
+            .write_to(&mut cursor, image::ImageFormat::Jpeg)
+            .map_err(|e| format!("Failed to recompress JPEG: {e}"))?;
+        Ok((out, "image/jpeg"))
     } else {
-        // Image is within bounds. If file size exceeds 512 KB, recompress as JPEG without upscaling
-        if raw_bytes.len() > 512 * 1024 {
-            let mut out = Vec::new();
-            let mut cursor = std::io::Cursor::new(&mut out);
-            img.write_to(&mut cursor, image::ImageFormat::Jpeg)
-                .map_err(|e| format!("Failed to recompress JPEG: {e}"))?;
-            Ok((out, "image/jpeg"))
-        } else {
-            let is_png = raw_bytes.starts_with(b"\x89PNG\r\n\x1a\n");
-            let is_webp = raw_bytes.len() >= 12 && &raw_bytes[0..4] == b"RIFF" && &raw_bytes[8..12] == b"WEBP";
-            let mime = if is_png { "image/png" } else if is_webp { "image/webp" } else { "image/jpeg" };
-            Ok((raw_bytes.to_vec(), mime))
-        }
+        Ok((raw_bytes.to_vec(), sniff_image_mime(raw_bytes)))
     }
 }
 
@@ -81,25 +261,90 @@ pub fn compress_image_to_data_url(raw_bytes: &[u8], max_res: u32) -> Option<Stri
 }
 
 /// Resolves an album cover to a Base64 Data URL using a specific resolution constraint (256, 512, or 1024).
-/// Never upscales smaller images. Deduplicates in memory and persists to disk cache to prevent RAM bloat.
+/// Downscales or recompresses an existing `data:image/...;base64,...` URL if it exceeds `target_res`
+/// or the compact byte ceiling for that resolution tier. Returns `None` if already compliant.
+pub fn normalize_data_url_to_resolution(data_url: &str, target_res: u32) -> Option<String> {
+    let rest = data_url.strip_prefix("data:image/")?;
+    let (_, b64_part) = rest.split_once(";base64,")?;
+    use base64::Engine;
+    let raw_bytes = base64::engine::general_purpose::STANDARD.decode(b64_part).ok()?;
+
+    let normalized_res = crate::config::AppConfig::normalize_artwork_resolution(target_res);
+    let max_compact_bytes = max_compact_image_bytes_for_resolution(normalized_res);
+
+    if raw_bytes.len() <= max_compact_bytes {
+        if let Ok(reader) = image::ImageReader::new(std::io::Cursor::new(&raw_bytes)).with_guessed_format() {
+            if let Ok((w, h)) = reader.into_dimensions() {
+                if w <= normalized_res && h <= normalized_res {
+                    return None;
+                }
+            }
+        }
+    }
+
+    compress_image_to_data_url(&raw_bytes, normalized_res)
+}
+
+/// Normalizes cached [`TrackEntry`] artwork Data URLs to fit within `target_res`, deduplicating
+/// per artwork file path or Data URL hash so shared album covers are processed at most once.
+/// Returns the number of tracks whose `artwork_data_url` changed.
+pub fn normalize_tracks_artwork_resolution(tracks: &mut [TrackEntry], target_res: u32) -> usize {
+    let normalized_res = crate::config::AppConfig::normalize_artwork_resolution(target_res);
+    let mut resolved_by_path: HashMap<PathBuf, Option<String>> = HashMap::new();
+    let mut resolved_by_url_hash: HashMap<u64, Option<String>> = HashMap::new();
+    let mut updated = 0usize;
+
+    for track in tracks.iter_mut() {
+        if let Some(ref art_p) = track.artwork_path {
+            if art_p.is_file() {
+                let resolved = resolved_by_path
+                    .entry(art_p.clone())
+                    .or_insert_with(|| resolve_thumbnail_data_url_with_resolution(art_p, normalized_res));
+                if let Some(ref target_url) = *resolved {
+                    if track.artwork_data_url.as_deref() != Some(target_url.as_str()) {
+                        track.artwork_data_url = Some(target_url.clone());
+                        updated += 1;
+                    }
+                    continue;
+                }
+            }
+        }
+
+        if let Some(ref existing_url) = track.artwork_data_url {
+            let mut hasher = std::collections::hash_map::DefaultHasher::new();
+            existing_url.hash(&mut hasher);
+            let url_hash = hasher.finish();
+            let normalized = resolved_by_url_hash
+                .entry(url_hash)
+                .or_insert_with(|| normalize_data_url_to_resolution(existing_url, normalized_res));
+            if let Some(ref smaller_url) = *normalized {
+                if existing_url != smaller_url {
+                    track.artwork_data_url = Some(smaller_url.clone());
+                    updated += 1;
+                }
+            }
+        }
+    }
+
+    updated
+}
+
+/// Never upscales smaller images. Deduplicates in bounded LRU memory and persists to disk cache to prevent RAM bloat.
 pub fn resolve_thumbnail_data_url_with_resolution(art_p: &Path, resolution: u32) -> Option<String> {
     if !art_p.is_file() {
         return None;
     }
 
-    let target_res = match resolution {
-        256 => 256,
-        1024 => 1024,
-        _ => 512,
-    };
+    let target_res = crate::config::AppConfig::normalize_artwork_resolution(resolution);
 
-    // 1. Fast path: check in-memory deduplication cache
-    let mem_cache_key = format!("{}:res_{target_res}", art_p.to_string_lossy());
-    {
-        let mut guard = THUMBNAIL_CACHE.lock().unwrap();
-        let cache = guard.get_or_insert_with(HashMap::new);
-        if let Some(existing) = cache.get(Path::new(&mem_cache_key)) {
-            return Some(existing.clone());
+    // 1. Fast path: check in-memory bounded LRU deduplication cache
+    let mem_cache_key = PathBuf::from(format!("{}:res_{target_res}", art_p.to_string_lossy()));
+    if let Ok(mut guard) = THUMBNAIL_CACHE.lock() {
+        let cache = guard.get_or_insert_with(|| {
+            BoundedLru::new(MAX_THUMBNAIL_CACHE_ENTRIES, MAX_THUMBNAIL_CACHE_BYTES)
+        });
+        if let Some(existing) = cache.get(&mem_cache_key) {
+            return Some(existing);
         }
     }
 
@@ -125,7 +370,9 @@ pub fn resolve_thumbnail_data_url_with_resolution(art_p: &Path, resolution: u32)
     let cached_file = cache_dir.join(format!("{hash_hex}_res{target_res}.jpg"));
 
     let (image_bytes, mime_type) = if cached_file.is_file() {
-        (std::fs::read(&cached_file).ok()?, "image/jpeg")
+        let bytes = std::fs::read(&cached_file).ok()?;
+        let mime = sniff_image_mime(&bytes);
+        (bytes, mime)
     } else {
         let raw_bytes = std::fs::read(art_p).ok()?;
         let (processed, mime) = compress_and_downscale_image(&raw_bytes, target_res).ok()?;
@@ -137,13 +384,12 @@ pub fn resolve_thumbnail_data_url_with_resolution(art_p: &Path, resolution: u32)
     let b64 = base64::engine::general_purpose::STANDARD.encode(&image_bytes);
     let data_url = format!("data:{mime_type};base64,{b64}");
 
-    // Store in in-memory cache
-    {
-        let mut guard = THUMBNAIL_CACHE.lock().unwrap();
-        if let Some(ref mut cache) = *guard {
-            cache.insert(PathBuf::from(mem_cache_key), data_url.clone());
-            cache.insert(art_p.to_path_buf(), data_url.clone());
-        }
+    // Store single resolution-scoped key in bounded LRU cache
+    if let Ok(mut guard) = THUMBNAIL_CACHE.lock() {
+        let cache = guard.get_or_insert_with(|| {
+            BoundedLru::new(MAX_THUMBNAIL_CACHE_ENTRIES, MAX_THUMBNAIL_CACHE_BYTES)
+        });
+        cache.insert(mem_cache_key, data_url.clone());
     }
 
     Some(data_url)
@@ -174,9 +420,9 @@ pub fn is_artwork_widescreen(artwork_path: Option<&Path>, artwork_data_url: Opti
         return false;
     };
 
-    if let Ok(guard) = ARTWORK_ASPECT_CACHE.lock() {
-        if let Some(ref cache) = *guard {
-            if let Some(&is_wide) = cache.get(&cache_key) {
+    if let Ok(mut guard) = ARTWORK_ASPECT_CACHE.lock() {
+        if let Some(ref mut cache) = *guard {
+            if let Some(is_wide) = cache.get(&cache_key) {
                 return is_wide;
             }
         }
@@ -185,7 +431,9 @@ pub fn is_artwork_widescreen(artwork_path: Option<&Path>, artwork_data_url: Opti
     let is_wide = probe_artwork_widescreen_inner(artwork_path, artwork_data_url);
 
     if let Ok(mut guard) = ARTWORK_ASPECT_CACHE.lock() {
-        let cache = guard.get_or_insert_with(HashMap::new);
+        let cache = guard.get_or_insert_with(|| {
+            BoundedLru::new(MAX_ASPECT_CACHE_ENTRIES, MAX_ASPECT_CACHE_BYTES)
+        });
         cache.insert(cache_key, is_wide);
     }
 
@@ -551,7 +799,9 @@ pub fn library_cache_path(root: &Path) -> PathBuf {
 }
 
 /// Loads cached library from disk if available and valid.
-pub fn load_library_cache(root: &Path) -> Option<Vec<TrackEntry>> {
+/// Loads cached library tracks from disk and normalizes stale oversized `artwork_data_url`
+/// entries against the explicit `target_res` pixel limit.
+pub fn load_library_cache_with_resolution(root: &Path, target_res: u32) -> Option<Vec<TrackEntry>> {
     let p = library_cache_path(root);
     if !p.is_file() {
         return None;
@@ -561,15 +811,33 @@ pub fn load_library_cache(root: &Path) -> Option<Vec<TrackEntry>> {
     let cache: LibraryCache = serde_json::from_slice(&bytes).ok()?;
 
     if cache.version == 1 && cache.root_path == root && !cache.tracks.is_empty() {
+        let mut tracks = cache.tracks;
+        let normalized_res = crate::config::AppConfig::normalize_artwork_resolution(target_res);
+        let updated = normalize_tracks_artwork_resolution(&mut tracks, normalized_res);
+        if updated > 0 {
+            log::info!(
+                "Normalized {} cached track artworks in {} to <= {}px",
+                updated,
+                p.display(),
+                normalized_res
+            );
+            let _ = save_library_cache(root, &tracks);
+        }
         log::info!(
             "Loaded {} indexed tracks from disk cache in {}",
-            cache.tracks.len(),
+            tracks.len(),
             p.display()
         );
-        Some(cache.tracks)
+        Some(tracks)
     } else {
         None
     }
+}
+
+/// Loads cached library tracks from disk, normalizing legacy artwork payloads against active config.
+pub fn load_library_cache(root: &Path) -> Option<Vec<TrackEntry>> {
+    let target_res = crate::config::load_config().effective_artwork_resolution();
+    load_library_cache_with_resolution(root, target_res)
 }
 
 /// Persists indexed library tracks to disk cache.
@@ -947,6 +1215,143 @@ pub fn spawn_scan(root: PathBuf) -> Receiver<ScanEvent> {
 pub fn fmt_ms(ms: u64) -> String {
     let total = ms / 1000;
     format!("{}:{:02}", total / 60, total % 60)
+}
+
+#[cfg(test)]
+mod artwork_memory_tests {
+    use super::*;
+
+    fn make_png_data_url(width: u32, height: u32) -> String {
+        use base64::Engine;
+        let img = image::RgbImage::from_fn(width, height, |x, y| {
+            image::Rgb([(x % 251) as u8, (y % 251) as u8, ((x + y) % 251) as u8])
+        });
+        let mut buf = Vec::new();
+        let dyn_img = image::DynamicImage::ImageRgb8(img);
+        dyn_img
+            .write_to(&mut std::io::Cursor::new(&mut buf), image::ImageFormat::Png)
+            .expect("encode test png");
+        let b64 = base64::engine::general_purpose::STANDARD.encode(&buf);
+        format!("data:image/png;base64,{b64}")
+    }
+
+    fn decode_data_url_dimensions(data_url: &str) -> (u32, u32) {
+        use base64::Engine;
+        let (_, b64) = data_url.split_once(";base64,").expect("valid data url");
+        let bytes = base64::engine::general_purpose::STANDARD.decode(b64).expect("valid b64");
+        let reader = image::ImageReader::new(std::io::Cursor::new(&bytes))
+            .with_guessed_format()
+            .expect("format");
+        reader.into_dimensions().expect("dimensions")
+    }
+
+    #[test]
+    fn test_bounded_lru_enforces_entry_and_byte_limits_and_trim_to() {
+        let mut lru = BoundedLru::new(4, 12);
+        lru.insert("a".to_string(), "12345".to_string()); // 5 bytes
+        lru.insert("b".to_string(), "12345".to_string()); // 10 bytes
+        assert_eq!(lru.len(), 2);
+        assert_eq!(lru.approx_bytes(), 10);
+
+        // Touch "a" so "b" becomes LRU
+        assert_eq!(lru.get(&"a".to_string()).as_deref(), Some("12345"));
+
+        // Inserting "c" (6 bytes) would exceed 12 bytes -> evicts "b" first, keeping "a" + "c"
+        lru.insert("c".to_string(), "123456".to_string());
+        assert!(lru.get(&"b".to_string()).is_none());
+        assert_eq!(lru.get(&"a".to_string()).as_deref(), Some("12345"));
+        assert_eq!(lru.get(&"c".to_string()).as_deref(), Some("123456"));
+        assert_eq!(lru.approx_bytes(), 11);
+
+        // trim_to(1) retains the most recently touched ("c") and drops "a"
+        lru.trim_to(1);
+        assert_eq!(lru.len(), 1);
+        assert!(lru.get(&"a".to_string()).is_none());
+        assert_eq!(lru.get(&"c".to_string()).as_deref(), Some("123456"));
+    }
+
+    #[test]
+    fn test_normalize_data_url_to_resolution_downscales_oversized_and_skips_compliant() {
+        let large_url = make_png_data_url(800, 800);
+        let downscaled = normalize_data_url_to_resolution(&large_url, 256)
+            .expect("800x800 PNG should downscale to 256px");
+        assert!(downscaled.starts_with("data:image/jpeg;base64,"));
+        let (w, h) = decode_data_url_dimensions(&downscaled);
+        assert!(w <= 256 && h <= 256, "expected <= 256px, got {w}x{h}");
+
+        // Already normalized <=256px compact JPEG should short-circuit with None
+        assert!(
+            normalize_data_url_to_resolution(&downscaled, 256).is_none(),
+            "already-compliant thumbnail must not be re-encoded"
+        );
+    }
+
+    #[test]
+    fn test_normalize_tracks_artwork_resolution_dedups_and_downscales_legacy_cache() {
+        let tmp_dir = std::env::temp_dir().join(format!(
+            "attune_norm_test_{}_{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&tmp_dir).unwrap();
+        let cover_path = tmp_dir.join("cover.png");
+        let img = image::RgbImage::from_fn(768, 768, |x, y| {
+            image::Rgb([(x % 255) as u8, (y % 255) as u8, 128])
+        });
+        image::DynamicImage::ImageRgb8(img)
+            .save_with_format(&cover_path, image::ImageFormat::Png)
+            .unwrap();
+
+        let legacy_big_url = make_png_data_url(768, 768);
+        let base_track = TrackEntry {
+            path: tmp_dir.join("t1.flac"),
+            title: "Track 1".into(),
+            artist: "Artist".into(),
+            album: "Album".into(),
+            duration_ms: 120_000,
+            bpm: Some(120.0),
+            key: Some("1A".into()),
+            aggression: Some(0.4),
+            artwork_path: Some(cover_path.clone()),
+            artwork_data_url: Some(legacy_big_url.clone()),
+            ..Default::default()
+        };
+        let mut t2 = base_track.clone();
+        t2.path = tmp_dir.join("t2.flac");
+        t2.title = "Track 2".into();
+        let mut t3_embedded_only = base_track.clone();
+        t3_embedded_only.path = tmp_dir.join("t3.flac");
+        t3_embedded_only.artwork_path = None;
+
+        let tracks = vec![base_track, t2, t3_embedded_only];
+        save_library_cache(&tmp_dir, &tracks).unwrap();
+
+        let reloaded = load_library_cache_with_resolution(&tmp_dir, 256)
+            .expect("cached tracks should load and normalize");
+        assert_eq!(reloaded.len(), 3);
+        for track in &reloaded {
+            let url = track.artwork_data_url.as_deref().expect("artwork preserved");
+            assert!(url.len() < legacy_big_url.len(), "normalized URL should be smaller");
+            let (w, h) = decode_data_url_dimensions(url);
+            assert!(w <= 256 && h <= 256, "expected <=256px, got {w}x{h}");
+        }
+        // T1 and T2 sharing cover.png should have identical resolved thumbnail URL
+        assert_eq!(reloaded[0].artwork_data_url, reloaded[1].artwork_data_url);
+
+        // Cache trimming helper keeps bounded working set
+        unload_inactive_caches();
+        if let Ok(guard) = THUMBNAIL_CACHE.lock() {
+            if let Some(ref cache) = *guard {
+                assert!(cache.len() <= MAX_THUMBNAIL_CACHE_ENTRIES);
+                assert!(cache.approx_bytes() <= MAX_THUMBNAIL_CACHE_BYTES);
+            }
+        }
+
+        let _ = std::fs::remove_dir_all(&tmp_dir);
+    }
 }
 
 #[cfg(test)]

@@ -1,5 +1,6 @@
 use dioxus::prelude::*;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{mpsc, Arc, Mutex};
 use std::time::Duration;
 
@@ -38,6 +39,43 @@ pub enum StageView {
     ProcessManager,
     About,
     FullscreenNowPlaying,
+}
+
+fn is_heavy_media_stage(stage: &StageView) -> bool {
+    matches!(
+        stage,
+        StageView::Home
+            | StageView::ForYou
+            | StageView::ForYouDetail(_)
+            | StageView::Albums
+            | StageView::AlbumDetail(_)
+            | StageView::Artists
+            | StageView::ArtistDetail(_)
+            | StageView::Favorites
+            | StageView::FullscreenNowPlaying
+    )
+}
+
+static STAGE_TRIM_REV: AtomicU64 = AtomicU64::new(0);
+
+fn schedule_stage_unload(from_stage: StageView, to_stage: StageView) {
+    if from_stage == to_stage {
+        return;
+    }
+    library::unload_inactive_caches();
+    let _ = document::eval("if (window.attuneUnloadStageAssets) window.attuneUnloadStageAssets(false);");
+    let rev = STAGE_TRIM_REV.fetch_add(1, Ordering::SeqCst) + 1;
+    let heavy = is_heavy_media_stage(&from_stage);
+    spawn(async move {
+        tokio::time::sleep(Duration::from_millis(if heavy { 150 } else { 250 })).await;
+        if STAGE_TRIM_REV.load(Ordering::SeqCst) != rev {
+            return;
+        }
+        let _ = document::eval("if (window.attuneUnloadStageAssets) window.attuneUnloadStageAssets(false);");
+        if heavy {
+            let _ = tokio::task::spawn_blocking(crate::process_manager::trim_memory).await;
+        }
+    });
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -371,35 +409,42 @@ pub fn App() -> Element {
     // Note: Entering FullscreenNowPlaying transitions the OS window inside FullscreenNowPlaying's
     // post-mount use_effect so the DOM edits flush to WebKit before the window manager resizes.
     let mut navigate_to = move |new_stage: StageView| {
+        let prev_stage = nav_state.read().current().clone();
         let is_entering_fs = new_stage == StageView::FullscreenNowPlaying;
-        let is_leaving_fs = *nav_state.read().current() == StageView::FullscreenNowPlaying && !is_entering_fs;
+        let is_leaving_fs = prev_stage == StageView::FullscreenNowPlaying && !is_entering_fs;
         if is_leaving_fs {
             set_window_fullscreen(false);
         }
-        nav_state.write().push(new_stage);
+        nav_state.write().push(new_stage.clone());
+        schedule_stage_unload(prev_stage, new_stage);
     };
 
     // Helper: History back navigation
     let mut go_back = move || {
-        let was_fs = *nav_state.read().current() == StageView::FullscreenNowPlaying;
+        let prev_stage = nav_state.read().current().clone();
+        let was_fs = prev_stage == StageView::FullscreenNowPlaying;
         if was_fs {
             set_window_fullscreen(false);
         }
-        let mut nav = nav_state.write();
-        if nav.back().is_none() {
-            match nav.current().clone() {
-                StageView::AlbumDetail(_) | StageView::AlbumEditor(_) => {
-                    nav.push(StageView::Albums);
+        let next_stage = {
+            let mut nav = nav_state.write();
+            if nav.back().is_none() {
+                match nav.current().clone() {
+                    StageView::AlbumDetail(_) | StageView::AlbumEditor(_) => {
+                        nav.push(StageView::Albums);
+                    }
+                    StageView::ArtistDetail(_) => {
+                        nav.push(StageView::Artists);
+                    }
+                    StageView::ForYouDetail(_) => {
+                        nav.push(StageView::ForYou);
+                    }
+                    _ => {}
                 }
-                StageView::ArtistDetail(_) => {
-                    nav.push(StageView::Artists);
-                }
-                StageView::ForYouDetail(_) => {
-                    nav.push(StageView::ForYou);
-                }
-                _ => {}
             }
-        }
+            nav.current().clone()
+        };
+        schedule_stage_unload(prev_stage, next_stage);
     };
 
     // Native OS window keyboard fallback (Escape exits FullscreenNowPlaying, F11 toggles FullscreenNowPlaying)
@@ -419,18 +464,31 @@ pub fn App() -> Element {
             {
                 match key_evt.logical_key {
                     TaoKey::Escape => {
-                        if *nav_state.read().current() == StageView::FullscreenNowPlaying {
+                        let prev = nav_state.read().current().clone();
+                        if prev == StageView::FullscreenNowPlaying {
                             set_window_fullscreen(false);
-                            nav_state.write().back();
+                            let next = {
+                                let mut nav = nav_state.write();
+                                nav.back();
+                                nav.current().clone()
+                            };
+                            schedule_stage_unload(prev, next);
                         }
                     }
                     TaoKey::F11 => {
-                        let is_fs = *nav_state.read().current() == StageView::FullscreenNowPlaying;
+                        let prev = nav_state.read().current().clone();
+                        let is_fs = prev == StageView::FullscreenNowPlaying;
                         if is_fs {
                             set_window_fullscreen(false);
-                            nav_state.write().back();
+                            let next = {
+                                let mut nav = nav_state.write();
+                                nav.back();
+                                nav.current().clone()
+                            };
+                            schedule_stage_unload(prev, next);
                         } else {
                             nav_state.write().push(StageView::FullscreenNowPlaying);
+                            schedule_stage_unload(prev, StageView::FullscreenNowPlaying);
                         }
                     }
                     _ => {}
@@ -441,7 +499,13 @@ pub fn App() -> Element {
 
     // Helper: History forward navigation
     let mut go_forward = move || {
-        nav_state.write().forward();
+        let prev = nav_state.read().current().clone();
+        let next = {
+            let mut nav = nav_state.write();
+            nav.forward();
+            nav.current().clone()
+        };
+        schedule_stage_unload(prev, next);
     };
 
     // Helper: Select next index using current ShuffleMode (Off, Linear, Smart) and recency history
@@ -781,6 +845,11 @@ pub fn App() -> Element {
     let music_dir_poller = music_dir;
     let extra_music_dirs_poller = extra_music_dirs;
     let song_exclusions_poller = song_exclusions;
+    let tracks_poller = tracks;
+    let queue_poller = queue;
+    let current_track_poller = current_track;
+    let recent_tracks_poller = recent_tracks;
+    let resolution_sync_rev = use_hook(|| Arc::new(AtomicU64::new(0)));
     let hwnd: Option<u64> = {
         #[cfg(target_os = "windows")]
         {
@@ -801,6 +870,11 @@ pub fn App() -> Element {
         let mut music_dir = music_dir_poller;
         let mut extra_music_dirs = extra_music_dirs_poller;
         let mut song_exclusions = song_exclusions_poller;
+        let tracks_norm_poller = tracks_poller;
+        let queue_norm_poller = queue_poller;
+        let current_track_norm_poller = current_track_poller;
+        let recent_tracks_norm_poller = recent_tracks_poller;
+        let res_sync_rev_poller = resolution_sync_rev.clone();
         async move {
             let mut media_service = SystemMediaService::new(hwnd);
             let mut last_media_sync_instant = std::time::Instant::now();
@@ -896,6 +970,8 @@ pub fn App() -> Element {
                     // Sync settings modified in standalone settings window
                     let fresh_cfg = config::load_config();
                     if *app_config.read() != fresh_cfg {
+                        let prev_res = app_config.read().effective_artwork_resolution();
+                        let next_res = fresh_cfg.effective_artwork_resolution();
                         if fresh_cfg.force_32bit_float != app_config.read().force_32bit_float {
                             let _ = player.read().reconfigure_output(fresh_cfg.force_32bit_float);
                         }
@@ -909,6 +985,84 @@ pub fn App() -> Element {
                             song_exclusions.set(fresh_cfg.song_exclusions.clone());
                         }
                         app_config.set(fresh_cfg);
+
+                        if next_res != prev_res {
+                            library::on_artwork_resolution_changed();
+                            let rev = res_sync_rev_poller.fetch_add(1, Ordering::SeqCst) + 1;
+                            let res_sync_check = res_sync_rev_poller.clone();
+                            let mut tracks_sig = tracks_norm_poller;
+                            let mut queue_sig = queue_norm_poller;
+                            let mut current_sig = current_track_norm_poller;
+                            let mut recent_sig = recent_tracks_norm_poller;
+                            let roots_snapshot: Vec<PathBuf> = {
+                                let mut roots = Vec::new();
+                                if let Some(ref primary) = *music_dir.read() {
+                                    roots.push(primary.clone());
+                                }
+                                for extra in extra_music_dirs.read().iter() {
+                                    if !roots.contains(extra) {
+                                        roots.push(extra.clone());
+                                    }
+                                }
+                                roots
+                            };
+                            let snapshot_tracks = tracks_norm_poller.read().clone();
+                            let snapshot_queue = queue_norm_poller.read().clone();
+                            let snapshot_current = current_track_norm_poller.read().clone();
+                            let snapshot_recent = recent_tracks_norm_poller.read().clone();
+                            spawn(async move {
+                                let res = tokio::task::spawn_blocking(move || {
+                                    let mut t = snapshot_tracks;
+                                    let mut q = snapshot_queue;
+                                    let mut c = snapshot_current;
+                                    let mut r = snapshot_recent;
+
+                                    let changed_t = library::normalize_tracks_artwork_resolution(&mut t, next_res);
+                                    let changed_q = library::normalize_tracks_artwork_resolution(&mut q, next_res);
+                                    let changed_c = if let Some(ref mut ct) = c {
+                                        library::normalize_tracks_artwork_resolution(std::slice::from_mut(ct), next_res)
+                                    } else {
+                                        0
+                                    };
+                                    let changed_r = library::normalize_tracks_artwork_resolution(&mut r, next_res);
+
+                                    if changed_t > 0 {
+                                        for root in roots_snapshot {
+                                            let root_tracks: Vec<TrackEntry> = t
+                                                .iter()
+                                                .filter(|entry| entry.path.starts_with(&root))
+                                                .cloned()
+                                                .collect();
+                                            if !root_tracks.is_empty() {
+                                                let _ = library::save_library_cache(&root, &root_tracks);
+                                            }
+                                        }
+                                    }
+                                    let _ = crate::process_manager::trim_memory();
+                                    (t, q, c, r, changed_t, changed_q, changed_c, changed_r)
+                                })
+                                .await;
+
+                                if res_sync_check.load(Ordering::SeqCst) != rev {
+                                    return;
+                                }
+                                if let Ok((t, q, c, r, ct, cq, cc, cr)) = res {
+                                    if ct > 0 {
+                                        tracks_sig.set(t);
+                                    }
+                                    if cq > 0 {
+                                        queue_sig.set(q);
+                                    }
+                                    if cc > 0 {
+                                        current_sig.set(c);
+                                    }
+                                    if cr > 0 {
+                                        recent_sig.set(r);
+                                    }
+                                    let _ = document::eval("if (window.attuneUnloadStageAssets) window.attuneUnloadStageAssets(false);");
+                                }
+                            });
+                        }
                     }
 
                     if let Ok(m) = crate::process_manager::sample_metrics() {

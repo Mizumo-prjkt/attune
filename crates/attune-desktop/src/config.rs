@@ -147,7 +147,7 @@ pub struct AppConfig {
     pub system_media_toast: bool,
     #[serde(default = "default_true")]
     pub auto_scroll_long_text: bool,
-    #[serde(default = "default_true")]
+    #[serde(default)]
     pub high_quality_thumbnails: bool,
     #[serde(default = "default_artwork_resolution")]
     pub artwork_resolution: u32,
@@ -237,7 +237,7 @@ impl Default for AppConfig {
             enable_shortcuts: true,
             system_media_toast: true,
             auto_scroll_long_text: true,
-            high_quality_thumbnails: true,
+            high_quality_thumbnails: false,
             artwork_resolution: 512,
             fetch_youtube_thumbnails: true,
             force_32bit_float: false,
@@ -274,13 +274,40 @@ impl Default for AppConfig {
 }
 
 impl AppConfig {
-    /// Returns the active artwork resolution limit in pixels (256, 512, or 1024; defaults to 512).
-    pub fn effective_artwork_resolution(&self) -> u32 {
-        match self.artwork_resolution {
+    /// Clamps any resolution value to a supported tier (`256`, `512`, or `1024`).
+    pub fn normalize_artwork_resolution(res: u32) -> u32 {
+        match res {
             256 => 256,
             1024 => 1024,
             _ => 512,
         }
+    }
+
+    /// Returns the active artwork resolution limit in pixels (256, 512, or 1024; defaults to 512).
+    pub fn effective_artwork_resolution(&self) -> u32 {
+        Self::normalize_artwork_resolution(self.artwork_resolution)
+    }
+
+    /// Parses a UI dropdown or config value (`"256"`, `"512"`, `"1024"`) into a supported tier.
+    pub fn parse_artwork_resolution(raw: &str) -> u32 {
+        raw.trim()
+            .parse::<u32>()
+            .map(Self::normalize_artwork_resolution)
+            .unwrap_or(512)
+    }
+
+    /// Sets `artwork_resolution` (clamped to 256/512/1024) and keeps `high_quality_thumbnails` consistent.
+    pub fn set_artwork_resolution(&mut self, res: u32) {
+        let normalized = Self::normalize_artwork_resolution(res);
+        self.artwork_resolution = normalized;
+        self.high_quality_thumbnails = normalized >= 1024;
+    }
+
+    /// Reconciles legacy `high_quality_thumbnails` flags against `artwork_resolution` after load.
+    pub fn reconcile_artwork_settings(&mut self) {
+        let normalized = self.effective_artwork_resolution();
+        self.artwork_resolution = normalized;
+        self.high_quality_thumbnails = normalized >= 1024;
     }
 
     /// Returns all configured music directories: primary `music_dir` followed by any `extra_music_dirs`.
@@ -380,17 +407,76 @@ pub fn config_file_path() -> Option<PathBuf> {
 }
 
 /// Loads the persisted configuration or returns defaults.
+/// Parses an [`AppConfig`] from JSON text and reconciles dependent settings.
+pub fn parse_config_str(content: &str) -> Option<AppConfig> {
+    let mut cfg: AppConfig = serde_json::from_str(content).ok()?;
+    cfg.reconcile_artwork_settings();
+    Some(cfg)
+}
+
 pub fn load_config() -> AppConfig {
     if let Some(path) = config_file_path() {
         if path.is_file() {
             if let Ok(content) = std::fs::read_to_string(&path) {
-                if let Ok(cfg) = serde_json::from_str(&content) {
+                if let Some(cfg) = parse_config_str(&content) {
                     return cfg;
                 }
             }
         }
     }
     AppConfig::default()
+}
+
+#[cfg(test)]
+mod artwork_config_tests {
+    use super::*;
+
+    #[test]
+    fn test_default_high_quality_thumbnails_matches_512_tier() {
+        let cfg = AppConfig::default();
+        assert_eq!(cfg.artwork_resolution, 512);
+        assert!(!cfg.high_quality_thumbnails);
+    }
+
+    #[test]
+    fn test_parse_and_set_artwork_resolution() {
+        assert_eq!(AppConfig::parse_artwork_resolution("256"), 256);
+        assert_eq!(AppConfig::parse_artwork_resolution(" 512 "), 512);
+        assert_eq!(AppConfig::parse_artwork_resolution("1024"), 1024);
+        assert_eq!(AppConfig::parse_artwork_resolution("invalid"), 512);
+
+        let mut cfg = AppConfig::default();
+        cfg.set_artwork_resolution(256);
+        assert_eq!(cfg.artwork_resolution, 256);
+        assert!(!cfg.high_quality_thumbnails);
+
+        cfg.set_artwork_resolution(1024);
+        assert_eq!(cfg.artwork_resolution, 1024);
+        assert!(cfg.high_quality_thumbnails);
+
+        cfg.set_artwork_resolution(999);
+        assert_eq!(cfg.artwork_resolution, 512);
+        assert!(!cfg.high_quality_thumbnails);
+    }
+
+    #[test]
+    fn test_reconcile_stale_high_quality_flag_on_load() {
+        // Legacy JSON missing high_quality_thumbnails or having stale true at 256px
+        let stale_256 = r#"{"artwork_resolution": 256, "high_quality_thumbnails": true}"#;
+        let parsed = parse_config_str(stale_256).expect("valid config json");
+        assert_eq!(parsed.artwork_resolution, 256);
+        assert!(!parsed.high_quality_thumbnails);
+
+        let omitted_hq_256 = r#"{"artwork_resolution": 256}"#;
+        let parsed_omitted = parse_config_str(omitted_hq_256).expect("valid config json");
+        assert_eq!(parsed_omitted.artwork_resolution, 256);
+        assert!(!parsed_omitted.high_quality_thumbnails);
+
+        let valid_1024 = r#"{"artwork_resolution": 1024, "high_quality_thumbnails": false}"#;
+        let parsed_1024 = parse_config_str(valid_1024).expect("valid config json");
+        assert_eq!(parsed_1024.artwork_resolution, 1024);
+        assert!(parsed_1024.high_quality_thumbnails);
+    }
 }
 
 /// Saves the configuration to disk.

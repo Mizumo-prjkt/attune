@@ -352,8 +352,288 @@ impl Default for DynamicPalette {
     }
 }
 
-static PALETTE_CACHE: std::sync::Mutex<Option<std::collections::HashMap<String, DynamicPalette>>> =
+const MAX_PALETTE_CACHE_ENTRIES: usize = 64;
+
+impl crate::library::CacheValueBytes for DynamicPalette {
+    fn approx_bytes(&self) -> usize {
+        std::mem::size_of::<DynamicPalette>()
+    }
+}
+
+/// Manages off-screen viewport unloading and unmount disposal of WebView `<img>` bitmaps
+/// so scrolled grids and left views drop decoded RGBA backing stores until needed again.
+pub const ASSET_UNLOADER_SCRIPT: &str = r#"<script>
+(function() {
+  if (window.__attuneAssetUnloaderInstalled) return;
+  window.__attuneAssetUnloaderInstalled = true;
+
+  var TRANSPARENT_PIXEL = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
+  var MANAGED_SELECTOR = '.content-scroll img, .right-dock img, .settings-content-pane img';
+  var UNLOAD_GRACE_MS = 300;
+  var unloadTimers = new WeakMap();
+  var observedImgs = new WeakSet();
+  var visibleImgs = new WeakSet();
+  var io = null;
+
+  function clearTimer(img) {
+    var tid = unloadTimers.get(img);
+    if (tid !== undefined) {
+      clearTimeout(tid);
+      unloadTimers.delete(img);
+    }
+  }
+
+  function isRectNearViewport(img) {
+    var rect = img.getBoundingClientRect();
+    if (rect.width === 0 && rect.height === 0) return false;
+    var vh = window.innerHeight || document.documentElement.clientHeight || 900;
+    var vw = window.innerWidth || document.documentElement.clientWidth || 1200;
+    return rect.bottom >= -280 && rect.top <= vh + 280 && rect.right >= -180 && rect.left <= vw + 180;
+  }
+
+  function unloadImg(img) {
+    clearTimer(img);
+    if (!img || !img.isConnected) return;
+    var currentAttr = img.getAttribute('src') || '';
+    if (!currentAttr || currentAttr === TRANSPARENT_PIXEL) return;
+    img._attuneCachedSrc = currentAttr;
+    img._attuneUnloaded = true;
+    img._attuneInternalSwap = true;
+    try {
+      img.setAttribute('src', TRANSPARENT_PIXEL);
+    } finally {
+      img._attuneInternalSwap = false;
+    }
+  }
+
+  function restoreImg(img) {
+    clearTimer(img);
+    if (!img || !img.isConnected) return;
+    if (img._attuneUnloaded && img._attuneCachedSrc) {
+      var saved = img._attuneCachedSrc;
+      img._attuneUnloaded = false;
+      img._attuneInternalSwap = true;
+      try {
+        img.setAttribute('src', saved);
+      } finally {
+        img._attuneInternalSwap = false;
+      }
+    }
+  }
+
+  function scheduleUnload(img) {
+    clearTimer(img);
+    var currentAttr = img.getAttribute('src') || '';
+    if (!currentAttr || currentAttr === TRANSPARENT_PIXEL) return;
+    var tid = setTimeout(function() {
+      unloadTimers.delete(img);
+      if (!img.isConnected || visibleImgs.has(img)) return;
+      if (!isRectNearViewport(img)) {
+        unloadImg(img);
+      }
+    }, UNLOAD_GRACE_MS);
+    unloadTimers.set(img, tid);
+  }
+
+  function disposeRemovedImg(img) {
+    if (!img || img.isConnected) return;
+    clearTimer(img);
+    visibleImgs.delete(img);
+    if (io && observedImgs.has(img)) {
+      io.unobserve(img);
+      observedImgs.delete(img);
+    }
+    img._attuneCachedSrc = null;
+    img._attuneUnloaded = false;
+    img._attuneInternalSwap = true;
+    try {
+      img.setAttribute('src', TRANSPARENT_PIXEL);
+      img.removeAttribute('src');
+    } finally {
+      img._attuneInternalSwap = false;
+    }
+  }
+
+  function registerImg(img) {
+    if (!img || img.tagName !== 'IMG') return;
+    if (!img.matches || !img.matches(MANAGED_SELECTOR)) return;
+    var srcAttr = img.getAttribute('src') || '';
+    if (srcAttr && srcAttr !== TRANSPARENT_PIXEL) {
+      img._attuneCachedSrc = srcAttr;
+      img._attuneUnloaded = false;
+    }
+    if (io && !observedImgs.has(img)) {
+      observedImgs.add(img);
+      io.observe(img);
+    }
+  }
+
+  function scanTree(root) {
+    if (!root || root.nodeType !== 1) return;
+    if (root.tagName === 'IMG') {
+      registerImg(root);
+      return;
+    }
+    if (root.querySelectorAll) {
+      var imgs = root.querySelectorAll(MANAGED_SELECTOR);
+      for (var i = 0; i < imgs.length; i++) {
+        registerImg(imgs[i]);
+      }
+    }
+  }
+
+  document.addEventListener('error', function(e) {
+    var img = e.target;
+    if (!img || img.tagName !== 'IMG' || img._attuneInternalSwap) return;
+    var currentAttr = img.getAttribute('src') || '';
+    if (currentAttr === TRANSPARENT_PIXEL) return;
+    var fb = img.getAttribute('data-fallback-src');
+    if (fb && currentAttr !== fb && img._attuneFallbackApplied !== fb) {
+      img._attuneFallbackApplied = fb;
+      img._attuneCachedSrc = fb;
+      img._attuneUnloaded = false;
+      img._attuneInternalSwap = true;
+      try {
+        img.style.display = '';
+        img.setAttribute('src', fb);
+      } finally {
+        img._attuneInternalSwap = false;
+      }
+    } else if (img.hasAttribute('data-fallback-src') && !fb) {
+      img.style.display = 'none';
+    }
+  }, true);
+
+  window.attuneUnloadStageAssets = function(forceUnloadAll) {
+    var imgs = document.querySelectorAll(MANAGED_SELECTOR);
+    var count = 0;
+    for (var i = 0; i < imgs.length; i++) {
+      var img = imgs[i];
+      if (!img.isConnected) {
+        disposeRemovedImg(img);
+        count++;
+      } else if (forceUnloadAll === true || !isRectNearViewport(img)) {
+        unloadImg(img);
+        count++;
+      }
+    }
+    return count;
+  };
+
+  window.attuneGetAssetStats = function() {
+    var imgs = document.querySelectorAll(MANAGED_SELECTOR);
+    var loaded = 0;
+    var unloaded = 0;
+    for (var i = 0; i < imgs.length; i++) {
+      var s = imgs[i].getAttribute('src') || '';
+      if (!s || s === TRANSPARENT_PIXEL || imgs[i]._attuneUnloaded) {
+        unloaded++;
+      } else {
+        loaded++;
+      }
+    }
+    return { totalManaged: imgs.length, loaded: loaded, unloaded: unloaded };
+  };
+
+  function installObservers() {
+    if (!document.body) return;
+
+    if ('IntersectionObserver' in window) {
+      io = new IntersectionObserver(function(entries) {
+        for (var i = 0; i < entries.length; i++) {
+          var entry = entries[i];
+          var img = entry.target;
+          if (entry.isIntersecting) {
+            visibleImgs.add(img);
+            restoreImg(img);
+          } else {
+            visibleImgs.delete(img);
+            scheduleUnload(img);
+          }
+        }
+      }, { rootMargin: '280px 180px', threshold: 0.0 });
+    }
+
+    scanTree(document.body);
+
+    var mo = new MutationObserver(function(mutations) {
+      for (var i = 0; i < mutations.length; i++) {
+        var m = mutations[i];
+        if (m.type === 'attributes' && m.attributeName === 'src') {
+          var t = m.target;
+          if (!t || t.tagName !== 'IMG' || t._attuneInternalSwap) continue;
+          var newSrc = t.getAttribute('src') || '';
+          if (newSrc && newSrc !== TRANSPARENT_PIXEL) {
+            if (t._attuneFallbackApplied && newSrc !== t._attuneFallbackApplied) {
+              t._attuneFallbackApplied = null;
+            }
+            if (t.style && t.style.display === 'none') {
+              t.style.display = '';
+            }
+            t._attuneCachedSrc = newSrc;
+            t._attuneUnloaded = false;
+            registerImg(t);
+            if (!visibleImgs.has(t) && !isRectNearViewport(t)) {
+              scheduleUnload(t);
+            }
+          }
+        } else if (m.type === 'childList') {
+          for (var r = 0; r < m.removedNodes.length; r++) {
+            var rn = m.removedNodes[r];
+            if (rn.nodeType !== 1) continue;
+            if (rn.tagName === 'IMG') {
+              disposeRemovedImg(rn);
+            } else if (rn.querySelectorAll) {
+              var rImgs = rn.querySelectorAll('img');
+              for (var k = 0; k < rImgs.length; k++) {
+                disposeRemovedImg(rImgs[k]);
+              }
+            }
+          }
+          for (var a = 0; a < m.addedNodes.length; a++) {
+            scanTree(m.addedNodes[a]);
+          }
+        }
+      }
+    });
+
+    mo.observe(document.body, {
+      childList: true,
+      subtree: true,
+      attributes: true,
+      attributeFilter: ['src']
+    });
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', installObservers, { once: true });
+  } else {
+    installObservers();
+  }
+})();
+</script>"#;
+
+static PALETTE_CACHE: std::sync::Mutex<Option<crate::library::BoundedLru<String, DynamicPalette>>> =
     std::sync::Mutex::new(None);
+
+fn palette_cache_get(key: &String) -> Option<DynamicPalette> {
+    if let Ok(mut guard) = PALETTE_CACHE.lock() {
+        if let Some(ref mut cache) = *guard {
+            return cache.get(key);
+        }
+    }
+    None
+}
+
+fn palette_cache_insert(key: String, pal: DynamicPalette) {
+    if let Ok(mut guard) = PALETTE_CACHE.lock() {
+        let max_bytes = MAX_PALETTE_CACHE_ENTRIES * std::mem::size_of::<DynamicPalette>();
+        let cache = guard.get_or_insert_with(|| {
+            crate::library::BoundedLru::new(MAX_PALETTE_CACHE_ENTRIES, max_bytes)
+        });
+        cache.insert(key, pal);
+    }
+}
 
 /// Clears the in-memory dynamic palette cache (invoked when track/album artwork is updated).
 pub fn clear_palette_cache() {
@@ -364,21 +644,69 @@ pub fn clear_palette_cache() {
     }
 }
 
+/// Trims older cached palettes down to `keep_recent` most recently used entries.
+pub fn trim_palette_cache(keep_recent: usize) {
+    if let Ok(mut guard) = PALETTE_CACHE.lock() {
+        if let Some(ref mut cache) = *guard {
+            cache.trim_to(keep_recent);
+        }
+    }
+}
+
+#[cfg(test)]
+mod unloader_and_palette_tests {
+    use super::*;
+
+    #[test]
+    fn test_asset_unloader_script_structure_and_guards() {
+        assert!(ASSET_UNLOADER_SCRIPT.starts_with("<script>"));
+        assert!(ASSET_UNLOADER_SCRIPT.ends_with("</script>"));
+        assert!(ASSET_UNLOADER_SCRIPT.contains("IntersectionObserver"));
+        assert!(ASSET_UNLOADER_SCRIPT.contains("MutationObserver"));
+        assert!(ASSET_UNLOADER_SCRIPT.contains("DOMContentLoaded"));
+        assert!(ASSET_UNLOADER_SCRIPT.contains("attuneUnloadStageAssets"));
+        assert!(ASSET_UNLOADER_SCRIPT.contains("attuneGetAssetStats"));
+        assert!(ASSET_UNLOADER_SCRIPT.contains("data-fallback-src"));
+        assert!(ASSET_UNLOADER_SCRIPT.contains("removedNodes"));
+    }
+
+    #[test]
+    fn test_trim_palette_cache_bounds_entries() {
+        clear_palette_cache();
+        for idx in 0..8 {
+            let seed = format!("palette-seed-{idx}");
+            palette_cache_insert(seed.clone(), DynamicPalette::from_hash(&seed));
+        }
+        trim_palette_cache(3);
+        let guard = PALETTE_CACHE.lock().unwrap();
+        let len = guard.as_ref().map(|c| c.len()).unwrap_or(0);
+        assert_eq!(len, 3);
+    }
+}
+
 impl DynamicPalette {
-    /// Extracts dominant vibrant colors from an image file on disk (with in-memory caching).
+    /// Extracts dominant vibrant colors from an image file on disk (with bounded LRU caching
+    /// and thumbnail fast-path to avoid decoding full multi-megabyte covers).
     pub fn from_image(path: &Path) -> Option<Self> {
-        let mtime_secs = std::fs::metadata(path)
-            .and_then(|m| m.modified())
-            .ok()
+        let meta = std::fs::metadata(path).ok();
+        let mtime_secs = meta
+            .as_ref()
+            .and_then(|m| m.modified().ok())
             .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
             .map(|d| d.as_secs())
             .unwrap_or(0);
         let cache_key = format!("path:{}:{mtime_secs}", path.display());
 
-        if let Ok(guard) = PALETTE_CACHE.lock() {
-            if let Some(ref cache) = *guard {
-                if let Some(cached) = cache.get(&cache_key) {
-                    return Some(cached.clone());
+        if let Some(cached) = palette_cache_get(&cache_key) {
+            return Some(cached);
+        }
+
+        // For large files on disk (> 256 KB), reuse compact 256px thumbnail instead of full 4K decode
+        if meta.as_ref().map(|m| m.len() > 256 * 1024).unwrap_or(false) {
+            if let Some(thumb_url) = crate::library::resolve_thumbnail_data_url_with_resolution(path, 256) {
+                if let Some(pal) = Self::from_data_url(&thumb_url) {
+                    palette_cache_insert(cache_key, pal.clone());
+                    return Some(pal);
                 }
             }
         }
@@ -387,15 +715,12 @@ impl DynamicPalette {
         let img = reader.decode().ok()?;
         let pal = Self::from_dynamic_image(&img);
 
-        if let Ok(mut guard) = PALETTE_CACHE.lock() {
-            let cache = guard.get_or_insert_with(std::collections::HashMap::new);
-            cache.insert(cache_key, pal.clone());
-        }
+        palette_cache_insert(cache_key, pal.clone());
 
         Some(pal)
     }
 
-    /// Extracts dominant vibrant colors from a base64 Data URL (e.g. embedded artwork, with in-memory caching).
+    /// Extracts dominant vibrant colors from a base64 Data URL (e.g. embedded artwork, with bounded LRU caching).
     pub fn from_data_url(data_url: &str) -> Option<Self> {
         if !data_url.starts_with("data:image/") {
             return None;
@@ -408,12 +733,8 @@ impl DynamicPalette {
         std::hash::Hash::hash(&data_url.as_bytes()[tail_start..], &mut hasher);
         let cache_key = format!("data:{}:{:016x}", data_url.len(), std::hash::Hasher::finish(&hasher));
 
-        if let Ok(guard) = PALETTE_CACHE.lock() {
-            if let Some(ref cache) = *guard {
-                if let Some(cached) = cache.get(&cache_key) {
-                    return Some(cached.clone());
-                }
-            }
+        if let Some(cached) = palette_cache_get(&cache_key) {
+            return Some(cached);
         }
 
         let comma_idx = data_url.find(',')?;
@@ -423,24 +744,21 @@ impl DynamicPalette {
         let img = image::load_from_memory(&bytes).ok()?;
         let pal = Self::from_dynamic_image(&img);
 
-        if let Ok(mut guard) = PALETTE_CACHE.lock() {
-            let cache = guard.get_or_insert_with(std::collections::HashMap::new);
-            cache.insert(cache_key, pal.clone());
-        }
+        palette_cache_insert(cache_key, pal.clone());
 
         Some(pal)
     }
 
-    /// Resolves dynamic palette from a `TrackEntry` using artwork path, data URL,
-    /// or deterministic harmonic hash fallback.
+    /// Resolves dynamic palette from a `TrackEntry` preferring already-downscaled Data URL
+    /// before touching full-res disk artwork, falling back to deterministic harmonic hash.
     pub fn from_track(track: &TrackEntry) -> Self {
-        if let Some(ref p) = track.artwork_path {
-            if let Some(pal) = Self::from_image(p) {
+        if let Some(ref data_url) = track.artwork_data_url {
+            if let Some(pal) = Self::from_data_url(data_url) {
                 return pal;
             }
         }
-        if let Some(ref data_url) = track.artwork_data_url {
-            if let Some(pal) = Self::from_data_url(data_url) {
+        if let Some(ref p) = track.artwork_path {
+            if let Some(pal) = Self::from_image(p) {
                 return pal;
             }
         }

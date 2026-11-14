@@ -179,23 +179,23 @@ pub fn Artists(
                                             div { class: "artist-avatar-fallback",
                                                 span { class: "material-icons md-48", "person" }
                                             }
-                                            // Mid layer: Local album artwork if available
-                                            if let Some(ref fallback) = fallback_art {
-                                                img {
-                                                    src: "{fallback}",
-                                                    alt: "",
-                                                    class: "artist-avatar-img",
-                                                    style: "position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; z-index: 1;",
-                                                }
-                                            }
-                                            // Top layer: Online portrait if available and distinct
-                                            if let Some(ref photo) = photo_art {
-                                                if Some(photo) != fallback_art.as_ref() {
-                                                    img {
-                                                        src: "{photo}",
-                                                        alt: "",
-                                                        class: "artist-avatar-img",
-                                                        style: "position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; z-index: 2;",
+                                            // Single decoded artwork layer: online portrait first with local cover fallback
+                                            {
+                                                let (primary_src, fallback_src) = crate::artist_profile::select_primary_and_fallback_src(
+                                                    photo_art.as_deref(),
+                                                    fallback_art.as_deref(),
+                                                );
+                                                rsx! {
+                                                    if let Some(src) = primary_src {
+                                                        img {
+                                                            src: "{src}",
+                                                            alt: "",
+                                                            class: "artist-avatar-img",
+                                                            loading: "lazy",
+                                                            decoding: "async",
+                                                            "data-fallback-src": "{fallback_src}",
+                                                            style: "position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; z-index: 1;",
+                                                        }
                                                     }
                                                 }
                                             }
@@ -422,23 +422,22 @@ pub fn ArtistDetail(
                     div { class: "album-cover-fallback",
                         span { class: "material-icons md-64", "person" }
                     }
-                    // Mid layer: Local album artwork if available
-                    if let Some(ref fallback) = fallback_art {
-                        img {
-                            class: "album-cover-img",
-                            src: "{fallback}",
-                            alt: "",
-                            style: "position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; z-index: 1;",
-                        }
-                    }
-                    // Top layer: Online portrait if available and distinct
-                    if let Some(ref photo) = online_photo {
-                        if Some(photo) != fallback_art.as_ref() {
-                            img {
-                                class: "album-cover-img",
-                                src: "{photo}",
-                                alt: "",
-                                style: "position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; z-index: 2;",
+                    // Single decoded hero artwork layer: online portrait first with local fallback
+                    {
+                        let (primary_src, fallback_src) = crate::artist_profile::select_primary_and_fallback_src(
+                            online_photo.as_deref(),
+                            fallback_art.as_deref(),
+                        );
+                        rsx! {
+                            if let Some(src) = primary_src {
+                                img {
+                                    class: "album-cover-img",
+                                    src: "{src}",
+                                    alt: "",
+                                    decoding: "async",
+                                    "data-fallback-src": "{fallback_src}",
+                                    style: "position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; z-index: 1;",
+                                }
                             }
                         }
                     }
@@ -1061,7 +1060,7 @@ pub fn ArtistDetail(
 
                                             div { class: "discography-art-box",
                                                 if let Some(ref art) = a_art {
-                                                    img { class: "discography-art-img", src: "{art}", alt: "{a_name}" }
+                                                    img { class: "discography-art-img", src: "{art}", alt: "{a_name}", loading: "lazy", decoding: "async" }
                                                 } else {
                                                     div { class: "discography-art-fallback",
                                                         span { class: "material-icons md-36", "album" }

@@ -15,9 +15,198 @@ pub fn artist_profile_revision() -> u64 {
     ARTIST_PROFILE_REVISION.load(Ordering::SeqCst)
 }
 
-/// Cached artist full profile info from Wikipedia REST API / local resolution.
-static ARTIST_PROFILE_CACHE: LazyLock<RwLock<HashMap<String, OnlineArtistInfo>>> =
-    LazyLock::new(|| RwLock::new(HashMap::new()));
+const MAX_ARTIST_PROFILE_CACHE_ENTRIES: usize = 96;
+const MAX_ARTIST_PROFILE_CACHE_BYTES: usize = 8 * 1024 * 1024;
+
+impl crate::library::CacheValueBytes for OnlineArtistInfo {
+    fn approx_bytes(&self) -> usize {
+        std::mem::size_of::<Self>()
+            + self.name.as_ref().map_or(0, String::len)
+            + self.description.as_ref().map_or(0, String::len)
+            + self.bio.as_ref().map_or(0, String::len)
+            + self.image_url.as_ref().map_or(0, String::len)
+            + self.banner_url.as_ref().map_or(0, String::len)
+            + self.subscribers.as_ref().map_or(0, String::len)
+            + self.views.as_ref().map_or(0, String::len)
+            + self.browse_id.as_ref().map_or(0, String::len)
+    }
+}
+
+/// Cached artist full profile info from Wikipedia REST API / Innertube / local resolution.
+static ARTIST_PROFILE_CACHE: LazyLock<RwLock<crate::library::BoundedLru<String, OnlineArtistInfo>>> =
+    LazyLock::new(|| {
+        RwLock::new(crate::library::BoundedLru::new(
+            MAX_ARTIST_PROFILE_CACHE_ENTRIES,
+            MAX_ARTIST_PROFILE_CACHE_BYTES,
+        ))
+    });
+
+/// Clears the in-memory artist profile cache and bumps revision so active resolution takes effect.
+pub fn clear_artist_profile_cache() {
+    if let Ok(mut cache) = ARTIST_PROFILE_CACHE.write() {
+        cache.clear();
+    }
+    bump_artist_profile_revision();
+}
+
+fn is_google_cdn_url(url: &str) -> bool {
+    url.contains("googleusercontent.com/") || url.contains("ggpht.com/")
+}
+
+/// Computes `(max_width, max_height)` for widescreen artist banners given the active artwork resolution tier.
+pub fn banner_resolution_for_tier(target_res: u32) -> (u32, u32) {
+    match crate::config::AppConfig::normalize_artwork_resolution(target_res) {
+        256 => (640, 360),
+        512 => (1024, 576),
+        _ => (1440, 810),
+    }
+}
+
+/// Resizes a Google CDN banner URL to fit within `(max_w, max_h)` while preserving widescreen proportions.
+pub fn resize_google_banner_url(url: &str, max_w: u32, max_h: u32) -> String {
+    let target_token = format!("=w{max_w}-h{max_h}-l90-rj");
+    if let Some(idx) = url.find('=') {
+        format!("{}{target_token}", &url[..idx])
+    } else {
+        format!("{url}{target_token}")
+    }
+}
+
+/// Chooses a single primary artwork URL (`photo` preferred over `fallback`) and an optional
+/// fallback URL for `data-fallback-src`, avoiding double-stacked `<img>` textures per card.
+pub fn select_primary_and_fallback_src<'a>(
+    photo: Option<&'a str>,
+    fallback: Option<&'a str>,
+) -> (Option<&'a str>, &'a str) {
+    match (photo, fallback) {
+        (Some(p), Some(fb)) if p != fb => (Some(p), fb),
+        (Some(p), _) => (Some(p), ""),
+        (None, Some(fb)) => (Some(fb), ""),
+        (None, None) => (None, ""),
+    }
+}
+
+/// Normalizes an [`OnlineArtistInfo`]'s avatar and banner URLs (CDN sizing and `data:image/` payloads)
+/// to match `target_res`. Returns `true` if any field was modified.
+pub fn normalize_profile_for_resolution(info: &mut OnlineArtistInfo, target_res: u32) -> bool {
+    let normalized_res = crate::config::AppConfig::normalize_artwork_resolution(target_res);
+    let (banner_w, banner_h) = banner_resolution_for_tier(normalized_res);
+    let mut changed = false;
+
+    if let Some(ref img) = info.image_url {
+        if !is_valid_profile_image_url(img) {
+            info.image_url = None;
+            changed = true;
+        } else if img.starts_with("data:image/") {
+            if let Some(smaller) = crate::library::normalize_data_url_to_resolution(img, normalized_res) {
+                info.image_url = Some(smaller);
+                changed = true;
+            }
+        } else if is_google_cdn_url(img) {
+            let resized = resize_google_avatar_url(img, normalized_res);
+            if resized != *img {
+                info.image_url = Some(resized);
+                changed = true;
+            }
+        }
+    }
+
+    if let Some(ref banner) = info.banner_url {
+        if banner.starts_with("data:image/") {
+            if let Some(smaller) = crate::library::normalize_data_url_to_resolution(banner, banner_w) {
+                info.banner_url = Some(smaller);
+                changed = true;
+            }
+        } else if is_google_cdn_url(banner) {
+            let resized = resize_google_banner_url(banner, banner_w, banner_h);
+            if resized != *banner {
+                info.banner_url = Some(resized);
+                changed = true;
+            }
+        }
+    }
+
+    changed
+}
+
+#[cfg(test)]
+mod profile_resolution_tests {
+    use super::*;
+
+    #[test]
+    fn test_normalize_profile_resizes_google_cdn_and_data_url_by_tier() {
+        use base64::Engine;
+        let big_img = image::RgbImage::from_fn(768, 768, |x, y| {
+            let v = x.wrapping_mul(73) ^ y.wrapping_mul(151);
+            image::Rgb([(v & 0xff) as u8, ((v >> 3) & 0xff) as u8, ((v >> 7) & 0xff) as u8])
+        });
+        let mut buf = Vec::new();
+        image::DynamicImage::ImageRgb8(big_img)
+            .write_to(&mut std::io::Cursor::new(&mut buf), image::ImageFormat::Png)
+            .unwrap();
+        let big_data_url = format!(
+            "data:image/png;base64,{}",
+            base64::engine::general_purpose::STANDARD.encode(&buf)
+        );
+
+        let mut cdn_info = OnlineArtistInfo {
+            image_url: Some("https://lh3.googleusercontent.com/abc=w1024-h1024-p-l90-rj".into()),
+            banner_url: Some("https://lh3.googleusercontent.com/banner=w1920-h1080".into()),
+            ..Default::default()
+        };
+        assert!(normalize_profile_for_resolution(&mut cdn_info, 256));
+        assert_eq!(
+            cdn_info.image_url.as_deref(),
+            Some("https://lh3.googleusercontent.com/abc=w256-h256-p-l90-rj")
+        );
+        assert_eq!(
+            cdn_info.banner_url.as_deref(),
+            Some("https://lh3.googleusercontent.com/banner=w640-h360-l90-rj")
+        );
+
+        let mut local_info = OnlineArtistInfo {
+            image_url: Some(big_data_url.clone()),
+            ..Default::default()
+        };
+        assert!(normalize_profile_for_resolution(&mut local_info, 256));
+        let normalized_url = local_info.image_url.unwrap();
+        assert!(normalized_url.starts_with("data:image/jpeg;base64,"));
+        let (_, b64_out) = normalized_url.split_once(";base64,").unwrap();
+        let raw_out = base64::engine::general_purpose::STANDARD.decode(b64_out).unwrap();
+        let (w, h) = image::ImageReader::new(std::io::Cursor::new(&raw_out))
+            .with_guessed_format()
+            .unwrap()
+            .into_dimensions()
+            .unwrap();
+        assert!(w <= 256 && h <= 256, "expected <= 256px, got {w}x{h}");
+        assert!(normalized_url.len() < big_data_url.len());
+
+        // Non-Google CDN URLs with query strings must stay untouched
+        let mut wiki_info = OnlineArtistInfo {
+            image_url: Some("https://upload.wikimedia.org/img.jpg?width=800".into()),
+            ..Default::default()
+        };
+        assert!(!normalize_profile_for_resolution(&mut wiki_info, 256));
+        assert_eq!(
+            wiki_info.image_url.as_deref(),
+            Some("https://upload.wikimedia.org/img.jpg?width=800")
+        );
+
+        assert_eq!(
+            select_primary_and_fallback_src(Some("https://a"), Some("data:fb")),
+            (Some("https://a"), "data:fb")
+        );
+        assert_eq!(
+            select_primary_and_fallback_src(Some("same"), Some("same")),
+            (Some("same"), "")
+        );
+        assert_eq!(
+            select_primary_and_fallback_src(None, Some("data:fb")),
+            (Some("data:fb"), "")
+        );
+        assert_eq!(select_primary_and_fallback_src(None, None), (None, ""));
+    }
+}
 
 #[derive(Debug, Clone, Default, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct OnlineArtistInfo {
@@ -191,26 +380,18 @@ pub fn load_cached_artist_profile(artist_name: &str) -> Option<OnlineArtistInfo>
         return None;
     }
 
+    let target_res = crate::config::load_config().effective_artwork_resolution();
+
     // 1. Memory cache (indexed canonically so case/accents/alt-characters hit consistently)
-    if let Ok(cache) = ARTIST_PROFILE_CACHE.read() {
-        if let Some(entry) = cache.get(&key) {
-            let mut info = entry.clone();
-            if let Some(ref img) = info.image_url {
-                if !is_valid_profile_image_url(img) {
-                    info.image_url = None;
-                }
-            }
+    if let Ok(mut cache) = ARTIST_PROFILE_CACHE.write() {
+        if let Some(mut info) = cache.get(&key) {
+            normalize_profile_for_resolution(&mut info, target_res);
             return Some(info);
         }
         let clean_key = clean_primary_artist(artist_name).to_lowercase();
         if !clean_key.is_empty() {
-            if let Some(entry) = cache.get(&clean_key) {
-                let mut info = entry.clone();
-                if let Some(ref img) = info.image_url {
-                    if !is_valid_profile_image_url(img) {
-                        info.image_url = None;
-                    }
-                }
+            if let Some(mut info) = cache.get(&clean_key) {
+                normalize_profile_for_resolution(&mut info, target_res);
                 return Some(info);
             }
         }
@@ -222,11 +403,7 @@ pub fn load_cached_artist_profile(artist_name: &str) -> Option<OnlineArtistInfo>
         if path.is_file() {
             if let Ok(data) = std::fs::read_to_string(&path) {
                 if let Ok(mut info) = serde_json::from_str::<OnlineArtistInfo>(&data) {
-                    if let Some(ref img) = info.image_url {
-                        if !is_valid_profile_image_url(img) {
-                            info.image_url = None;
-                        }
-                    }
+                    normalize_profile_for_resolution(&mut info, target_res);
                     if let Ok(mut cache) = ARTIST_PROFILE_CACHE.write() {
                         cache.insert(key, info.clone());
                     }
@@ -293,6 +470,9 @@ pub fn save_cached_artist_profile(artist_name: &str, info: &OnlineArtistInfo) {
             sanitized.image_url = None;
         }
     }
+
+    let target_res = crate::config::load_config().effective_artwork_resolution();
+    normalize_profile_for_resolution(&mut sanitized, target_res);
 
     let clean_key = clean_primary_artist(artist_name).to_lowercase();
     if let Ok(mut cache) = ARTIST_PROFILE_CACHE.write() {
@@ -1305,6 +1485,7 @@ pub fn query_innertube_artist_profile(artist: &str) -> OnlineArtistInfo {
                             })
                             .map(|s| s.to_string());
 
+                        let target_res = crate::config::load_config().effective_artwork_resolution();
                         let thumb = card
                             .get("thumbnail")
                             .and_then(|t| t.get("musicThumbnailRenderer"))
@@ -1314,7 +1495,7 @@ pub fn query_innertube_artist_profile(artist: &str) -> OnlineArtistInfo {
                             .and_then(|arr| arr.last())
                             .and_then(|item| item.get("url"))
                             .and_then(|u| u.as_str())
-                            .map(|u| resize_google_avatar_url(u, 512));
+                            .map(|u| resize_google_avatar_url(u, target_res));
 
                         if id.is_some() {
                             browse_id = id;
@@ -1388,7 +1569,13 @@ pub fn query_innertube_artist_profile(artist: &str) -> OnlineArtistInfo {
                         .and_then(|item| item.get("url"))
                         .and_then(|u| u.as_str())
                     {
-                        info.banner_url = Some(banner.to_string());
+                        let target_res = crate::config::load_config().effective_artwork_resolution();
+                        let (bw, bh) = banner_resolution_for_tier(target_res);
+                        info.banner_url = Some(if is_google_cdn_url(banner) {
+                            resize_google_banner_url(banner, bw, bh)
+                        } else {
+                            banner.to_string()
+                        });
                     }
 
                     if let Some(desc) = header
@@ -1598,7 +1785,9 @@ pub fn fetch_online_artist_profile(artist: &str, force_refresh: bool) -> OnlineA
         }
     }
 
-    // Save to disk & memory cache
+    // Normalize and save to disk & memory cache
+    let target_res = crate::config::load_config().effective_artwork_resolution();
+    normalize_profile_for_resolution(&mut profile, target_res);
     save_cached_artist_profile(&clean, &profile);
 
     profile

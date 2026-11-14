@@ -153,6 +153,7 @@ pub fn Albums(
                                             class: "album-cover-img",
                                             src: "{art}",
                                             alt: "{group.name}",
+                                            decoding: "async",
                                         }
                                     } else {
                                         div { class: "album-cover-fallback",
@@ -179,7 +180,7 @@ pub fn Albums(
                                                 move |_| on_select_artist.call(art.clone())
                                             },
                                             if let Some(art) = art_data_url.as_ref() {
-                                                img { src: "{art}", alt: "{group.artist}" }
+                                                img { src: "{art}", alt: "{group.artist}", loading: "lazy", decoding: "async" }
                                             } else {
                                                 span { class: "material-icons md-14", "person" }
                                             }
@@ -837,7 +838,7 @@ pub fn Albums(
 
                                                             div { class: "discography-art-box",
                                                                 if let Some(ref art) = a_art {
-                                                                    img { class: "discography-art-img", src: "{art}", alt: "{a_name}" }
+                                                                    img { class: "discography-art-img", src: "{art}", alt: "{a_name}", loading: "lazy", decoding: "async" }
                                                                 } else {
                                                                     div { class: "discography-art-fallback",
                                                                         span { class: "material-icons md-36", "album" }
@@ -932,6 +933,8 @@ pub fn Albums(
                                                     src: "{art}",
                                                     alt: "{album.name}",
                                                     class: "album-grid-art",
+                                                    loading: "lazy",
+                                                    decoding: "async",
                                                 }
                                             } else {
                                                 div {

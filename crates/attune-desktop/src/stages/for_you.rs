@@ -549,6 +549,8 @@ pub fn ForYou(
                                                     key: "{i}",
                                                     src: "{art}",
                                                     alt: "Album Cover",
+                                                    loading: "lazy",
+                                                    decoding: "async",
                                                     style: "width: 44px; height: 44px; border-radius: 8px; object-fit: cover; border: 1px solid rgba(255,255,255,0.15); margin-left: if i > 0 { \"-14px\" } else { \"0px\" }; box-shadow: 0 4px 12px rgba(0,0,0,0.4); transform: scale({1.0 - (i as f32 * 0.03)}); transition: transform 0.2s;",
                                                 }
                                             }

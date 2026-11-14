@@ -532,23 +532,23 @@ pub fn Favorites(
                                                         div { class: "artist-avatar-fallback",
                                                             span { class: "material-icons md-48", "person" }
                                                         }
-                                                        // Mid layer: Local album artwork if available
-                                                        if let Some(ref fallback) = fallback_art {
-                                                            img {
-                                                                src: "{fallback}",
-                                                                alt: "",
-                                                                class: "artist-avatar-img",
-                                                                style: "position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; z-index: 1;",
-                                                            }
-                                                        }
-                                                        // Top layer: Online portrait if available and distinct
-                                                        if let Some(ref photo) = photo_art {
-                                                            if Some(photo) != fallback_art.as_ref() {
-                                                                img {
-                                                                    src: "{photo}",
-                                                                    alt: "",
-                                                                    class: "artist-avatar-img",
-                                                                    style: "position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; z-index: 2;",
+                                                        // Single decoded artwork layer: online portrait first with local fallback
+                                                        {
+                                                            let (primary_src, fallback_src) = crate::artist_profile::select_primary_and_fallback_src(
+                                                                photo_art.as_deref(),
+                                                                fallback_art.as_deref(),
+                                                            );
+                                                            rsx! {
+                                                                if let Some(src) = primary_src {
+                                                                    img {
+                                                                        src: "{src}",
+                                                                        alt: "",
+                                                                        class: "artist-avatar-img",
+                                                                        loading: "lazy",
+                                                                        decoding: "async",
+                                                                        "data-fallback-src": "{fallback_src}",
+                                                                        style: "position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; z-index: 1;",
+                                                                    }
                                                                 }
                                                             }
                                                         }
@@ -619,6 +619,8 @@ pub fn Favorites(
                                                             src: "{art}",
                                                             alt: "{album.name}",
                                                             class: "album-grid-art",
+                                                            loading: "lazy",
+                                                            decoding: "async",
                                                         }
                                                     } else {
                                                         div {

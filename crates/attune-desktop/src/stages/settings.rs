@@ -177,8 +177,10 @@ pub fn open_settings_window() {
                 <link rel=\"preconnect\" href=\"https://fonts.gstatic.com\" crossorigin>\n\
                 <link rel=\"stylesheet\" href=\"https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Roboto:wght@400;500;700&family=Sora:wght@400;600;700;800&display=swap\">\n\
                 <link rel=\"stylesheet\" href=\"https://fonts.googleapis.com/icon?family=Material+Icons\">\n\
-                <style>\n{icons_css}\n{css}\n</style>\n{}",
-                crate::theme::MARQUEE_SCRIPT
+                <style>\n{icons_css}\n{css}\n</style>\n{}\n{}\n{}",
+                crate::theme::EVENT_COORDINATE_SANITIZER_SCRIPT,
+                crate::theme::MARQUEE_SCRIPT,
+                crate::theme::ASSET_UNLOADER_SCRIPT
             ));
 
         dioxus::desktop::window().new_window(dom, cfg);
@@ -766,58 +768,56 @@ pub fn SettingsContent(
                         }
 
                         // Card: Album Artwork & Thumbnail Resolution
-                        div { class: "settings-card",
-                            div { style: "display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; flex-wrap: wrap;",
-                                div {
-                                    h3 { class: "settings-card-title", "{strings.artwork_resolution}" }
-                                    p { class: "settings-card-desc", "{strings.artwork_resolution_desc}" }
-                                }
-                                div { style: "display: flex; gap: 8px; align-items: center; flex-wrap: wrap;",
-                                    button {
-                                        class: if curr_cfg.artwork_resolution == 256 { "btn-pill active" } else { "btn-pill" },
-                                        style: "font-size: 12px; padding: 6px 14px;",
-                                        onclick: move |_| update_cfg(Box::new(|c| {
-                                            c.artwork_resolution = 256;
-                                            c.high_quality_thumbnails = false;
-                                            crate::library::clear_thumbnail_cache();
-                                        })),
-                                        "{strings.res_256_label}"
+                        {
+                            let effective_res = curr_cfg.effective_artwork_resolution();
+                            let on_res_change = move |raw: String| {
+                                let res = crate::config::AppConfig::parse_artwork_resolution(&raw);
+                                update_cfg(Box::new(move |c| {
+                                    c.set_artwork_resolution(res);
+                                    crate::library::on_artwork_resolution_changed();
+                                }));
+                            };
+                            rsx! {
+                                div { class: "settings-card",
+                                    div { style: "display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; flex-wrap: wrap;",
+                                        div {
+                                            h3 { class: "settings-card-title", "{strings.artwork_resolution}" }
+                                            p { class: "settings-card-desc", "{strings.artwork_resolution_desc}" }
+                                        }
+                                        div { style: "display: flex; align-items: center;",
+                                            select {
+                                                class: "form-select",
+                                                style: "min-width: 240px; max-width: 340px; font-size: 13px;",
+                                                value: "{effective_res}",
+                                                onchange: {
+                                                    let mut cb = on_res_change.clone();
+                                                    move |e: FormEvent| cb(e.value())
+                                                },
+                                                oninput: {
+                                                    let mut cb = on_res_change.clone();
+                                                    move |e: FormEvent| cb(e.value())
+                                                },
+                                                option { value: "256", selected: effective_res == 256, "{strings.res_256_label}" }
+                                                option { value: "512", selected: effective_res == 512, "{strings.res_512_label}" }
+                                                option { value: "1024", selected: effective_res == 1024, "{strings.res_1024_label}" }
+                                            }
+                                        }
                                     }
-                                    button {
-                                        class: if curr_cfg.artwork_resolution == 512 { "btn-pill active" } else { "btn-pill" },
-                                        style: "font-size: 12px; padding: 6px 14px;",
-                                        onclick: move |_| update_cfg(Box::new(|c| {
-                                            c.artwork_resolution = 512;
-                                            c.high_quality_thumbnails = false;
-                                            crate::library::clear_thumbnail_cache();
-                                        })),
-                                        "{strings.res_512_label}"
-                                    }
-                                    button {
-                                        class: if curr_cfg.artwork_resolution == 1024 { "btn-pill active" } else { "btn-pill" },
-                                        style: "font-size: 12px; padding: 6px 14px;",
-                                        onclick: move |_| update_cfg(Box::new(|c| {
-                                            c.artwork_resolution = 1024;
-                                            c.high_quality_thumbnails = true;
-                                            crate::library::clear_thumbnail_cache();
-                                        })),
-                                        "{strings.res_1024_label}"
-                                    }
-                                }
-                            }
 
-                            if curr_cfg.artwork_resolution == 1024 {
-                                div { style: "margin-top: 14px; background: rgba(245, 158, 11, 0.12); border: 1px solid rgba(245, 158, 11, 0.35); border-radius: 10px; padding: 12px 16px; display: flex; align-items: flex-start; gap: 12px; font-size: 12.5px; color: #fbbf24; line-height: 1.5;",
-                                    span { class: "material-icons md-20", style: "flex-shrink: 0; margin-top: 1px;", "warning" }
-                                    div { "{strings.hd_memory_warning}" }
-                                }
-                            } else if curr_cfg.artwork_resolution == 256 {
-                                div { style: "margin-top: 10px; font-size: 12px; color: var(--accent-mint); line-height: 1.4;",
-                                    "✓ Lightweight mode caches 256x256 thumbnails, minimizing memory consumption (< 150 MB RAM) for maximum UI smoothness."
-                                }
-                            } else {
-                                div { style: "margin-top: 10px; font-size: 12px; color: var(--text-muted); line-height: 1.4;",
-                                    "✓ Balanced mode provides crisp album artwork and sharp artist portraits while maintaining low memory footprint."
+                                    if effective_res == 1024 {
+                                        div { style: "margin-top: 14px; background: rgba(245, 158, 11, 0.12); border: 1px solid rgba(245, 158, 11, 0.35); border-radius: 10px; padding: 12px 16px; display: flex; align-items: flex-start; gap: 12px; font-size: 12.5px; color: #fbbf24; line-height: 1.5;",
+                                            span { class: "material-icons md-20", style: "flex-shrink: 0; margin-top: 1px;", "warning" }
+                                            div { "{strings.hd_memory_warning}" }
+                                        }
+                                    } else if effective_res == 256 {
+                                        div { style: "margin-top: 10px; font-size: 12px; color: var(--accent-mint); line-height: 1.4;",
+                                            "✓ Lightweight mode caches 256x256 thumbnails, minimizing memory consumption (< 150 MB RAM) for maximum UI smoothness."
+                                        }
+                                    } else {
+                                        div { style: "margin-top: 10px; font-size: 12px; color: var(--text-muted); line-height: 1.4;",
+                                            "✓ Balanced mode provides crisp album artwork and sharp artist portraits while maintaining low memory footprint."
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -2209,6 +2209,8 @@ pub fn SettingsContent(
                                                                 if let Some(ref art_url) = t.artwork_data_url {
                                                                     img {
                                                                         src: "{art_url}",
+                                                                        loading: "lazy",
+                                                                        decoding: "async",
                                                                         style: "width: 100%; height: 100%; object-fit: cover;",
                                                                     }
                                                                 } else {
