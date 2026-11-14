@@ -36,6 +36,7 @@ import tempfile
 import unittest
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+from urllib.parse import urlparse
 
 from tests.e2e_windows_pipeline.test_harness import (
     REPO_ROOT,
@@ -360,8 +361,13 @@ class TestPair5F5F6Base64CertWithRFC3161Timestamp(unittest.TestCase):
 
         # Must include both certificate path argument and timestamp URL
         has_cert_param = "/f" in builder_src or "-pkcs12" in builder_src
+        url_candidates = re.findall(r"https?://[^\s\"']+", builder_src)
+        has_digicert_timestamp_host = any(
+            (parsed.hostname or "").lower() == "timestamp.digicert.com"
+            for parsed in (urlparse(candidate) for candidate in url_candidates)
+        )
         has_timestamp_param = (
-            "/tr" in builder_src and "timestamp.digicert.com" in builder_src
+            "/tr" in builder_src and has_digicert_timestamp_host
         ) or "-ts" in builder_src
 
         self.assertTrue(has_cert_param, "Pair 5 (F5+F6): Signing command must specify certificate path.")
