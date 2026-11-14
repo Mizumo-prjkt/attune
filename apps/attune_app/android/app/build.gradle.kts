@@ -1,5 +1,6 @@
 import java.io.FileInputStream
 import java.util.Properties
+import org.gradle.api.GradleException
 
 plugins {
     id("com.android.application")
@@ -108,41 +109,48 @@ android {
         }
     }
 
+    val keyPropertiesFile = rootProject.file("key.properties")
+    val keyProperties = Properties()
+    if (keyPropertiesFile.exists()) {
+        FileInputStream(keyPropertiesFile).use { keyProperties.load(it) }
+    }
+
+    val keystorePath = keyProperties.getProperty("storeFile")?.trim()?.takeIf { it.isNotEmpty() }
+        ?: System.getenv("RELEASE_KEYSTORE_FILE")?.trim()?.takeIf { it.isNotEmpty() }
+        ?: System.getenv("ATTUNE_KEYSTORE_FILE")?.trim()?.takeIf { it.isNotEmpty() }
+        ?: "attune_release.jks"
+
+    val keystoreFile = project.file(keystorePath).takeIf { it.exists() }
+        ?: rootProject.file(keystorePath).takeIf { it.exists() }
+        ?: project.file("attune_release.jks").takeIf { it.exists() }
+
+    val storePass = keyProperties.getProperty("storePassword")?.trim()?.takeIf { it.isNotEmpty() }
+        ?: System.getenv("RELEASE_KEYSTORE_PASSWORD")?.trim()?.takeIf { it.isNotEmpty() }
+        ?: System.getenv("ATTUNE_KEYSTORE_PASSWORD")?.trim()?.takeIf { it.isNotEmpty() }
+    val alias = keyProperties.getProperty("keyAlias")?.trim()?.takeIf { it.isNotEmpty() }
+        ?: System.getenv("RELEASE_KEY_ALIAS")?.trim()?.takeIf { it.isNotEmpty() }
+        ?: System.getenv("ATTUNE_KEY_ALIAS")?.trim()?.takeIf { it.isNotEmpty() }
+    val keyPass = keyProperties.getProperty("keyPassword")?.trim()?.takeIf { it.isNotEmpty() }
+        ?: System.getenv("RELEASE_KEY_PASSWORD")?.trim()?.takeIf { it.isNotEmpty() }
+        ?: System.getenv("ATTUNE_KEY_PASSWORD")?.trim()?.takeIf { it.isNotEmpty() }
+        ?: storePass
+
+    val hasKeystoreArtifacts = keyPropertiesFile.exists() || (keystoreFile != null && keystoreFile.exists())
+    val hasCompleteReleaseSigning = keystoreFile != null && keystoreFile.exists() &&
+        !storePass.isNullOrEmpty() && !alias.isNullOrEmpty() && !keyPass.isNullOrEmpty()
+    val allowDebugFallbackForRelease =
+        System.getenv("ATTUNE_ALLOW_DEBUG_SIGNING_FOR_RELEASE").equals("true", ignoreCase = true) ||
+        System.getenv("ATTUNE_ALLOW_DEBUG_SIGNING_FOR_RELEASE") == "1"
+
     signingConfigs {
         create("release") {
-            val keyPropertiesFile = rootProject.file("key.properties")
-            val keyProperties = Properties()
-            if (keyPropertiesFile.exists()) {
-                keyProperties.load(FileInputStream(keyPropertiesFile))
-            }
-
-            val keystorePath = keyProperties.getProperty("storeFile")
-                ?: System.getenv("RELEASE_KEYSTORE_FILE")
-                ?: System.getenv("ATTUNE_KEYSTORE_FILE")
-                ?: "attune_release.jks"
-
-            val keystoreFile = project.file(keystorePath).takeIf { it.exists() }
-                ?: rootProject.file(keystorePath).takeIf { it.exists() }
-                ?: project.file("attune_release.jks").takeIf { it.exists() }
-
-            val storePass = keyProperties.getProperty("storePassword")
-                ?: System.getenv("RELEASE_KEYSTORE_PASSWORD")
-                ?: System.getenv("ATTUNE_KEYSTORE_PASSWORD")
-            val alias = keyProperties.getProperty("keyAlias")
-                ?: System.getenv("RELEASE_KEY_ALIAS")
-                ?: System.getenv("ATTUNE_KEY_ALIAS")
-            val keyPass = keyProperties.getProperty("keyPassword")
-                ?: System.getenv("RELEASE_KEY_PASSWORD")
-                ?: System.getenv("ATTUNE_KEY_PASSWORD")
-                ?: storePass
-
-            if (keystoreFile != null && keystoreFile.exists() && !storePass.isNullOrEmpty() && !alias.isNullOrEmpty()) {
+            if (hasCompleteReleaseSigning) {
                 storeFile = keystoreFile
                 storePassword = storePass
                 keyAlias = alias
                 keyPassword = keyPass
-            } else {
-                // Graceful fallback to debug signing if release keystore or credentials are not configured
+            } else if (!hasKeystoreArtifacts && allowDebugFallbackForRelease) {
+                // Explicit opt-in debug signing fallback when no release keystore exists
                 val debugConfig = signingConfigs.getByName("debug")
                 storeFile = debugConfig.storeFile
                 storePassword = debugConfig.storePassword
@@ -162,7 +170,39 @@ android {
         release {
             isMinifyEnabled = false
             isShrinkResources = false
-            signingConfig = signingConfigs.getByName("release")
+            signingConfig = if (hasCompleteReleaseSigning || (!hasKeystoreArtifacts && allowDebugFallbackForRelease)) {
+                signingConfigs.getByName("release")
+            } else {
+                null
+            }
+        }
+    }
+
+    tasks.configureEach {
+        if (name.contains("Release", ignoreCase = true) && !hasCompleteReleaseSigning) {
+            if (!hasKeystoreArtifacts && allowDebugFallbackForRelease) {
+                doFirst {
+                    logger.warn(
+                        "WARNING: Executing release task '{}' with DEBUG signing fallback " +
+                        "(ATTUNE_ALLOW_DEBUG_SIGNING_FOR_RELEASE enabled). Do not ship as production.",
+                        name
+                    )
+                }
+            } else {
+                val missingParts = buildList {
+                    if (keystoreFile == null || !keystoreFile.exists()) add("keystore file ($keystorePath)")
+                    if (alias.isNullOrEmpty()) add("keyAlias (RELEASE_KEY_ALIAS / ATTUNE_KEY_ALIAS)")
+                    if (storePass.isNullOrEmpty()) add("storePassword (RELEASE_KEYSTORE_PASSWORD / ATTUNE_KEYSTORE_PASSWORD)")
+                    if (keyPass.isNullOrEmpty()) add("keyPassword (RELEASE_KEY_PASSWORD / ATTUNE_KEY_PASSWORD)")
+                }.joinToString(", ")
+                doFirst {
+                    throw GradleException(
+                        "Android release signing credentials are incomplete (missing: $missingParts). " +
+                        "Refusing to fall back silently to debug signing for release task '$name'. " +
+                        "Set RELEASE_KEYSTORE_PASSWORD and RELEASE_KEY_PASSWORD (or ATTUNE_*) in your environment."
+                    )
+                }
+            }
         }
     }
 }

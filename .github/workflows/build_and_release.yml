@@ -250,20 +250,23 @@ jobs:
           RELEASE_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD || secrets.ATTUNE_KEY_PASSWORD }}
         run: |
           if [ -n "$RELEASE_KEYSTORE_BASE64" ]; then
+            if [ -z "$RELEASE_KEYSTORE_PASSWORD" ]; then
+              echo "::error::RELEASE_KEYSTORE_BASE64 is configured, but RELEASE_KEYSTORE_PASSWORD / ATTUNE_KEYSTORE_PASSWORD is missing."
+              exit 1
+            fi
             echo "Decoding RELEASE_KEYSTORE_BASE64 from GitHub Secrets..."
             mkdir -p apps/attune_app/android/app
             echo "$RELEASE_KEYSTORE_BASE64" | base64 --decode > apps/attune_app/android/app/attune_release.jks
             cat << EOF > apps/attune_app/android/key.properties
           storeFile=app/attune_release.jks
-          storePassword=${RELEASE_KEYSTORE_PASSWORD:-attunerelease}
           keyAlias=${RELEASE_KEY_ALIAS:-attune}
-          keyPassword=${RELEASE_KEY_PASSWORD:-${RELEASE_KEYSTORE_PASSWORD:-attunerelease}}
           EOF
-            echo "Successfully applied release keystore and configured key.properties."
+            echo "Successfully applied release keystore (passwords resolved via CI environment variables)."
           else
             echo "Notice: RELEASE_KEYSTORE_BASE64 secret not found."
             echo "Skipping ephemeral keystore generation on CI to avoid signature collisions across builds."
-            echo "Gradle will compile release APK using fallback debug signing config."
+            echo "Enabling explicit debug signing fallback for unprivileged CI build."
+            echo "ATTUNE_ALLOW_DEBUG_SIGNING_FOR_RELEASE=true" >> "$GITHUB_ENV"
           fi
 
       # ---------------- Build & Test & Package ----------------
@@ -294,6 +297,10 @@ jobs:
 
       - name: Build, Test & Package (Android)
         if: steps.check_variant.outputs.should_run == 'true' && matrix.target == 'android'
+        env:
+          RELEASE_KEYSTORE_PASSWORD: ${{ secrets.RELEASE_KEYSTORE_PASSWORD || secrets.ATTUNE_KEYSTORE_PASSWORD }}
+          RELEASE_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS || secrets.ATTUNE_KEY_ALIAS }}
+          RELEASE_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD || secrets.ATTUNE_KEY_PASSWORD }}
         run: |
           python3 tools/builder.py --target android --build-type "${{ matrix.build_type }}" --version-id "${{ needs.meta.outputs.version }}" --build-number "${{ needs.meta.outputs.build_number }}" --package
 
