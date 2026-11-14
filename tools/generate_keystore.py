@@ -129,13 +129,11 @@ def generate_keystore(
         rel_store_file = os.path.relpath(target_keystore, DEFAULT_KEY_PROPERTIES.parent)
         prop_content = (
             f"storeFile={rel_store_file}\n"
-            f"storePassword={sp}\n"
             f"keyAlias={target_alias}\n"
-            f"keyPassword={kp}\n"
         )
         DEFAULT_KEY_PROPERTIES.write_text(prop_content, encoding="utf-8")
         log_func(f"[Keystore] Generated companion config: {DEFAULT_KEY_PROPERTIES}")
-        log_func("  Note: Both the keystore and key.properties are strictly ignored by .gitignore to preserve privacy.")
+        log_func("  Note: Passwords are not written to key.properties; set RELEASE_KEYSTORE_PASSWORD/ATTUNE_KEYSTORE_PASSWORD and RELEASE_KEY_PASSWORD/ATTUNE_KEY_PASSWORD in your environment.")
 
     b64_val = get_keystore_base64(target_keystore)
     return target_keystore, b64_val
