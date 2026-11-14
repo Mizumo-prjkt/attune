@@ -20,6 +20,10 @@ fn main() {
         println!("cargo:rustc-link-arg=-Wl,-rpath,$ORIGIN:$ORIGIN/lib:$ORIGIN/../lib:$ORIGIN/../usr/lib");
     }
 
+    if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("windows") {
+        println!("cargo:rustc-link-lib=kernel32");
+    }
+
     if let Ok(v) = std::env::var("ATTUNE_VERSION") {
         let trimmed = v.trim();
         if !trimmed.is_empty() {

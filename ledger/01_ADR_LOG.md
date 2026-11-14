@@ -5213,6 +5213,88 @@ This file records all major architectural decisions for **Attune**, including co
   - Manual artist profile edits apply instantaneously across all stages.
   - All 130 desktop unit tests and 100% of workspace tests pass cleanly.
 
+---
+
+## ADR-149: Windows Authenticode Dual Tooling & Inno Setup Directives, and Win32 SetDllDirectoryW / LoadLibraryW Dynamic Component Resolution
+
+- **Date**: 2026-11-14
+- **Status**: LOCKED
+- **Context**:
+  1. **Windows Runtime Launch Crashes & Dynamic DLL Resolution (Requirement R1)**:
+     - On Windows, the primary GUI desktop frontend (`attune-desktop`, Rust Dioxus WebView2) dynamically loads workspace native components (`attune_engine.dll`, `attune_watchguard.dll`, `attune_procmgr.dll`, `attune_music_metadata.dll`, `attune_music_metadata_changer.dll`) at runtime.
+     - When installed on Windows, dynamic loader crashes occurred at launch with Win32 Error 126 (`ERROR_MOD_NOT_FOUND` / `0x0000007E`) or Error 87 (`ERROR_INVALID_PARAMETER` / `0x00000057`).
+     - Root causes identified:
+       - The default Windows dynamic linker DLL search order does not inspect `{app}\lib` unless explicitly configured via Win32 `SetDllDirectoryW`.
+       - ANSI dynamic loading (`LoadLibraryA`) failed on non-ASCII Unicode directory paths (e.g., `C:\Users\ユーザー\...`), requiring wide-character `LoadLibraryW`.
+       - Canonicalizing Windows paths in Rust produced extended-length verbatim paths with the `\\?\` prefix (e.g., `\\?\C:\Program Files\Attune\lib\attune_engine.dll`), which causes Win32 `LoadLibraryW` and `SetDllDirectoryW` to fail with Win32 Error 87 (`ERROR_INVALID_PARAMETER`).
+       - If workspace DLLs depended on CRT libraries (`vcruntime140.dll`) or sibling DLLs, missing library errors lacked actionable diagnostic messages.
+  2. **Code Signing & Unknown Publisher Warnings (Requirement R2)**:
+     - Windows Defender SmartScreen and Windows UAC displayed untrusted "Unknown Publisher" warnings for `attune-desktop.exe`, workspace DLLs, and the Inno Setup installer executable.
+     - The build orchestrator required an enterprise-grade Authenticode signing pipeline supporting base64 certificate decoding (`WINDOWS_CERT_BASE64`), secure temporary key handling, RFC 3161 SHA-256 timestamping (`http://timestamp.digicert.com`), and proper synchronization so that binary hashes in `attune_integrity.json` match signed binaries.
+  3. **Inno Setup SignTool Directives & Selective Signing (Requirement R3)**:
+     - Inno Setup installer scripts (`packaging/windows/attune_installer.iss`) lacked built-in `SignTool` configuration in `[Setup]` and `[Files]`.
+     - Non-PE files (`.json`, `.txt`, `.ico`) could not be signed by Authenticode, requiring selective application of the `signonce` flag strictly to PE binaries (`.exe` and `.dll`).
+     - The installer uninstaller (`unins000.exe`) was generated unsigned without `SignedUninstaller=yes`.
+     - The build orchestrator (`tools/builder.py`) needed to construct the `/Ssigntool=...` CLI switch for Inno Setup compiler (`iscc`) with proper `$q` inner quote escaping and `$f` placeholder.
+  4. **Dedicated Signature Verification Workflow & Release Gating (Requirement R4)**:
+     - CI lacked a dedicated, independent signature verification workflow to validate Authenticode digital signatures, certificate chains, and timestamps before triggering production releases.
+     - CI runners with private or enterprise certificates failed validation with `CERT_E_UNTRUSTEDROOT` unless the root certificate was imported into the machine trust store.
+- **Decision**:
+  1. **Win32 Dynamic Component Resolution & Unicode Loader (`crates/attune-desktop/src/dynamic_components.rs`, `src/main.rs`)**:
+     - **Early Search Path Initialization**: Built `init_windows_dll_directories()` invoked at the earliest entry point in `main.rs`. Uses `std::sync::Once` for idempotent execution, resolving the executable directory (`{app}`) and `{app}\lib` (or `ATTUNE_LIB_DIR` override) and calling `kernel32::SetDllDirectoryW`.
+     - **Verbatim Prefix Sanitization**: Engineered `sanitize_dll_directory_path(path)` stripping `\\?\` and `\\?\UNC\` prefixes, trimming trailing slashes, and rejecting empty or whitespace strings to prevent Win32 Error 87.
+     - **Unicode Wide-String Loader**: Implemented `os_dlopen(path)` converting paths to UTF-16 wide strings terminated with `0` (`encode_wide().chain(once(0))`) and calling `kernel32::LoadLibraryW`.
+     - **Transparent Win32 Error Diagnostics**: Built `format_windows_error(code)` decoding Win32 error codes (`ERROR_MOD_NOT_FOUND` 126, `ERROR_PROC_NOT_FOUND` 127, `ERROR_BAD_EXE_FORMAT` 193) with contextual hints when files exist but dependencies are missing (Mandate 4).
+     - **Multi-Candidate Search Hierarchy**: Searches `{app}`, `{app}\lib`, `ATTUNE_LIB_DIR`, and working directory for all 5 workspace DLLs (`attune_engine.dll`, `attune_watchguard.dll`, `attune_procmgr.dll`, `attune_music_metadata.dll`, `attune_music_metadata_changer.dll`).
+  2. **Authenticode Dual Tooling & Code Signing Pipeline (`tools/builder.py`)**:
+     - **Dual Tooling**: Supports both native Windows `signtool.exe` (auto-detected across Windows SDK installations and PATH) and cross-platform Linux `osslsigncode`.
+     - **Base64 Certificate Resolution**: Automatically decodes `WINDOWS_CERT_BASE64` env var to a secure temporary `.pfx` file and cleans it up after signing via `try...finally`.
+     - **RFC 3161 SHA-256 Timestamping**: Signs all PE binaries (`attune-desktop.exe`, target DLLs, and `dist/windows` artifacts) with `/fd SHA256 /tr http://timestamp.digicert.com /td SHA256` (or `osslsigncode -ts http://timestamp.digicert.com`).
+     - **Integrity Manifest Synchronization**: Sequences Authenticode signing *before* computing `attune_integrity.json`, ensuring SHA-256 and BLAKE3 hashes match signed binaries at runtime.
+  3. **Inno Setup SignTool Directives & Selective Signing (`packaging/windows/attune_installer.iss`, `tools/builder.py`)**:
+     - **Setup Directives**: Added `SignTool={#SignToolName}` and `SignedUninstaller=yes` under `[Setup]` in `attune_installer.iss`.
+     - **Selective PE Flags**: Defined `#define BinarySignFlags "... signonce"` applied strictly to `.exe` and `.dll` entries in `[Files]`. Non-PE files (`.json`, `.txt`, `.ico`) use non-signing `#define FileCopyFlags`.
+     - **CLI Switch Construction**: In `tools/builder.py`, constructs `/Ssigntool=$q{signtool_bin}$q sign /f $q{cert_path}$q /p $q{cert_pass}$q /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 $f` and passes `/DSignToolName=signtool`.
+  4. **Dedicated GitHub Actions Verification Workflow (`.github/workflows/verify_signatures.yml`, `build_and_release.yml`)**:
+     - **Workflow Architecture**: Created `.github/workflows/verify_signatures.yml` with triggers `workflow_dispatch`, `workflow_call`, and `workflow_run` (on completion of "Build and Deploy").
+     - **Dual Verification Engines**:
+       - PowerShell `Get-AuthenticodeSignature`: Asserts `.Status -eq 'Valid'`, checks SignerCertificate Subject, and validates RFC 3161 `.TimeStamperCertificate`.
+       - SignTool: Invokes `signtool.exe verify /pa /v` checking the full certificate chain.
+     - **Trust Anchor Import**: Decodes `WINDOWS_CERT_BASE64` and imports into `Cert:\LocalMachine\Root` store in the CI runner to eliminate false `CERT_E_UNTRUSTEDROOT` errors when testing custom/enterprise certificates.
+     - **Release Gating**: Integrated `verify_signatures` into `.github/workflows/build_and_release.yml` between `build` and `deploy`, blocking deployment if any required binary is unsigned or invalid.
+- **Technical Implementation Details**:
+  - `crates/attune-desktop/src/dynamic_components.rs`:
+    - `sanitize_dll_directory_path(path: &Path) -> Option<PathBuf>`
+    - `init_windows_dll_directories()` using `kernel32::SetDllDirectoryW`
+    - `os_dlopen(path: impl AsRef<Path>) -> Result<*mut c_void, String>` using `kernel32::LoadLibraryW`
+    - `format_windows_error(code: u32) -> String`
+    - `verify_component_integrity(path: &Path, expected_sha256: &str)`
+    - Comprehensive unit test suite covering candidate resolution, sanitization, Win32 error formatting, and tamper detection.
+  - `crates/attune-desktop/src/main.rs`:
+    - Early invocation of `dynamic_components::init_windows_dll_directories()` prior to any subsystem initialization.
+  - `crates/attune-desktop/build.rs`:
+    - Target-specific link flags and Windows runtime library configuration.
+  - `packaging/windows/attune_installer.iss`:
+    - `#define BinarySignFlags "replacesameversion comparetimestamp overwritereadonly restartreplace uninsremovereadonly ignoreversion signonce"`
+    - `#if SignToolName != ""` -> `SignTool={#SignToolName}` and `SignedUninstaller=yes`.
+    - Selective `signonce` flags on all embedded `.exe` and `.dll` files.
+  - `tools/builder.py`:
+    - `sign_pe_binary(...)`, `setup_windows_signing_certificate()`, `decode_base64_cert()`.
+    - Inno Setup `/Ssigntool=...` switch construction and execution.
+    - Integrity manifest calculation post-signing.
+  - `.github/workflows/verify_signatures.yml`:
+    - Standalone verification workflow on `windows-2022` runner.
+    - Setup Windows Trust Anchor, Download Artifacts, Verify Authenticode Signatures via PowerShell and SignTool.
+  - `.github/workflows/build_and_release.yml`:
+    - `verify_signatures` job depending on `[meta, build]`, gating `deploy` job on `needs.verify_signatures.result == 'success'`.
+- **Consequences**:
+  - Windows runtime crash at launch completely eliminated; Attune launches cleanly on Windows across all ASCII and international Unicode installation paths without missing library errors.
+  - Executable binaries, native workspace DLLs, installer, and uninstaller are Authenticode signed with RFC 3161 timestamps, eliminating "Unknown Publisher" warnings.
+  - Inno Setup compiles signed installers with signed embedded binaries.
+  - Release pipeline automatically blocks deployment if any artifact fails signature or timestamp validation.
+  - Verification metrics: 189/189 E2E tests pass, 133 attune-desktop unit tests pass, 17 empirical loader tests pass, 0 cargo check errors/warnings on `x86_64-pc-windows-gnu`, valid YAML on CI workflows.
+
+
 
 
 

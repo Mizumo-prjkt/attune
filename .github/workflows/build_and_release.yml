@@ -287,6 +287,8 @@ jobs:
         shell: pwsh
         env:
           ATTUNE_VERSION: ${{ needs.meta.outputs.version }}
+          WINDOWS_CERT_BASE64: ${{ secrets.WINDOWS_CERT_BASE64 || secrets.CERT_BASE64 }}
+          WINDOWS_CERT_PASS: ${{ secrets.WINDOWS_CERT_PASS || secrets.CERT_PASS || secrets.CERT_PASSWORD }}
         run: |
           python tools/builder.py --target windows --build-type "${{ matrix.build_type }}" --version-id "${{ needs.meta.outputs.version }}" --build-number "${{ needs.meta.outputs.build_number }}" --generate-icons --sign-dlls --package --installer --sign --test
 
@@ -346,10 +348,19 @@ jobs:
             echo "### ⚠️ ${{ matrix.name }}: No artifacts staged (Build or Tests may have failed)" >> $GITHUB_STEP_SUMMARY
           fi
 
+  verify_signatures:
+    name: "Verify Digital Signatures"
+    needs: [meta, build]
+    uses: ./.github/workflows/verify_signatures.yml
+    with:
+      run_id: ${{ github.run_id }}
+      build_type: ${{ inputs.build_types || 'Release' }}
+    secrets: inherit
+
   deploy:
     name: "Deploy GitHub Release"
-    needs: [meta, build]
-    if: always() && !cancelled() && needs.meta.result == 'success' && (github.event_name != 'workflow_dispatch' || inputs.deploy_release != false)
+    needs: [meta, build, verify_signatures]
+    if: always() && !cancelled() && needs.meta.result == 'success' && needs.verify_signatures.result == 'success' && (github.event_name != 'workflow_dispatch' || inputs.deploy_release != false)
     runs-on: ubuntu-24.04
     steps:
       - name: Checkout repository

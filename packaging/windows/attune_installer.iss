@@ -22,6 +22,11 @@
 ; Force unconditional upgrade of all native DLLs and executables, even if read-only,
 ; lacking PE VERSIONINFO headers, or locked by a running background process.
 #define DllUpgradeFlags "replacesameversion comparetimestamp overwritereadonly restartreplace uninsremovereadonly ignoreversion"
+#define BinarySignFlags "replacesameversion comparetimestamp overwritereadonly restartreplace uninsremovereadonly ignoreversion signonce"
+
+#ifndef SignToolName
+#define SignToolName ""
+#endif
 
 [Setup]
 ; NOTE: The value of AppId uniquely identifies this application. Do not use the same AppId value in installers for other applications.
@@ -40,6 +45,10 @@ AllowNoIcons=yes
 CloseApplications=force
 CloseApplicationsFilter=*.exe,*.dll
 RestartApplications=yes
+#if SignToolName != ""
+SignTool={#SignToolName}
+SignedUninstaller=yes
+#endif
 ; Display Patch Notes from commit log before install
 #if FileExists("..\..\patch_notes.txt")
 InfoBeforeFile=..\..\patch_notes.txt
@@ -94,25 +103,25 @@ Type: filesandordirs; Name: "{app}\data"
 ; ============================================================================
 #if BuildMode == "Release"
 #if FileExists("..\..\target\release\attune-desktop.exe")
-Source: "..\..\target\release\attune-desktop.exe"; DestDir: "{app}"; DestName: "{#MyAppExeName}"; Flags: {#DllUpgradeFlags}
+Source: "..\..\target\release\attune-desktop.exe"; DestDir: "{app}"; DestName: "{#MyAppExeName}"; Flags: {#BinarySignFlags}
 #endif
-Source: "..\..\target\release\attune_engine.dll"; DestDir: "{app}\lib"; DestName: "attune_engine.dll"; Flags: {#DllUpgradeFlags}
-Source: "..\..\target\release\attune_engine.dll"; DestDir: "{app}"; DestName: "attune_engine.dll"; Flags: {#DllUpgradeFlags}
+Source: "..\..\target\release\attune_engine.dll"; DestDir: "{app}\lib"; DestName: "attune_engine.dll"; Flags: {#BinarySignFlags}
+Source: "..\..\target\release\attune_engine.dll"; DestDir: "{app}"; DestName: "attune_engine.dll"; Flags: {#BinarySignFlags}
 #if FileExists("..\..\target\release\attune_watchguard.dll")
-Source: "..\..\target\release\attune_watchguard.dll"; DestDir: "{app}\lib"; Flags: {#DllUpgradeFlags}
-Source: "..\..\target\release\attune_watchguard.dll"; DestDir: "{app}"; Flags: {#DllUpgradeFlags}
+Source: "..\..\target\release\attune_watchguard.dll"; DestDir: "{app}\lib"; DestName: "attune_watchguard.dll"; Flags: {#BinarySignFlags}
+Source: "..\..\target\release\attune_watchguard.dll"; DestDir: "{app}"; DestName: "attune_watchguard.dll"; Flags: {#BinarySignFlags}
 #endif
 #if FileExists("..\..\target\release\attune_procmgr.dll")
-Source: "..\..\target\release\attune_procmgr.dll"; DestDir: "{app}\lib"; Flags: {#DllUpgradeFlags}
-Source: "..\..\target\release\attune_procmgr.dll"; DestDir: "{app}"; Flags: {#DllUpgradeFlags}
+Source: "..\..\target\release\attune_procmgr.dll"; DestDir: "{app}\lib"; DestName: "attune_procmgr.dll"; Flags: {#BinarySignFlags}
+Source: "..\..\target\release\attune_procmgr.dll"; DestDir: "{app}"; DestName: "attune_procmgr.dll"; Flags: {#BinarySignFlags}
 #endif
 #if FileExists("..\..\target\release\attune_music_metadata.dll")
-Source: "..\..\target\release\attune_music_metadata.dll"; DestDir: "{app}\lib"; Flags: {#DllUpgradeFlags}
-Source: "..\..\target\release\attune_music_metadata.dll"; DestDir: "{app}"; Flags: {#DllUpgradeFlags}
+Source: "..\..\target\release\attune_music_metadata.dll"; DestDir: "{app}\lib"; DestName: "attune_music_metadata.dll"; Flags: {#BinarySignFlags}
+Source: "..\..\target\release\attune_music_metadata.dll"; DestDir: "{app}"; DestName: "attune_music_metadata.dll"; Flags: {#BinarySignFlags}
 #endif
 #if FileExists("..\..\target\release\attune_music_metadata_changer.dll")
-Source: "..\..\target\release\attune_music_metadata_changer.dll"; DestDir: "{app}\lib"; Flags: {#DllUpgradeFlags}
-Source: "..\..\target\release\attune_music_metadata_changer.dll"; DestDir: "{app}"; Flags: {#DllUpgradeFlags}
+Source: "..\..\target\release\attune_music_metadata_changer.dll"; DestDir: "{app}\lib"; DestName: "attune_music_metadata_changer.dll"; Flags: {#BinarySignFlags}
+Source: "..\..\target\release\attune_music_metadata_changer.dll"; DestDir: "{app}"; DestName: "attune_music_metadata_changer.dll"; Flags: {#BinarySignFlags}
 #endif
 #if FileExists("..\..\target\release\attune_integrity.json")
 Source: "..\..\target\release\attune_integrity.json"; DestDir: "{app}\lib"; Flags: {#DllUpgradeFlags}
@@ -123,25 +132,25 @@ Source: "..\..\target\release\attune_integrity.json"; DestDir: "{app}"; Flags: {
 ; 2. Native Rust Desktop Executable & Signed Dynamic C-ABI Components (Debug)
 ; ============================================================================
 #if FileExists("..\..\target\debug\attune-desktop.exe")
-Source: "..\..\target\debug\attune-desktop.exe"; DestDir: "{app}"; DestName: "{#MyAppExeName}"; Flags: {#DllUpgradeFlags}
+Source: "..\..\target\debug\attune-desktop.exe"; DestDir: "{app}"; DestName: "{#MyAppExeName}"; Flags: {#BinarySignFlags}
 #endif
-Source: "..\..\target\debug\attune_engine.dll"; DestDir: "{app}\lib"; DestName: "attune_engine.dll"; Flags: {#DllUpgradeFlags}
-Source: "..\..\target\debug\attune_engine.dll"; DestDir: "{app}"; DestName: "attune_engine.dll"; Flags: {#DllUpgradeFlags}
+Source: "..\..\target\debug\attune_engine.dll"; DestDir: "{app}\lib"; DestName: "attune_engine.dll"; Flags: {#BinarySignFlags}
+Source: "..\..\target\debug\attune_engine.dll"; DestDir: "{app}"; DestName: "attune_engine.dll"; Flags: {#BinarySignFlags}
 #if FileExists("..\..\target\debug\attune_watchguard.dll")
-Source: "..\..\target\debug\attune_watchguard.dll"; DestDir: "{app}\lib"; Flags: {#DllUpgradeFlags}
-Source: "..\..\target\debug\attune_watchguard.dll"; DestDir: "{app}"; Flags: {#DllUpgradeFlags}
+Source: "..\..\target\debug\attune_watchguard.dll"; DestDir: "{app}\lib"; DestName: "attune_watchguard.dll"; Flags: {#BinarySignFlags}
+Source: "..\..\target\debug\attune_watchguard.dll"; DestDir: "{app}"; DestName: "attune_watchguard.dll"; Flags: {#BinarySignFlags}
 #endif
 #if FileExists("..\..\target\debug\attune_procmgr.dll")
-Source: "..\..\target\debug\attune_procmgr.dll"; DestDir: "{app}\lib"; Flags: {#DllUpgradeFlags}
-Source: "..\..\target\debug\attune_procmgr.dll"; DestDir: "{app}"; Flags: {#DllUpgradeFlags}
+Source: "..\..\target\debug\attune_procmgr.dll"; DestDir: "{app}\lib"; DestName: "attune_procmgr.dll"; Flags: {#BinarySignFlags}
+Source: "..\..\target\debug\attune_procmgr.dll"; DestDir: "{app}"; DestName: "attune_procmgr.dll"; Flags: {#BinarySignFlags}
 #endif
 #if FileExists("..\..\target\debug\attune_music_metadata.dll")
-Source: "..\..\target\debug\attune_music_metadata.dll"; DestDir: "{app}\lib"; Flags: {#DllUpgradeFlags}
-Source: "..\..\target\debug\attune_music_metadata.dll"; DestDir: "{app}"; Flags: {#DllUpgradeFlags}
+Source: "..\..\target\debug\attune_music_metadata.dll"; DestDir: "{app}\lib"; DestName: "attune_music_metadata.dll"; Flags: {#BinarySignFlags}
+Source: "..\..\target\debug\attune_music_metadata.dll"; DestDir: "{app}"; DestName: "attune_music_metadata.dll"; Flags: {#BinarySignFlags}
 #endif
 #if FileExists("..\..\target\debug\attune_music_metadata_changer.dll")
-Source: "..\..\target\debug\attune_music_metadata_changer.dll"; DestDir: "{app}\lib"; Flags: {#DllUpgradeFlags}
-Source: "..\..\target\debug\attune_music_metadata_changer.dll"; DestDir: "{app}"; Flags: {#DllUpgradeFlags}
+Source: "..\..\target\debug\attune_music_metadata_changer.dll"; DestDir: "{app}\lib"; DestName: "attune_music_metadata_changer.dll"; Flags: {#BinarySignFlags}
+Source: "..\..\target\debug\attune_music_metadata_changer.dll"; DestDir: "{app}"; DestName: "attune_music_metadata_changer.dll"; Flags: {#BinarySignFlags}
 #endif
 #if FileExists("..\..\target\debug\attune_integrity.json")
 Source: "..\..\target\debug\attune_integrity.json"; DestDir: "{app}\lib"; Flags: {#DllUpgradeFlags}

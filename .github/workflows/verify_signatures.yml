@@ -1,0 +1,296 @@
+name: Verify Authenticode Signatures
+
+on:
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: "GitHub Actions Run ID to download artifacts from (optional)"
+        required: false
+        type: string
+        default: ""
+      release_tag:
+        description: "GitHub Release Tag to download and verify (optional, e.g. v0.1.1)"
+        required: false
+        type: string
+        default: ""
+      build_type:
+        description: "Build variant to verify"
+        required: true
+        type: choice
+        options:
+          - Release
+          - Debug
+          - Both
+        default: "Release"
+  workflow_call:
+    inputs:
+      run_id:
+        description: "GitHub Actions Run ID"
+        required: false
+        type: string
+        default: ""
+      build_type:
+        description: "Build variant to verify"
+        required: false
+        type: string
+        default: "Release"
+    secrets:
+      WINDOWS_CERT_BASE64:
+        required: false
+      WINDOWS_CERT_PASS:
+        required: false
+      KEYS:
+        required: false
+  workflow_run:
+    workflows: ["Build and Deploy"]
+    types:
+      - completed
+
+permissions:
+  contents: read
+
+jobs:
+  verify_authenticode:
+    name: "Verify Windows Authenticode Signatures"
+    runs-on: windows-2022
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Windows Trust Anchor
+        shell: pwsh
+        env:
+          WINDOWS_CERT_BASE64: ${{ secrets.WINDOWS_CERT_BASE64 || secrets.CERT_BASE64 }}
+          WINDOWS_CERT_PASS: ${{ secrets.WINDOWS_CERT_PASS || secrets.CERT_PASS }}
+        run: |
+          if ($env:WINDOWS_CERT_BASE64) {
+            Write-Host "Importing provided certificate into LocalMachine\Root trust store..."
+            try {
+              $cleanB64 = $env:WINDOWS_CERT_BASE64 -replace '\s+', ''
+              $certBytes = [System.Convert]::FromBase64String($cleanB64)
+              $pass = if ($env:WINDOWS_CERT_PASS) { $env:WINDOWS_CERT_PASS } else { "" }
+              $cert = [System.Security.Cryptography.X509Certificates.X509Certificate2]::new($certBytes, $pass, [System.Security.Cryptography.X509KeyStorageFlags]::Exportable)
+              $store = [System.Security.Cryptography.X509Certificates.X509Store]::new("Root", "LocalMachine")
+              $store.Open([System.Security.Cryptography.OpenFlags]::ReadWrite)
+              $store.Add($cert)
+              $store.Close()
+              Write-Host "Successfully registered certificate trust anchor ($($cert.Subject))."
+            } catch {
+              Write-Warning "Failed to import root certificate into store: $_"
+            }
+          } else {
+            Write-Host "No custom certificate secret provided; proceeding with system Trusted Root CAs."
+          }
+
+      - name: Download Windows Artifacts
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.KEYS || secrets.GITHUB_TOKEN }}
+          RUN_ID: ${{ inputs.run_id || github.event.workflow_run.id }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: |
+          $artDir = Join-Path $PWD "downloaded_artifacts"
+          New-Item -ItemType Directory -Force -Path $artDir | Out-Null
+
+          if ($env:RELEASE_TAG) {
+            Write-Host "Downloading artifacts from release $env:RELEASE_TAG..."
+            gh release download $env:RELEASE_TAG --pattern "*Windows*" --dir $artDir
+          } elseif ($env:RUN_ID) {
+            Write-Host "Downloading artifacts from workflow run $env:RUN_ID..."
+            gh run download $env:RUN_ID -p "artifacts-windows-*" --dir $artDir
+          } elseif (Test-Path "dist\windows") {
+            Write-Host "Using existing local dist\windows artifacts..."
+            Copy-Item -Path "dist\windows\*" -Destination $artDir -Recurse -Force
+          }
+
+      - name: Download Artifacts via Action (workflow_call fallback)
+        if: "!inputs.release_tag && !inputs.run_id && !github.event.workflow_run.id"
+        uses: actions/download-artifact@v4
+        with:
+          pattern: 'artifacts-windows-*'
+          path: downloaded_artifacts
+          merge-multiple: true
+        continue-on-error: true
+
+      - name: Locate Windows SignTool
+        id: signtool
+        shell: pwsh
+        run: |
+          $signtool = (Get-ChildItem -Path "C:\Program Files (x86)\Windows Kits\10\bin\*\x64\signtool.exe" -ErrorAction SilentlyContinue |
+              Sort-Object FullName -Descending |
+              Select-Object -First 1).FullName
+
+          if (-not $signtool) {
+            $cmd = Get-Command signtool.exe -ErrorAction SilentlyContinue
+            if ($cmd) { $signtool = $cmd.Source }
+          }
+
+          if ($signtool) {
+            Write-Host "Found SignTool at: $signtool"
+            "path=$signtool" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+            & $signtool /? | Select-Object -First 2
+          } else {
+            Write-Warning "SignTool.exe not found in Windows SDK paths. Proceeding with PowerShell."
+            "path=" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          }
+
+      - name: Extract Archive & Collect Windows Binaries
+        id: stage_files
+        shell: pwsh
+        run: |
+          $searchRoots = @("downloaded_artifacts", "dist\windows")
+          $extractedDir = Join-Path $env:TEMP "attune_extracted_binaries"
+          New-Item -ItemType Directory -Force -Path $extractedDir | Out-Null
+
+          Get-ChildItem -Path $searchRoots -Filter "*.zip" -Recurse -ErrorAction SilentlyContinue | ForEach-Object {
+            Write-Host "Extracting portable bundle: $($_.FullName)..."
+            Expand-Archive -Path $_.FullName -DestinationPath (Join-Path $extractedDir $_.BaseName) -Force
+          }
+
+          $candidateFiles = Get-ChildItem -Path @($searchRoots + @($extractedDir)) -Include "*.exe", "*.dll" -Recurse |
+              Where-Object { $_.FullName -notmatch "appimagetool" } |
+              Select-Object -Unique -Property FullName
+
+          Write-Host "Discovered $($candidateFiles.Count) candidate binary files to audit:"
+          $candidateFiles | ForEach-Object { Write-Host " - $($_.FullName)" }
+          "extracted_dir=$extractedDir" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+
+      - name: Verify Authenticode Signatures & Timestamps
+        id: verify
+        shell: pwsh
+        env:
+          SIGNTOOL_PATH: ${{ steps.signtool.outputs.path }}
+        run: |
+          $extractedDir = "${{ steps.stage_files.outputs.extracted_dir }}"
+          $searchDirs = @("downloaded_artifacts", "dist\windows", $extractedDir)
+
+          $requiredTargets = @(
+            "Attune-*-Windows-*-Setup.exe",
+            "attune-desktop.exe",
+            "attune_engine.dll",
+            "attune_watchguard.dll",
+            "attune_procmgr.dll",
+            "attune_music_metadata.dll",
+            "attune_music_metadata_changer.dll"
+          )
+
+          $results = @()
+          $failed = $false
+
+          Write-Host "Starting Authenticode Digital Signature Verification..."
+
+          foreach ($pattern in $requiredTargets) {
+            $matchingFiles = Get-ChildItem -Path $searchDirs -Filter $pattern -Recurse -ErrorAction SilentlyContinue |
+                Select-Object -Unique -Property FullName
+
+            if (-not $matchingFiles -or $matchingFiles.Count -eq 0) {
+              if ($pattern -eq "attune-desktop.exe") {
+                $alt = Get-ChildItem -Path $searchDirs -Filter "Attune-Desktop-*.exe" -Recurse -ErrorAction SilentlyContinue
+                if ($alt) { $matchingFiles = $alt }
+              }
+            }
+
+            if (-not $matchingFiles -or $matchingFiles.Count -eq 0) {
+              Write-Error "MISSING REQUIRED BINARY: Pattern '$pattern' was not found in build artifacts."
+              $failed = $true
+              $results += [PSCustomObject]@{
+                Target = $pattern
+                File = "NOT FOUND"
+                Status = "MISSING"
+                Subject = "N/A"
+                Timestamp = "N/A"
+                SignTool = "FAIL"
+                Verdict = "FAILED"
+              }
+              continue
+            }
+
+            foreach ($fileItem in $matchingFiles) {
+              $filePath = $fileItem.FullName
+              $fileName = Split-Path $filePath -Leaf
+
+              Write-Host "Auditing: $fileName ($filePath)"
+
+              # 1. PowerShell Get-AuthenticodeSignature
+              $sig = Get-AuthenticodeSignature -FilePath $filePath
+              $status = $sig.Status.ToString()
+              $subject = if ($sig.SignerCertificate) { $sig.SignerCertificate.Subject } else { "No Signer Certificate" }
+              $tsSubject = if ($sig.TimeStamperCertificate) { $sig.TimeStamperCertificate.Subject } else { "No Timestamp" }
+
+              Write-Host "PowerShell Status: $status ($($sig.StatusMessage))"
+              Write-Host "Signer: $subject"
+              Write-Host "Timestamp TSA: $tsSubject"
+
+              $isSigValid = ($sig.Status -eq 'Valid')
+              $hasTimestamp = ($sig.TimeStamperCertificate -ne $null)
+
+              # 2. Microsoft SignTool verify /pa /v
+              $signtoolResult = "SKIPPED"
+              $signtool = if ($env:SIGNTOOL_PATH) { $env:SIGNTOOL_PATH } else { (Get-ChildItem -Path "C:\Program Files (x86)\Windows Kits\10\bin\*\x64\signtool.exe" -ErrorAction SilentlyContinue | Sort-Object FullName -Descending | Select-Object -First 1).FullName }
+              if ($signtool -and (Test-Path $signtool)) {
+                $stOutput = & $signtool verify /pa /v $filePath 2>&1
+                if ($LASTEXITCODE -eq 0) {
+                  $signtoolResult = "PASS (/pa /v)"
+                  Write-Host "SignTool: PASS (Exit code 0)"
+                } else {
+                  $signtoolResult = "FAIL (Exit code $LASTEXITCODE)"
+                  Write-Host "SignTool: FAIL (Exit code $LASTEXITCODE)"
+                  Write-Host "SignTool Output: $stOutput"
+                }
+              }
+
+              $filePassed = $true
+              if ($sig.Status -ne 'Valid') {
+                Write-Error "Signature is NOT Valid on $fileName (Status: $status)"
+                $filePassed = $false
+              }
+              if (-not $sig.TimeStamperCertificate) {
+                Write-Error "Signature on $fileName is MISSING RFC 3161 timestamp countersignature (TimeStamperCertificate is null)."
+                $filePassed = $false
+              }
+              if ($signtoolResult -like "FAIL*") {
+                Write-Error "SignTool verification failed on $fileName"
+                $filePassed = $false
+              }
+
+              if (-not $filePassed) {
+                $failed = $true
+              }
+
+              $results += [PSCustomObject]@{
+                Target = $pattern
+                File = $fileName
+                Status = $status
+                Subject = $subject
+                Timestamp = if ($hasTimestamp) { "Valid TSA" } else { "Missing" }
+                SignTool = $signtoolResult
+                Verdict = if ($filePassed) { "PASS" } else { "FAIL" }
+              }
+            }
+          }
+
+          Write-Host "`nVerification Summary Table:"
+          $results | Format-Table -AutoSize | Out-String | Write-Host
+
+          $tableHeaders = @(
+            "### 🛡️ Windows Authenticode Digital Signature Verification",
+            "",
+            "| Component | File | Status | Signer Subject | Timestamp TSA | SignTool /pa | Verdict |",
+            "| :--- | :--- | :--- | :--- | :--- | :--- | :--- |"
+          )
+          $summaryLines = [System.Collections.Generic.List[string]]::new($tableHeaders)
+          foreach ($r in $results) {
+            $summaryLines.Add("| `$($r.Target)` | `$($r.File)` | $($r.Status) | $($r.Subject) | $($r.Timestamp) | $($r.SignTool) | $($r.Verdict) |")
+          }
+
+          if ($env:GITHUB_STEP_SUMMARY) {
+            $summaryLines | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          }
+
+          if ($failed) {
+            Write-Error "Signature verification FAILED for one or more critical Windows binaries."
+            exit 1
+            throw "Signature verification FAILED for one or more critical Windows binaries."
+          } else {
+            Write-Host "All Windows binaries, libraries, and installers successfully passed Authenticode signature and timestamp verification!"
+          }

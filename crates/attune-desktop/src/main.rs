@@ -111,6 +111,9 @@ use dioxus::desktop::{Config, WindowBuilder};
 fn main() {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
 
+    // Early Windows DLL search directory initialization (SetDllDirectoryW to {app}\lib or ATTUNE_LIB_DIR)
+    dynamic_components::init_windows_dll_directories();
+
     // Mandate: Strictly verify that all external dynamic shared libraries (.so / .dll)
     // are present and loadable. If any are missing, pop an explicit error dialog and exit.
     if let Err(missing_components) = dynamic_components::preflight_check_and_load() {

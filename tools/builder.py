@@ -947,11 +947,38 @@ def sign_blob_with_cosign(blob_path, log_func=None):
         return None
 
 
-def sign_dll_file(dll_path, log_func=None):
+DEFAULT_TSA_URL = "http://timestamp.digicert.com"
+# RFC 3161 Timestamp Authority endpoints: http://timestamp.digicert.com and http://sha256timestamp.ws.digicert.com
+
+
+def find_signtool():
+    """Locates Microsoft SignTool executable on Windows, checking PATH and Windows Kits SDK locations."""
+    cand = shutil.which("signtool.exe") or (shutil.which("signtool") if IS_WINDOWS else None)
+    if cand:
+        return cand
+    if IS_WINDOWS:
+        import glob
+        sdk_patterns = [
+            r"C:\Program Files (x86)\Windows Kits\10\bin\*\x64\signtool.exe",
+            r"C:\Program Files\Windows Kits\10\bin\*\x64\signtool.exe",
+            r"C:\Program Files (x86)\Windows Kits\8.1\bin\x64\signtool.exe",
+        ]
+        for pat in sdk_patterns:
+            matches = sorted(glob.glob(pat))
+            if matches:
+                return matches[-1]
+    return None
+
+
+def resolve_windows_signing_certificate(log_func=None):
     """
-    Signs a dynamic component (.dll / .so) for anti-tamper verification.
-    1. Cosign keyless / bundle signing (<dll>.bundle)
-    2. Authenticode signing via osslsigncode or Microsoft SignTool if certificate configured.
+    Resolves Windows Authenticode code signing certificate and password.
+    Supports:
+      - Raw base64 certificate data from WINDOWS_CERT_BASE64, WINDOWS_CERTIFICATE_BASE64, CERT_BASE64
+      - Existing certificate file path from CERT_PATH, WINDOWS_CERT_PATH
+      - Certificate password from WINDOWS_CERT_PASS, WINDOWS_CERT_PASSWORD, CERT_PASS
+    Decodes base64 certificate to a secure temporary .pfx file if needed.
+    Returns (cert_path, cert_pass).
     """
     def log(msg):
         if log_func:
@@ -959,31 +986,86 @@ def sign_dll_file(dll_path, log_func=None):
         else:
             print(msg)
 
-    dll = Path(dll_path)
-    if not dll.exists():
-        log(f"[Sign] Warning: Target dynamic component not found: {dll}")
+    cert_b64 = (
+        os.environ.get("WINDOWS_CERT_BASE64")
+        or os.environ.get("WINDOWS_CERTIFICATE_BASE64")
+        or os.environ.get("CERT_BASE64")
+    )
+    cert_path = os.environ.get("CERT_PATH") or os.environ.get("WINDOWS_CERT_PATH")
+    cert_pass = (
+        os.environ.get("WINDOWS_CERT_PASS")
+        or os.environ.get("WINDOWS_CERT_PASSWORD")
+        or os.environ.get("CERT_PASS")
+    )
+
+    if cert_b64 and (not cert_path or not Path(cert_path).exists()):
+        try:
+            import base64
+            raw_bytes = base64.b64decode(cert_b64)
+            temp_cert = REPO_ROOT / "build" / "windows_certificate.pfx"
+            temp_cert.parent.mkdir(parents=True, exist_ok=True)
+            temp_cert.write_bytes(raw_bytes)
+            if not IS_WINDOWS:
+                try:
+                    os.chmod(temp_cert, 0o600)
+                except Exception:
+                    pass
+            cert_path = str(temp_cert)
+            os.environ["CERT_PATH"] = cert_path
+            os.environ["WINDOWS_CERT_PATH"] = cert_path
+            log(f"[Sign] Decoded base64 Windows certificate to: {cert_path}")
+        except Exception as e:
+            log(f"[Sign] Warning: Failed to decode base64 certificate: {e}")
+
+    return cert_path, cert_pass
+
+
+def resolve_windows_certificate(log_func=None):
+    """Alias for resolve_windows_signing_certificate."""
+    return resolve_windows_signing_certificate(log_func=log_func)
+
+
+def sign_binary(binary_path, cert_path=None, cert_pass=None, log_func=None):
+    """
+    Signs a PE binary (.exe / .dll) or ELF/shared library (.so) for anti-tamper verification.
+    1. Cosign keyless / bundle signing (<binary>.bundle)
+    2. Authenticode signing via osslsigncode or Microsoft SignTool with RFC 3161 timestamping.
+    """
+    def log(msg):
+        if log_func:
+            log_func(msg)
+        else:
+            print(msg)
+
+    target_bin = Path(binary_path)
+    if not target_bin.exists():
+        log(f"[Sign] Warning: Target binary not found: {target_bin}")
         return None
 
     # 1. Sigstore / Cosign bundle signing
-    bundle = sign_blob_with_cosign(dll, log_func=log)
+    bundle = sign_blob_with_cosign(target_bin, log_func=log)
 
-    # 2. Windows Authenticode signing (if certificate configured)
-    cert_path = os.environ.get("CERT_PATH") or os.environ.get("WINDOWS_CERT_PATH")
-    cert_pass = os.environ.get("CERT_PASS") or os.environ.get("WINDOWS_CERT_PASS")
+    # 2. Windows Authenticode signing (if certificate configured or resolved)
+    if not cert_path:
+        cert_path, cert_pass = resolve_windows_signing_certificate(log_func=log)
 
-    if cert_path and Path(cert_path).exists():
+    is_pe_candidate = target_bin.suffix.lower() in (".exe", ".dll") or IS_WINDOWS
+
+    if cert_path and Path(cert_path).exists() and is_pe_candidate:
         ossl_bin = shutil.which("osslsigncode")
-        ms_signtool = shutil.which("signtool.exe") or (shutil.which("signtool") if IS_WINDOWS else None)
+        ms_signtool = find_signtool()
 
         if ossl_bin:
-            log(f"[Sign/Authenticode] Signing {dll.name} via osslsigncode...")
-            signed_tmp = dll.with_suffix(".signed")
+            log(f"[Sign/Authenticode] Signing {target_bin.name} via osslsigncode...")
+            signed_tmp = target_bin.with_suffix(target_bin.suffix + ".signed")
             cmd = [
                 ossl_bin, "sign",
                 "-pkcs12", str(cert_path),
-                "-n", "Attune Dynamic Component",
+                "-n", "Attune Music Player",
                 "-i", "https://github.com/mizproject/attune",
-                "-in", str(dll),
+                "-h", "sha256",
+                "-ts", "http://timestamp.digicert.com",
+                "-in", str(target_bin),
                 "-out", str(signed_tmp),
             ]
             if cert_pass:
@@ -991,28 +1073,69 @@ def sign_dll_file(dll_path, log_func=None):
             try:
                 res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
                 if res.returncode == 0 and signed_tmp.exists():
-                    shutil.move(str(signed_tmp), str(dll))
-                    log(f"[Sign/Authenticode] Successfully Authenticode-signed: {dll.name}")
+                    shutil.move(str(signed_tmp), str(target_bin))
+                    log(f"[Sign/Authenticode] Successfully Authenticode-signed: {target_bin.name}")
                 else:
                     log(f"[Sign/Authenticode] osslsigncode note: {res.stderr.strip()}")
             except Exception as e:
                 log(f"[Sign/Authenticode] Warning: {e}")
         elif ms_signtool and IS_WINDOWS:
-            log(f"[Sign/Authenticode] Signing {dll.name} via SignTool.exe...")
-            cmd = [ms_signtool, "sign", "/f", str(cert_path), "/d", "Attune Dynamic Component", "/fd", "SHA256"]
+            log(f"[Sign/Authenticode] Signing {target_bin.name} via SignTool.exe...")
+            cmd = [
+                ms_signtool, "sign",
+                "/f", str(cert_path),
+                "/d", "Attune Music Player",
+                "/du", "https://github.com/mizproject/attune",
+                "/fd", "SHA256",
+                "/tr", "http://timestamp.digicert.com",
+                "/td", "SHA256",
+            ]
             if cert_pass:
                 cmd.extend(["/p", cert_pass])
-            cmd.append(str(dll))
+            cmd.append(str(target_bin))
             try:
                 res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
                 if res.returncode == 0:
-                    log(f"[Sign/Authenticode] Successfully signed with SignTool: {dll.name}")
+                    log(f"[Sign/Authenticode] Successfully signed with SignTool: {target_bin.name}")
+                else:
+                    log(f"[Sign/Authenticode] SignTool note: {res.stderr.strip() or res.stdout.strip()}")
             except Exception as e:
                 log(f"[Sign/Authenticode] Warning: {e}")
+        else:
+            log(f"[Sign] Warning: Authenticode certificate provided but neither osslsigncode nor signtool was found.")
     else:
-        log(f"[Sign] {dll.name}: Authenticode cert unset (CERT_PATH not configured); anti-tamper secured via cryptographic manifest & Sigstore.")
+        if not cert_path or not Path(cert_path).exists():
+            log(f"[Sign] {target_bin.name}: Authenticode cert unset (CERT_PATH not configured); anti-tamper secured via cryptographic manifest & Sigstore.")
 
     return bundle
+
+
+def sign_binaries(target_paths, cert_path=None, cert_pass=None, log_func=None):
+    """
+    Signs a list of executable and library binary files.
+    Ensures Authenticode signing is applied to all targets before integrity manifest hashing.
+    """
+    def log(msg):
+        if log_func:
+            log_func(msg)
+        else:
+            print(msg)
+
+    if not cert_path:
+        cert_path, cert_pass = resolve_windows_signing_certificate(log_func=log)
+
+    results = []
+    for p in target_paths:
+        path = Path(p)
+        if path.exists() and path.is_file():
+            res = sign_binary(path, cert_path=cert_path, cert_pass=cert_pass, log_func=log)
+            results.append((path, res))
+    return results
+
+
+def sign_dll_file(dll_path, log_func=None):
+    """Backward-compatible wrapper for signing dynamic component DLL/SO."""
+    return sign_binary(dll_path, log_func=log_func)
 
 
 def generate_integrity_manifest(target_dir, version=None, log_func=None):
@@ -1231,11 +1354,26 @@ def package_bundle(target_os="linux", mode="release", localversion="", bundle_ty
             except Exception as e:
                 log(f"[Package] Note: Windows icon generation: {e}")
 
+        # Resolve signing certificate early
+        cert_path, cert_pass = resolve_windows_signing_certificate(log_func=log)
+
         # 0. Standalone Native Rust Desktop Executable + Required Shared Libraries (.dll)
         native_desktop_exe = REPO_ROOT / "target" / mode.lower() / "attune-desktop.exe"
         dist_lib_dir = dist_dir / "lib"
         dist_lib_dir.mkdir(parents=True, exist_ok=True)
 
+        # Sign source PE binaries in target/{mode} BEFORE copying and integrity manifest generation
+        pe_sources = []
+        if native_desktop_exe.exists():
+            pe_sources.append(native_desktop_exe)
+        for dll_name in ("attune_engine.dll", "attune_procmgr.dll", "attune_watchguard.dll", "attune_music_metadata.dll", "attune_music_metadata_changer.dll"):
+            dll_src = REPO_ROOT / "target" / mode.lower() / dll_name
+            if dll_src.exists():
+                pe_sources.append(dll_src)
+
+        sign_binaries(pe_sources, cert_path=cert_path, cert_pass=cert_pass, log_func=log)
+
+        dest_native_exe = None
         if native_desktop_exe.exists():
             dest_native_exe = dist_dir / f"Attune-Desktop-{full_ver}-Windows-x64.exe"
             shutil.copy2(native_desktop_exe, dest_native_exe)
@@ -1249,7 +1387,15 @@ def package_bundle(target_os="linux", mode="release", localversion="", bundle_ty
                 shutil.copy2(dll_src, dist_lib_dir / dll_name)
                 shutil.copy2(dll_src, dist_dir / dll_name)
                 log(f"[Package] Bundled dynamic component {dll_name} -> {dist_lib_dir / dll_name}")
-                sign_dll_file(dist_lib_dir / dll_name, log_func=log)
+
+        # Ensure all copies in dist/ are signed
+        dist_targets = [dest_native_exe] if (dest_native_exe and dest_native_exe.exists()) else []
+        for dll_name in ("attune_engine.dll", "attune_procmgr.dll", "attune_watchguard.dll", "attune_music_metadata.dll", "attune_music_metadata_changer.dll"):
+            if (dist_lib_dir / dll_name).exists():
+                dist_targets.append(dist_lib_dir / dll_name)
+            if (dist_dir / dll_name).exists():
+                dist_targets.append(dist_dir / dll_name)
+        sign_binaries(dist_targets, cert_path=cert_path, cert_pass=cert_pass, log_func=log)
 
         # Generate anti-tamper integrity manifest for all dynamic DLLs
         generate_integrity_manifest(dist_dir, version=version, log_func=log)
@@ -1292,13 +1438,34 @@ def package_bundle(target_os="linux", mode="release", localversion="", bundle_ty
             iss_script = REPO_ROOT / "packaging" / "windows" / "attune_installer.iss"
             if Path(iscc_cmd).exists() or shutil.which(iscc_cmd):
                 log("[Package] Compiling Inno Setup installer...")
-                cmd = [
-                    iscc_cmd,
+                cmd = [iscc_cmd]
+
+                # Configure SignTool for Inno Setup if certificate available
+                if cert_path and Path(cert_path).exists():
+                    signtool_bin = find_signtool()
+                    if signtool_bin:
+                        # Inno Setup uses $q for double quotes and $f for file-to-sign placeholder
+                        st_cmd = f'$q{signtool_bin}$q sign /f $q{cert_path}$q'
+                        if cert_pass:
+                            escaped_pass = cert_pass.replace('"', '$q')
+                            st_cmd += f' /p $q{escaped_pass}$q'
+                        st_cmd += ' /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 $f'
+                        cmd.append(f"/Ssigntool={st_cmd}")
+                        cmd.append("/DSignToolName=signtool")
+                        log(f"[Package] Configured Inno Setup /Ssigntool with certificate: {cert_path}")
+                    else:
+                        cmd.append("/DSignToolName=")
+                        log("[Package] Warning: Certificate configured but signtool.exe not found; compiling unsigned installer.")
+                else:
+                    cmd.append("/DSignToolName=")
+                    log("[Package] Certificate not configured; compiling unsigned installer.")
+
+                cmd.extend([
                     f"/DMyAppVersion={version}",
                     f"/DMyAppLocalVersion={localversion}",
                     f"/DBuildMode={mode.capitalize()}",
                     str(iss_script),
-                ]
+                ])
                 proc = subprocess.Popen(
                     cmd,
                     cwd=REPO_ROOT,

@@ -323,12 +323,133 @@ pub fn verify_component_integrity(path: &Path, _base_name: &str) -> Result<(), S
 }
 
 // ---------------------------------------------------------------------------
+// Windows Dynamic Library Search Directory Configuration & Diagnostics
+// ---------------------------------------------------------------------------
+
+/// Prepares a directory path for `SetDllDirectoryW`.
+/// Strips verbatim prefixes (`\\?\` and `\\?\UNC\`) which cause `SetDllDirectoryW` to fail with Error 87,
+/// strips trailing path separators ('/' and '\\'), and ensures the path is non-empty.
+#[allow(dead_code)]
+pub fn sanitize_dll_directory_path(path: &Path) -> Option<PathBuf> {
+    let path_str = path.to_string_lossy();
+    let trimmed_input = path_str.trim();
+    if trimmed_input.is_empty() {
+        return None;
+    }
+
+    // Strip verbatim \\?\UNC\ or \\?\ prefix
+    let stripped = if let Some(rest) = trimmed_input.strip_prefix(r"\\?\UNC\") {
+        format!(r"\\{rest}")
+    } else if let Some(rest) = trimmed_input.strip_prefix("//?/UNC/") {
+        format!(r"\\{rest}")
+    } else if let Some(rest) = trimmed_input.strip_prefix(r"\\?\") {
+        rest.to_string()
+    } else if let Some(rest) = trimmed_input.strip_prefix("//?/") {
+        rest.to_string()
+    } else {
+        trimmed_input.to_string()
+    };
+
+    // Strip trailing slashes/backslashes
+    let trimmed = stripped.trim_end_matches(['/', '\\']);
+    if trimmed.is_empty() {
+        None
+    } else {
+        Some(PathBuf::from(trimmed))
+    }
+}
+
+/// Decodes common Win32 dynamic loader error codes into human-readable descriptions (Mandate 4).
+#[allow(dead_code)]
+pub fn format_windows_error(code: u32) -> &'static str {
+    match code {
+        5 => "ERROR_ACCESS_DENIED (5): Access is denied (check file permissions or antivirus)",
+        87 => "ERROR_INVALID_PARAMETER (87): The parameter is incorrect (path format or \\\\?\\ prefix invalid)",
+        126 => "ERROR_MOD_NOT_FOUND (126): The specified module or one of its dependencies could not be found",
+        127 => "ERROR_PROC_NOT_FOUND (127): The specified procedure or export symbol could not be found",
+        193 => "ERROR_BAD_EXE_FORMAT (193): Not a valid Win32 application (32-bit vs 64-bit architecture mismatch or corrupt file)",
+        998 => "ERROR_NOACCESS (998): Invalid access to memory location",
+        1114 => "ERROR_DLL_INIT_FAILED (1114): DLL initialization routine (DllMain) failed",
+        14001 => "ERROR_SXS_CANT_GEN_ACTCTX (14001): Side-by-side configuration failed (missing Microsoft Visual C++ CRT redistributable)",
+        _ => "Unknown Win32 system error",
+    }
+}
+
+/// Configures Windows DLL search directory so that libraries located in `{app}\lib`
+/// or `ATTUNE_LIB_DIR` are discoverable by the Windows dynamic linker.
+#[cfg(windows)]
+pub fn init_windows_dll_directories() {
+    use std::sync::Once;
+    use std::os::windows::ffi::OsStrExt;
+
+    static INIT: Once = Once::new();
+    INIT.call_once(|| {
+        #[link(name = "kernel32")]
+        extern "system" {
+            fn SetDllDirectoryW(lpPathName: *const u16) -> i32;
+            fn GetLastError() -> u32;
+        }
+
+        let raw_target = if let Some(env_dir) = std::env::var_os("ATTUNE_LIB_DIR") {
+            PathBuf::from(env_dir)
+        } else if let Ok(exe_path) = std::env::current_exe() {
+            if let Some(exe_dir) = exe_path.parent() {
+                let lib_dir = exe_dir.join("lib");
+                if lib_dir.is_dir() {
+                    lib_dir
+                } else {
+                    exe_dir.to_path_buf()
+                }
+            } else {
+                PathBuf::from(".")
+            }
+        } else {
+            PathBuf::from(".")
+        };
+
+        if let Some(sanitized) = sanitize_dll_directory_path(&raw_target) {
+            let wide_path: Vec<u16> = sanitized
+                .as_os_str()
+                .encode_wide()
+                .chain(std::iter::once(0))
+                .collect();
+
+            unsafe {
+                let rc = SetDllDirectoryW(wide_path.as_ptr());
+                if rc == 0 {
+                    let err = GetLastError();
+                    log::warn!(
+                        "SetDllDirectoryW failed for '{}' with error code {err}: {}",
+                        sanitized.display(),
+                        format_windows_error(err)
+                    );
+                } else {
+                    log::info!(
+                        "Windows dynamic library search path configured to: {}",
+                        sanitized.display()
+                    );
+                }
+            }
+        }
+    });
+}
+
+#[cfg(not(windows))]
+pub fn init_windows_dll_directories() {
+    // No-op on non-Windows platforms (RPATH / LD_LIBRARY_PATH handles this)
+}
+
+// ---------------------------------------------------------------------------
 // Dynamic Library OS Loader
 // ---------------------------------------------------------------------------
 
 #[cfg(unix)]
-unsafe fn os_dlopen(path_str: &str) -> Result<*mut std::ffi::c_void, String> {
-    let c_path = CString::new(path_str).map_err(|e| e.to_string())?;
+unsafe fn os_dlopen(path: impl AsRef<Path>) -> Result<*mut std::ffi::c_void, String> {
+    use std::os::unix::ffi::OsStrExt;
+
+    let p = path.as_ref();
+    let c_path = CString::new(p.as_os_str().as_bytes())
+        .map_err(|e| format!("Path contains interior null byte: {e}"))?;
     let handle = libc::dlopen(c_path.as_ptr(), libc::RTLD_NOW | libc::RTLD_LOCAL);
     if handle.is_null() {
         let err_ptr = libc::dlerror();
@@ -368,16 +489,35 @@ unsafe fn os_dlclose(handle: *mut std::ffi::c_void) {
 }
 
 #[cfg(windows)]
-unsafe fn os_dlopen(path_str: &str) -> Result<*mut std::ffi::c_void, String> {
+unsafe fn os_dlopen(path: impl AsRef<Path>) -> Result<*mut std::ffi::c_void, String> {
+    use std::os::windows::ffi::OsStrExt;
+
+    #[link(name = "kernel32")]
     extern "system" {
-        fn LoadLibraryA(lpLibFileName: *const i8) -> *mut std::ffi::c_void;
+        fn LoadLibraryW(lpLibFileName: *const u16) -> *mut std::ffi::c_void;
         fn GetLastError() -> u32;
     }
-    let c_path = CString::new(path_str).map_err(|e| e.to_string())?;
-    let handle = LoadLibraryA(c_path.as_ptr() as *const i8);
+
+    let p = path.as_ref();
+    let wide_path: Vec<u16> = p
+        .as_os_str()
+        .encode_wide()
+        .chain(std::iter::once(0))
+        .collect();
+
+    let handle = LoadLibraryW(wide_path.as_ptr());
     if handle.is_null() {
         let code = GetLastError();
-        Err(format!("LoadLibraryA failed with error code: {code}"))
+        let desc = format_windows_error(code);
+        let extra = if code == 126 && p.exists() {
+            " (Note: file exists on disk; a dependent DLL such as vcruntime140.dll or a workspace DLL in lib/ failed to resolve)"
+        } else {
+            ""
+        };
+        Err(format!(
+            "LoadLibraryW failed on '{}' with code {code}: {desc}{extra}",
+            p.display()
+        ))
     } else {
         Ok(handle)
     }
@@ -385,6 +525,7 @@ unsafe fn os_dlopen(path_str: &str) -> Result<*mut std::ffi::c_void, String> {
 
 #[cfg(windows)]
 unsafe fn os_dlsym(handle: *mut std::ffi::c_void, symbol: &str) -> Result<*mut std::ffi::c_void, String> {
+    #[link(name = "kernel32")]
     extern "system" {
         fn GetProcAddress(hModule: *mut std::ffi::c_void, lpProcName: *const i8) -> *mut std::ffi::c_void;
         fn GetLastError() -> u32;
@@ -401,6 +542,7 @@ unsafe fn os_dlsym(handle: *mut std::ffi::c_void, symbol: &str) -> Result<*mut s
 
 #[cfg(windows)]
 unsafe fn os_dlclose(handle: *mut std::ffi::c_void) {
+    #[link(name = "kernel32")]
     extern "system" {
         fn FreeLibrary(hLibModule: *mut std::ffi::c_void) -> i32;
     }
@@ -421,6 +563,7 @@ unsafe fn os_dlclose(handle: *mut std::ffi::c_void) {
 /// Returns `Ok(())` if all components loaded and exported their required symbols.
 /// Returns `Err(Vec<MissingComponentError>)` if any component could not be loaded.
 pub fn preflight_check_and_load() -> Result<(), Vec<MissingComponentError>> {
+    init_windows_dll_directories();
     let mut errors = Vec::new();
 
     if let Err(err) = load_procmgr() {
@@ -463,7 +606,6 @@ fn load_procmgr() -> Result<(), MissingComponentError> {
         if !is_bare && !path.exists() {
             continue;
         }
-        let Some(path_str) = path.to_str() else { continue };
 
         if let Err(e) = verify_component_integrity(path, base) {
             specific_errors.push(format!("{}: anti-tamper check failed ({e})", path.display()));
@@ -472,7 +614,7 @@ fn load_procmgr() -> Result<(), MissingComponentError> {
         }
 
         unsafe {
-            match os_dlopen(path_str) {
+            match os_dlopen(path) {
                 Ok(handle) => {
                     let v_sym = os_dlsym(handle, "procmgr_version");
                     let m_sym = os_dlsym(handle, "procmgr_sample_metrics_json");
@@ -551,7 +693,6 @@ fn load_watchguard() -> Result<(), MissingComponentError> {
         if !is_bare && !path.exists() {
             continue;
         }
-        let Some(path_str) = path.to_str() else { continue };
 
         if let Err(e) = verify_component_integrity(path, base) {
             specific_errors.push(format!("{}: anti-tamper check failed ({e})", path.display()));
@@ -560,7 +701,7 @@ fn load_watchguard() -> Result<(), MissingComponentError> {
         }
 
         unsafe {
-            match os_dlopen(path_str) {
+            match os_dlopen(path) {
                 Ok(handle) => {
                     let init_sym = os_dlsym(handle, "watchguard_init");
                     let ver_sym = os_dlsym(handle, "watchguard_version");
@@ -665,7 +806,6 @@ fn load_metadata_changer() -> Result<(), MissingComponentError> {
         if !is_bare && !path.exists() {
             continue;
         }
-        let Some(path_str) = path.to_str() else { continue };
 
         if let Err(e) = verify_component_integrity(path, base) {
             specific_errors.push(format!("{}: anti-tamper check failed ({e})", path.display()));
@@ -674,7 +814,7 @@ fn load_metadata_changer() -> Result<(), MissingComponentError> {
         }
 
         unsafe {
-            match os_dlopen(path_str) {
+            match os_dlopen(path) {
                 Ok(handle) => {
                     let v_sym = os_dlsym(handle, "attune_track_tweaks_version");
                     let f_sym = os_dlsym(handle, "attune_track_tweaks_free_string");
@@ -1383,5 +1523,103 @@ mod tests {
         assert!(err.contains("CRITICAL") || err.contains("mismatch"), "Error was: {err}");
 
         let _ = std::fs::remove_dir_all(&unique_dir);
+    }
+
+    #[test]
+    fn test_sanitize_dll_directory_path() {
+        // Standard path with no prefixes or trailing slashes
+        assert_eq!(
+            sanitize_dll_directory_path(Path::new(r"C:\Program Files\Attune\lib")),
+            Some(PathBuf::from(r"C:\Program Files\Attune\lib"))
+        );
+
+        // Path with trailing backslash
+        assert_eq!(
+            sanitize_dll_directory_path(Path::new(r"C:\Program Files\Attune\lib\")),
+            Some(PathBuf::from(r"C:\Program Files\Attune\lib"))
+        );
+
+        // Path with multiple trailing slashes
+        assert_eq!(
+            sanitize_dll_directory_path(Path::new(r"C:\Program Files\Attune\lib\\")),
+            Some(PathBuf::from(r"C:\Program Files\Attune\lib"))
+        );
+
+        // Path with forward slash and multiple trailing slashes
+        assert_eq!(
+            sanitize_dll_directory_path(Path::new("C:/Program Files/Attune/lib///")),
+            Some(PathBuf::from("C:/Program Files/Attune/lib"))
+        );
+
+        // Verbatim \\?\ prefix
+        assert_eq!(
+            sanitize_dll_directory_path(Path::new(r"\\?\C:\Program Files\Attune\lib")),
+            Some(PathBuf::from(r"C:\Program Files\Attune\lib"))
+        );
+
+        // Verbatim \\?\ prefix with trailing backslash
+        assert_eq!(
+            sanitize_dll_directory_path(Path::new(r"\\?\C:\Program Files\Attune\lib\")),
+            Some(PathBuf::from(r"C:\Program Files\Attune\lib"))
+        );
+
+        // Verbatim UNC \\?\UNC\ prefix
+        assert_eq!(
+            sanitize_dll_directory_path(Path::new(r"\\?\UNC\server\share\lib")),
+            Some(PathBuf::from(r"\\server\share\lib"))
+        );
+
+        // Verbatim UNC \\?\UNC\ prefix with trailing backslash
+        assert_eq!(
+            sanitize_dll_directory_path(Path::new(r"\\?\UNC\server\share\lib\")),
+            Some(PathBuf::from(r"\\server\share\lib"))
+        );
+
+        // Forward slash verbatim prefixes
+        assert_eq!(
+            sanitize_dll_directory_path(Path::new("//?/C:/Program Files/Attune/lib")),
+            Some(PathBuf::from("C:/Program Files/Attune/lib"))
+        );
+        assert_eq!(
+            sanitize_dll_directory_path(Path::new("//?/UNC/server/share/lib/")),
+            Some(PathBuf::from(r"\\server/share/lib"))
+        );
+
+        // Empty and whitespace paths
+        assert_eq!(sanitize_dll_directory_path(Path::new("")), None);
+        assert_eq!(sanitize_dll_directory_path(Path::new("   ")), None);
+
+        // Verbatim prefixes only (no path body)
+        assert_eq!(sanitize_dll_directory_path(Path::new(r"\\?\")), None);
+        assert_eq!(sanitize_dll_directory_path(Path::new(r"\\?\UNC\")), None);
+        assert_eq!(sanitize_dll_directory_path(Path::new("//?/")), None);
+        assert_eq!(sanitize_dll_directory_path(Path::new("//?/UNC/")), None);
+
+        // Trailing slashes only
+        assert_eq!(sanitize_dll_directory_path(Path::new(r"\\\\")), None);
+        assert_eq!(sanitize_dll_directory_path(Path::new("///")), None);
+    }
+
+    #[test]
+    fn test_format_windows_error_codes() {
+        assert!(format_windows_error(5).contains("ERROR_ACCESS_DENIED"));
+        assert!(format_windows_error(87).contains("ERROR_INVALID_PARAMETER"));
+        assert!(format_windows_error(126).contains("ERROR_MOD_NOT_FOUND"));
+        assert!(format_windows_error(127).contains("ERROR_PROC_NOT_FOUND"));
+        assert!(format_windows_error(193).contains("ERROR_BAD_EXE_FORMAT"));
+        assert!(format_windows_error(998).contains("ERROR_NOACCESS"));
+        assert!(format_windows_error(1114).contains("ERROR_DLL_INIT_FAILED"));
+        assert!(format_windows_error(14001).contains("ERROR_SXS_CANT_GEN_ACTCTX"));
+
+        let unknown = format_windows_error(999999);
+        assert!(unknown.contains("Unknown Win32") || unknown.contains("error"));
+    }
+
+    #[test]
+    fn test_init_windows_dll_directories_idempotency() {
+        // Calling init_windows_dll_directories multiple times must be safe, idempotent, and non-panicking
+        init_windows_dll_directories();
+        init_windows_dll_directories();
+        init_windows_dll_directories();
     }
 }
